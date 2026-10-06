@@ -1036,7 +1036,7 @@ verified as generating correct SQL.
 15. GIT RESULT
 --------------
   Commit message : V4.2: add MT5 demo execution foundation
-  Commit hash    : 825772960f0af8c163be5889ff6f6e2bf62c038d
+  Commit hash    : 069712a359ef2c5cd771e49b0906883667ca5a0b
   Push           : origin main (verified local HEAD == remote main)
   Working tree   : clean after the commit (runtime churn reverted, no DATA, no
                    temporary files, no backups, no credentials staged)
