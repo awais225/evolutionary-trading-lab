@@ -2276,7 +2276,11 @@ VERSION: V4.6 — MT5 HISTORICAL BACKTEST EXECUTION
                    frontend/src/pages/Mt5Backtest.jsx (+84/-15)
                    scripts/verify_mt5_historical_windows.py (new, 171)
                    tests/test_v4_6_mt5_historical.py (new, 591)
-  Push           : see the push result recorded below
+  Push           : origin main 97cbc06..560c640  main -> main (V4.6 commits pushed;
+                   the docs commit that recorded the feature hash is 560c640).
+                   Note: the push result itself is recorded in the follow-up
+                   documentation note commit, because a commit cannot contain the
+                   result of the push that carries it.
   Working tree   : clean after the commit; runtime churn (LOGS/lab.pid,
                    frontend/dist) restored/ignored, no DATA, database artifact,
                    archive, .pid, cache, venv or node_modules staged.
