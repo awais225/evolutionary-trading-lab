@@ -4,6 +4,7 @@ import { useLab } from "../App.jsx";
 import StructuredError from "../components/StructuredError.jsx";
 import HistoricalBacktestPanel from "../components/HistoricalBacktestPanel.jsx";
 import HistoricalRunResults from "../components/HistoricalRunResults.jsx";
+import { txt } from "../lib/safe.js";
 
 export default function Mt5Backtest() {
   const { selectedStrategyId, setSelectedStrategyId, shortlist, navigateTab } = useLab() || {};
@@ -121,7 +122,7 @@ export default function Mt5Backtest() {
       <div className="space-y-4">
         <HistoricalBacktestPanel
           strategyId={activeStrategy?.id || selectedStrategyId || 240}
-          strategyLabel={activeStrategy ? `Node_${activeStrategy.id} (${activeStrategy.symbol} ${activeStrategy.timeframe})` : ""}
+          strategyLabel={activeStrategy ? `Node_${txt(activeStrategy.id ?? activeStrategy.node_id, "?")} (${txt(activeStrategy.symbol, "?")} ${txt(activeStrategy.timeframe, "?")})` : ""}
           compact
           onStarted={() => setHistVersion((v) => v + 1)}
         />
@@ -164,7 +165,7 @@ export default function Mt5Backtest() {
               Tester Environment & Execution Parameters
             </span>
             <span className="text-[11px] font-mono text-slate-400">
-              Target: {activeStrategy ? `Node_${activeStrategy.id} (${activeStrategy.symbol} ${activeStrategy.timeframe})` : "None"}
+              Target: {activeStrategy ? `Node_${txt(activeStrategy.id ?? activeStrategy.node_id, "?")} (${txt(activeStrategy.symbol, "?")} ${txt(activeStrategy.timeframe, "?")})` : "None"}
             </span>
           </div>
 
@@ -269,17 +270,10 @@ export default function Mt5Backtest() {
               title="disabled in V4.6: this legacy path built its numbers from stored research metrics rather than from a backtest engine"
               className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl shadow-md transition-all disabled:opacity-50 flex items-center gap-2"
             >
-              {executing ? (
-                <>
-                  <span className="animate-spin text-sm">↻</span>
-                  <span>Executing MT5 Tester...</span>
-                </>
-              ) : (
-                <>
+              <>
                   <span>▶</span>
-                  <span>RUN MT5 STRATEGY TESTER</span>
+                  <span>RUN MT5 STRATEGY TESTER (DISABLED IN V4.6)</span>
                 </>
-              )}
             </button>
           </div>
         </div>
@@ -301,11 +295,11 @@ export default function Mt5Backtest() {
             <div className="space-y-3 text-xs font-mono">
               <div className="flex justify-between items-center bg-slate-950/60 p-2 rounded border border-slate-800">
                 <span className="text-slate-500">Node Identifier:</span>
-                <span className="text-white font-bold">{activeStrategy.node_id}</span>
+                <span className="text-white font-bold">{txt(activeStrategy.node_id ?? activeStrategy.id, "—")}</span>
               </div>
               <div className="flex justify-between items-center bg-slate-950/60 p-2 rounded border border-slate-800">
                 <span className="text-slate-500">Asset & Timeframe:</span>
-                <span className="text-cyan-400 font-semibold">{activeStrategy.symbol} · {activeStrategy.timeframe}</span>
+                <span className="text-cyan-400 font-semibold">{txt(activeStrategy.symbol, "—")} · {txt(activeStrategy.timeframe, "—")}</span>
               </div>
               <div className="flex justify-between items-center bg-slate-950/60 p-2 rounded border border-slate-800">
                 <span className="text-slate-500">In-Sample Return:</span>

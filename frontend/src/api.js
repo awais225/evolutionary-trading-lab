@@ -303,6 +303,14 @@ export const api = {
   mt5Connect: (body = {}) => req("/api/mt5/connect", { method: "POST", body }),
   mt5Disconnect: () => req("/api/mt5/disconnect", { method: "POST" }),
   backup: () => req("/api/backup", { method: "POST" }),
+  // V4.7 reliability surface
+  health: () => req("/health", { signal: AbortSignal.timeout(6000) }),
+  ready: () => req("/api/ready", { signal: AbortSignal.timeout(6000) }),
+  lifecycle: () => req("/api/lifecycle"),
+  backupAsync: () => req("/api/backup/async", { method: "POST" }),
+  job: (jobId) => req(`/api/jobs/${encodeURIComponent(jobId)}`),
+  exportLogsAsync: () => req("/api/logs/export/async", { method: "POST" }),
+  exportLogsResult: (jobId) => req(`/api/logs/export/${encodeURIComponent(jobId)}`),
   backups: () => req("/api/backups"),
   versions: () => req("/api/system/versions"),
   systemStatusRow: () => req("/api/system/status_row"),
@@ -321,29 +329,35 @@ export const api = {
   clearAllData: (confirm) => req("/api/data/clear/all", { method: "POST", body: { confirm }, signal: AbortSignal.timeout(25000) }),
 };
 
+/* V4.7: every formatter is total - a value that is missing, an object, a string
+ * that is not a number or a non-finite number renders as "–", never as NaN,
+ * undefined or [object Object]. */
+const DASH = "–";
+function finite(v) {
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  if (typeof v === "string" && v.trim() !== "") {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+function whenFinite(v, render) {
+  const n = finite(v);
+  return n === null ? DASH : render(n);
+}
+
 export const fmt = {
-  num: (v, d = 2) =>
-    v == null || Number.isNaN(v) ? "–" : Number(v).toLocaleString(undefined, { maximumFractionDigits: d }),
-  pct: (v, d = 1) => (v == null || Number.isNaN(v) ? "–" : `${(v * 100).toFixed(d)}%`),
-  ret: (v, d = 1) => {
-    if (v == null || Number.isNaN(v)) return "–";
-    const pctVal = v * 100;
-    return `${pctVal >= 0 ? "+" : ""}${pctVal.toFixed(d)}%`;
-  },
-  currency: (v, d = 2) => {
-    if (v == null || Number.isNaN(v)) return "–";
-    const sign = v < 0 ? "-" : "";
-    return `${sign}$${Math.abs(Number(v)).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d })}`;
-  },
-  pnl: (v, d = 2) => {
-    if (v == null || Number.isNaN(v)) return "–";
-    const sign = v >= 0 ? "+" : "-";
-    return `${sign}$${Math.abs(Number(v)).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d })}`;
-  },
-  ratio: (v, d = 2) => (v == null || Number.isNaN(v) ? "–" : Number(v).toFixed(d)),
-  ts: (t) => (t ? new Date(t * 1000).toLocaleTimeString() : "–"),
-  dt: (t) => (t ? new Date(t * 1000).toLocaleString() : "–"),
-  signed: (v, d = 2) => (v == null ? "–" : (v >= 0 ? "+" : "") + Number(v).toFixed(d)),
+  num: (v, d = 2) => whenFinite(v, (n) => n.toLocaleString(undefined, { maximumFractionDigits: d })),
+  pct: (v, d = 1) => whenFinite(v, (n) => `${(n * 100).toFixed(d)}%`),
+  ret: (v, d = 1) => whenFinite(v, (n) => `${n * 100 >= 0 ? "+" : ""}${(n * 100).toFixed(d)}%`),
+  currency: (v, d = 2) => whenFinite(v, (n) =>
+    `${n < 0 ? "-" : ""}$${Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d })}`),
+  pnl: (v, d = 2) => whenFinite(v, (n) =>
+    `${n >= 0 ? "+" : "-"}$${Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d })}`),
+  ratio: (v, d = 2) => whenFinite(v, (n) => n.toFixed(d)),
+  ts: (t) => (finite(t) ? new Date(Number(t) * 1000).toLocaleTimeString() : DASH),
+  dt: (t) => (finite(t) ? new Date(Number(t) * 1000).toLocaleString() : DASH),
+  signed: (v, d = 2) => whenFinite(v, (n) => (n >= 0 ? "+" : "") + n.toFixed(d)),
   stageBadge: (stage) => {
     const s = String(stage || "").toUpperCase();
     if (s.includes("QUALIFIED") || s.includes("SURVIVED")) return "bg-emerald-500/20 text-emerald-400 border-emerald-500/30";

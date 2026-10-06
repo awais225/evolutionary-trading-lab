@@ -12,6 +12,14 @@ _BACKEND = _REPO / "backend"
 if _BACKEND.exists() and str(_BACKEND) not in sys.path:
     sys.path.insert(0, str(_BACKEND))
 
+import os  # noqa: E402
+
+# V4.7: in production the expensive startup work (DATA discovery, restoration,
+# reconciliation, diagnostics) runs in a bounded background bootstrap so the API
+# answers immediately. Tests want the deterministic behaviour instead, so the
+# lifecycle runs synchronously here.
+os.environ.setdefault("EVOLUTIONARY_LAB_STARTUP_BLOCKING", "1")
+
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 

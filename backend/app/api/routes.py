@@ -32,6 +32,20 @@ from .ws import bus
 
 router = APIRouter(prefix="/api")
 
+#: finished background log-export payloads (bounded, newest last)
+_LOG_EXPORTS: Dict[str, Dict[str, Any]] = {}
+_LOG_EXPORTS_ORDER: List[str] = []
+_LOG_EXPORTS_MAX = 8
+
+
+def _remember_log_export(job_id: str, box: Dict[str, Any]) -> None:
+    """Keep the newest few export payloads; older ones are dropped, not leaked."""
+    _LOG_EXPORTS[job_id] = box
+    _LOG_EXPORTS_ORDER.insert(0, job_id)
+    while len(_LOG_EXPORTS_ORDER) > _LOG_EXPORTS_MAX:
+        _LOG_EXPORTS.pop(_LOG_EXPORTS_ORDER.pop(), None)
+
+
 COMPONENT_STATES = {
     "dashboard": "operational",
     "database": "operational",
@@ -456,26 +470,56 @@ def tree(max_nodes: int = 350, status: Optional[str] = None,
 
 @router.get("/strategies/{sid}")
 def strategy_detail(sid: int) -> Dict:
+    """Node detail (V4.4 surface, hardened in V4.7).
+
+    A node with incomplete, legacy or malformed data must still return a usable
+    payload: every optional section is parsed defensively and a section that
+    cannot be read is reported through ``section_errors`` instead of failing the
+    whole page with a 500. Expected values the node simply does not have are
+    returned as ``null`` (the UI renders N/A), never invented.
+    """
     db = get_db()
     row = db.get_strategy(sid)
     if not row:
-        raise HTTPException(404, "strategy not found")
-    genome = row["genome"]
+        raise HTTPException(404, f"strategy {sid} not found")
+    section_errors: List[Dict[str, Any]] = []
+
+    def _json_field(container: Dict[str, Any], key: str, label: str) -> Any:
+        raw = container.get(key)
+        if raw in (None, ""):
+            return None
+        if isinstance(raw, (dict, list)):
+            return raw
+        try:
+            return json.loads(raw)
+        except Exception as e:
+            section_errors.append({"section": label, "field": key,
+                                   "error": f"stored value is not valid JSON ({type(e).__name__})"})
+            return None
+
+    genome = row.get("genome") if isinstance(row.get("genome"), dict) else {}
+    if not isinstance(row.get("genome"), dict):
+        section_errors.append({"section": "genome", "field": "genome",
+                               "error": "stored genome is missing or not a JSON object"})
     bts = db.q("SELECT * FROM backtests WHERE strategy_id=? ORDER BY id DESC LIMIT 12", (sid,))
-    for b in bts:
-        b["metrics"] = json.loads(b["metrics"])
-        b["params"] = json.loads(b["params"]) if b.get("params") else None
-        b["window"] = json.loads(b["window"]) if b.get("window") else None
+    for i, b in enumerate(bts):
+        b["metrics"] = _json_field(b, "metrics", f"backtests[{i}]")
+        b["params"] = _json_field(b, "params", f"backtests[{i}]")
+        b["window"] = _json_field(b, "window", f"backtests[{i}]")
     val = db.one("SELECT * FROM validations WHERE strategy_id=?", (sid,))
     if val:
         for k in ("oos", "walkforward", "perturbation", "spread_stress",
                   "montecarlo", "regime_holdout", "notes"):
-            val[k] = json.loads(val[k]) if val.get(k) else None
-    mats = db.one("SELECT * FROM matrices WHERE strategy_id=?", (sid,))
+            val[k] = _json_field(val, k, "validation")
+    try:
+        mats = db.one("SELECT * FROM matrices WHERE strategy_id=?", (sid,))
+    except Exception as e:
+        section_errors.append({"section": "matrices", "field": None, "error": str(e)})
+        mats = None
     if mats:
         for k in ("timeframe", "session", "day", "regime", "direction"):
             mats[k] = json.loads(mats[k]) if mats.get(k) else None
-    elif row.get("status") in ("QUALIFIED", "PAPER") or bts:
+    elif row.get("status") in ("QUALIFIED", "PAPER") or bts:  # noqa: SIM114 (V4.7: guarded below)
         # V3.6: Check whether required matrix exists. If missing, generate from real persisted backtest
         detail_bt = next((b for b in bts if b.get("stage") == "detail"), None) or (bts[0] if bts else None)
         if detail_bt and detail_bt.get("metrics"):
@@ -496,27 +540,63 @@ def strategy_detail(sid: int) -> Dict:
             except Exception as e:
                 log.warning("Auto-generation of matrix for strategy #%s failed: %s", sid, e)
 
-    # ancestry chain (research history: WHY this strategy exists)
-    lineage = []
+    # ancestry chain (research history: WHY this strategy exists).
+    # V4.7: visited-set guard - a corrupted/cyclic parent chain must not hang the
+    # request in an endless loop, and the cut is reported to the caller.
+    lineage: List[Dict[str, Any]] = []
+    seen: set[int] = set()
     cur = row
-    while cur:
-        lineage.append({"id": cur["id"], "generation": cur["generation"],
-                        "status": cur["status"], "mutation_type": cur.get("mutation_type"),
+    while cur and cur.get("id") not in seen:
+        seen.add(cur.get("id"))
+        lineage.append({"id": cur.get("id"), "generation": cur.get("generation"),
+                        "status": cur.get("status"), "mutation_type": cur.get("mutation_type"),
                         "creation_reason": cur.get("creation_reason"),
                         "fitness": cur.get("fitness"), "origin": cur.get("origin")})
-        cur = db.get_strategy(cur["parent_id"]) if cur.get("parent_id") else None
-    children = db.q("""SELECT id,status,fitness,mutation_type,creation_reason
-                       FROM strategies WHERE parent_id=? ORDER BY id LIMIT 50""", (sid,))
-    hyps = db.q("SELECT * FROM hypotheses WHERE strategy_id=? ORDER BY id DESC LIMIT 20", (sid,))
+        parent_id = cur.get("parent_id")
+        if not parent_id:
+            break
+        nxt = db.get_strategy(parent_id)
+        if nxt is not None and nxt.get("id") in seen:
+            section_errors.append({"section": "lineage", "field": "parent_id",
+                                   "error": f"parent chain is cyclic at node {nxt.get('id')}; "
+                                            f"truncated at depth {len(lineage)}"})
+            break
+        cur = nxt
+    if len(lineage) >= 200:
+        section_errors.append({"section": "lineage", "field": "parent_id",
+                               "error": "ancestry deeper than 200 nodes; truncated"})
+
+    try:
+        children = db.q("""SELECT id,status,fitness,mutation_type,creation_reason
+                           FROM strategies WHERE parent_id=? ORDER BY id LIMIT 50""", (sid,))
+    except Exception as e:
+        section_errors.append({"section": "children", "field": None, "error": str(e)})
+        children = []
+    try:
+        hyps = db.q("SELECT * FROM hypotheses WHERE strategy_id=? ORDER BY id DESC LIMIT 20", (sid,))
+    except Exception as e:
+        section_errors.append({"section": "hypotheses", "field": None, "error": str(e)})
+        hyps = []
     for h in hyps:
-        h["proposal"] = json.loads(h["proposal"])
-    paper = db.q("""SELECT COUNT(*) n, COALESCE(SUM(pnl),0) pnl,
-                    AVG(CASE WHEN pnl>0 THEN 1.0 ELSE 0.0 END) wr
-                    FROM paper_trades WHERE strategy_id=? AND status='CLOSED'""", (sid,))[0]
-    return {"strategy": {**row, "genome": genome, "description": describe(genome)},
+        h["proposal"] = _json_field(h, "proposal", "hypotheses")
+    try:
+        paper = db.q("""SELECT COUNT(*) n, COALESCE(SUM(pnl),0) pnl,
+                        AVG(CASE WHEN pnl>0 THEN 1.0 ELSE 0.0 END) wr
+                        FROM paper_trades WHERE strategy_id=? AND status='CLOSED'""", (sid,))[0]
+    except Exception as e:
+        section_errors.append({"section": "paper_summary", "field": None, "error": str(e)})
+        paper = None
+    try:
+        description = describe(genome)
+    except Exception as e:
+        section_errors.append({"section": "description", "field": None, "error": str(e)})
+        description = None
+    return {"strategy": {**row, "genome": genome, "description": description},
             "backtests": bts, "validation": val, "matrices": mats,
             "lineage": lineage, "children": children, "hypotheses": hyps,
-            "paper_summary": paper}
+            "paper_summary": paper,
+            "section_errors": section_errors,
+            "orders_placed": False}
 
 
 @router.get("/strategies/{sid}/charts")
@@ -1838,6 +1918,49 @@ def get_versions() -> Dict:
     return manifest()
 
 
+@router.post("/backup/async")
+def run_backup_async() -> Dict:
+    """V4.7: run the (multi-second, many-file) backup as a background job.
+
+    The synchronous endpoint below is unchanged; this one returns a job id
+    immediately so a large backup can never freeze the dashboard, and the job
+    reports real stages/percentages through the existing job tracker.
+    """
+    from ..jobs import get_job_manager
+    from ..backup.backup import create_backup
+
+    jm = get_job_manager()
+    job = jm.create_job("Full lab backup", "backup")
+    box: Dict[str, Any] = {}
+
+    def _worker() -> None:
+        try:
+            job.start()
+            job.add_stage("SNAPSHOT", "Consistent snapshot + archive")
+            job.add_task("SNAPSHOT", "backup", "Backup files", total_units=100)
+            last = {"pct": -10.0}
+
+            def _progress(stage: str, detail: str, pct: float) -> None:
+                job.update_task_progress("SNAPSHOT", "backup", int(max(0.0, min(100.0, pct))))
+                job.meta["stage_detail"] = f"{stage}: {detail}"
+                last["pct"] = pct
+
+            res = create_backup(progress=_progress)
+            box["result"] = res
+            if res.get("ok"):
+                job.complete(meta={"filename": res.get("filename"), "size_mb": res.get("size_mb"),
+                                   "files_count": res.get("files_count")})
+            else:
+                job.fail(res.get("error") or "backup failed")
+        except Exception as e:
+            box["error"] = str(e)
+            job.fail(str(e))
+
+    threading.Thread(target=_worker, name=f"backup-{job.job_id}", daemon=True).start()
+    return {"ok": True, "job_id": job.job_id, "status": "started",
+            "poll": f"/api/jobs/{job.job_id}"}
+
+
 @router.post("/backup")
 def run_backup() -> Dict:
     from ..backup.backup import create_backup
@@ -1996,8 +2119,65 @@ def logs(limit: int = 500, level: Optional[str] = None, category: Optional[str] 
 
 @router.get("/logs/export")
 def export_technical_log() -> Dict:
+    """Synchronous log export (Copy Log / Save Log keep working unchanged)."""
     from ..logging_setup import get_full_technical_log_text
     return {"log_text": get_full_technical_log_text()}
+
+
+@router.post("/logs/export/async")
+def export_technical_log_async() -> Dict:
+    """V4.7: build the export in a background job so the browser never waits.
+
+    Returns a job id immediately; poll ``GET /api/jobs/{job_id}`` for progress and
+    ``GET /api/logs/export/{job_id}`` for the finished text. Same content as the
+    synchronous endpoint - only the delivery changes.
+    """
+    from ..jobs import get_job_manager
+    from ..logging_setup import get_full_technical_log_text
+
+    jm = get_job_manager()
+    job = jm.create_job("Technical log export", "log_export")
+    box: Dict[str, Any] = {}
+
+    def _worker() -> None:
+        try:
+            job.start()
+            job.add_stage("EXPORT", "Formatting technical log")
+            task = job.add_task("EXPORT", "export", "Formatting log text", total_units=3)
+            job.update_task_progress("EXPORT", "export", 1)
+            text = get_full_technical_log_text()
+            job.update_task_progress("EXPORT", "export", 2)
+            box["log_text"] = text
+            job.update_task_progress("EXPORT", "export", 3)
+            job.meta["characters"] = len(text)
+            job.meta["lines"] = text.count(chr(10)) + 1
+            job.complete(meta={"characters": len(text), "lines": job.meta["lines"]})
+        except Exception as e:
+            box["error"] = str(e)
+            job.fail(str(e))
+
+    threading.Thread(target=_worker, name=f"log-export-{job.job_id}", daemon=True).start()
+    _remember_log_export(job.job_id, box)
+    return {"ok": True, "job_id": job.job_id, "status": "started",
+            "poll": f"/api/jobs/{job.job_id}",
+            "result_url": f"/api/logs/export/{job.job_id}"}
+
+
+@router.get("/logs/export/{job_id}")
+def export_technical_log_result(job_id: str) -> Dict:
+    """Result of a background log export (same shape as the synchronous route)."""
+    from ..jobs import get_job_manager
+    job = get_job_manager().get_job(job_id)
+    box = _LOG_EXPORTS.get(job_id)
+    if job is None and box is None:
+        raise HTTPException(404, f"log export job {job_id} not found")
+    status = job.status if job else "UNKNOWN"
+    if status == "FAILED":
+        raise HTTPException(500, f"log export failed: {(job.error_message if job else None) or 'unknown error'}")
+    if "log_text" not in (box or {}):
+        raise HTTPException(409, f"log export {job_id} is still {status.lower()}; poll the job until COMPLETED")
+    return {"job_id": job_id, "status": status, "log_text": box["log_text"],
+            "characters": len(box["log_text"])}
 
 
 @router.get("/pipeline/state")
@@ -3426,11 +3606,16 @@ def research_matrix(ids: Optional[str] = None, limit: int = 50, offset: int = 0,
 # order: no MT5 demo order, no live-test order, no live trade. Results are their
 # own immutable run (mt5_historical_runs + RESEARCH/mt5_historical/runs/<id>/).
 @router.get("/mt5-historical/capabilities")
-def mt5_historical_capabilities() -> Dict[str, Any]:
+def mt5_historical_capabilities(refresh: bool = False) -> Dict[str, Any]:
     """What can be backtested now: eligible datasets (real MT5 first), cost
-    defaults, period limits and the (order-free) execution guarantee."""
+    defaults, period limits and the (order-free) execution guarantee.
+
+    V4.7: the dataset catalogue is memoised for a short TTL (resolving it reads
+    the stored parquet of every registered dataset). ``?refresh=1`` forces a
+    fresh scan after a data change.
+    """
     from ..historical_backtest import runs as hb
-    return hb.capabilities()
+    return hb.capabilities(refresh=refresh)
 
 
 @router.post("/mt5-historical/runs")

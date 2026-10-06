@@ -168,12 +168,94 @@ def _sha256_file(path: str) -> Optional[str]:
 # --------------------------------------------------------------------------- #
 # dataset catalogue (reuses the data engine; never downloads or copies data)
 # --------------------------------------------------------------------------- #
-def _eligible(dataset_id: str) -> Tuple[bool, str]:
-    from ..data.engine import get_data_engine
+# V4.7: the eligibility probe reads the stored parquet of every registered
+# dataset, so calling it on each capabilities lookup cost ~0.35s. Results are
+# memoised for a short TTL and invalidated automatically when the dataset file
+# or its feature artifact changes on disk.
+ELIGIBILITY_TTL_S = 20.0
+_ELIG_CACHE: "Dict[tuple, Tuple[float, Tuple[bool, str]]]" = {}
+_ELIG_LOCK = threading.RLock()
+
+
+def _eligibility_key(dataset_id: str, db: Any = None) -> tuple:
+    """(dataset id, file identity, feature identity) — the cache validity key."""
     try:
-        return get_data_engine().is_dataset_eligible_for_research(dataset_id, require_features=True)
+        d = db or get_db()
+        row = d.one("SELECT id, path, fingerprint, start_ts, end_ts, bars FROM datasets WHERE dataset_id=?",
+                    (dataset_id,))
+    except Exception:
+        row = None
+    parts: List[Any] = [dataset_id, getattr(db, "path", None) if db is not None else None]
+    if row:
+        parts.extend([row.get("path"), row.get("fingerprint"), row.get("bars"),
+                      row.get("start_ts"), row.get("end_ts")])
+        p = row.get("path")
+        if p:
+            try:
+                st = os.stat(p)
+                parts.extend([st.st_size, st.st_mtime_ns])
+            except OSError:
+                parts.append("missing")
+    try:
+        feat = P.FEATURES_DIR
+        if feat.exists():
+            marker = max((f.stat().st_mtime_ns for f in feat.glob(f"{dataset_id}*")), default=0)
+            parts.append(marker)
+    except Exception:
+        pass
+    return tuple(parts)
+
+
+def _eligible(dataset_id: str, db: Any = None, refresh: bool = False) -> Tuple[bool, str]:
+    from ..data.engine import get_data_engine
+    key = _eligibility_key(dataset_id, db)
+    now = time.time()
+    if not refresh:
+        with _ELIG_LOCK:
+            hit = _ELIG_CACHE.get(key)
+            if hit and hit[0] > now:
+                return hit[1]
+    try:
+        value = get_data_engine().is_dataset_eligible_for_research(dataset_id, require_features=True)
     except Exception as e:                                  # pragma: no cover - defensive
-        return False, f"dataset eligibility check failed: {e}"
+        value = (False, f"dataset eligibility check failed: {e}")
+    with _ELIG_LOCK:
+        _ELIG_CACHE[key] = (now + ELIGIBILITY_TTL_S, value)
+        if len(_ELIG_CACHE) > 256:                     # bounded: never grows forever
+            for k in [k for k, (exp, _v) in _ELIG_CACHE.items() if exp <= now]:
+                _ELIG_CACHE.pop(k, None)
+    return value
+
+
+def clear_catalogue_cache() -> None:
+    """Drop memoised eligibility/catalogue data (used after a data change)."""
+    with _ELIG_LOCK:
+        _ELIG_CACHE.clear()
+
+
+_CAT_CACHE: "Dict[str, Tuple[float, Dict[str, Any]]]" = {}
+CATALOGUE_TTL_S = 20.0
+
+
+def _catalogue_signature(db: Any) -> tuple:
+    """Cheap fingerprint of the dataset registration state (cache validity).
+
+    Includes the database identity (path + inode), so a memoised catalogue can
+    never be served to a different database - important because a test or a
+    second deployment may register completely different datasets.
+    """
+    identity = (getattr(db, "path", None), getattr(db, "_identity", None))
+    try:
+        row = db.one("""SELECT COUNT(*) n, COALESCE(MAX(id),0) max_id,
+                               COALESCE(SUM(bars),0) bars FROM datasets""")
+    except Exception:
+        return ("unknown", identity)
+    try:
+        st = (P.MANIFESTS_DIR / "datasets.json").stat()
+        man = (st.st_size, st.st_mtime_ns)
+    except OSError:
+        man = None
+    return (identity, row.get("n"), row.get("max_id"), row.get("bars"), man)
 
 
 def _master_row(db: Any, symbol: str, timeframe: str, source: str) -> Optional[Dict[str, Any]]:
@@ -230,16 +312,34 @@ def _entry_from(dataset_id: str, row: Optional[Dict[str, Any]], master: Optional
     }
 
 
-def catalogue(db: Any = None) -> Dict[str, Any]:
+def catalogue(db: Any = None, refresh: bool = False) -> Dict[str, Any]:
     """Every dataset the backtest engine can actually load right now, by scope.
 
     A dataset is offered only when its physical artifact exists and the app's own
     eligibility contract accepts it (same contract the research pipeline uses).
     Nothing is downloaded, regenerated or copied.
+
+    V4.7: the assembled catalogue is memoised for a short TTL keyed on the
+    dataset registration state, because resolving it reads the stored parquet of
+    every registered dataset (77 of them here). ``refresh=True`` (or any change
+    to the datasets table / dataset manifest) bypasses the cache.
     """
     from ..data.engine import get_data_engine
     d = db or get_db()
     de = get_data_engine()
+    signature = _catalogue_signature(d)
+    now = time.time()
+    if refresh:
+        # an explicit refresh re-resolves everything: the memoised eligibility
+        # probes are dropped too, so a data change is picked up immediately
+        clear_catalogue_cache()
+    if not refresh:
+        with _ELIG_LOCK:
+            hit = _CAT_CACHE.get("catalogue")
+            if hit and hit[0] > now and hit[1].get("_signature") == signature:
+                payload = dict(hit[1])
+                payload["cached"] = True
+                return payload
     rows = d.q("SELECT * FROM datasets WHERE bars > 0 ORDER BY symbol, timeframe, created_at DESC")
     manifest = _manifest_datasets()
     seen: set = set()
@@ -274,7 +374,10 @@ def catalogue(db: Any = None) -> Dict[str, Any]:
         if entry["symbol"] and key not in seen:
             seen.add(key)
             out.append(entry)
-    return {"datasets": out, "manifest": manifest}
+    payload = {"datasets": out, "manifest": manifest, "_signature": signature, "cached": False}
+    with _ELIG_LOCK:
+        _CAT_CACHE["catalogue"] = (now + CATALOGUE_TTL_S, payload)
+    return {"datasets": out, "manifest": manifest, "cached": False}
 
 
 def effective_datasets(cat: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -303,11 +406,11 @@ def _datasets_by_symbol(cat: Dict[str, Any]) -> Dict[str, List[Dict[str, Any]]]:
     return grouped
 
 
-def capabilities(db: Any = None) -> Dict[str, Any]:
+def capabilities(db: Any = None, refresh: bool = False) -> Dict[str, Any]:
     """What can be backtested right now: real MT5 datasets, cost defaults, limits."""
     from ..mt5.factory import bridge_status
     d = db or get_db()
-    cat = catalogue(d)
+    cat = catalogue(d, refresh=refresh)
     effective = effective_datasets(cat)
     grouped: Dict[str, List[Dict[str, Any]]] = {}
     for ds in effective:
@@ -339,6 +442,7 @@ def capabilities(db: Any = None) -> Dict[str, Any]:
     return {
         "label": LABEL,
         "stage": STAGE,
+        "cached": bool(cat.get("cached")),
         "scope": {
             "default": MT5_SCOPE,
             "options": [MT5_SCOPE, SIM_SCOPE],
@@ -664,6 +768,31 @@ def _update(db: Any, run_id: str, **cols: Any) -> None:
     db.x(f"UPDATE {RUN_TABLE} SET {sets} WHERE run_id=?", tuple(cols[k] for k in keys) + (run_id,))
 
 
+#: terminal run states may never be overwritten (V4.7 run-state safety)
+TERMINAL_STATUSES = ("COMPLETED", "FAILED", "CANCELLED")
+
+
+def _update_from(db: Any, run_id: str, from_statuses: Tuple[str, ...], **cols: Any) -> int:
+    """Update a run only while it is in one of ``from_statuses``.
+
+    Returns the number of rows changed. This is what makes a run's terminal state
+    final: a late worker update (or a cancel racing with completion) can no
+    longer flip a COMPLETED run to FAILED, or resurrect a CANCELLED one, and a
+    failed run can never be presented as COMPLETED.
+    """
+    if not cols:
+        return 0
+    keys = list(cols.keys())
+    sets = ", ".join(f"{k}=?" for k in keys)
+    marks = ", ".join("?" for _ in from_statuses)
+    args = tuple(cols[k] for k in keys) + (run_id,) + tuple(from_statuses)
+    try:
+        return db.x(f"UPDATE {RUN_TABLE} SET {sets} WHERE run_id=? AND status IN ({marks})", args)
+    except Exception:                                       # pragma: no cover - defensive
+        log.debug("guarded run update failed", exc_info=True)
+        return 0
+
+
 # --------------------------------------------------------------------------- #
 # artifacts (same parquet convention as the research exporter, run-scoped)
 # --------------------------------------------------------------------------- #
@@ -850,12 +979,14 @@ def _execute(run_id: str, db: Any) -> None:
     except Exception as e:                                  # pragma: no cover - defensive
         bridge = {"active_bridge": "unavailable", "error": str(e)}
     started = time.time()
-    _update(db, run_id, status="RUNNING", started_at=started)
+    if not _update_from(db, run_id, ("QUEUED",), status="RUNNING", started_at=started):
+        log.info("run %s is no longer QUEUED; worker does not start it", run_id)
+        return
 
     if run_id in _CANCELS:
         _CANCELS.discard(run_id)
-        _update(db, run_id, status="CANCELLED", finished_at=time.time(),
-                error="cancelled by operator before execution started", runtime_ms=0.0)
+        _update_from(db, run_id, ("RUNNING",), status="CANCELLED", finished_at=time.time(),
+                     error="cancelled by operator before execution started", runtime_ms=0.0)
         return
 
     try:
@@ -880,8 +1011,9 @@ def _execute(run_id: str, db: Any) -> None:
         runtime_ms = (time.time() - started) * 1000.0
 
         if not res.ok:
-            _update(db, run_id, status="FAILED", finished_at=time.time(),
-                    error=f"backtest engine refused the run: {res.error}", runtime_ms=round(runtime_ms, 1))
+            _update_from(db, run_id, ("RUNNING",), status="FAILED", finished_at=time.time(),
+                         error=f"backtest engine refused the run: {res.error}",
+                         runtime_ms=round(runtime_ms, 1))
             return
 
         metrics = dict(res.metrics or {})
@@ -914,7 +1046,7 @@ def _execute(run_id: str, db: Any) -> None:
             status = "CANCELLED"
             note = ("cancelled by operator after execution started; the run finished and its results are "
                     "kept for audit but are marked CANCELLED")
-        _update(db, run_id,
+        _update_from(db, run_id, ("RUNNING",),
                 status=status,
                 data_source=cfg.get("dataset_source"),
                 finished_at=time.time(),
@@ -929,8 +1061,9 @@ def _execute(run_id: str, db: Any) -> None:
                 error=None)
     except Exception as e:
         log.warning("historical backtest run %s failed: %s", run_id, e, exc_info=True)
-        _update(db, run_id, status="FAILED", finished_at=time.time(),
-                error=f"{type(e).__name__}: {e}", runtime_ms=round((time.time() - started) * 1000.0, 1))
+        _update_from(db, run_id, ("RUNNING", "QUEUED"), status="FAILED", finished_at=time.time(),
+                     error=f"{type(e).__name__}: {e}",
+                     runtime_ms=round((time.time() - started) * 1000.0, 1))
 
 
 # --------------------------------------------------------------------------- #
@@ -983,8 +1116,8 @@ def cancel_run(run_id: str, db: Any = None) -> Dict[str, Any]:
                 "run": get_run(run_id, d)}
     _CANCELS.add(run_id)
     if row["status"] == "QUEUED":
-        _update(d, run_id, status="CANCELLED", finished_at=time.time(),
-                error="cancelled by operator before execution started")
+        _update_from(d, run_id, ("QUEUED",), status="CANCELLED", finished_at=time.time(),
+                     error="cancelled by operator before execution started")
         _CANCELS.discard(run_id)
         return {"ok": True, "cancelled": True, "run": get_run(run_id, d)}
     return {"ok": True, "cancelled": False,

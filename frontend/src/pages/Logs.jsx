@@ -69,9 +69,36 @@ export default function Logs() {
     }
   }, [logs, autoScroll]);
 
+  // V4.7: the export is built by a background job so the browser never waits on
+  // a large log; the synchronous endpoint stays as the fallback path.
+  const fetchExportText = async () => {
+    if (api.exportLogsAsync) {
+      try {
+        const started = await api.exportLogsAsync();
+        const jobId = started?.job_id;
+        if (jobId) {
+          for (let i = 0; i < 20; i += 1) {
+            await new Promise((r) => setTimeout(r, 400));
+            try {
+              const done = await api.exportLogsResult(jobId);
+              if (done?.log_text) return done.log_text;
+            } catch (e) {
+              const msg = String(e?.message || "");
+              if (msg.includes("404") || msg.includes("failed")) break;   // fall through to sync
+            }
+          }
+        }
+      } catch (e) {
+        // fall through to the synchronous export
+      }
+    }
+    const res = await api.exportLogs();
+    return res?.log_text;
+  };
+
   const handleCopyLogs = async () => {
     try {
-      const res = await api.exportLogs();
+      const res = { log_text: await fetchExportText() };
       const text = res?.log_text || logs.map((l) => `${l.ts} [${l.level}] [${l.module || l.logger}] ${l.message}`).join("\n");
       if (navigator.clipboard && navigator.clipboard.writeText) {
         await navigator.clipboard.writeText(text);

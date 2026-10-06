@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { api, fmt } from "../api.js";
+import { arr } from "../lib/safe.js";
 import { useLabEvents } from "../ws.js";
 import { Card, Pill } from "../components/common.jsx";
 
@@ -60,7 +61,7 @@ export default function Activity() {
   };
 
   const filtered = useMemo(() => {
-    let list = [...events];
+    let list = [...arr(events)];
     const f = activeFilter;
 
     if (f === "Oldest") {

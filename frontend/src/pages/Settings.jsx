@@ -331,8 +331,36 @@ export default function Settings() {
   };
 
   const triggerBackup = async () => {
+    // V4.7: a full backup packages ~11k files and takes seconds. It now runs as a
+    // background job (returned job id) and this panel polls its real progress, so
+    // the dashboard never blocks waiting for it. Falls back to the synchronous
+    // endpoint if the job endpoints are unavailable.
     setBackupMsg("Creating backup...");
     try {
+      if (api.backupAsync) {
+        const started = await api.backupAsync();
+        const jobId = started?.job_id;
+        if (jobId) {
+          for (let i = 0; i < 60; i += 1) {
+            await new Promise((r) => setTimeout(r, 500));
+            const job = await api.job(jobId);
+            const pct = job?.stages?.SNAPSHOT?.tasks?.backup?.progress_pct;
+            setBackupMsg(`Creating backup...${pct != null ? ` ${Math.round(pct)}%` : ""}`);
+            if (job?.status === "COMPLETED") {
+              const meta = job.meta || {};
+              setBackupMsg(`Backup created: ${meta.filename || "(archived)"}${meta.size_mb != null ? ` (${meta.size_mb} MB)` : ""}`);
+              api.backups().then(setBackupsList);
+              return;
+            }
+            if (job?.status === "FAILED") {
+              setBackupMsg(`Backup error: ${job.error_message || "job failed"}`);
+              return;
+            }
+          }
+          setBackupMsg("Backup is still running in the background - check the BACKUPS list shortly.");
+          return;
+        }
+      }
       const res = await api.backup();
       setBackupMsg(`Backup created: ${res.filename} (${res.size_mb} MB)`);
       api.backups().then(setBackupsList);

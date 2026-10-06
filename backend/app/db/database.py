@@ -8,11 +8,15 @@ can be queried with DuckDB; this DB holds metadata & research state only.
 from __future__ import annotations
 
 import json
+import logging
+import os
 import sqlite3
 import threading
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+log = logging.getLogger("db")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS strategies (
@@ -323,6 +327,33 @@ CREATE TABLE IF NOT EXISTS strategy_pipeline_states (
 """
 
 
+def _safe_genome(raw: Any) -> Any:
+    """Parse a stored genome without ever raising (V4.7 node-detail hardening).
+
+    Returns the parsed object when it is a JSON object, the parsed scalar when a
+    legacy row stored a scalar, and an empty dict when the payload is missing or
+    unparseable - callers then render N/A instead of crashing the page.
+    """
+    if raw is None:
+        return None
+    if isinstance(raw, (dict, list)):
+        return raw
+    if isinstance(raw, (bytes, bytearray)):
+        try:
+            raw = raw.decode("utf-8", errors="replace")
+        except Exception:
+            return None
+    if not isinstance(raw, str):
+        return None
+    text = raw.strip()
+    if not text:
+        return None
+    try:
+        return json.loads(text)
+    except Exception:
+        return None
+
+
 class Database:
     def __init__(self, path: str):
         self.path = path
@@ -334,10 +365,17 @@ class Database:
             mirror = P.DATABASE_DATA_DIR / "lab_state.db"
             if mirror.exists() and mirror.stat().st_size > 0:
                 p.parent.mkdir(parents=True, exist_ok=True)
-                import shutil
-                shutil.copy2(str(mirror), str(p))
+                # V4.7: a consistent snapshot (the mirror may be a live WAL
+                # database; a plain file copy can be inconsistent)
+                try:
+                    from .snapshot import sqlite_snapshot
+                    sqlite_snapshot(mirror, p)
+                except Exception as e:
+                    import logging
+                    logging.getLogger("db").warning("database mirror bootstrap failed: %s", e)
         p.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(path, check_same_thread=False)
+        self._identity = _db_identity(path)
         self._conn.row_factory = sqlite3.Row
         with self._lock:
             self._conn.execute("PRAGMA journal_mode=WAL")
@@ -398,6 +436,33 @@ class Database:
 
     def set_meta(self, key: str, value: str) -> None:
         self.x("INSERT OR REPLACE INTO meta (key,value) VALUES (?,?)", (key, value))
+
+    def replaced_on_disk(self) -> bool:
+        """True when the database file was replaced since this connection opened.
+
+        V4.7: detects a restored/copied-over database so the caller can reopen
+        instead of reading from a stale inode (and instead of surfacing the
+        confusing "database disk image is malformed" that follows a replacement).
+        """
+        current = _db_identity(self.path)
+        return current is not None and getattr(self, "_identity", None) != current
+
+    def reopen(self) -> bool:
+        """Reopen the connection against the current file. Returns True if it did."""
+        if not self.replaced_on_disk():
+            return False
+        with self._lock:
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+            self._conn = sqlite3.connect(self.path, check_same_thread=False)
+            self._conn.row_factory = sqlite3.Row
+            self._conn.execute("PRAGMA journal_mode=WAL")
+            self._conn.execute("PRAGMA synchronous=NORMAL")
+            self._identity = _db_identity(self.path)
+        log.warning("database file %s was replaced on disk; connection reopened", self.path)
+        return True
 
     def close(self) -> None:
         with self._lock:
@@ -501,7 +566,15 @@ class Database:
     def get_strategy(self, sid: int) -> Optional[Dict[str, Any]]:
         row = self.one("SELECT * FROM strategies WHERE id=?", (sid,))
         if row:
-            row["genome"] = json.loads(row["genome"])
+            # V4.7: a single node with a missing/malformed/non-object genome must
+            # never turn into a 500 for the whole node-detail page. The raw value
+            # is preserved for diagnosis and a parse problem is reported inline.
+            row["genome"] = _safe_genome(row.get("genome"))
+            row["genome_valid"] = isinstance(row["genome"], dict)
+            if not row["genome_valid"]:
+                log.warning("strategy #%s has an unusable genome payload (%s); "
+                            "served with genome_valid=false", sid, type(row.get("genome")).__name__)
+                row["genome"] = row["genome"] if row["genome"] is not None else {}
             if row.get("research_node_num") is None:
                 rid = row.get("run_id")
                 if rid:
@@ -1343,6 +1416,25 @@ class Database:
 _db: Optional[Database] = None
 
 
+def _db_identity(path: str) -> tuple:
+    """Identity of the database file a connection was opened against (V4.7).
+
+    If the file is replaced (a backup restored over it, a clear/reset flow, an
+    operator copying a new database in), a connection opened against the old
+    inode keeps reading the old file - or worse, reports the confusing
+    "database disk image is malformed". Device+inode is the correct replacement
+    identity: it changes exactly when the path now points at a different file,
+    while ordinary writes (which change size/mtime) do not trigger it. A file
+    that is rewritten *in place* keeps its inode and is handled by SQLite's own
+    header change counter, so it needs no action here.
+    """
+    try:
+        st = os.stat(path)
+        return (st.st_dev, st.st_ino)
+    except OSError:
+        return None
+
+
 def get_db(path: str | None = None) -> Database:
     global _db
     if _db is not None:
@@ -1350,6 +1442,19 @@ def get_db(path: str | None = None) -> Database:
             _db._conn.execute("SELECT 1")
         except (sqlite3.ProgrammingError, sqlite3.OperationalError):
             _db = None
+        else:
+            # V4.7: if the database file was replaced underneath the connection
+            # (restore, reset, operator copy), reopen against the new file
+            # instead of serving reads from a stale inode.
+            try:
+                _db.reopen()
+            except Exception as e:                      # pragma: no cover - defensive
+                logging.getLogger("db").warning("reopen after replacement failed: %s", e)
+                try:
+                    _db.close()
+                except Exception:
+                    pass
+                _db = None
     if _db is None:
         from ..config import get_config
         _db = Database(path or get_config().database_path)

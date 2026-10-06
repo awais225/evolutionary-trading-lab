@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { api, fmt } from "../api.js";
+import { arr } from "../lib/safe.js";
 import { useLab } from "../App.jsx";
 import { Pill, SignedNum, ErrorNote, EventFeed, Metric } from "../components/common.jsx";
 import StructuredError from "../components/StructuredError.jsx";
@@ -180,7 +181,7 @@ export default function PaperTrading() {
         <div className="flex justify-between items-center" style={{ marginBottom: 8 }}>
           <h3 style={{ margin: 0 }}>🏆 PROMOTED CANDIDATES &amp; PAPER TRADING STRATEGIES</h3>
           <span className="muted" style={{ fontSize: "0.8rem" }}>
-            {promoted.length} Qualified Candidates ({waitingCandidates.length} waiting for paper execution)
+            {arr(promoted).length} Qualified Candidates ({arr(waitingCandidates).length} waiting for paper execution)
           </span>
         </div>
         <div className="scroll-y" style={{ maxHeight: 280 }}>
@@ -203,7 +204,7 @@ export default function PaperTrading() {
               </tr>
             </thead>
             <tbody>
-              {promoted.map((p) => (
+              {arr(promoted).map((p) => (
                 <tr key={p.id} onClick={() => openStrategy(p.id)}>
                   <td className="mono" style={{ fontWeight: "bold" }}>{p.node}</td>
                   <td className="mono muted" style={{ fontSize: 11, maxWidth: 220 }}>#{p.id} · {p.desc}</td>
@@ -226,7 +227,7 @@ export default function PaperTrading() {
                   </td>
                 </tr>
               ))}
-              {!promoted.length && (
+              {!arr(promoted).length && (
                 <tr>
                   <td colSpan={13} className="muted" style={{ textAlign: "center", padding: "1.5rem" }}>
                     No candidates promoted yet — strategies must survive screening, detailed backtesting, and the validation battery before qualifying.
@@ -265,7 +266,7 @@ export default function PaperTrading() {
             <table className="tbl calib-tbl">
               <thead><tr><th>metric</th><th>backtest assumption</th><th>observed</th><th>Δ%</th><th>samples</th></tr></thead>
               <tbody>
-                {(calib.assumption_vs_observed || []).map((r) => (
+                {arr(calib.assumption_vs_observed).map((r) => (
                   <tr key={r.metric} style={{ cursor: "default" }}>
                     <td>{r.metric}</td>
                     <td>{fmt.num(r.backtest_assumption, 2)}</td>
@@ -283,7 +284,7 @@ export default function PaperTrading() {
           {st?.divergence_flags?.length > 0 && (
             <div className="warn-banner">
               ⚠ Paper-vs-backtest divergence flags:{" "}
-              {st.divergence_flags.map((f) => (
+              {arr(st.divergence_flags).map((f, i) => (
                 <span key={f.strategy_id} style={{ marginRight: 10 }}>
                   #{f.strategy_id} (WR {fmt.pct(f.paper_win_rate, 0)} vs {fmt.pct(f.backtest_win_rate, 0)})
                 </span>
@@ -293,7 +294,7 @@ export default function PaperTrading() {
           {risk?.recent_rejections?.length > 0 && (
             <div className="panel" style={{ marginTop: 8, background: "#2a1518" }}>
               <h3 style={{ color: "#fca5a5" }}>Recent risk-layer rejections</h3>
-              {risk.recent_rejections.slice(-5).reverse().map((r, i) => (
+              {arr(risk.recent_rejections).slice(-5).reverse().map((r, i) => (
                 <div key={i} className="mono" style={{ fontSize: 11 }}>
                   {fmt.ts(r.ts)} #{r.strategy_id} {r.side} {r.symbol} — {r.reason}
                 </div>
@@ -313,7 +314,7 @@ export default function PaperTrading() {
               <th>slip(pt)</th><th>exit</th><th>reason</th><th>PnL</th><th>status</th><th>source</th>
             </tr></thead>
             <tbody>
-              {trades.trades.map((t) => (
+              {arr(trades.trades).map((t, i) => (
                 <tr key={t.id} style={{ cursor: "default" }}>
                   <td>{t.id}</td>
                   <td onClick={() => openStrategy(t.strategy_id)}>#{t.strategy_id}</td>
@@ -333,7 +334,7 @@ export default function PaperTrading() {
                   <td><span className={"pill " + (t.source === "SIMULATOR" ? "sim" : "real")}>{t.source}</span></td>
                 </tr>
               ))}
-              {!trades.trades.length && <tr><td colSpan={16} className="muted">no paper trades yet</td></tr>}
+              {!arr(trades.trades).length && <tr><td colSpan={16} className="muted">no paper trades yet</td></tr>}
             </tbody>
           </table>
         </div>
@@ -345,7 +346,7 @@ export default function PaperTrading() {
           <div className="scroll-y" style={{ maxHeight: 260 }}>
             <table className="tbl">
               <thead><tr><th>time</th><th>src</th><th>side</th><th>#strat</th><th>result</th><th>delay</th><th>slip</th><th>rejected_by</th></tr></thead>
-              <tbody>{execs.map((e) => (
+              <tbody>{arr(execs).map((e) => (
                 <tr key={e.id} style={{ cursor: "default" }}>
                   <td>{fmt.ts(e.ts)}</td><td>{e.source}</td>
                   <td>{e.side}</td><td>{e.strategy_id ? `#${e.strategy_id}` : "–"}</td>

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { api, fmt } from "../api.js";
 import { NA, money, pct, ratio, val } from "./NodeResearchDetail.jsx";
+import { arr, txt } from "../lib/safe.js";
 import { StatusPill } from "./HistoricalBacktestPanel.jsx";
 
 /* V4.6 — HISTORICAL MT5 BACKTEST result view.
@@ -36,14 +37,15 @@ function signedTone(v) {
 function EquityChart({ points, initialBalance }) {
   const path = useMemo(() => {
     if (!points || points.length < 2) return null;
-    const xs = points.map((p) => p[0]);
-    const ys = points.map((p) => p[1]);
+    const pts = points.filter((p) => Array.isArray(p) && p.length >= 2 && Number.isFinite(p[1]));
+    const xs = pts.map((p) => p[0]);
+    const ys = pts.map((p) => p[1]);
     const x0 = Math.min(...xs), x1 = Math.max(...xs);
     const y0 = Math.min(...ys), y1 = Math.max(...ys);
     const W = 640, H = 140, PAD = 6;
     const sx = (x) => PAD + (x1 === x0 ? 0 : ((x - x0) / (x1 - x0)) * (W - 2 * PAD));
     const sy = (y) => H - PAD - (y1 === y0 ? 0 : ((y - y0) / (y1 - y0)) * (H - 2 * PAD));
-    const d = points.map((p, i) => `${i === 0 ? "M" : "L"}${sx(p[0]).toFixed(1)},${sy(p[1]).toFixed(1)}`).join(" ");
+    const d = pts.map((p, i) => `${i === 0 ? "M" : "L"}${sx(p[0]).toFixed(1)},${sy(p[1]).toFixed(1)}`).join(" ");
     return { d, W, H, y0, y1, base: initialBalance != null && initialBalance >= y0 && initialBalance <= y1
       ? sy(initialBalance) : null };
   }, [points, initialBalance]);
@@ -112,8 +114,10 @@ export default function HistoricalRunResults({ runId, onClose, runsForSelection 
   if (!runId) return null;
   const m = run?.results?.metrics || {};
   const d = run?.results?.derived || {};
-  const unavailable = run?.results?.unavailable || [];
-  const unavailableFor = (key) => unavailable.find((u) => u.metric === key);
+  // V4.7: a run payload can legitimately contain a null/partial entry here;
+  // it must never crash the panel (a bad record shows as an unnamed N/A reason)
+  const unavailable = arr(run?.results?.unavailable).filter(Boolean);
+  const unavailableFor = (key) => unavailable.find((u) => txt(u?.metric, "") === key);
   const pv = run?.provenance || {};
 
   return (
@@ -193,7 +197,7 @@ export default function HistoricalRunResults({ runId, onClose, runsForSelection 
               <ul style={{ margin: "6px 0 0 16px", padding: 0 }}>
                 {unavailable.map((u, i) => (
                   <li key={i} className="mono" style={{ fontSize: 10.5, color: "#94a3b8" }}>
-                    <b>{u.metric}</b>: {String(u.reason)}
+                    <b>{txt(u?.metric, "metric")}</b>: {txt(u?.reason, "reason not recorded")}
                   </li>
                 ))}
               </ul>
@@ -233,7 +237,7 @@ export default function HistoricalRunResults({ runId, onClose, runsForSelection 
                     </tr>
                   </thead>
                   <tbody>
-                    {trades.trades.map((t, i) => (
+                    {arr(trades.trades).map((t, i) => (
                       <tr key={`${t.entry_ts}-${i}`}>
                         <td className="mono">{trades.offset + i + 1}</td>
                         <td className="mono">{t.side}</td>

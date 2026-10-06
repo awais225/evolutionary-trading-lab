@@ -422,7 +422,10 @@ def test_status_row_active_population_is_user_scoped(monkeypatch):
 def test_stats_page_registered_in_frontend_nav():
     """The dedicated Stats tab exists and is wired to the new page."""
     app_jsx = (Path(__file__).resolve().parent.parent / "frontend" / "src" / "App.jsx").read_text()
-    assert 'import Stats from "./pages/Stats.jsx"' in app_jsx
+    # V4.7: pages are code-split, so the page is wired through React.lazy instead
+    # of a static import - either form proves the tab is wired to the page.
+    assert ('import Stats from "./pages/Stats.jsx"' in app_jsx
+            or 'lazy(() => import("./pages/Stats.jsx"))' in app_jsx), "Stats page is not wired into App.jsx"
     assert '["stats", "2", "Stats", Stats]' in app_jsx
     page = (Path(__file__).resolve().parent.parent / "frontend" / "src" / "pages" / "Stats.jsx").read_text()
     assert "statsOverview" in page and "statsNode" in page and "N/A" in page

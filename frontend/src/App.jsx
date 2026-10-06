@@ -1,30 +1,37 @@
-import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
+import React, { Suspense, createContext, lazy, useContext, useEffect, useState, useCallback, useRef } from "react";
 import { api } from "./api.js";
 import ErrorBoundary from "./components/ErrorBoundary.jsx";
-import Overview from "./pages/Overview.jsx";
-import Stats from "./pages/Stats.jsx";
-import Activity from "./pages/Activity.jsx";
-import EvolutionTree from "./pages/EvolutionTree.jsx";
-import Population from "./pages/Population.jsx";
-import StrategyLab from "./pages/StrategyLab.jsx";
-import NodeEconomics from "./pages/NodeEconomics.jsx";
-import BacktestMatrix from "./pages/BacktestMatrix.jsx";
-import Mt5Backtest from "./pages/Mt5Backtest.jsx";
-import LiveTesting from "./pages/LiveTesting.jsx";
-import LiveTestResults from "./pages/LiveTestResults.jsx";
-import Mt5DemoTrading from "./pages/Mt5DemoTrading.jsx";
-import PaperTrading from "./pages/PaperTrading.jsx";
-import MarketData from "./pages/MarketData.jsx";
-import ResearchAI from "./pages/ResearchAI.jsx";
-import Settings from "./pages/Settings.jsx";
-import Logs from "./pages/Logs.jsx";
-import FinalTesting from "./pages/FinalTesting.jsx";
+import LocalErrorBoundary from "./components/LocalErrorBoundary.jsx";
+import StartupBanner from "./components/StartupBanner.jsx";
+// V4.7: pages are code-split (React.lazy). Each page (and the heavy libraries it
+// pulls in - recharts, reactflow) is fetched only when that page is opened, so
+// the initial dashboard bundle stays small. Page identity, routing, visuals and
+// behaviour are unchanged.
+const Overview = lazy(() => import("./pages/Overview.jsx"));
+const Stats = lazy(() => import("./pages/Stats.jsx"));
+const Activity = lazy(() => import("./pages/Activity.jsx"));
+const EvolutionTree = lazy(() => import("./pages/EvolutionTree.jsx"));
+const Population = lazy(() => import("./pages/Population.jsx"));
+const StrategyLab = lazy(() => import("./pages/StrategyLab.jsx"));
+const NodeEconomics = lazy(() => import("./pages/NodeEconomics.jsx"));
+const BacktestMatrix = lazy(() => import("./pages/BacktestMatrix.jsx"));
+const Mt5Backtest = lazy(() => import("./pages/Mt5Backtest.jsx"));
+const LiveTesting = lazy(() => import("./pages/LiveTesting.jsx"));
+const LiveTestResults = lazy(() => import("./pages/LiveTestResults.jsx"));
+const Mt5DemoTrading = lazy(() => import("./pages/Mt5DemoTrading.jsx"));
+const PaperTrading = lazy(() => import("./pages/PaperTrading.jsx"));
+const MarketData = lazy(() => import("./pages/MarketData.jsx"));
+const ResearchAI = lazy(() => import("./pages/ResearchAI.jsx"));
+const Settings = lazy(() => import("./pages/Settings.jsx"));
+const Logs = lazy(() => import("./pages/Logs.jsx"));
+const FinalTesting = lazy(() => import("./pages/FinalTesting.jsx"));
 import StrategyDrawer from "./components/StrategyDrawer.jsx";
 import TopStatusRow from "./components/TopStatusRow.jsx";
 import MilestoneProgressPath from "./components/MilestoneProgressPath.jsx";
 import LiveActivitySidebar from "./components/LiveActivitySidebar.jsx";
 
-const LabContext = createContext(null);
+// exported so tests can render individual pages inside the real context (V4.7)
+export const LabContext = createContext(null);
 export const useLab = () => useContext(LabContext);
 
 const PAGES = [
@@ -269,6 +276,9 @@ export default function App() {
           {/* Main Milestone Progress Path: Metro / Bus Route (User Spec V2.7) */}
           <MilestoneProgressPath />
 
+          {/* V4.7: honest backend startup/readiness state (hidden once ready) */}
+          <StartupBanner />
+
           {!isMt5RealConnected && (
             <div className="warn-banner flex justify-between items-center" style={{ padding: "8px 14px", margin: "0 0 1rem 0" }}>
               <div>
@@ -282,7 +292,11 @@ export default function App() {
           )}
 
           <ErrorBoundary>
-            <ActivePageComponent />
+            <LocalErrorBoundary key={page} label={activePageObj ? activePageObj[2] : "page"}>
+              <Suspense fallback={<div className="panel"><div className="muted" style={{ padding: 18 }}>loading {activePageObj ? activePageObj[2] : "page"}…</div></div>}>
+                <ActivePageComponent />
+              </Suspense>
+            </LocalErrorBoundary>
           </ErrorBoundary>
         </div>
 
@@ -424,8 +438,10 @@ export default function App() {
         )}
 
         {selectedStrategy != null && (
-          <StrategyDrawer id={selectedStrategy} onClose={() => setSelectedStrategy(null)}
-                          onOpen={(nid) => setSelectedStrategy(nid)} />
+          <LocalErrorBoundary label="strategy detail drawer">
+            <StrategyDrawer id={selectedStrategy} onClose={() => setSelectedStrategy(null)}
+                            onOpen={(nid) => setSelectedStrategy(nid)} />
+          </LocalErrorBoundary>
         )}
       </div>
     </LabContext.Provider>

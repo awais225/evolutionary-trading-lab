@@ -197,7 +197,7 @@ export default function DemoOrderPanel() {
           )}
         </div>
         {!allowed && <div className="text-rose-300">{state?.blocked_reason}</div>}
-        <div className="text-slate-400">demo check code: {state?.blocked_code || "DEMO_VERIFIED"} · MT5 package installed: {String(state?.account_safety?.mt5_package_installed)}</div>
+        <div className="text-slate-400">demo check code: {state?.blocked_code || "DEMO_VERIFIED"} · MT5 package installed: {state?.account_safety?.mt5_package_installed === true ? "yes" : state?.account_safety?.mt5_package_installed === false ? "no" : "unknown"}</div>
       </div>
 
       {error && <StructuredError error={error} title="MT5 Execution Error" onDismiss={() => setError(null)} />}

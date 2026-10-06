@@ -448,12 +448,17 @@ class ResearchRestorationEngine:
             for p in (target_data_strats, target_data_nodes, target_data_bts, target_data_vals, target_data_gens, target_data_db):
                 p.mkdir(parents=True, exist_ok=True)
 
-            # Mirror SQLite database to DATA/database/lab_state.db if distinct
+            # Mirror SQLite database to DATA/database/lab_state.db if distinct.
+            # V4.7: use the SQLite online backup API instead of shutil.copy2 -
+            # a plain file copy of a live WAL database can capture a database
+            # whose main file and -wal contents disagree, which is one of the
+            # ways a "database disk image is malformed" reader error is produced.
             db_file = P.database_file()
             data_db_file = target_data_db / "lab_state.db"
             try:
                 if db_file.exists() and not data_db_file.exists() and db_file.resolve() != data_db_file.resolve():
-                    shutil.copy2(str(db_file), str(data_db_file))
+                    from ..db.snapshot import sqlite_snapshot
+                    sqlite_snapshot(db_file, data_db_file)
             except Exception as e:
                 log.warning("Database mirror notice: %s", e)
 

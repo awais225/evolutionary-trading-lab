@@ -2,6 +2,7 @@ import React from "react";
 import { fmt } from "../api.js";
 import { Card, Spinner } from "./common.jsx";
 import { NA, money, pct, ratio } from "./NodeResearchDetail.jsx";
+import { txt } from "../lib/safe.js";
 
 /* V4.5 Backtest Matrix — comparison table over stored research results.
  *
@@ -139,7 +140,7 @@ export default function BacktestMatrixTable({ data, loading, error, emptyHint, o
       <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>
         {data.mode === "ids"
           ? `Selection mode: ${data.count} node(s) compared (requested ${(data.requested_ids || []).length}).`
-          : `Filter mode: ${data.count} of ${fmt.num(data.total_matching, 0)} matching nodes (research scope ${data.scope}).`}
+          : `Filter mode: ${txt(data.count, "–")} of ${fmt.num(data.total_matching, 0)} matching nodes (research scope ${txt(data.scope, "unknown")}).`}
         {(data.missing_ids || []).length > 0 && (
           <span className="warn-banner" style={{ display: "inline-block", marginLeft: 8 }}>
             not found: {(data.missing_ids || []).join(", ")}

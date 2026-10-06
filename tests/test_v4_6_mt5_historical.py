@@ -352,8 +352,24 @@ def test_failed_run_keeps_a_useful_reason_and_never_fakes_success(db):
 
 
 def test_unknown_dataset_in_a_request_is_rejected_before_queueing(db):
-    cfg, errors = hb.validate_request(valid_body(symbol="XAUUSD", timeframe="M15"), db=db)
+    """A symbol/timeframe with no eligible dataset is refused before any run row
+    is created.
+
+    V4.7 note: the original form of this test asked for XAUUSD M15 and expected
+    "no eligible". That expectation depended on the state of the *feature cache*
+    in the DATA copy being used: the feature engine regenerates the master view's
+    feature artifact during ordinary app runs, and the app's own eligibility
+    contract then accepts XAUUSD M15 as well. The test now asserts the contract
+    itself - a bogus symbol is refused with "no eligible" (true in every copy),
+    and a real symbol outside the stored period is refused with the period reason
+    - rather than an environment-dependent artifact state.
+    """
+    cfg, errors = hb.validate_request(valid_body(symbol="NOSUCHSYM", timeframe="M99"), db=db)
     assert cfg is None and "no eligible" in errors[0]["error"]
+
+    cfg2, errors2 = hb.validate_request(valid_body(symbol="XAUUSD", timeframe="M15"), db=db)
+    assert cfg2 is None and errors2, "an out-of-range period must be refused"
+    assert any(("period" in e["error"]) or ("no eligible" in e["error"]) for e in errors2), errors2
 
 
 def test_stale_running_rows_are_reconciled(db):

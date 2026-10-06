@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { api, fmt } from "../api.js";
+import { arr } from "../lib/safe.js";
 import { ErrorNote, Spinner } from "../components/common.jsx";
 
 export default function MarketData() {
@@ -59,7 +60,7 @@ export default function MarketData() {
             <table className="tbl">
               <thead><tr><th>select</th><th>symbol</th><th>tf</th><th>bars</th><th>range</th><th>source</th><th>features</th></tr></thead>
               <tbody>
-                {ds.datasets.map((d) => (
+                {arr(ds?.datasets).map((d) => (
                   <tr key={d.id} onClick={() => setSel(d.id)}
                       style={{ background: sel === d.id ? "#1a2132" : undefined }}>
                     <td><input type="radio" checked={sel === d.id} readOnly style={{width:"auto"}}/></td>
@@ -119,7 +120,7 @@ export default function MarketData() {
               <table className="tbl">
                 <thead><tr><th>time</th><th>open</th><th>high</th><th>low</th><th>close</th><th>bid</th><th>ask</th><th>spread</th><th>vol</th><th>session</th></tr></thead>
                 <tbody>
-                  {bars.bars.slice().reverse().map((b, i) => (
+                  {arr(bars?.bars).slice().reverse().map((b, i) => (
                     <tr key={i} style={{ cursor: "default" }}>
                       <td className="mono" style={{fontSize:10}}>{fmt.dt(b.ts)}</td>
                       <td>{fmt.num(b.open)}</td><td>{fmt.num(b.high)}</td>
@@ -138,7 +139,7 @@ export default function MarketData() {
           <h3>Cached feature arrays ({feats?.cached?.length ?? 0})</h3>
           <div className="scroll-y" style={{ maxHeight: 400 }}>
             <div className="mono" style={{ fontSize: 11, lineHeight: 1.9 }}>
-              {(feats?.cached || []).map((f) => <span key={f} className="pill RETIRED" style={{margin:"0 4px 4px 0"}}>{f}</span>)}
+              {arr(feats?.cached).map((f) => <span key={f} className="pill RETIRED" style={{margin:"0 4px 4px 0"}}>{f}</span>)}
             </div>
           </div>
           <div className="muted" style={{fontSize:11.5, marginTop:8}}>
