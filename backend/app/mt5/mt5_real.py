@@ -243,7 +243,15 @@ class MT5RealBridge(MarketBridge):
                           trade_contract_size=si.trade_contract_size,
                           spread_points=float(si.spread),
                           trade_mode=str(si.trade_mode), source=self.source,
-                          visible=bool(si.visible))
+                          visible=bool(si.visible),
+                          trade_mode_raw=int(getattr(si, "trade_mode", 0) or 0),
+                          trade_allowed=bool(getattr(si, "trade_allowed", True)),
+                          volume_min=float(getattr(si, "volume_min", 0.0) or 0.0),
+                          volume_max=float(getattr(si, "volume_max", 0.0) or 0.0),
+                          volume_step=float(getattr(si, "volume_step", 0.0) or 0.0),
+                          trade_stops_level=int(getattr(si, "trade_stops_level", 0) or 0),
+                          freeze_level=int(getattr(si, "freeze_level", 0) or 0),
+                          filling_modes=_filling_modes(si))
 
     def account_info(self) -> Optional[AccountInfo]:
         if not self._connected:
@@ -256,7 +264,10 @@ class MT5RealBridge(MarketBridge):
             return None
         return AccountInfo(login=ai.login, server=ai.server, balance=ai.balance,
                            equity=ai.equity, currency=ai.currency,
-                           is_demo=bool(ai.trade_mode == 0), source=self.source)
+                           is_demo=bool(ai.trade_mode == 0), source=self.source,
+                           margin_free=float(getattr(ai, "margin_free", 0.0) or 0.0),
+                           leverage=int(getattr(ai, "leverage", 0) or 0),
+                           name=str(getattr(ai, "name", "") or ""))
 
     # ---------- historical ----------
     def _rows_to_bars(self, rows) -> List[Bar]:
@@ -430,6 +441,100 @@ class MT5RealBridge(MarketBridge):
                            requested_price=price, slippage_points=0.0, delay_ms=delay_ms,
                            comment="paper fill on real MT5 quote", source="MT5_DEMO_QUOTE")
 
+    # ---------- V4.2 execution primitives ----------
+    def send_market_order(self, request: Dict) -> Dict:
+        """Send a fully-built MT5 order request (market order with real SL/TP).
+
+        Returns {"ok", "retcode", "raw": <result as dict>, "unsupported",
+        "exception"}. This is the ONLY place an order leaves the application.
+        Interpretation of the retcode is done by app.mt5.execution.
+        """
+        if not self._connected or not MT5_PACKAGE_AVAILABLE:
+            return {"ok": False, "unsupported": True, "retcode": None,
+                    "error": "MT5 terminal not connected"}
+        try:
+            result = mt5.order_send(dict(request))
+        except Exception as e:  # pragma: no cover - terminal dependent
+            log.error("order_send raised: %s", e)
+            return {"ok": False, "exception": str(e), "retcode": None, "raw": None}
+        if result is None:
+            err = None
+            try:
+                err = mt5.last_error()
+            except Exception:
+                pass
+            log.error("order_send returned None (last_error=%s)", err)
+            return {"ok": False, "retcode": None, "raw": None,
+                    "exception": f"order_send returned None (mt5.last_error={err})"}
+        raw = _result_to_dict(result)
+        log.info("[V4.2] mt5.order_send retcode=%s order=%s deal=%s price=%s vol=%s sl=%s tp=%s comment=%r",
+                 raw.get("retcode"), raw.get("order"), raw.get("deal"), raw.get("price"),
+                 raw.get("volume"), raw.get("sl"), raw.get("tp"), raw.get("comment"))
+        return {"ok": bool(raw.get("retcode")), "retcode": raw.get("retcode"), "raw": raw,
+                "request": dict(request)}
+
+    def positions_get(self, ticket: Optional[int] = None, symbol: Optional[str] = None) -> List[Dict]:
+        """Open positions from the terminal (used to verify an executed order)."""
+        if not self._connected or not MT5_PACKAGE_AVAILABLE:
+            return []
+        try:
+            if ticket is not None:
+                rows = mt5.positions_get(ticket=int(ticket))
+            elif symbol:
+                rows = mt5.positions_get(symbol=symbol)
+            else:
+                rows = mt5.positions_get()
+        except Exception as e:
+            log.warning("positions_get failed: %s", e)
+            return []
+        return [_pos_to_dict(p) for p in (rows or [])]
+
+    def orders_get(self, ticket: Optional[int] = None, symbol: Optional[str] = None) -> List[Dict]:
+        """Pending orders from the terminal."""
+        if not self._connected or not MT5_PACKAGE_AVAILABLE:
+            return []
+        try:
+            if ticket is not None:
+                rows = mt5.orders_get(ticket=int(ticket))
+            elif symbol:
+                rows = mt5.orders_get(symbol=symbol)
+            else:
+                rows = mt5.orders_get()
+        except Exception as e:
+            log.warning("orders_get failed: %s", e)
+            return []
+        return [_order_to_dict(o) for o in (rows or [])]
+
+    def close_position(self, ticket: int, comment: str = "evolab-demo-close") -> Dict:
+        """Close a position by ticket (spec V4.2 test hygiene). Demo-guarded by callers."""
+        if not self._connected or not MT5_PACKAGE_AVAILABLE:
+            return {"ok": False, "error": "MT5 terminal not connected"}
+        pos = _find(self.positions_get(ticket=int(ticket)), ticket)
+        if pos is None:
+            return {"ok": False, "error": f"position {ticket} not found"}
+        tick = self.latest_tick(pos["symbol"])
+        if tick is None:
+            return {"ok": False, "error": "no tick for closing"}
+        side_buy = str(pos.get("type", 0)) in ("0", "buy") or pos.get("type") == 0
+        request = {
+            "action": mt5.TRADE_ACTION_DEAL,
+            "symbol": pos["symbol"],
+            "volume": float(pos["volume"]),
+            "type": mt5.ORDER_TYPE_SELL if side_buy else mt5.ORDER_TYPE_BUY,
+            "position": int(ticket),
+            "price": float(tick.bid if side_buy else tick.ask),
+            "deviation": 20,
+            "magic": int(pos.get("magic") or 777000),
+            "comment": comment[:31],
+            "type_time": mt5.ORDER_TIME_GTC,
+            "type_filling": int(getattr(mt5, "ORDER_FILLING_IOC", 1)),
+        }
+        res = self.send_market_order(request)
+        raw = res.get("raw") or {}
+        return {"ok": res.get("retcode") == mt5.TRADE_RETCODE_DONE, "retcode": res.get("retcode"),
+                "request": request, "raw": raw,
+                "error": res.get("error") or res.get("exception")}
+
     def real_market_order(self, symbol: str, side: str, lots: float) -> OrderResult:
         """Send a REAL market order to MT5. Only callable through the risk layer."""
         if not self._connected or not MT5_PACKAGE_AVAILABLE:
@@ -464,3 +569,73 @@ class MT5RealBridge(MarketBridge):
                            slippage_points=(abs(ep - price) / 0.01) if ep else None,
                            delay_ms=(exec_ts - t0) * 1000.0, retcode=result.retcode,
                            comment=getattr(result, "comment", ""), source=self.source)
+
+def _filling_modes(si) -> List[int]:
+    """Supported ORDER_FILLING_* modes from symbol_info.filling_mode bitmask."""
+    out: List[int] = []
+    try:
+        mask = int(getattr(si, "filling_mode", 0) or 0)
+    except Exception:
+        return out
+    for name, bit in (("ORDER_FILLING_FOK", 1), ("ORDER_FILLING_IOC", 2)):
+        if mask & bit:
+            out.append(int(getattr(mt5, name, 0 if name.endswith("FOK") else 1)))
+    if not out:
+        # Some builds report 0 -> fall back to the commonly supported modes.
+        out = [int(getattr(mt5, "ORDER_FILLING_RETURN", 2)),
+               int(getattr(mt5, "ORDER_FILLING_IOC", 1))]
+    return out
+
+
+def _result_to_dict(result) -> Dict:
+    """Serialise an MT5 order_send result (namedtuple) into a plain dict."""
+    out: Dict = {}
+    try:
+        fields = getattr(result, "_fields", None) or getattr(result, "__dict__", {})
+        for f in fields:
+            out[f] = getattr(result, f, None)
+    except Exception:
+        pass
+    if not out:
+        try:
+            out = {"_repr": repr(result)}
+        except Exception:
+            out = {}
+    return out
+
+
+def _pos_to_dict(p) -> Dict:
+    return {"ticket": int(getattr(p, "ticket", 0) or 0),
+            "symbol": str(getattr(p, "symbol", "") or ""),
+            "type": int(getattr(p, "type", -1)),
+            "volume": float(getattr(p, "volume", 0.0) or 0.0),
+            "price_open": float(getattr(p, "price_open", 0.0) or 0.0),
+            "price_current": float(getattr(p, "price_current", 0.0) or 0.0),
+            "sl": float(getattr(p, "sl", 0.0) or 0.0),
+            "tp": float(getattr(p, "tp", 0.0) or 0.0),
+            "profit": float(getattr(p, "profit", 0.0) or 0.0),
+            "magic": int(getattr(p, "magic", 0) or 0),
+            "time": int(getattr(p, "time", 0) or 0),
+            "comment": str(getattr(p, "comment", "") or "")}
+
+
+def _order_to_dict(o) -> Dict:
+    return {"ticket": int(getattr(o, "ticket", 0) or 0),
+            "symbol": str(getattr(o, "symbol", "") or ""),
+            "type": int(getattr(o, "type", -1)),
+            "volume_initial": float(getattr(o, "volume_initial", 0.0) or 0.0),
+            "volume_current": float(getattr(o, "volume_current", 0.0) or 0.0),
+            "price_open": float(getattr(o, "price_open", 0.0) or 0.0),
+            "sl": float(getattr(o, "sl", 0.0) or 0.0),
+            "tp": float(getattr(o, "tp", 0.0) or 0.0),
+            "magic": int(getattr(o, "magic", 0) or 0),
+            "state": int(getattr(o, "state", -1)),
+            "time_setup": int(getattr(o, "time_setup", 0) or 0),
+            "comment": str(getattr(o, "comment", "") or "")}
+
+
+def _find(rows: List[Dict], ticket: int) -> Optional[Dict]:
+    for r in rows or []:
+        if int(r.get("ticket", -1)) == int(ticket):
+            return r
+    return None

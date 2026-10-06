@@ -186,6 +186,12 @@ export const api = {
   mt5DemoStopAll: () => req("/api/mt5-demo/stop-all", { method: "POST" }),
   mt5DemoPauseAll: () => req("/api/mt5-demo/pause-all", { method: "POST" }),
 
+  // V4.2 — controlled MT5 demo order execution (manual, explicitly confirmed)
+  mt5ExecutionState: () => req("/api/mt5-execution/state"),
+  mt5ExecutionStatus: () => req("/api/mt5-execution/status"),
+  mt5ExecutionValidate: (body) => req("/api/mt5-execution/validate", { method: "POST", body }),
+  mt5ExecutionPlace: (body) => req("/api/mt5-execution/place", { method: "POST", body }),
+
   // Hypotheses & AI Researcher
   hypotheses: () => req("/api/hypotheses"),
   researchMemory: (p = {}) => req(`/api/research/memory?${new URLSearchParams(p)}`),

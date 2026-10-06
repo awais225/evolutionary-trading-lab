@@ -51,6 +51,16 @@ class SymbolInfo:
     trade_mode: str = "full"
     source: str = "SIMULATOR"
     visible: bool = True
+    # V4.2 — trading constraints used by the order validator (None = unknown;
+    # the validator reports "unknown" rather than guessing when a value is None)
+    trade_mode_raw: Optional[int] = None       # SYMBOL_TRADE_MODE_* constant
+    trade_allowed: Optional[bool] = None       # symbol_info.trade_allowed
+    volume_min: Optional[float] = None
+    volume_max: Optional[float] = None
+    volume_step: Optional[float] = None
+    trade_stops_level: Optional[int] = None    # broker minimum SL/TP distance (points)
+    freeze_level: Optional[int] = None
+    filling_modes: Optional[List[int]] = None  # supported ORDER_FILLING_* modes
 
 
 @dataclass
@@ -62,6 +72,10 @@ class AccountInfo:
     currency: str = "USD"
     is_demo: bool = True
     source: str = "SIMULATOR"
+    # V4.2 — used for positive demo identification (raw MT5 trade mode)
+    margin_free: float = 0.0
+    leverage: int = 0
+    name: str = ""
 
 
 @dataclass
@@ -160,3 +174,23 @@ class MarketBridge(abc.ABC):
         AND the user has activated real trading (risk layer double-checks)."""
         return OrderResult(ok=False, comment="real execution not supported by this bridge",
                            rejected_by="BRIDGE", source=self.source)
+
+    # ---- V4.2 execution primitives -------------------------------------
+    # Only MT5RealBridge implements these against a real terminal. The base
+    # implementations report "unsupported" so no bridge can ever pretend to
+    # have executed an order.
+    def send_market_order(self, request: Dict) -> Dict:
+        """Send a fully-built MT5 order request. Returns {unsupported: True}."""
+        return {"unsupported": True, "ok": False, "retcode": None,
+                "error": f"order execution is not supported by bridge '{self.name}'"}
+
+    def positions_get(self, ticket: Optional[int] = None, symbol: Optional[str] = None) -> List[Dict]:
+        """Open positions from the terminal (verification of executed orders)."""
+        return []
+
+    def orders_get(self, ticket: Optional[int] = None, symbol: Optional[str] = None) -> List[Dict]:
+        """Pending orders from the terminal."""
+        return []
+
+    def close_position(self, ticket: int, comment: str = "") -> Dict:
+        return {"ok": False, "error": f"position closing is not supported by bridge '{self.name}'"}

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { api, fmt } from "../api.js";
 import { useLab } from "../App.jsx";
 import StructuredError from "../components/StructuredError.jsx";
+import DemoOrderPanel from "../components/DemoOrderPanel.jsx";
 
 export default function Mt5DemoTrading() {
   const { shortlist, toggleShortlist, setSelectedStrategyId, navigateTab } = useLab() || {};
@@ -175,6 +176,9 @@ export default function Mt5DemoTrading() {
           </span>
         </div>
       </div>
+
+      {/* V4.2 — manual, explicitly-confirmed demo order execution */}
+      <DemoOrderPanel />
 
       {error && <StructuredError error={error} onDismiss={() => setError(null)} />}
       {actionMsg && (

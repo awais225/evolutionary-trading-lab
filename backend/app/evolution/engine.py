@@ -793,11 +793,10 @@ class EvolutionEngine:
         excess = active_cnt - cfg.population_size
         if excess <= 0:
             return 0
-        survivors = self.db.q(
-            """SELECT id, fitness, status, species_key FROM strategies
-               WHERE status='SURVIVED' AND fitness IS NOT NULL
-                 AND NOT (" + LEGACY_POPULATION_SQL + ")"""
-        )
+        survivors_sql = ("SELECT id, fitness, status, species_key FROM strategies "
+                         "WHERE status='SURVIVED' AND fitness IS NOT NULL "
+                         "AND NOT (" + LEGACY_POPULATION_SQL + ")")
+        survivors = self.db.q(survivors_sql)
         if not survivors:
             return 0
         survivors.sort(key=lambda a: a["fitness"] or 0.0)

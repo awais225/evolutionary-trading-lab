@@ -1108,6 +1108,54 @@ class Database:
             return self.q("SELECT * FROM mt5_demo_trades WHERE strategy_id=? ORDER BY id DESC", (strategy_id,))
         return self.q("SELECT * FROM mt5_demo_trades ORDER BY id DESC")
 
+    # ---------- V4.2 manual MT5 demo execution log ----------
+    # Audit trail of manual demo orders ONLY. Deliberately separate from
+    # `executions` (paper calibration reads that table) and from
+    # `mt5_demo_trades` (strategy-driven demo trades) so a manual test order can
+    # never change existing research/statistics behaviour.
+    MT5_MANUAL_ORDER_COLUMNS = (
+        "client_order_id", "ts", "symbol", "side", "volume", "requested_price",
+        "sl", "tp", "strategy_id", "status", "retcode", "order_ticket", "deal_ticket",
+        "position_ticket", "exec_price", "broker_sl", "broker_tp", "sl_tp_verified",
+        "message", "error_code", "account_login", "account_server", "duration_ms",
+        "raw_json",
+    )
+
+    def _ensure_manual_order_table(self) -> None:
+        self.x("""CREATE TABLE IF NOT EXISTS mt5_manual_orders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            client_order_id TEXT UNIQUE,
+            ts REAL NOT NULL,
+            symbol TEXT, side TEXT, volume REAL, requested_price REAL,
+            sl REAL, tp REAL, strategy_id INTEGER,
+            status TEXT NOT NULL,
+            retcode INTEGER, order_ticket INTEGER, deal_ticket INTEGER,
+            position_ticket INTEGER, exec_price REAL,
+            broker_sl REAL, broker_tp REAL, sl_tp_verified INTEGER,
+            message TEXT, error_code TEXT,
+            account_login INTEGER, account_server TEXT, duration_ms REAL,
+            raw_json TEXT
+        )""")
+        self.x("CREATE INDEX IF NOT EXISTS idx_mt5_manual_orders_ts ON mt5_manual_orders(ts)")
+
+    def record_manual_mt5_order(self, row: Dict[str, Any]) -> int:
+        self._ensure_manual_order_table()
+        cols = list(self.MT5_MANUAL_ORDER_COLUMNS)
+        sql = (f"INSERT OR REPLACE INTO mt5_manual_orders ({','.join(cols)}) "
+               f"VALUES ({','.join('?' * len(cols))})")
+        return self.x(sql, tuple(
+            (int(bool(row[c])) if c == "sl_tp_verified" and row.get(c) is not None else row.get(c))
+            for c in cols))
+
+    def get_manual_mt5_order(self, client_order_id: str) -> Optional[Dict[str, Any]]:
+        self._ensure_manual_order_table()
+        return self.one("SELECT * FROM mt5_manual_orders WHERE client_order_id=?",
+                        (str(client_order_id),))
+
+    def get_manual_mt5_orders(self, limit: int = 20) -> List[Dict[str, Any]]:
+        self._ensure_manual_order_table()
+        return self.q("SELECT * FROM mt5_manual_orders ORDER BY id DESC LIMIT ?", (int(limit),))
+
     def get_pipeline_stage(self, strategy_id: int) -> str:
         row = self.one("SELECT stage FROM strategy_pipeline_states WHERE strategy_id=?", (strategy_id,))
         if row:

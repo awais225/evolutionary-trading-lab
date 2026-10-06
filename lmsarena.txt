@@ -728,3 +728,316 @@ Result: ALL PASS (55 checks) - acceptance_results_v2.json
   Working tree   : clean after the commit (CONFIG/LOGS runtime churn reverted,
                    no DATA, no temp files, no credentials)
 =============================================================
+
+
+=============================================================
+V4.2 - MT5 EXECUTION FOUNDATION (what was actually implemented)
+=============================================================
+1. SCOPE
+--------
+Implemented the controlled MT5 DEMO execution foundation only:
+dashboard/manual panel -> MT5 connection -> validated order request -> real
+MT5 demo market order with SL/TP -> broker response -> result shown in the UI.
+Nothing from V4.3: no automatic trading of qualified nodes, no live market
+monitoring, no live trade counter, no per-node dynamic risk, no portfolio risk,
+no kill-switch redesign, no live-testing dashboard, no MT5 population trading,
+no automated node selection, no background execution loops. The V4.0 legacy
+isolation and the whole V4.1 research-run workflow are untouched.
+
+2. BASELINE (captured before any change, real DATA)
+---------------------------------------------------
+  dashboard health   : /api/lab/status + /api/status OK (startup diagnostic
+                       DATA ROOT = the real DATA, DATABASE = real lab_state.db)
+  research statistics: TOTAL 10000, TARGET 10000, ALIVE 33, DEAD 9967,
+                       QUALIFIED 5, PAPER/SURVIVED 28, FAILED 9967,
+                       RETIRED/KILLED 0 (user scope), GENERATION 39,
+                       REMAINING 0, progress 10000 / 10000
+  node counts        : 10787 rows total - 10000 user research - 787 LEGACY_TEST,
+                       max id 10814, sqlite_sequence 10814
+  run                : RUN-20261005-055251 (10000 nodes)
+  MT5 connection     : MetaTrader5 python package NOT installed on this host,
+                       no terminal, therefore bridge = SIMULATOR
+                       (/api/mt5/status: mt5_package_installed=false,
+                       source=SIMULATOR); CONFIG/mt5_config.json remembers the
+                       Windows terminal (IC Markets, build 6230)
+  manual order layer : NO order-placement route existed at all. /api/mt5-demo/*
+                       only toggles strategy activation flags (mt5_demo_configs),
+                       /api/paper/* is the simulated paper engine, and
+                       MT5RealBridge.real_market_order() existed but was never
+                       called by anything (and had no SL/TP, no validation, no
+                       demo gate, no result verification).
+  existing tests     : 255 collected - 232 passed / 23 failed (V4.1 baseline)
+  frontend build     : PASS (vite build, 4.51 s)
+  Conclusion: the application was healthy, so V4.2 proceeded.
+
+3. EXISTING ARCHITECTURE INSPECTED (reused, not duplicated)
+-----------------------------------------------------------
+  backend/app/mt5/bridge.py     MarketBridge contract (Bar/Tick/SymbolInfo/
+                                AccountInfo/OrderResult)
+  backend/app/mt5/factory.py    bridge selection: real MT5 when possible,
+                                otherwise a clearly-labelled SIMULATOR
+  backend/app/mt5/mt5_real.py   MT5RealBridge (initialize/account_info/
+                                symbol_info/copy_rates/latest_tick, and a
+                                real_market_order() that nothing called)
+  backend/app/mt5/simulator.py  synthetic feed/fills (paper trading only)
+  backend/app/mt5/monitor.py    connection monitor (internet / MT5 / feed)
+  backend/app/mt5/config.py     terminal path + last-connected identity
+  backend/app/api/routes.py     /api/mt5/*, /api/mt5-demo/*, /api/paper/*,
+                                /api/risk/real-execution
+  backend/app/risk/controls.py  strategy risk gate (kill switch ships engaged,
+                                real_execution_enabled=false by default)
+  frontend pages                Mt5DemoTrading.jsx (activation toggles only),
+                                PaperTrading.jsx, LiveTesting.jsx
+  Decision: extend the existing bridge + add ONE execution service. No second
+  MT5 client, no parallel execution system.
+
+4. FILES CHANGED / ADDED
+------------------------
+  backend/app/mt5/execution.py            (new) the single manual demo-order
+                                          execution path: demo guard, validation,
+                                          request building, retcode interpretation,
+                                          position + SL/TP verification, single-
+                                          flight gate, audit persistence
+  backend/app/mt5/bridge.py               SymbolInfo now carries the trading
+                                          constraints (trade_mode_raw, trade_allowed,
+                                          volume_min/max/step, stops_level,
+                                          freeze_level, filling_modes); AccountInfo
+                                          carries margin_free/leverage; base
+                                          send_market_order/positions_get/orders_get/
+                                          close_position report "unsupported" so no
+                                          bridge can ever fake an execution
+  backend/app/mt5/mt5_real.py             real implementations: send_market_order
+                                          (mt5.order_send, retcode + raw result),
+                                          positions_get, orders_get, close_position;
+                                          symbol/account info extended
+  backend/app/api/routes.py               GET /api/mt5-execution/state | /status,
+                                          POST /api/mt5-execution/validate | /place
+  backend/app/db/database.py              mt5_manual_orders audit table + accessors
+                                          (record/get/get_recent) - deliberately
+                                          SEPARATE from `executions` (paper
+                                          calibration reads that) and from
+                                          mt5_demo_trades (strategy-driven demo
+                                          trades), so a manual test order cannot
+                                          change existing statistics
+  backend/app/evolution/engine.py         DEFECT FIX: the V4.1 legacy guard in
+                                          enforce_population_cap was a silent no-op
+                                          (malformed SQL concatenation), so the cap
+                                          could still retire LEGACY_TEST nodes -
+                                          see section 9
+  frontend/src/components/DemoOrderPanel.jsx (new) manual demo order panel:
+                                          symbol, BUY/SELL, volume, live market
+                                          price, SL, TP, optional USER_RESEARCH
+                                          node link, validation checklist,
+                                          confirmation dialog, busy state,
+                                          broker result, recent orders
+  frontend/src/api.js                     mt5ExecutionState/Status/Validate/Place
+  frontend/src/pages/Mt5DemoTrading.jsx   panel mounted on the existing MT5 page
+                                          (existing UI preserved)
+  tests/test_v4_2_mt5_execution.py        (new) 58 focused tests
+  scripts/verify_mt5_demo_execution.py    (new) on-host end-to-end verification
+                                          (tests 1-4 + cleanup) for the Windows
+                                          machine that runs the terminal
+
+5. DEMO-ACCOUNT SAFETY LOCK (spec §1)
+--------------------------------------
+demo_account_guard() positively identifies the account before anything is sent:
+  * bridge must be the REAL MT5 bridge (a simulator is rejected outright)
+  * terminal must be connected and the MetaTrader5 package present
+  * account_info() must return an account
+  * mt5.account_info().trade_mode must be ACCOUNT_TRADE_MODE_DEMO (0) - the raw
+    MT5 value, not a guess; CONTEST/REAL/unknown are all rejected, and if the
+    bridge's own is_demo flag contradicts trade_mode the request is blocked
+  * Algo Trading must be enabled in the terminal
+Every failure returns a machine code (MT5_UNAVAILABLE, MT5_NOT_CONNECTED,
+ACCOUNT_UNAVAILABLE, NON_DEMO_ACCOUNT, ACCOUNT_MODE_UNKNOWN,
+ALGO_TRADING_DISABLED) plus a human sentence. Real-money execution stays
+disabled and untouched (risk.real_execution_enabled=false, unchanged logic).
+The strategy risk gate is intentionally NOT consumed by this manual path (its
+kill switch ships engaged for automated strategy trading); the panel shows the
+kill-switch state as information only.
+
+6. ORDER VALIDATION (spec §7)
+-----------------------------
+One validator drives both the UI preview and the pre-send gate, returning a
+per-check list (shown 1:1 in the panel) plus normalized values:
+  mt5_package, mt5_bridge, mt5_connected, account_available, demo_account,
+  algo_trading, symbol_exists, symbol_tradable, symbol_side, quote_fresh,
+  side_valid, volume_numeric, volume_min, volume_max, volume_step, price_valid,
+  sl_valid, tp_valid, sl_tp_direction (BUY: SL < entry < TP / SELL: TP < entry
+  < SL), stops_level (broker minimum distance), margin, node_scope.
+Symbol constraints come from MT5 itself (volume min/max/step, stops level,
+filling modes); when a constraint is unknown it is reported as unknown instead
+of being guessed. `placement_allowed` is only True when nothing blocking failed.
+
+7. EXECUTION, RESPONSE HANDLING AND VERIFICATION (spec §8/§9/§14)
+-----------------------------------------------------------------
+  * exactly ONE mt5.order_send per submission (market DEAL, price = ask for BUY
+    / bid for SELL, real `sl` and `tp` fields, deviation, magic 7770xx, comment)
+  * the retcode is interpreted, never assumed: 10009/10010 -> EXECUTED,
+    10008 -> PENDING, 10004/10006/10007/10011/10013..10030/10035..10046 ->
+    REJECTED, 10012/10031 -> TIMEOUT, anything else -> UNKNOWN. Each maps to a
+    human-readable sentence, keeps the raw retcode + broker comment, and only
+    genuine rejections are marked safe to retry.
+  * after sending, the result is READ BACK from the terminal: position (or
+    pending order) + its actual SL/TP; a broker adjustment of SL/TP is reported
+    as `sl_tp_verified=false` together with the broker's real values.
+  * status labels: POSITION_OPEN -> "ORDER EXECUTED", retcode PLACED or a
+    pending order found -> "ORDER ACCEPTED / PENDING" (never labelled executed),
+    DONE without any broker object -> "EXECUTED BUT NOT CONFIRMED BY THE
+    TERMINAL", timeout -> "RESULT UNKNOWN - TIMEOUT".
+  * no fake success anywhere: a success status requires a DONE/PLACED retcode
+    AND the broker object found in the terminal; `source` is always reported.
+
+8. DUPLICATE PROTECTION AND NO AUTO-RETRY (spec §10/§11)
+--------------------------------------------------------
+  * single-flight gate (token + state lock): a second submission while one is
+    in flight -> HTTP 409 ORDER_IN_FLIGHT, nothing sent
+  * client_order_id (generated once per confirmation): a replay -> HTTP 409
+    DUPLICATE_ORDER, nothing sent
+  * the confirmation token "PLACE_DEMO_ORDER" is required by the API itself, so
+    a stray request cannot place an order
+  * there are no retry loops, no sleeps and no background threads in the
+    execution path (asserted by an AST-based test); a timeout/connection error
+    returns an explicit warning: the order may have reached the broker, verify
+    open positions before resubmitting
+  * page load / refresh only ever issues GETs: /state and /status (asserted by
+    tests that count requests handed to the terminal = 0)
+
+9. DEFECT FOUND AND FIXED WHILE RE-VERIFYING (legacy integrity)
+--------------------------------------------------------------
+The V4.1 legacy guard inside enforce_population_cap was a silent no-op: the SQL
+was built inside a triple-quoted literal, so the generated statement contained
+the literal text `NOT (" + LEGACY_POPULATION_SQL + ")`, which SQLite parsed as a
+non-empty string -> always true -> the population cap could still retire
+LEGACY_TEST nodes (status change). Reproduced on an isolated temp database
+(legacy rows inserted with no bound run -> classified LEGACY_TEST): the cap
+retired all 5 legacy SURVIVED rows. Fixed by building the SQL explicitly
+(concatenation outside the string). After the fix the same scenario retires only
+the 10 lowest-fitness USER_RESEARCH rows and leaves every legacy row SURVIVED.
+The other three guard sites (active_count, clear_failed, reset_generation) were
+verified as generating correct SQL.
+
+10. TESTS
+---------
+  Focused V4.2 suite: tests/test_v4_2_mt5_execution.py - 58 tests, ALL PASS.
+  The MT5 terminal is replaced by an injected double at the bridge boundary and
+  persistence is redirected to a temporary database, so the product code path
+  runs unchanged while no research DATA is touched. Covered: demo-account
+  safety (demo accepted; contest/real rejected; unknown trade mode blocked;
+  missing account blocked; simulator/hardware-absent blocked), the full
+  validation matrix (invalid symbol, side, volume min/max/step, price, SL/TP
+  sign, SL/TP direction for BUY and SELL, stops level, stale quote, margin,
+  legacy node selection), request building (TRADE_ACTION_DEAL, correct order
+  type, ask for BUY / bid for SELL, real sl/tp, deviation, magic, comment),
+  BUY and SELL execution end to end, pending vs executed distinction, DONE
+  without a broker object, broker-adjusted SL/TP surfaced, the retcode taxonomy
+  (14 parametrised cases) with human-readable messages, timeout warnings,
+  bridge exceptions surfaced, duplicate protection (in-flight + client order
+  id), confirmation token required, no order on state/status/validate, legacy
+  node refusal, node status untouched by a manual order, HTTP surface
+  (200/409/422/403 with structured {code,message,stage} details, no
+  "[object Object]"), audit-row persistence, close-position demo guard,
+  single-send/no-retry static check.
+  V4.1 focused suite re-run after the engine fix: 23 tests, ALL PASS.
+  Full suite (real DATA, DATA/tests + repo tests): 313 collected -
+  22 failed / 291 passed in 45 s.
+  Failure classification - ZERO new failures against the V4.1 baseline list
+  (23 failures): 13 environment/layout (lower-case start.bat launchers, in-repo
+  database path expectations, DATA_ROOT != ROOT/DATA, backup portability,
+  resource limits), 7 "old-behaviour" tests that expect the legacy nodes to be
+  returned by V4.0 user-facing endpoints, 2 tests that encode the pre-V4.1
+  population-cap contract (they create nodes with no bound run, which the
+  project classifies as LEGACY_TEST, and expect the cap to retire them - V4.1
+  forbids exactly that; intentionally legacy-inclusive). 1 V4.1 failure
+  (test_v3_2::test_test_f_restart_persistence) now passes (order dependent).
+  Observed flake (recorded, not fixed): one suite run hung in
+  test_v3_2::test_test_e_dashboard_synchronization on /api/status via the
+  TestClient and was aborted by the pytest timeout; two subsequent identical
+  runs completed normally (the same test fails in isolation for the known
+  legacy-inclusive assertion 5 == 129).
+  Frontend build: PASS (vite build with the new panel, 3.89 s).
+
+11. DEMO SAFETY RESULT AND ORDER EXECUTION RESULT (honest environment report)
+---------------------------------------------------------------------------
+  This host cannot run MetaTrader 5: the MetaTrader5 python package is
+  Windows-only, the package is not installed here, there is no wine and no
+  terminal - /api/mt5-execution/state correctly reports
+  bridge=simulator, execution_allowed=false, blocked_code=MT5_UNAVAILABLE with
+  the reason "requires a connected MT5 terminal (Windows host)".
+  Consequently NO real demo order could be placed or shown by LMSArena itself,
+  and no simulated fill is ever presented as a demo execution. What WAS verified
+  here end to end: the API surface, the demo lock, the validation matrix, the
+  request/response pipeline, the duplicate protection, the UI build, and the
+  refusal path (a confirmed POST /api/mt5-execution/place returns HTTP 503
+  MT5_UNAVAILABLE, sends nothing, and is recorded as BLOCKED in the audit table).
+  Tests 1-4 of the specification (connection detection, demo acceptance, real
+  BUY, real SELL with SL/TP) must therefore be run on the Windows host that owns
+  the terminal; scripts/verify_mt5_demo_execution.py performs exactly those
+  steps (bridge + account identity + demo verdict, small BUY and SELL through
+  the real code path, SL/TP read back from the position, optional --close
+  cleanup) and prints PASS/FAIL per check. Run here it correctly stopped at the
+  demo check with the account unverified and sent nothing.
+
+12. RESEARCH REGRESSION / LEGACY INTEGRITY
+------------------------------------------
+  Before -> after the V4.2 change (real DATA, same run): TOTAL 10000 -> 10000,
+  TARGET 10000 -> 10000, ALIVE 33 -> 33, DEAD 9967 -> 9967, QUALIFIED 5 -> 5,
+  GENERATION 39 -> 39, REMAINING 0 -> 0; rows 10787 -> 10787 with 10000 user /
+  787 legacy and max id 10814 (no node created, retired or renumbered).
+  V4.0 verification script re-run against the V4.2 code: ALL PASS (user-scoped
+  statistics, single-source-of-truth agreement across task_state/milestones/
+  pipeline/lab, legacy invisible on population/tree/scatter/filter/shortlist/
+  candidates, legacy node reachable by id, DB rows and generations intact).
+  Node selector: /api/research/filter returns 10000 user nodes and zero legacy
+  ids; the backend re-validates the selection and refuses LEGACY_TEST nodes
+  (LEGACY_NODE_NOT_TRADEABLE). A manual test order never changes a node's
+  status/generation/metrics.
+  V4.1 acceptance (Option A/B/C + guards) re-run on a fresh disposable copy with
+  the fixed engine: ALL PASS - Option B raised the target 10000 -> 11000 with
+  nothing regenerated; the synchronous top-up produced exactly 1000 new nodes
+  (ids 10815..11814, numbering 10001..11000, current run, USER_RESEARCH), the
+  original 10000 nodes unchanged, legacy 787 untouched, inserts refused at the
+  ceiling, AUTOINCREMENT not rewound; at-target replenishment was a no-op;
+  Option A created + verified a USER_RESEARCH-only backup (11000 nodes, 0
+  legacy) BEFORE deleting anything, reset the user study to 0, left legacy and
+  its dependent rows untouched and issued a new run; restore recovered the study
+  exactly; Option C reset without an archive; all guard attempts were rejected
+  (409/409/400/400/400) and deleted nothing.
+
+13. DATA INTEGRITY
+------------------
+  DATA never entered the coding workspace and was never committed. Every
+  destructive or state-changing verification ran against a disposable copy
+  (/opt/lmsarena-storage/v4_2_testdata/DATA, created with cp -a from
+  DATA_PRISTINE_20261006); the isolation was confirmed from the running
+  process's own file handles (/proc/<pid>/fd -> the disposable database) and
+  from the startup diagnostic. The authoritative DATA was restored from the
+  pristine reference afterwards and verified with
+  sha256sum -c DATA_IMPORT_MANIFEST.sha256 --quiet (byte-exact, all files OK);
+  after the restore the database again contains exactly 10000 user / 787 legacy
+  rows, max id 10814 and the original 27 tables (the new audit table only
+  exists once the feature is used).
+
+14. KNOWN ISSUES / NOT IMPLEMENTED
+----------------------------------
+  * MT5 execution is unverified against a live terminal from here (see 11);
+    the on-host script is the agreed way to complete tests 1-4.
+  * /api/mt5-demo/status still reports its legacy "DEMO_ACCOUNT_READY" banner
+    with placeholder account values when no terminal is connected (pre-existing
+    presentation, untouched); the V4.2 execution surface always reports the real
+    verification state instead.
+  * Duplicate-order protection is in-process (single uvicorn worker) plus a
+    persisted client_order_id; a multi-worker deployment would still be safe for
+    replays of the same id but there is no cross-process in-flight lock.
+  * No position management, no closing UI, no P/L tracking: V4.3 scope.
+  * Pre-existing unscoped status writers (POST /api/tasks/reconcile,
+    restoration.py) remain untouched by V4.2.
+
+15. GIT RESULT
+--------------
+  Commit message : V4.2: add MT5 demo execution foundation
+  Commit hash    : 825772960f0af8c163be5889ff6f6e2bf62c038d
+  Push           : origin main (verified local HEAD == remote main)
+  Working tree   : clean after the commit (runtime churn reverted, no DATA, no
+                   temporary files, no backups, no credentials staged)
+=============================================================

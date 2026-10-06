@@ -2441,3 +2441,27 @@ STATUS:
 V4.1 requested. What was asked for is recorded here; what LMSArena actually
 implemented, tested and committed is recorded in lmsarena.txt.
 =============================================================
+
+
+=============================================================
+VERSION: V4.2
+=============================================================
+REQUESTED CHANGE:
+
+Implement the controlled MT5 demo execution foundation:
+
+* manual demo order panel
+* real MT5 demo order placement
+* BUY/SELL
+* real SL/TP
+* demo-account safety lock
+* order validation
+* MT5 response/error handling
+* duplicate submission protection
+
+Do not implement the broader live-testing system yet.
+
+STATUS:
+V4.2 requested. What was asked for is recorded here; what LMSArena actually
+implemented, tested and committed is recorded in lmsarena.txt.
+=============================================================

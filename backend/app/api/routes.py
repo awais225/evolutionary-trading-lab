@@ -2990,3 +2990,43 @@ def mt5_demo_pause_all() -> Dict:
     db.x("UPDATE mt5_demo_configs SET status='PAUSED' WHERE enabled=1")
     return {"ok": True, "message": "All MT5 demo trading paused"}
 
+
+
+# ---------------- V4.2: controlled MT5 DEMO order execution ----------------
+# Manual, explicitly-confirmed demo orders only. Nothing here runs on its own:
+# no scheduled loop, no auto-trade, no background execution (V4.2 scope).
+@router.get("/mt5-execution/state")
+def mt5_execution_state() -> Dict:
+    """Everything the manual demo order panel needs: connection + account
+    identity + demo verification verdict + defaults + in-flight state."""
+    from ..mt5.execution import execution_state
+    return execution_state()
+
+
+@router.get("/mt5-execution/status")
+def mt5_execution_status() -> Dict:
+    """In-flight state + last result (used by the UI busy/result polling)."""
+    from ..mt5.execution import operation_status, recent_orders
+    return {"operation": operation_status(), "recent_orders": recent_orders(20)}
+
+
+@router.post("/mt5-execution/validate")
+def mt5_execution_validate(payload: Dict = Body(default_factory=dict)) -> Dict:
+    """Local validation preview. NEVER sends an order to MT5."""
+    from ..mt5.execution import validate_order_request
+    return validate_order_request(
+        symbol=payload.get("symbol", ""), side=payload.get("side", ""),
+        volume=payload.get("volume"), sl=payload.get("sl"), tp=payload.get("tp"),
+        price=payload.get("price"), strategy_id=payload.get("strategy_id"),
+        require_live=True)
+
+
+@router.post("/mt5-execution/place")
+def mt5_execution_place(payload: Dict = Body(default_factory=dict)) -> Dict:
+    """Place ONE demo market order with real SL/TP (explicit confirmation
+    required). Structured failures are returned as {code, message, stage}."""
+    from ..mt5.execution import MT5ExecutionError, place_demo_order
+    try:
+        return place_demo_order(payload)
+    except MT5ExecutionError as e:
+        raise HTTPException(e.http_status, detail=e.to_dict())
