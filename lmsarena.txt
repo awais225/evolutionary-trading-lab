@@ -239,8 +239,11 @@ Final commit                 : recorded in Entry 1b below (the commit that
 ENTRY 1b — 2026-10-06 — V4 BASELINE COMMIT RECORD
 =============================================================
 
-V4 baseline commit : <pending — recorded immediately after the push>
+V4 baseline commit : e2b843ff313e22cd72ef6f0faf192463bb3b6d67
+                     "V4 baseline: initialize LMSArena workspace and data separation"
 Push target        : origin/main (https://github.com/awais225/evolutionary-trading-lab.git)
+Push result        : SUCCESS (0fe4b3b..e2b843f main -> main; remote head verified equal
+                     to the local commit before this log entry was added)
 Contents           : backend/app/config.py, backend/app/doctor.py,
                      scripts/lmsarena_provision_data.sh, chatgpt.txt, lmsarena.txt
 Excluded           : DATA, credentials, test artifacts, build/dependency folders.
