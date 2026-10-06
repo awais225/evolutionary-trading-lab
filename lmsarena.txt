@@ -2641,7 +2641,18 @@ VERSION: V4.7 — RELIABILITY, PERFORMANCE AND PRODUCTION HARDENING
                    tests/test_v4_7_frontend.py (new), tests/conftest.py,
                    tests/test_v4_4_stats.py, tests/test_v4_6_mt5_historical.py
                    tooling: scripts/v47_perf_probe.py (measurement probe)
-  Push           : _PUSH_RESULT_
+  Push           : origin main 2e47fb4..d269ebf  main -> main (feature commit
+                   f5331275c7c139a81571482d4ea44661f03e20e6 and the docs commit
+                   d269ebf79ed5190b2fe26b231686b24a71538565 are both on origin;
+                   local HEAD == origin/main verified after the push, and the
+                   feature commit's implementation files (app/lifecycle.py,
+                   app/api/json_safety.py, app/db/snapshot.py, src/lib/safe.js,
+                   tests/test_v4_7_reliability.py, tests/test_v4_7_frontend.py,
+                   frontend/tests/v47_render_smoke.mjs, scripts/v47_perf_probe.py)
+                   were confirmed present in origin/main's tree.
+                   The push result itself is recorded in this follow-up
+                   documentation commit, because a commit cannot contain the
+                   result of the push that carries it.
   Working tree   : clean after the commit; runtime churn (LOGS/lab.pid,
                    frontend/dist) restored/ignored; no DATA, database file,
                    -wal/-shm, archive, .pid, cache, venv or node_modules staged.
