@@ -2453,7 +2453,9 @@ VERSION: V4.7 — RELIABILITY, PERFORMANCE AND PRODUCTION HARDENING
 
 6. API JSON SAFETY (app/api/json_safety.py)
 --------------------------------------------
-  * A SafeJSONResponse is installed as the default response class: NaN and
+  * A SafeJSONResponse is installed as the default response class (with a
+    zero-overhead fast path - see the performance section: serialise first,
+    sanitise only if that fails): NaN and
     +/-Infinity become null, datetime/date/Decimal/Path/set/tuple/dataclass/
     to_dict objects are converted, recursion depth is capped and anything
     unknown degrades to a string - a response can no longer be invalid JSON or
@@ -2568,32 +2570,61 @@ VERSION: V4.7 — RELIABILITY, PERFORMANCE AND PRODUCTION HARDENING
 11. PERFORMANCE (measured, before vs after)
 --------------------------------------------
   * Time to first HTTP answer, median of 3 cold starts on fresh copies:
-    2.324 s (old inline behaviour, same V4.7 code with
+    2.324 s (old inline behaviour, measured with the same V4.7 code under
     EVOLUTIONARY_LAB_STARTUP_BLOCKING=1) -> 1.172 s (V4.7 lazy startup),
-    -49.6%; readiness is reached at ~1.8 s, so the dashboard can show its
-    shell and a starting banner instead of a dead page.
-  * Endpoint medians (probe, same disposable-copy conditions):
-      /health                    2.24 -> 2.19 ms
-      /api/health                2.22 -> 2.74
-      /api/mt5-historical/capabilities 310.55 -> 3.68   (catalogue memoised)
-      /api/lab/status           34.32 -> 33.40
-      /api/stats/overview       66.41 -> 81.50
-      /api/stats/nodes          19.76 -> 35.62
-      /api/research/strategies 115.63 -> 129.11
-      /api/research/facets      44.02 -> 48.71
-      /api/research/matrix      59.01 -> 71.64
-      /api/strategies/1195       4.07 -> 8.17
-      /api/mt5-historical/runs   2.92 -> 3.01
-    The read-only dashboard endpoints are within run-to-run noise of the
-    baseline (the probe measures single sequential calls on a disposable copy
-    while startup steps may still be finishing); nothing regressed beyond
-    noise, and the one genuine per-request hotspot (dataset eligibility:
-    99 read_parquet calls, ~0.35 s) went from 310 ms per call to 0.2 ms warm.
-  * 30 x (/health + /api/lab/status) poll pairs: 1.201 s before, 1.185-1.455 s
-    after (40-49 ms per pair in both cases) - the polling contract is unchanged
-    and nothing hammers the database. The genuinely long operations (backup,
-    log export, historical runs, data sync/clear) leave the request thread
-    immediately and report through the job/run records.
+    -49.6%. The recorded pre-V4.7 baseline was 2.263 s, i.e. the blocking
+    measurement reproduces it. Readiness is reached at ~1.8-2.6 s, so the
+    dashboard can render its shell and a "starting" banner instead of waiting
+    for a dead page.
+  * Endpoint medians, warm-to-warm (7 samples each, measured only after the
+    backend reported ready, fresh disposable copy, no background startup work
+    in flight). The "pre-V4.7" column is the baseline probe on an equivalent
+    copy; the two V4.7 columns are the same code with inline vs lazy startup:
+      endpoint                  pre-V4.7   V4.7 inline   V4.7 lazy
+      /health                      2.24        2.32        1.15 ms
+      /api/health                  2.22        1.47        0.99
+      /api/ready                 (404)         1.49        1.58
+      /api/lab/status             34.32       46.84       36.41
+      /api/stats/overview         66.41      119.29       74.56
+      /api/stats/nodes            19.76       22.16       21.60
+      /api/research/strategies   115.63      132.70      123.36
+      /api/research/facets        44.02       72.60       48.83
+      /api/research/matrix        59.01       61.08       61.94
+      /api/strategies/1195         4.07        8.42        5.67
+      /api/mt5-historical/capabilities
+                                 310.55        2.18        1.93
+      /api/mt5-historical/runs     2.92        1.69        1.64
+  * Honesty about that table: the same endpoint measured twice in the same
+    session on the same machine varies a lot (stats_overview 74.56 ms in the
+    lazy run and 119.29 ms in the inline run of the *same* code), which is far
+    larger than most of the deltas above. The dashboard read endpoints are
+    therefore unchanged within measurement variance, not "faster"; the one
+    change that is real, reproducible and explained is the eligibility
+    catalogue behind /api/mt5-historical/capabilities: it used to run 99
+    read_parquet calls (~0.35 s) on every request and now costs 310.55 ms ->
+    ~2 ms (warm), 389 ms once when it is rebuilt.
+  * Latency of the handlers themselves, measured in-process (25 calls, node
+    detail, before vs after): handler 1.33 ms -> 1.28 ms, JSON rendering
+    1.49 ms -> 1.50 ms for the same 93.6 kB payload - i.e. the V4.7 node-detail
+    hardening and the JSON safety net add no measurable handler cost.
+  * One regression WAS found and fixed during this iteration: the first version
+    of the JSON safety net sanitised (walked and copied) every payload before
+    serialising it, which cost 5-15 ms per response on the dashboard endpoints
+    (node detail 4.07 -> 14.20 ms in the first warm measurement). The response
+    is now serialised first exactly as Starlette does and sanitised only when
+    that serialisation fails, so a clean payload pays nothing (commit
+    2882975 "V4.7: keep the JSON safety net off the hot path"). The numbers in
+    the table above are the post-fix measurements.
+  * Polling: 30 x (/health + /api/lab/status) pairs took 1.201 s before and
+    1.185-1.455 s after (40-49 ms per pair in both cases) - no polling change,
+    nothing hammers the database. The genuinely long operations (backup, log
+    export, historical runs, data sync/clear) leave the request thread
+    immediately and report through the existing job/run records.
+  * Database work: the V4.5 invariants hold - paged Strategy Lab reads are a
+    fixed number of statements (the V4.5 test pins matrix() to exactly one),
+    no per-row queries were added, and the new eligibility memo is bounded
+    (per database + dataset-registration signature, cleared explicitly with
+    refresh=true).
 
 12. BUNDLE / BUILD RESULT
 --------------------------
@@ -2641,6 +2672,10 @@ VERSION: V4.7 — RELIABILITY, PERFORMANCE AND PRODUCTION HARDENING
                    tests/test_v4_7_frontend.py (new), tests/conftest.py,
                    tests/test_v4_4_stats.py, tests/test_v4_6_mt5_historical.py
                    tooling: scripts/v47_perf_probe.py (measurement probe)
+  Follow-up      : 2882975 "V4.7: keep the JSON safety net off the hot path"
+  commit           (22 lines changed in app/api/json_safety.py) - the measured
+                   latency finding from the performance section; the feature
+                   commit's hot-path behaviour is this version.
   Push           : origin main 2e47fb4..d269ebf  main -> main (feature commit
                    f5331275c7c139a81571482d4ea44661f03e20e6 and the docs commit
                    d269ebf79ed5190b2fe26b231686b24a71538565 are both on origin;
@@ -2654,6 +2689,11 @@ VERSION: V4.7 — RELIABILITY, PERFORMANCE AND PRODUCTION HARDENING
                    documentation commit 39545c9d1b9485822f75fa40f4450e65407f91ca
                    ("V4.7: record push result in lmsarena.txt"); HEAD ==
                    origin/main was verified again after it, with a clean tree.
+                   A third push carried the hot-path fix and this documentation
+                   update (4107b54..2882975..the docs commit that contains this
+                   text), after which HEAD == origin/main and the tree is clean;
+                   no DATA, database/WAL file, archive, PID file, cache,
+                   node_modules or virtualenv is present in any V4.7 commit.
                    The push result itself is recorded in this follow-up
                    documentation commit, because a commit cannot contain the
                    result of the push that carries it.
