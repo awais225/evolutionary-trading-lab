@@ -1,0 +1,259 @@
+EVOLUTIONARY TRADING RESEARCH LAB
+LMSARENA IMPLEMENTATION HISTORY
+=============================================================
+
+PURPOSE OF THIS FILE
+--------------------
+This file is the LMSArena-side implementation/testing/commit history.
+
+It is deliberately separate from chatgpt.txt:
+
+    chatgpt.txt    = WHAT THE USER / CHATGPT REQUESTED  (requested-change history)
+    lmsarena.txt   = WHAT LMSARENA ACTUALLY DID         (implementation history)
+
+Rules for this file:
+  * Append a new dated ENTRY per LMSArena iteration. Never rewrite old entries.
+  * Record facts only: commands executed, results observed, files changed,
+    commits, and remaining problems. Do not record secrets or credentials.
+  * Research DATA must never be committed to Git and is never stored in the
+    coding workspace; it lives in LMSArena temporary storage and is referenced
+    through the EVOLUTIONARY_LAB_DATA_ROOT environment mechanism.
+
+=============================================================
+ENTRY 1 — 2026-10-06 — V4 INITIAL BASELINE SETUP (setup only, no features)
+=============================================================
+
+SCOPE
+-----
+Repository import, DATA separation, environment setup and verification only.
+No V4 features were implemented. No trading logic, dashboard behaviour, API
+behaviour, strategy laboratory, final testing, backtest matrix, MT5, live
+testing or AI research code was modified.
+
+1. REPOSITORY
+-------------
+Repository          : https://github.com/awais225/evolutionary-trading-lab.git
+Branch              : main
+Starting commit     : 0fe4b3b5af662b8b294f1effe72e2edaa2221f70
+                      ("Include complete research and backtest data", awais225,
+                       Tue Oct 6 15:35:56 2026 +0500)
+Workspace clone     : /home/user/evolutionary-trading-lab
+Authentication      : GitHub PAT supplied for this task, used only through an
+                      ephemeral GIT_ASKPASS helper in temporary storage. The
+                      token was never written to the repository, to any tracked
+                      file, to logs, or to this document.
+LFS                 : .gitattributes tracks *.parquet / *.db with Git LFS.
+                      git-lfs 3.8.0 was installed in the sandbox and all 367 LFS
+                      objects were fetched; no pointer files remain.
+DATA in workspace   : excluded via git sparse-checkout (patterns "/*", "!/DATA"),
+                      so the working tree contains source only while DATA stays
+                      tracked in the GitHub repository tree. git status is clean.
+
+2. DATA SEPARATION (as required by the V4 architecture)
+-------------------------------------------------------
+Coding workspace (no DATA directory):
+    /home/user/evolutionary-trading-lab
+      backend/ frontend/ desktop/ scripts/ CONFIG/ LOGS/ tests config, docs,
+      chatgpt.txt, lmsarena.txt
+
+LMSArena temporary storage (runtime DATA, outside the workspace):
+    /opt/lmsarena-storage/DATA                     <- runtime/testing DATA tree
+    /opt/lmsarena-storage/DATA_PRISTINE_20261006   <- byte-exact reference copy
+    /opt/lmsarena-storage/DATA_IMPORT_MANIFEST.sha256 (sha256 of all 11,370 files)
+    /opt/lmsarena-storage/venv                     <- Python 3.13 virtualenv
+    /opt/lmsarena-storage/research_metrics.py, baseline_research_metrics.json
+
+Rationale: the workspace snapshot budget (~128 MB) cannot hold the 166 MB DATA
+tree; DATA therefore lives in the large temporary filesystem and is imported
+verbatim from the repository. Import was verified file-by-file with sha256
+(11,370/11,370 identical).
+
+3. DATA POPULATION DETECTED (authoritative, real DATA)
+------------------------------------------------------
+Counting method: the project's own classification column `data_source`
+(backend/app/db/database.py, V3.6 non-destructive classification).
+
+    strategies (total)      : 10,787
+    USER_RESEARCH nodes     : 10,000   (run_id RUN-20261005-055251)
+    LEGACY_TEST nodes       :    787
+    schema user_version     : 3       (DATA/DATABASE/lab_state.db)
+    id range / generations  : 1..10814 / 0..39
+    backtests / validations : 1,031 / 146
+    research_memory rows    : 47
+
+The 787 legacy records are excluded from the user research population exactly
+as required; user and legacy populations were not merged, renamed or renumbered.
+No node, genome, backtest, validation or lineage record was regenerated.
+
+4. ENVIRONMENT
+--------------
+Python              : 3.13.14; venv at /opt/lmsarena-storage/venv
+Backend deps        : backend/requirements.txt installed unchanged
+                      (fastapi 0.142.2, uvicorn 0.54.0, pydantic 2.13.5,
+                       pandas 3.0.6, numpy 2.5.3, pyarrow 25.0.1, duckdb 1.5.6,
+                       psutil, pyyaml, httpx, pytest 9.1.1)
+Test-run tool       : pytest-timeout 2.4.0 installed in the venv only (used to
+                      bound hanging tests). requirements.txt was NOT modified.
+Frontend            : npm install + vite build -> frontend/dist (build OK;
+                      990 modules, index-*.js 1,036 kB / gzip 279 kB).
+                      node_modules and dist are gitignored and not committed.
+
+5. DATA-ROOT CONFIGURATION
+--------------------------
+The project already supports a configurable data root: backend/app/paths.py
+reads EVOLUTIONARY_LAB_DATA_ROOT and derives every persistent path from it.
+Two minimal, portable source changes were required so the rest of the
+application follows the same root (no sandbox path is hard-coded anywhere):
+
+  * backend/app/config.py — new helper `_resolve_data_tree()`: any configured
+    path inside the DATA tree (data.data_root, data.cache_dir, database_path)
+    is re-rooted onto paths.DATA_ROOT. Additionally, if the configured database
+    file does not exist but the DATA_ROOT database does, DATA_ROOT is followed
+    (prevents creating a competing/partial database).
+  * backend/app/doctor.py — the DATA-root diagnostic now reports
+    paths.DATA_ROOT instead of a hard-coded <root>/DATA.
+
+Portability verified both ways:
+    EVOLUTIONARY_LAB_DATA_ROOT set   -> data_root, cache_dir and database_path
+                                        resolve inside temporary storage,
+                                        database exists = True
+    unset                            -> resolution is identical to upstream
+                                        behaviour (<root>/DATA)
+
+Runtime invocation:
+    EVOLUTIONARY_LAB_DATA_ROOT=/opt/lmsarena-storage/DATA \
+    python -m uvicorn app.main:app --host 0.0.0.0 --port 8787
+
+A helper for future iterations was added: scripts/lmsarena_provision_data.sh
+(imports DATA verbatim into LMSArena temporary storage, verifies the population,
+never writes into the workspace, stores no credential).
+
+6. TESTS / BUILD / STARTUP RESULTS
+----------------------------------
+Test command:
+    cd /home/user/evolutionary-trading-lab
+    EVOLUTIONARY_LAB_DATA_ROOT=/opt/lmsarena-storage/DATA \
+    PYTHONPATH=$PWD/backend /opt/lmsarena-storage/venv/bin/python -m pytest \
+      -c pytest.ini /opt/lmsarena-storage/DATA/tests -q -p no:cacheprovider \
+      --timeout=180 --timeout-method=thread
+
+Result (existing suite, real DATA): 232 tests collected
+                                   219 passed / 13 failed (39.8 s)
+Build (frontend):                  PASS
+Startup / health:                  PASS
+    DATA ROOT /opt/lmsarena-storage/DATA, DATABASE .../DATA/DATABASE/lab_state.db
+    /health 200 (V3.6, bridge=simulator), /api/health 200
+    /api/lab/status total_nodes=10787; /api/tree total_strategies=10787
+    strategy detail endpoint returns real genome/economics; dashboard root
+    served from frontend/dist.
+
+13 failures (RECORDED, NOT FIXED — per instruction, existing failures are left
+untouched for a later version):
+  A. Windows launcher tests (5) — assert START.bat; the repository ships
+     start.bat (lowercase) so these pass on Windows, fail on the case-sensitive
+     Linux sandbox:
+       test_launcher_scenarios.py::test_start_bat_static_structure
+       test_scenarios_a_to_f.py::test_launcher_scripts_and_powershell_routing
+       test_v2_1_features.py::test_start_bat_structure
+       test_v2_2_features.py::test_v2_2_launcher_scripts
+       test_v2_3_features.py::test_start_bat_v2_3_structure
+  B. Tests that assert the legacy in-repo database path <root>/DATABASE/
+     lab_state.db (3) — the authoritative database lives under DATA_ROOT:
+       test_mt5_sync_and_activity.py::test_database_and_tree_preserved
+       test_v2_6_features.py::test_database_preservation_and_schema_version
+       test_v2_7_features.py::test_critical_invariants_db_and_tree
+  C. Test asserting DATA_ROOT == ROOT_DIR/"DATA" (1) — intentionally no longer
+     true with the external DATA root:
+       test_v2_7_features.py::test_persistent_data_architecture
+  D. Genuine portability weakness exposed by the external DATA root (1):
+       test_v2_features.py::test_backup_creation -> ValueError: '.../DATA/metadata/
+       active_run.json' is not in the subpath of '<root>' (path relativisation
+       against ROOT_DIR in the backup/config persistence path). Candidate fix for
+       a future iteration; not changed now.
+  E. Order/state dependent failures (2): test_v2_71_...::test_test_e_valid_dataset_
+     and_features_evaluates_normally (asserts status BACKTESTING), and
+     test_v2_features.py::test_resource_manager_enforces_limits (host-dependent).
+  F. test_v3_2_restoration_and_recovery.py::test_test_d_evolution_tree_restoration
+     (1): asserts node id 1 present in /api/tree?max_nodes=1000; with the 10,787
+     node population the sampled tree window does not include id 1. Needs
+     ChatGPT review; unchanged here.
+
+Observed once and not reproducible: the full suite hung at 85% inside
+test_v3_5_cpu_worker_scaling_and_telemetry.py::test_system_status_row_api_telemetry
+(TestClient startup). The same test passes in isolation (0.79 s) and the whole
+suite completed normally on re-run with per-test timeouts. No source change made.
+
+7. DATA SAFETY OBSERVATIONS (important for future iterations)
+-------------------------------------------------------------
+  * Running the project's own test suite against the authoritative DATA writes
+    to it: the database transitioned 15 strategies (SURVIVED -> FAILED), added
+    15 validation rows and 27 research_memory rows, while all 10,787 strategy
+    artifact files and the strategy population count stayed unchanged.
+  * App startup performs benign runtime writes by design: the restoration engine
+    mirrors the database to DATA/database/lab_state.db and refreshes
+    DATA/manifests/*, DATA/metadata/*, simulator/feature caches and logs.
+  * App/test settings persistence rewrote the tracked files
+    CONFIG/lab_config.yaml and CONFIG/settings.json with absolute
+    /opt/lmsarena-storage/... paths (and changed target/worker settings). Those
+    changes were reverted and must never be committed.
+  * Therefore: after testing, DATA was restored from the byte-exact pristine
+    copy and re-verified against the sha256 import manifest. Final state:
+    DATA = exact testing copy of the repository dataset (0 differences,
+    research metrics identical to baseline).
+
+8. FILES CHANGED IN THIS ITERATION
+----------------------------------
+Modified (setup-only, DATA-root handling):
+    backend/app/config.py          (_resolve_data_tree + DATA_ROOT db fallback)
+    backend/app/doctor.py          (DATA root from app.paths)
+    chatgpt.txt                    (appended the requested V4 baseline entry)
+Added:
+    lmsarena.txt                   (this file)
+    scripts/lmsarena_provision_data.sh
+Not committed (must stay out): DATA (external), CONFIG/lab_config.yaml,
+    CONFIG/settings.json, LOGS/lab.pid (test artifacts, reverted),
+    frontend/node_modules, frontend/dist, venv, caches.
+
+.gitignore deliberately unchanged: the DATA tree is already tracked in the
+GitHub repository, so an ignore rule would not prevent committing DATA, and it
+would risk silently ignoring NEW research files written on the user's machine
+(e.g. additional DATA/RESEARCH/strategies/*.json). DATA separation is instead
+enforced structurally: DATA is not materialised in the workspace
+(sparse-checkout) and every commit is reviewed file-by-file for DATA,
+credentials and temporary artifacts before it is created.
+
+9. FINAL STATUS
+---------------
+Repository imported          : YES (source only in workspace; DATA external)
+DATA in temporary storage    : YES — 10,000 USER_RESEARCH + 787 LEGACY_TEST
+DATA modified                : NO  (restored + verified byte-exact; 11,370 files)
+Application starts on real DATA: YES (health checks 200, population = 10,787)
+Existing tests               : 219 passed / 13 failed (pre-existing, recorded)
+Build                        : PASS
+V4 features implemented      : NONE (baseline only; awaiting the next ChatGPT
+                               development prompt)
+Final commit                 : recorded in Entry 1b below (the commit that
+                               introduced this file).
+
+=============================================================
+ENTRY 1b — 2026-10-06 — V4 BASELINE COMMIT RECORD
+=============================================================
+
+V4 baseline commit : <pending — recorded immediately after the push>
+Push target        : origin/main (https://github.com/awais225/evolutionary-trading-lab.git)
+Contents           : backend/app/config.py, backend/app/doctor.py,
+                     scripts/lmsarena_provision_data.sh, chatgpt.txt, lmsarena.txt
+Excluded           : DATA, credentials, test artifacts, build/dependency folders.
+
+NEXT ITERATION WORKFLOW (unchanged from the V4 specification):
+  1. ChatGPT provides a versioned implementation prompt.
+  2. LMSArena updates the workspace from the latest GitHub state
+     (git fetch/reset for the code; DATA is never materialised into it).
+  3. If temporary storage was reset, re-import DATA:
+       scripts/lmsarena_provision_data.sh  (LMSARENA_DATA_ROOT=/opt/lmsarena-storage/DATA)
+  4. Implement only the requested changes.
+  5. Test against the real DATA (prefer a scratch copy if the authoritative
+     dataset must stay byte-exact; otherwise restore from the pristine copy).
+  6. Record the milestone in this file (lmsarena.txt).
+  7. Review git status/diff, commit, push to GitHub, update the workspace.
+  8. DATA stays outside the workspace, referenced via EVOLUTIONARY_LAB_DATA_ROOT.

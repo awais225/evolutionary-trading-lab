@@ -280,6 +280,35 @@ def _relativize(p: str) -> str:
         return p
 
 
+def _resolve_data_tree(p: str) -> str:
+    """Resolve a DATA-tree path (data_root / cache_dir / database_path).
+
+    The authoritative DATA tree is ``app.paths.DATA_ROOT``, which follows the
+    ``EVOLUTIONARY_LAB_DATA_ROOT`` environment override. Any configured path
+    that points inside the DATA tree is therefore re-rooted onto DATA_ROOT, so
+    the persistent research state can live outside the application folder
+    without editing any source file (V4 LMSArena data separation).
+
+    Paths that do NOT live inside the DATA tree keep the previous behaviour
+    (relative -> app root), so an existing local installation resolves exactly
+    as before and nothing is ever silently moved.
+    """
+    pp = Path(p)
+    root_data = (ROOT_DIR / "DATA")
+    if pp.is_absolute():
+        ap = pp.resolve()
+        try:
+            rel = ap.relative_to(root_data.resolve())
+        except (ValueError, OSError):
+            return str(pp)                      # outside DATA: untouched
+        return str((P.DATA_ROOT / rel).resolve())
+    parts = pp.parts
+    if parts and parts[0] == "DATA":            # e.g. "DATA/DATABASE/lab_state.db"
+        rel = Path(*parts[1:]) if len(parts) > 1 else Path()
+        return str((P.DATA_ROOT / rel).resolve())
+    return str(ROOT_DIR / pp)                   # untouched legacy behaviour
+
+
 def load_config(path: Path | None = None) -> LabConfig:
     global _config, CONFIG_PATH
     with _lock:
@@ -319,13 +348,19 @@ def load_config(path: Path | None = None) -> LabConfig:
             database_path=data.get("database_path", LabConfig().database_path),
             log_level=data.get("log_level", "INFO"),
         )
-        cfg.data.data_root = _resolve(cfg.data.data_root)
-        cfg.data.cache_dir = _resolve(cfg.data.cache_dir)
-        cfg.database_path = _resolve(cfg.database_path)
+        cfg.data.data_root = _resolve_data_tree(cfg.data.data_root)
+        cfg.data.cache_dir = _resolve_data_tree(cfg.data.cache_dir)
+        cfg.database_path = _resolve_data_tree(cfg.database_path)
         # V1 database_path pointed at <root>/lab_state.db; after layout
         # migration the db lives in DATABASE/ — follow it, never recreate.
         v1_default = str(ROOT_DIR / "lab_state.db")
         if (cfg.database_path == v1_default or "pytest" in str(cfg.database_path)) and P.database_file().exists() and not path:
+            cfg.database_path = str(P.database_file())
+        # V4 (LMSArena setup): DATA_ROOT is authoritative. If the configured
+        # database path does not exist but the one under DATA_ROOT does, follow
+        # DATA_ROOT rather than letting a new empty database be created
+        # elsewhere (never create a competing/partial database).
+        elif not Path(cfg.database_path).exists() and P.database_file().exists():
             cfg.database_path = str(P.database_file())
         if "pytest" in str(cfg.data.cache_dir) and not path:
             cfg.data.cache_dir = str(P.DATA_CACHE_DIR)

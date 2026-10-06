@@ -166,7 +166,13 @@ def run_diagnostics() -> int:
         record("Desktop Packaging", "WARN", "Desktop shell or PyInstaller specification incomplete.")
 
     # 9. Persistent DATA Architecture & Manifests (V3.2)
-    data_root = ROOT_DIR / "DATA"
+    # DATA root is authoritative via app.paths.DATA_ROOT (honours
+    # EVOLUTIONARY_LAB_DATA_ROOT) so diagnostics follow the active DATA tree.
+    try:
+        from app import paths as _paths  # noqa: WPS433 (lazy import keeps doctor importable standalone)
+        data_root = _paths.DATA_ROOT
+    except Exception:
+        data_root = ROOT_DIR / "DATA"
     manifest_file = data_root / "manifest.json"
     db_mirror = data_root / "database" / "lab_state.db"
     node_ledger = data_root / "nodes" / "node_ledger.jsonl"

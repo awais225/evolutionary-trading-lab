@@ -2321,3 +2321,23 @@ DO NOT GENERATE ANOTHER LARGE NODE POPULATION UNTIL THE DOWNSTREAM PIPELINE IS V
 =============================================================
 END OF HANDOFF DOCUMENT
 =============================================================
+
+=============================================================
+VERSION: V4 — INITIAL LMSARENA REPOSITORY SETUP
+=============================================================
+
+REQUESTED CHANGES:
+- Import the complete repository into the LMSArena coding workspace.
+- Keep DATA outside the active coding workspace.
+- Import DATA into LMSArena temporary storage for testing/runtime validation.
+- Preserve approximately 10,000 user-generated nodes and 787 legacy nodes exactly.
+- Configure the application to read DATA from temporary storage using the
+  existing EVOLUTIONARY_LAB_DATA_ROOT mechanism (no hard-coded sandbox path).
+- Establish a separate LMSArena implementation log (lmsarena.txt at repo root).
+- Do not implement V4 functionality yet - setup only.
+
+STATUS:
+Initial V4 environment setup requested. What was asked for is recorded here;
+what LMSArena actually did (implementation, testing, commit) is recorded in
+lmsarena.txt.
+=============================================================
