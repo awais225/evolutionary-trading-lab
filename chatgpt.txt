@@ -2605,3 +2605,70 @@ STATUS:
 V4.4 requested. What was asked for is recorded here; what LMSArena actually
 implemented, tested and committed is recorded in lmsarena.txt.
 =============================================================
+
+=============================================================
+=============================================================
+VERSION: V4.5
+=============================================================
+REQUESTED CHANGE:
+
+Implement the Strategy Lab and the Backtest Matrix - the research selection,
+comparison and inspection interface over the stored research population:
+
+* a dedicated Strategy Lab page for browsing, searching, filtering, sorting
+  and multi-selecting strategies and their existing research results
+* a dedicated Backtest Matrix interface that compares the research / backtest
+  dimensions that actually exist for the selected nodes (node ID, generation,
+  symbol, timeframe, backtest and validation status, qualification, trades,
+  wins, losses, win rate, net P&L, drawdown, profit factor, expectancy,
+  reward / risk and any other metric that is authoritative for the node)
+* side-by-side comparison of a small selection: identity, strategy definition,
+  research results and Node Economics
+* strategy detail that reuses the existing per-node detail capability
+* deterministic backend filtering and sorting with pagination, and the
+  selection preserved across filter and page changes
+
+Rules recorded with the request:
+
+* research / backtest analysis and comparison only - no MT5 backtest execution
+  in this iteration (that is V4.6), no automatic trading, no new live trading,
+  no portfolio or risk-engine redesign, no AI mutation, no new research-run
+  workflow and no app-wide UI redesign
+* reuse the authoritative sources (USER_RESEARCH scope, node / strategy
+  records, generation, status, backtest and validation results, qualification,
+  genome parameters and the existing statistics primitives) - do not build a
+  second competing statistics or data model, do not duplicate SQL and do not
+  recompute aggregates in the frontend
+* the LEGACY_TEST population stays isolated: those rows are never part of
+  Strategy Lab or Backtest Matrix results, they are not modified, deleted or
+  re-classified, and no global database filter may be introduced
+* execution audit records (PAPER / MT5 DEMO / LIVE TEST, manual orders) must
+  remain visually and numerically separate from research results and must
+  never move a research statistic
+* filtering, sorting and pagination are executed by the backend with a stable
+  response shape; a missing metric is reported as N/A (never invented, never
+  zero, never undefined / null / NaN / [object Object])
+* keep it fast at the real population size (~10,000 research nodes): no
+  loading all nodes into the browser, no fetch-all-per-render, no one-query-
+  per-strategy (N+1), no repeated full-population reconstruction
+* when a filter hides a selected strategy the UI must say so instead of
+  silently dropping the selection
+* reuse and extend the existing per-node detail instead of duplicating it
+* work must not break V4.0-V4.3 (legacy isolation, the research-run workflow,
+  the MT5 execution path, the live-testing layer, which stays inactive by
+  default); the new V4.5 tests, a focused regression on the changed components
+  and a lightweight smoke check are enough - the full historical acceptance
+  matrix is not to be re-run unless a changed component materially affects it
+* DATA stays external and byte-exact (disposable copies for anything that
+  mutates, authoritative root untouched), recorded in lmsarena.txt only, then
+  committed with the exact V4.5 message and pushed
+
+Out of scope, explicitly: MT5 historical backtest execution, automatic or
+scheduled strategy execution, new live-trading functionality, portfolio risk
+redesign, a new risk engine, AI mutation / autonomous strategy generation, a
+new research-run workflow and a major UI redesign.
+
+STATUS:
+V4.5 requested. What was asked for is recorded here; what LMSArena actually
+implemented, tested and committed is recorded in lmsarena.txt.
+=============================================================

@@ -1647,3 +1647,277 @@ VERSION: V4.4 — RESEARCH STATISTICS & NODE ECONOMICS
     issue: V4.4 changes no code in that area, and every acceptance harness
     passed on a freshly provisioned copy in this phase.
 =============================================================
+
+=============================================================
+=============================================================
+VERSION: V4.5 — STRATEGY LAB & BACKTEST MATRIX
+=============================================================
+(what was actually implemented)
+
+1. BASELINE
+------------
+  * Start point: HEAD ed30122 (V4.4 "record commit and push result in
+    lmsarena.txt"), working tree clean, local HEAD == origin/main.
+  * Authoritative DATA (external storage root, never inside the workspace):
+    10000 USER_RESEARCH + 787 LEGACY_TEST = 10787 strategies, DB sha256
+    54ec6835753a48c095284fc1f3bada856e5315299aa909758abe5ae3fb6e042b,
+    import manifest 11370 entries.
+  * Baseline census reused for every number below: 37 generations, 415 nodes
+    with backtests (screen 415 / detail 73), 9 nodes with validations
+    (5 passed), 5 QUALIFIED, 28 SURVIVED, 33 alive / 9967 dead, 1031
+    backtests, 146 validations, 16 shortlist rows, 8 paper trades, 26
+    execution rows, 0 live_test_trades, 0 mt5_demo_trades, Live Testing
+    inactive, order execution blocked (bridge = SIMULATOR).
+  * No research total changed in this phase.
+
+2. ARCHITECTURE REUSED (nothing re-implemented)
+-----------------------------------------------
+  * backend/app/stats/research_stats.py (V4.4 analytics core) - reused as-is:
+    scope_info(), population(), evolution(), research_performance(),
+    overview(), counter_audit(), node_list(), node_stats(), node_economics().
+    The V4.5 layer builds its WHERE/JOIN/CTE text from the same tables and the
+    same USER_RESEARCH predicate (SCOPE_PREDICATE) instead of adding a second
+    statistics model.
+  * One small extraction inside research_stats.py: the genome-derived risk /
+    stop / target numbers were lifted into reward_risk_from_genome(genome)
+    (risk per trade, SL/TP ATR multiples, ATR reference, reward/risk ratio,
+    trailing, hold limits, concurrency). node_economics() now delegates to it,
+    so the V4.4 node economics and the V4.5 comparison render the same formula
+    exactly once. Output is unchanged (verified on real nodes).
+  * strategies/authoritative.get_authoritative_strategy() is still the single
+    per-node record builder (V4.0/V4.2), so the Strategy Lab detail, the Stats
+    page and the node views all show the same stored values.
+  * Read-only: every new endpoint only issues SELECTs.
+
+3. FILES CHANGED / ADDED
+-------------------------
+  New:
+    * backend/app/stats/strategy_lab.py                (V4.5 core, 831 lines)
+    * frontend/src/components/BacktestMatrixTable.jsx  (shared matrix table)
+    * frontend/src/components/NodeResearchDetail.jsx   (shared per-node detail)
+    * tests/test_v4_5_strategy_lab.py                  (14 tests)
+  Changed:
+    * backend/app/api/routes.py           (+4 read-only research endpoints)
+    * backend/app/stats/research_stats.py (reward_risk_from_genome extraction)
+    * frontend/src/api.js                 (qs() + 4 API helpers)
+    * frontend/src/pages/StrategyLab.jsx  (V3.x in-memory selector replaced by
+                                           the V4.5 API-driven lab)
+    * frontend/src/pages/BacktestMatrix.jsx (V4.5 comparison matrix added on
+                                           top of the unchanged V3.6 per-node
+                                           diagnostic matrix)
+    * frontend/src/pages/Stats.jsx        (per-node detail extracted into the
+                                           shared component; numbers unchanged)
+  Not touched: research engine, evolution, qualification, database schema,
+  V4.1 research-run workflow, V4.2 MT5 execution path, V4.3 live-testing layer,
+  styles.css (no app-wide restyle).
+
+4. NEW ENDPOINTS (read-only, USER_RESEARCH by default)
+-------------------------------------------------------
+  * GET /api/research/strategies - paged/sorted/filtered Strategy Lab table
+    (search, generation, status, symbol, timeframe, direction, qualified,
+    has_backtest, has_validation, validated_passed, stage, shortlist_only and
+    9 numeric thresholds; limit <= 200, offset; 20 sort keys).
+  * GET /api/research/facets - data-driven filter options plus the research
+    population summary, scope info, sort keys, limits and column labels.
+  * GET /api/research/matrix - the Backtest Matrix: explicit ids (order
+    preserved, missing ids reported) or the same filters as the table.
+  * GET /api/research/compare - side-by-side comparison of <= 8 nodes,
+    reusing the V4.4 node_stats()/node_economics() per node.
+  Every response carries scope, the USER_RESEARCH predicate and
+  include_legacy=false, so a caller can never mistake the population it sees.
+  Application now serves 149 paths (verified through app.openapi()).
+
+5. STRATEGY LAB (features implemented)
+---------------------------------------
+  * Filters: free-text search (node id / research node number / symbol /
+    timeframe / status / mutation type), generation, status, symbol, timeframe,
+    direction, qualified, backtest present, validation present, validation
+    passed, pipeline stage (screen / detail / none), shortlist only and 9
+    metric thresholds (min return, min net P&L, min profit factor, min win
+    rate, min trades, max drawdown, min expectancy, min robustness, min OOS
+    return).
+  * Population summary on top (total, alive/dead, qualified, backtested,
+    validated, shortlisted, legacy excluded) - read from the facets endpoint,
+    not computed in React.
+  * Table with 17 columns (identity, status/qualification, symbol/timeframe,
+    trades, win rate, net P&L, return, drawdown, profit factor, expectancy,
+    reward/risk, stage, execution indicator) and checkbox multi-selection.
+  * Sorting and paging are server-side (limit/offset); selection is held in
+    React state and survives filter and page changes; when a filter hides a
+    selected node the UI lists it explicitly instead of dropping it silently,
+    and the comparison is capped at 8 nodes with a clear message.
+  * Sorting is deterministic: NULLS LAST in both directions plus an id
+    tie-break, so repeated requests return identical pages.
+
+6. BACKTEST MATRIX (features implemented)
+------------------------------------------
+  * 20 columns grouped by layer: IDENTITY (node, generation, status, symbol,
+    timeframe, direction, stage), BACKTEST (available, trades, wins, losses,
+    win rate, net P&L, return %, drawdown %, profit factor, expectancy), VALIDATION
+    (available, robustness, passed, OOS return), ENGINE (fitness, risk %,
+    reward/risk, complexity) and EXECUTION RECORDS (paper / live-test / MT5
+    demo counts), kept in its own column and explicitly informational.
+  * Values come from the stored records only: a metric that was never stored
+    is N/A, and derived cells (wins/losses, computed as trades x win rate) are
+    flagged as derived in the payload and marked with "*" in the UI.
+  * Two modes: explicit ids (for the current selection / a single node) or the
+    full filter set; matrix rows are capped at 200 with the cap reported.
+  * Legacy rows are not in either mode unless include_legacy=true is passed
+    explicitly, and then they are flagged research_eligible=false / LEGACY.
+
+7. COMPARISON AND STRATEGY DETAIL
+----------------------------------
+  * The comparison view puts the selected nodes side by side in blocks:
+    IDENTITY, STRATEGY DEFINITION (indicators, parameters, entry and exit
+    conditions, stop/target rules, trailing, risk settings - all as stored),
+    RESEARCH RESULTS (backtest, validation, qualification, trades, win rate,
+    net P&L, drawdown, profit factor, expectancy, other authoritative metrics),
+    NODE ECONOMICS (the V4.4 block, incl. its N/A reasons) and a clearly
+    separate EXECUTION RECORDS block.
+  * Strategy detail reuses the same per-node component as the Stats page
+    (frontend/src/components/NodeResearchDetail.jsx), so there is exactly one
+    detail implementation; the lab adds only navigation actions around it.
+  * Unsupported fields render as N/A with the stored reason; no value on any
+    V4.5 surface renders undefined, null, NaN or [object Object].
+
+8. RESEARCH / EXECUTION SEPARATION AND LEGACY ISOLATION
+--------------------------------------------------------
+  * Research numbers come only from the USER_RESEARCH scope; execution records
+    (paper / live test / MT5 demo / manual orders) are counted separately and
+    labelled EXECUTION, and they never enter a research aggregate.
+  * Default responses for list, facets and matrix contain zero LEGACY_TEST
+    rows (verified against the real 787 legacy ids); the V4.0 diagnostic
+    escape hatch include_legacy=true still exposes them, flagged
+    research_eligible=false / LEGACY, and /api/strategies/{legacy id} still
+    resolves as before. No global DB filter was added and no legacy row was
+    modified.
+
+9. FRONTEND / UI
+-----------------
+  * Strategy Lab page order matches the request: Filters -> population summary
+    -> strategy table -> selected strategies -> comparison -> strategy detail.
+  * Backtest Matrix page: the V4.5 research comparison matrix on top, the
+    pre-existing V3.6 per-node diagnostic matrix (TIMEFRAME / SESSION / DAY /
+    REGIME / DIRECTION) unchanged below it, so nothing was removed.
+  * Existing components and styles are reused (panels, .tbl, .pill, .btn,
+    .metric-card, .warn-banner, .mono/.muted/.pos/.neg); search is debounced
+    350 ms; no global state or routing redesign.
+  * Cosmetic note: styles.css defines no .input class, so the new filter
+    controls use the browser's default select/input rendering inside the
+    existing panel layout - deliberate, to avoid an app-wide restyle.
+
+10. TESTS
+----------
+  * tests/test_v4_5_strategy_lab.py (new): 14 tests, ALL PASS - scope and
+    legacy exclusion, paging and ordering (NULLS LAST), every filter family,
+    metric thresholds, facets/population, matrix ids and filter modes,
+    comparison incl. a missing id and a legacy id, N/A handling for a node
+    without stop/target multiples, JSON-safety of every payload, query-count
+    ceiling (no N+1) and read-only behaviour (no writes), plus the frontend
+    wiring check.
+  * tests/test_v4_4_stats.py (focused V4.4 regression): 18/18 pass.
+  * Full repository suite on a disposable copy of the real DATA:
+    138 passed, 0 failed.
+
+11. REGRESSION (V4.0-V4.3, lightweight, GET-only)
+--------------------------------------------------
+  * V4.0: /api/population, /api/status, /api/strategies/{id} - 200; the
+    population page contains no legacy row; a legacy id still resolves as
+    LEGACY_TEST.
+  * V4.1: /api/research-run/status, /state, /backups - 200, unchanged.
+  * V4.2: /api/strategies/{id}/authoritative and /api/mt5-demo/status - 200,
+    simulator bridge, no execution enabled.
+  * V4.3: /api/live-testing/confirmation, /counter, /nodes, /log - 200, Live
+    Testing remains INACTIVE (0 active, 0 orders, demo_verified=false,
+    blocked_code MT5_UNAVAILABLE). Nothing was activated.
+
+12. REAL-DATA SMOKE (freshly provisioned disposable copy)
+----------------------------------------------------------
+  * Copy: /opt/lmsarena-storage/v45_smoke/DATA (copy of the pristine
+    reference), own backend on port 8789, all checks GET-only.
+  * 10,000 USER_RESEARCH nodes visible; 787 LEGACY_TEST excluded from every
+    default list/facet/matrix response; pagination pages do not overlap;
+    generation / status / symbol / timeframe / has_backtest (415 / 9585) /
+    stage (73) / validated_passed (5) / min_return (2) filters all return the
+    expected real rows; matrix for real ids (1908, 1195, 1196) returns the
+    stored values (e.g. 172 trades, profit factor 1.715) in the requested
+    order; comparison of 3 real nodes + 1 legacy node + 1 unknown id returns
+    the three found rows, reports not_found=[999999] and reuses the V4.4
+    economics byte-for-byte; the no-backtest case shows N/A with reasons.
+  * Research totals unchanged: strategies 10787, backtests 1031,
+    validations 146, paper_trades 8, mt5_demo_trades 0, live_test_trades 0,
+    research_shortlist 16, matrices 133, executions 26; SQLite data_version
+    unchanged (no write happened); the copy's DB file sha256 is identical to
+    the pristine reference.
+
+13. SAFETY OF THE AUTHORITATIVE DATA
+-------------------------------------
+  * The authoritative root was never opened at all: the test suite, the
+    real-data smoke and every backend process in this phase ran against
+    disposable copies (/opt/lmsarena-storage/v45_testdata and
+    /opt/lmsarena-storage/v45_smoke) provisioned from the pristine reference,
+    and the two new endpoints were only ever called read-only.
+  * After all runs: import manifest 11370 entries verified byte-exact
+    (0 mismatched, 0 missing) and the database still hashes to
+    54ec6835753a48c095284fc1f3bada856e5315299aa909758abe5ae3fb6e042b.
+  * No DATA folder, archive, .db, .zip, .pid, cache, venv or runtime artifact
+    is part of this change set (each staged file inspected before the commit).
+
+14. PERFORMANCE OBSERVATIONS (warm, real data)
+-----------------------------------------------
+  * /api/research/strategies: ~103-119 ms per page (2 SQL statements per
+    page - one scoped COUNT plus one page query, no N+1).
+  * /api/research/facets: ~43-101 ms (option counts + population + scope
+    info; dominated by the V4.4 population() aggregate, which is also what
+    keeps the summary consistent with the Stats page).
+  * /api/research/matrix: ~63-103 ms (1 query in ids mode, 2 in filter mode).
+  * /api/research/compare: ~6-16 ms for 3-4 nodes (reuses the V4.4 per-node
+    builder; capped at 8 nodes).
+  * The node matrix is bounded (200 rows) and comparison is bounded (8 nodes),
+    so no interaction can pull the full 10,000-node set into the browser; the
+    frontend issues one request per filter/page change (search debounced).
+
+15. BUILD RESULT
+-----------------
+  * npx vite build -> OK: dist/assets/index-*.js 1,129.18 kB (301.32 kB
+    gzip), CSS 13.91 kB, built in ~5 s. Only the pre-existing chunk-size
+    warning; no new warning introduced by the V4.5 pages.
+
+16. GIT RESULT
+---------------
+  Commit message : V4.5: add strategy lab and backtest matrix
+  Commit hash    : ded8a7441b6dd49f8556fd834be71f1c42f42e14 (feature commit;
+                   this report is completed by the documentation commit that
+                   follows it)
+  Push           : origin main ed30122..ded8a74 (verified local HEAD ==
+                   origin/main afterwards)
+  Working tree   : clean after the commit (runtime churn such as LOGS/lab.pid
+                   restored to HEAD; nothing unrelated staged)
+
+17. REMAINING ISSUES / LIMITATIONS
+-----------------------------------
+  * Per-node risk amount, position size and exposure stay N/A by design (the
+    research records store no account, lot size or signal-bar ATR); the lab
+    shows the stored reason instead of a number.
+  * 9585 of the 10000 research nodes have no backtest yet, so most rows show
+    N/A for backtest metrics; this is the real state of the data, not a
+    rendering choice - the backtested / validated facets make that visible.
+  * The current dataset has no live-test or MT5-demo trades, so those columns
+    legitimately read 0 / empty and never feed a research number.
+  * Facet cost is dominated by the V4.4 population() aggregate (~43-101 ms);
+    it is a single call per filter change and deliberately reuses the V4.4
+    computation rather than caching a second, potentially divergent, summary.
+  * Aggregate rows without a stored win rate or trade count report wins /
+    losses as N/A; where they are derived (trades x win rate) the payload
+    marks them derived and the UI footnotes them.
+  * The new filter controls use default browser styling (styles.css has no
+    .input class); fixing that would be an app-wide CSS change, which the
+    request excluded.
+  * The intermittent SQLite "database disk image is malformed" pattern is an
+    environment/operational issue (database file and WAL sidecars replaced or
+    shared while connections are open); it reproduced only in that situation
+    and every V4.5 run passed on freshly provisioned copies.
+  * Not started in this phase (V4.6 dependencies): MT5 historical backtest
+    execution, automatic strategy execution, portfolio risk redesign and a
+    new risk engine.
+=============================================================
