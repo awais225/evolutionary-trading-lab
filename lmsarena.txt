@@ -3056,12 +3056,25 @@ VERSION: V4.8 — DASHBOARD INTERACTION AND INTEGRATION QA
     chip, banners, backtest history, dataset availability).
 
 8. GIT RESULT
-  Commit         : (recorded in the commit message of this iteration)
-                   "V4.8: complete dashboard interaction QA"
-  Files changed  : the V4.8 implementation files plus the four new components,
-                    the V4.8 tests and this entry; no DATA, database file,
-                    WAL/SHM, ZIP, PID, log, cache, node_modules, virtualenv or
-                    secret is included, and no temporary path appears in any
-                    tracked file (CONFIG/lab_config.yaml and CONFIG/settings.json
-                    are runtime-generated and were reverted before the commit).
+  Previous HEAD  : 4e8a6960e9eb6286f3f6d59fb1dc0c72329df9b9 (V4.7 docs)
+  Commit         : V4.8: complete dashboard interaction QA
+  Commit hash    : 145d41f9425c4f982ded6bbfb30856c82a1735d7
+  Files changed  : 37 files changed, 4812 insertions(+), 918 deletions(-) —
+                   the V4.8 implementation files (backend routes/risk/conditions,
+                   the new UI kit and V4.8 components, the rewritten Node
+                   Economics page and New Research Run modal, the patched pages,
+                   api.js, styles.css, vite.config.js), the V4.8 test suites
+                   (tests/test_v4_8_dashboard.py, tests/test_v4_8_frontend.py,
+                   frontend/tests/v48_ui_smoke.{jsx,mjs}) and this entry.
+                   No DATA, database file, WAL/SHM, ZIP, PID, log, cache,
+                   node_modules, virtualenv or secret is included, and no
+                   temporary path appears in any tracked file
+                   (CONFIG/lab_config.yaml and CONFIG/settings.json are
+                   runtime-generated and were reverted before the commit).
+  Push           : origin main 4e8a696..145d41f  main -> main; local HEAD ==
+                   origin/main was verified after the push and the working tree
+                   is clean. The in-flight V4.8 files that this pass edited
+                   (including the four fixes above) are all part of this commit;
+                   nothing was left uncommitted.
+
 =============================================================
