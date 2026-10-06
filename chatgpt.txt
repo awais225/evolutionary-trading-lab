@@ -2542,3 +2542,66 @@ STATUS:
 V4.3 requested. What was asked for is recorded here; what LMSArena actually
 implemented, tested and committed is recorded in lmsarena.txt.
 =============================================================
+=============================================================
+VERSION: V4.4
+=============================================================
+REQUESTED CHANGE:
+
+Implement the research statistics and node economics layer - analytics and UI
+only, on top of the V4.3 tree:
+
+* a dedicated Stats tab (its own page, its own navigation entry) that presents
+  the research statistics in one place
+* a unified research counter scope: the same research population must yield the
+  same numbers on Overview, Stats, Live Activity, milestones, pipeline state,
+  node lists and the research selectors
+* per-node statistics: each node reports the research results that exist for it
+  (backtest, validation, returns, profit factors) without inventing anything
+* node economics: risk per trade, stop/target rules as ATR multiples, reward /
+  risk, trailing stop, holding limits, concurrency and the trade statistics that
+  back the node, derived only from data that is already stored
+* research-level performance summaries: population / evolution / throughput and
+  aggregate backtest and validation results grouped by backtest stage
+* clear separation of research statistics from MT5 execution and audit
+  statistics, so a research number can never be read as a broker result
+
+Rules recorded with the request:
+
+* analytics / UI only - do not redesign the research engine and do not change
+  how nodes are calculated, qualified, evolved, killed, retired or generated;
+  reuse the existing metrics, endpoints and stored data instead of duplicating
+  formulas in the frontend (the frontend consumes API results)
+* statistics operate on USER_RESEARCH; LEGACY_TEST stays excluded from every
+  user-facing research number (the V4.0 display / retrieval scope architecture -
+  including its explicit escape hatch - must be preserved exactly and no global
+  database filter may be introduced); the 787 preserved records are not
+  modified, deleted or re-classified
+* MT5 audit records, manual orders, live-testing audit rows and legacy
+  infrastructure nodes must not move a research population counter - change an
+  endpoint only where it is genuinely inconsistent
+* per-node views must clearly separate RESEARCH RESULTS from MT5 / LIVE TEST
+  RESULTS and never merge them into one misleading number; results are labelled
+  BACKTEST / VALIDATION / PAPER / LIVE TEST / MT5 DEMO
+* never fabricate a metric: show N/A or a clear explanation when data is
+  missing, never undefined / null / NaN / [object Object], and never a
+  zero that implies a real measurement
+* keep the Stats page fast: no full database scan per frontend render, reuse
+  the existing aggregate / state endpoints, avoid N+1 queries and load per-node
+  detail only after the node is selected
+* work must not break V4.0-V4.3 (legacy isolation, research-run workflow, the
+  V4.2 MT5 execution path, the V4.3 live-testing layer); the required V4.4
+  tests, a focused regression on the changed components and a lightweight smoke
+  check are enough - the full historical acceptance matrix is not to be re-run
+  unless a changed component materially affects it
+* DATA stays external and byte-exact (disposable copy for anything that
+  mutates, authoritative root untouched), recorded in lmsarena.txt only, then
+  committed with the V4.4 message and pushed
+
+Out of scope, explicitly: Strategy Lab redesign, Node Economics page redesign
+and Backtest Matrix redesign, MT5 backtesting, new live-trading functionality,
+automatic trading, a new risk system and a new research-run workflow.
+
+STATUS:
+V4.4 requested. What was asked for is recorded here; what LMSArena actually
+implemented, tested and committed is recorded in lmsarena.txt.
+=============================================================

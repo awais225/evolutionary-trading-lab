@@ -125,6 +125,12 @@ export const api = {
   labRunDetail: (runId) => req(`/api/lab/runs/${runId}`),
   labSetActiveRun: (runId) => req("/api/lab/runs/active", { method: "POST", body: { run_id: runId } }),
   // V4.1 research-run lifecycle (START NEW RESEARCH RUN)
+  // V4.4 — research statistics & node economics (read-only analytics)
+  statsOverview: () => req("/api/stats/overview"),
+  statsScopeAudit: () => req("/api/stats/scope_audit"),
+  statsNodes: (p = {}) => req(`/api/stats/nodes?${new URLSearchParams(p)}`),
+  statsNode: (sid) => req(`/api/stats/node/${sid}`),
+
   researchRunState: () => req("/api/research-run/state"),
   researchRunStatus: () => req("/api/research-run/status"),
   researchRunBackups: () => req("/api/research-run/backups"),

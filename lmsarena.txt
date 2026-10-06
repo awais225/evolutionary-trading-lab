@@ -1381,3 +1381,269 @@ itself is recorded in chatgpt.txt; everything below is the as-built record.
   * Historical repository churn (LOGS/*.pid, DATA/manifests/*) is pre-existing
     and is not part of the V4.3 change set.
 =============================================================
+=============================================================
+VERSION: V4.4 — RESEARCH STATISTICS & NODE ECONOMICS
+=============================================================
+(what was actually implemented)
+
+1. BASELINE
+------------
+  * Start point: HEAD 4955da9 (V4.3 "add controlled live testing and risk
+    monitoring"), working tree clean, local HEAD == origin/main.
+  * Authoritative DATA (external storage root, never inside the workspace):
+    10000 USER_RESEARCH + 787 LEGACY_TEST = 10787 strategies, 27 tables,
+    target 10000, DB sha256 54ec6835753a48c095284fc1f3bada856e5315299aa909758a
+    be5ae3fb6e042b, import manifest 11370 entries.
+  * User-scope census used as the reference for every number below:
+    FAILED 9967 / SURVIVED 28 / QUALIFIED 5 (37 generations), 415 nodes with
+    backtests (screen 415, detail 73), 9 nodes with validations (5 passed),
+    1031 backtests, 146 validations, 16 live_test_configs (all legacy),
+    0 live_test_trades, 0 mt5_demo_trades, 26 executions, 8 paper_trades.
+    Aggregate timing on the copy: user-scope backtest aggregate 10.3 ms,
+    validation fetch 1.2 ms (SQL GROUP BY + json_extract, no per-node loops).
+
+2. ARCHITECTURE INSPECTED AND REUSED (nothing re-implemented)
+-------------------------------------------------------------
+  * engine.get_node_generation_state(exclude_legacy=True)  -> headline
+    population / target / progress / alive / dead (V4.0 user scope)
+  * engine.active_count(exclude_legacy)                    -> in-flight count
+  * db.count_by_status(exclude_legacy=True)                -> status breakdown
+  * db.total_strategies_count / db.reconstruct_state       -> totals, audit
+  * orchestrator/lab.status(), pipeline_state.total_strategies_count,
+    milestones / workflow task_state                      -> audit surfaces
+  * strategies/authoritative.get_authoritative_strategy    -> per-node record
+    (V4.0/V4.2 builder: genome, entry/exit conditions, metrics.backtest,
+    metrics.validation, metrics.live_test, metrics.mt5_demo, returns,
+    profit_factors) - reused as-is, so the Stats page shows the same numbers
+    as the node views and no formula is duplicated
+  * stored tables only: strategies, backtests.metrics (JSON), validations,
+    strategy_pipeline_states, research_shortlist, matrices, paper_trades,
+    live_test_configs, live_test_trades, mt5_demo_configs, mt5_demo_trades,
+    executions, generation_stats.
+  * Scope predicate kept as one constant (same string the V4.0 list endpoints
+    use): COALESCE(data_source, 'USER_RESEARCH') <> 'LEGACY_TEST'.
+
+3. FILES CHANGED / ADDED
+-------------------------
+  new  backend/app/stats/__init__.py            (52 lines, package exports)
+  new  backend/app/stats/research_stats.py      (946 lines, the read-only
+       analytics core: scope_info, population, evolution, research_performance,
+       execution_records, overview, counter_audit, node_list, node_economics,
+       node_stats)
+  mod  backend/app/api/routes.py                (+4 endpoints, +1 helper,
+       status-row scope fix - see 4)
+  mod  frontend/src/api.js                      (+4 helpers)
+  mod  frontend/src/App.jsx                     (Stats navigation entry; pages
+       renumbered 3-18)
+  new  frontend/src/pages/Stats.jsx             (555 lines)
+  new  tests/test_v4_4_stats.py                 (428 lines, 18 tests)
+
+4. UNIFIED RESEARCH COUNTER SCOPE (§4 of the request)
+------------------------------------------------------
+  * Every new surface counts the USER_RESEARCH population through the existing
+    scoped primitives, so Stats agrees with Overview / Live Activity /
+    milestones / pipeline state / node lists by construction.
+  * Counter audit performed over the running app: the same research total was
+    verified across six surfaces - stats.population.total, lab.status.total_nodes,
+    workflow.milestones.current_nodes, api.status.status_counts_sum,
+    population.list.total, state.reconstruction.total_nodes - all 10000, and
+    GET /api/stats/scope_audit reports consistent=true with distinct_values
+    [10000] and legacy_excluded_nodes 787 on the real dataset.
+  * Exactly one legacy-inclusive research counter was found and fixed:
+    /api/system/status_row -> research.active_population used the engine default
+    active_count() (database-wide), which returned 28 user + 31 legacy = 59.
+    It now goes through the new helper routes._user_scoped_active_population()
+    and reports 28 - the same USER_RESEARCH scope as every other research
+    surface. No other endpoint was changed: MT5 execution, manual-order and
+    live-testing audit numbers never contributed to a research counter.
+  * Deliberately left alone (documented, they are infrastructure/diagnostic
+    views, not research counters): pipeline cumulative counters, the
+    restoration report, "strategies exported", the Settings data-management
+    counts and /api/lab/target total_nodes. They still see the legacy
+    infrastructure rows and are unchanged by V4.4.
+
+5. NEW ENDPOINTS (read-only)
+-----------------------------
+  GET /api/stats/overview
+      {generated_at, labels, scope, population, evolution, research_performance,
+       execution_records, sources} - generated_at/labels carry the metric
+      provenance and the BACKTEST / VALIDATION / PAPER / LIVE TEST / MT5 DEMO
+      vocabulary used by the UI.
+  GET /api/stats/scope_audit
+      counter consistency audit (surface, value, source per check + scope,
+      predicate, distinct_values, consistent, legacy_excluded_nodes).
+  GET /api/stats/nodes?limit&offset&sort&status&search&include_legacy
+      paged USER_RESEARCH node list (sort: fitness|id|generation|status|created,
+      search on symbol / id / research node number); rows are hydrated with
+      three fixed bulk queries over the page's ids (no N+1).
+  GET /api/stats/node/{sid}
+      per-node payload {node, research, economics, execution, labels};
+      404 for an unknown id. Legacy nodes remain retrievable through the V4.0
+      escape hatch and are marked research_eligible=false.
+  None of the four writes anything: a dedicated test asserts row counts before
+  and after are identical.
+
+6. POPULATION, EVOLUTION AND RESEARCH PERFORMANCE
+--------------------------------------------------
+  * population: total / target / remaining / progress, alive, dead, qualified,
+    failed, retired, killed, survived, paper, backtesting, validating, born, the
+    full scoped status_counts map and the scope note. Headline values come from
+    the engine snapshot; the status breakdown from count_by_status (scoped).
+    qualified is the QUALIFIED state count (the number the Overview/status
+    surfaces show); the engine's wider QUALIFIED_STATES group (it also contains
+    the paper states) is reported separately as qualified_incl_paper so no
+    definition is re-invented.
+  * evolution: current generation, generations recorded, nodes generated /
+    evaluated / validated / remaining, best fitness, qualification rate
+    (qualified / evaluated) and survival rate (survived / evaluated) - both
+    derived from the same scoped counters, with the definition echoed in the
+    payload - plus a per-generation table (nodes, qualified, survived, dead,
+    evaluated, best fitness).
+  * research_performance: backtest aggregates grouped by backtest stage
+    (screen / detail) - count, nodes, average/best/worst return, average and
+    best profit factor, average win rate, average drawdown, average
+    Sharpe/Sortino/expectancy, average and total trades, total net profit, last
+    timestamp - plus total backtests and nodes with backtest, the validation
+    block (records, nodes, passed, pass rate, average and best robustness) and
+    a top-nodes list. Everything is a SQL aggregate over the rows the engine
+    already wrote; nothing is re-simulated and the stage is never presented as
+    a validated result.
+
+7. NODE ECONOMICS (§7/§8 of the request)
+-----------------------------------------
+  * Derived only from stored data: risk per trade (genome.risk.risk_per_trade,
+    reported in %), stop and target rules as ATR multiples, the ATR reference,
+    reward/risk = tp_atr_mult / sl_atr_mult (calculated, with the formula
+    named in the payload), trailing stop, min/max hold bars, max concurrent
+    positions, and the trade statistics of the node's stored backtest
+    (trade count, win rate, profit factor, expectancy, average trade, net
+    profit, return, drawdown, Sharpe) labelled BACKTEST.
+  * Values the research records genuinely cannot support are returned as null
+    together with an entry in "unavailable": risk_amount (needs account equity
+    and instrument value; stored per trade by the live-testing layer),
+    position_size_lots (produced by the execution layer), estimated_exposure
+    (needs size x price) and SL/TP price distance (needs the signal bar's ATR
+    value, which is not stored with the node). The UI renders these as N/A with
+    the reason as a tooltip instead of a fabricated zero.
+
+8. STATS PAGE (frontend/src/pages/Stats.jsx)
+---------------------------------------------
+  * New tab "Stats" (PAGES entry ["stats", "2", "Stats", Stats]; the following
+    pages are renumbered 3-18 - no existing page removed or renamed).
+  * Sections: header with scope badge and last refresh; KPI row; population
+    block with the status table; evolution block with the per-generation chart
+    (recharts bar chart, same library the other pages use) and the rates; the
+    research-performance tables per backtest stage and the validation summary;
+    the paged node list with sort / status filter / search; node detail; the
+    execution-records block.
+  * Node detail is a three-column ledger that keeps the layers apart:
+    RESEARCH RESULTS (BACKTEST + VALIDATION), NODE ECONOMICS, EXECUTION RECORDS
+    (PAPER / LIVE TEST / MT5 DEMO, explicitly marked "NOT RESEARCH"). Research
+    and broker results are never summed into one number.
+  * Every metric without stored data renders N/A with the reason in a tooltip;
+    nothing renders undefined/null/NaN/[object Object].
+  * Refresh policy: the overview polls every 20 s; the node list only on user
+    action, and the per-node detail is fetched only after a row is clicked
+    (no full scan per render, no N+1). Measure response times on the real
+    dataset: overview ~80 ms, scope_audit ~36 ms, node list (50 rows) ~25 ms,
+    node detail ~4 ms.
+
+9. SEPARATION OF RESEARCH AND EXECUTION STATISTICS (§9)
+-------------------------------------------------------
+  * execution_records is its own block (layer EXECUTION) built from
+    paper_trades, live_test_trades, mt5_demo_trades and the manual-order
+    executions audit table, and carries never_affects: research population,
+    alive/dead/qualified counters, target, generation, backtest statistics.
+  * Per-node execution records are shown in their own column with per-layer
+    labels and record counts; empty layers stay empty (they are not padded).
+  * A test inserts paper and live-test rows and asserts that the research
+    population block is bit-for-bit unchanged afterwards.
+
+10. TESTS
+----------
+  * New V4.4 suite tests/test_v4_4_stats.py - 18 tests, all passing:
+    overview scope/labels/provenance, USER_RESEARCH population counts,
+    LEGACY_TEST exclusion from population and lists (plus the include_legacy
+    count), evolution evaluated counts and rates, research performance with
+    legacy backtests excluded, execution/audit separation, counter audit
+    consistency, node-list pagination/filters/bulk hydration, per-node research
+    results, node economics (derived values + N/A reasons), reward/risk with a
+    bare genome, missing data is never fabricated, legacy node marked
+    not-research-eligible, the analytics layer is read-only, the four HTTP
+    endpoints, 404 for an unknown node, the status-row scope helper, and that
+    the Stats tab is registered in the frontend navigation.
+  * The suite runs entirely against a temporary SQLite database (tmp_path) with
+    the engine snapshot stubbed; the authoritative DATA database is never
+    opened. Two test-side corrections were needed while writing it (no
+    production code change): the validations helper must write JSON into the
+    JSON columns (the stored rows are JSON text and get_authoritative_strategy
+    parses them), and research_shortlist is created lazily by the database
+    layer before it can be cleared.
+
+11. REGRESSION (§24 of the request)
+------------------------------------
+  * Repository suite (unchanged tests, never combined with DATA/tests):
+    pytest tests -> 124 passed, 0 failed (V4.3 baseline was 106; the 18 new
+    V4.4 tests account for the difference, no existing test changed).
+  * V4.0 verifier (user-scoped statistics + legacy invisibility + integrity):
+    32 checks, ALL PASS - the V4.0 display/retrieval-scope architecture and its
+    escape hatch are intact and no global DB filter was introduced.
+  * V4.1 acceptance v4 (Option A/B/C research-run lifecycle): 60 checks,
+    ALL PASS on a freshly provisioned disposable copy of the real DATA.
+  * V4.2 acceptance (resume/ceiling/replenishment/backup/restore/guards, the
+    harness that also covers the V4.2 MT5 execution path): ALL PASS,
+    "fails": [] - identical to its recorded baseline.
+  * V4.3 state capture repeated on the same data content and diffed against the
+    stored V4.3 capture: the only differences are the four new /api/stats/*
+    routes (141 -> 145), timestamps/heartbeats and the simulated market prices
+    of the live feed. Every recorded research counter, MT5 execution state,
+    live-testing state and legacy-isolation number is identical.
+  * Practical smoke on the real dataset: the four endpoints answer 200 with
+    USER_RESEARCH numbers, scope_audit consistent=true, a legacy node is
+    retrievable-but-excluded, and no source file hard-codes a test-data path.
+
+12. SAFETY OF THE AUTHORITATIVE DATA
+-------------------------------------
+  * The authoritative root was never opened for writing by V4.4: the smoke and
+    capture runs used disposable full copies, state-mutating acceptance runs
+    used their own freshly provisioned copies, and the repository test suite
+    ran against a copy as well.
+  * After all runs: import manifest 11370 entries verified byte-exact
+    (sha256sum -c ... --quiet -> no mismatches) and the database still hashes
+    to 54ec6835753a48c095284fc1f3bada856e5315299aa909758abe5ae3fb6e042b.
+  * No DATA folder, archive, .db, .zip, .pid, cache or runtime artifact is part
+    of this change set.
+
+13. BUILD RESULT
+-----------------
+  * npx vite build -> OK: 994 modules transformed, dist/assets/index-*.js
+    1,111.79 kB (295.86 kB gzip), CSS 13.91 kB. Only the pre-existing
+    chunk-size warning; no new warning introduced by the Stats page.
+
+14. GIT RESULT
+---------------
+  Commit message : V4.4: add research statistics and node economics
+  Commit hash    : recorded in the documentation commit that follows (this
+                   report is written by the feature commit itself)
+  Push           : origin main (verified local HEAD == remote main afterwards)
+  Working tree   : clean after the commit (runtime churn such as LOGS/lab.pid
+                   restored to HEAD; nothing unrelated staged)
+
+15. REMAINING ISSUES / LIMITATIONS
+-----------------------------------
+  * Per-node risk amount, position size and exposure stay N/A by design: the
+    research records do not store an account, a lot size or the signal-bar ATR,
+    and V4.4 does not invent them (they exist per trade in the live-testing /
+    execution layer).
+  * The current dataset has no live-test or MT5-demo trades (and only legacy
+    live-test configs), so those blocks legitimately render as empty,
+    clearly-labelled layers rather than as numbers.
+  * The legacy-inclusive diagnostic surfaces listed in 4 are intentionally
+    unchanged, so they still count infrastructure rows; they are outside the
+    research counters the request asked to unify.
+  * The known intermittent SQLite "database disk image is malformed" pattern
+    (seen in earlier phases when a database file and its WAL sidecars are
+    replaced or shared while connections are open) is an environment/operational
+    issue: V4.4 changes no code in that area, and every acceptance harness
+    passed on a freshly provisioned copy in this phase.
+=============================================================

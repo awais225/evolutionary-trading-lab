@@ -1822,6 +1822,16 @@ def post_mt5_disconnect() -> Dict:
 
 
 # ---------------- backup & versions (spec §40, §41) ----------------
+def _user_scoped_active_population(lab: Any) -> int:
+    """V4.4: the research population shown to users is the USER_RESEARCH scope.
+
+    ``lab.evo.active_count()`` defaults to the database-wide count (engine
+    behaviour, unchanged); every user-facing counter asks for the scoped count
+    so the status row, Overview, Stats and the node lists agree.
+    """
+    return int(lab.evo.active_count(exclude_legacy=True))
+
+
 @router.get("/system/versions")
 def get_versions() -> Dict:
     from ..versions import manifest
@@ -2157,7 +2167,10 @@ def get_system_status_row() -> Dict[str, Any]:
             "running": lab.running,
             "paused": lab.paused,
             "generation": lab.status().get("generation", 0),
-            "active_population": lab.evo.active_count(),
+            # V4.4: this user-facing population counter is scoped to USER_RESEARCH
+            # like every other research surface (V4.0 display scope), so the
+            # status row, Overview, Stats and the node lists agree.
+            "active_population": _user_scoped_active_population(lab),
             "target": lab.evo.get_total_node_target(),
         },
         "progress": {
@@ -3279,3 +3292,44 @@ def mt5_execution_place(payload: Dict = Body(default_factory=dict)) -> Dict:
         return place_demo_order(payload)
     except MT5ExecutionError as e:
         raise HTTPException(e.http_status, detail=e.to_dict())
+
+
+# ---------------- V4.4 research statistics & node economics ----------------
+# Read-only analytics over the USER_RESEARCH population. These endpoints never
+# write to the database and never change engine behaviour (spec §2/§6).
+@router.get("/stats/overview")
+def stats_overview() -> Dict[str, Any]:
+    """Population + evolution + research performance, plus separately labelled
+    execution/audit records (never mixed into research statistics)."""
+    from ..stats import overview
+    return overview()
+
+
+@router.get("/stats/scope_audit")
+def stats_scope_audit() -> Dict[str, Any]:
+    """Compare the USER_RESEARCH total reported by every counter surface
+    (Overview, Stats, Live Activity, milestones, node lists, reconstruction)."""
+    from ..stats import counter_audit
+    return counter_audit()
+
+
+@router.get("/stats/nodes")
+def stats_nodes(limit: int = 50, offset: int = 0, sort: str = "fitness",
+                status: Optional[str] = None, search: Optional[str] = None,
+                include_legacy: bool = False) -> Dict[str, Any]:
+    """Paged USER_RESEARCH node list with the per-node statistics each row
+    can support (single-pass hydration, no N+1 queries)."""
+    from ..stats import node_list
+    return node_list(limit=limit, offset=offset, sort=sort, status=status,
+                     search=search, include_legacy=include_legacy)
+
+
+@router.get("/stats/node/{sid}")
+def stats_node(sid: int) -> Dict[str, Any]:
+    """Per-node statistics: research results (backtest/validation), node
+    economics and the separate execution records for that node."""
+    from ..stats import node_stats
+    res = node_stats(sid)
+    if not res:
+        raise HTTPException(404, f"Strategy #{sid} not found")
+    return res

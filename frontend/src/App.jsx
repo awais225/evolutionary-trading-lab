@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState, useCallback, use
 import { api } from "./api.js";
 import ErrorBoundary from "./components/ErrorBoundary.jsx";
 import Overview from "./pages/Overview.jsx";
+import Stats from "./pages/Stats.jsx";
 import Activity from "./pages/Activity.jsx";
 import EvolutionTree from "./pages/EvolutionTree.jsx";
 import Population from "./pages/Population.jsx";
@@ -28,22 +29,23 @@ export const useLab = () => useContext(LabContext);
 
 const PAGES = [
   ["overview", "1", "Overview", Overview],
-  ["final_testing", "2", "Final Testing", FinalTesting],
-  ["lab", "3", "Strategy Laboratory", StrategyLab],
-  ["economics", "4", "Node Economics", NodeEconomics],
-  ["matrix", "5", "Backtest Matrix", BacktestMatrix],
-  ["mt5_backtest", "6", "MT5 Backtest", Mt5Backtest],
-  ["live_test", "7", "Live Testing", LiveTesting],
-  ["live_results", "8", "Live Test Results", LiveTestResults],
-  ["mt5_demo", "9", "MT5 Demo Trading", Mt5DemoTrading],
-  ["paper", "10", "Paper Trading", PaperTrading],
-  ["activity", "11", "Activity Stream", Activity],
-  ["tree", "12", "Evolution Tree", EvolutionTree],
-  ["population", "13", "Population", Population],
-  ["data", "14", "Market Data", MarketData],
-  ["ai", "15", "Research AI", ResearchAI],
-  ["settings", "16", "Settings", Settings],
-  ["logs", "17", "Logs", Logs],
+  ["stats", "2", "Stats", Stats],
+  ["final_testing", "3", "Final Testing", FinalTesting],
+  ["lab", "4", "Strategy Laboratory", StrategyLab],
+  ["economics", "5", "Node Economics", NodeEconomics],
+  ["matrix", "6", "Backtest Matrix", BacktestMatrix],
+  ["mt5_backtest", "7", "MT5 Backtest", Mt5Backtest],
+  ["live_test", "8", "Live Testing", LiveTesting],
+  ["live_results", "9", "Live Test Results", LiveTestResults],
+  ["mt5_demo", "10", "MT5 Demo Trading", Mt5DemoTrading],
+  ["paper", "11", "Paper Trading", PaperTrading],
+  ["activity", "12", "Activity Stream", Activity],
+  ["tree", "13", "Evolution Tree", EvolutionTree],
+  ["population", "14", "Population", Population],
+  ["data", "15", "Market Data", MarketData],
+  ["ai", "16", "Research AI", ResearchAI],
+  ["settings", "17", "Settings", Settings],
+  ["logs", "18", "Logs", Logs],
 ];
 
 export default function App() {
