@@ -3,6 +3,17 @@ import { api, fmt } from "../api.js";
 import { useLab } from "../App.jsx";
 import { MatrixTable, ErrorNote, Spinner, SignedNum, Pill } from "../components/common.jsx";
 import StructuredError from "../components/StructuredError.jsx";
+import BacktestMatrixTable from "../components/BacktestMatrixTable.jsx";
+
+/* V4.5 — Backtest Matrix (research comparison).
+ *
+ * The upper section is the V4.5 comparison matrix over stored research results
+ * (GET /api/research/matrix): USER_RESEARCH only by default, research columns
+ * (BACKTEST / VALIDATION) separated from the informational EXECUTION RECORDS
+ * column, N/A whenever a metric was never stored. The lower section is the
+ * pre-existing V3.6 per-node diagnostic matrix (TIMEFRAME / SESSION / DAY /
+ * REGIME / DIRECTION) and is unchanged.
+ */
 
 export default function BacktestMatrix() {
   const { selectedStrategyId, setSelectedStrategyId } = useLab() || {};
@@ -12,6 +23,30 @@ export default function BacktestMatrix() {
   const [runFilter, setRunFilter] = useState("USER_RESEARCH");
   const [generating, setGenerating] = useState(false);
   const [err, setErr] = useState(null);
+
+  // ---- V4.5 comparison matrix state ----
+  const [mSort, setMSort] = useState("return");
+  const [mDir, setMDir] = useState("desc");
+  const [mQualified, setMQualified] = useState(true);
+  const [mLimit, setMLimit] = useState(25);
+  const [mIds, setMIds] = useState("");
+  const [mData, setMData] = useState(null);
+  const [mBusy, setMBusy] = useState(false);
+  const [mErr, setMErr] = useState(null);
+
+  const loadMatrix = (params = {}) => {
+    setMBusy(true);
+    api.researchMatrix({
+      sort: mSort, dir: mDir, limit: mLimit,
+      qualified: mQualified ? true : undefined,
+      ...params,
+    })
+      .then((r) => { setMData(r); setMErr(null); })
+      .catch((e) => setMErr(e))
+      .finally(() => setMBusy(false));
+  };
+
+  useEffect(() => { loadMatrix(); }, [mSort, mDir, mQualified, mLimit]);
 
   useEffect(() => {
     if (selectedStrategyId) {
@@ -82,11 +117,64 @@ export default function BacktestMatrix() {
 
   return (
     <div>
-      <h2 className="page-title">Backtest Matrix (V3.6)</h2>
+      <h2 className="page-title">Backtest Matrix</h2>
       <div className="page-sub">
-        Authoritative multi-dimensional diagnostic matrix per strategy: TIMEFRAME, SESSION, DAY,
-        REGIME, and DIRECTION. Verified against real persisted trade and backtest evaluations.
+        Research comparison (V4.5) plus the pre-existing V3.6 per-node diagnostic matrix
+        (TIMEFRAME, SESSION, DAY, REGIME, DIRECTION), verified against real persisted trade and
+        backtest evaluations.
       </div>
+      {/* ---------------- V4.5 research comparison matrix ---------------- */}
+      <div className="panel" style={{ marginBottom: 14 }}>
+        <h3 style={{ marginBottom: 6 }}>
+          Research comparison matrix
+          <span className="pill" style={{ marginLeft: 8 }}>USER_RESEARCH</span>
+          <span className="pill" style={{ marginLeft: 6, fontSize: 9 }}>BACKTEST / VALIDATION</span>
+        </h3>
+        <div className="muted" style={{ fontSize: 11.5, marginBottom: 8 }}>
+          Stored backtest / validation results for the research population — nothing is re-simulated here
+          and no metric is invented: a value the data does not contain shows N/A. Execution records appear
+          in their own column and are never mixed into a research number.
+        </div>
+        <div className="btn-row" style={{ gap: 8, alignItems: "center" }}>
+          <select value={mSort} onChange={(e) => setMSort(e.target.value)} className="input">
+            <option value="return">sort: backtest return</option>
+            <option value="profit_factor">sort: profit factor</option>
+            <option value="win_rate">sort: win rate</option>
+            <option value="trades">sort: trades</option>
+            <option value="net_profit">sort: net P&L</option>
+            <option value="drawdown">sort: max drawdown (asc = lowest)</option>
+            <option value="robustness">sort: robustness</option>
+            <option value="fitness">sort: engine fitness</option>
+            <option value="generation">sort: generation</option>
+          </select>
+          <button className="btn" onClick={() => setMDir(mDir === "desc" ? "asc" : "desc")}>
+            {mDir === "desc" ? "▼ desc" : "▲ asc"}
+          </button>
+          <label className="muted" style={{ fontSize: 11.5 }}>
+            <input type="checkbox" checked={mQualified} onChange={(e) => setMQualified(e.target.checked)} />{" "}
+            qualified only
+          </label>
+          <select value={mLimit} onChange={(e) => setMLimit(Number(e.target.value))} className="input">
+            {[10, 25, 50, 100, 200].map((n) => <option key={n} value={n}>{n} rows</option>)}
+          </select>
+          <input className="input" style={{ minWidth: 220 }} placeholder="node ids (e.g. 1908,1195)"
+                 value={mIds} onChange={(e) => setMIds(e.target.value)} />
+          <button className="btn" disabled={!mIds.trim()} onClick={() => loadMatrix({ ids: mIds.trim() })}>
+            matrix for ids
+          </button>
+          <button className="btn" onClick={() => { setMIds(""); loadMatrix(); }}>reset</button>
+          {selectedStrategyId ? (
+            <button className="btn" onClick={() => loadMatrix({ ids: String(selectedStrategyId) })}>
+              matrix for workspace node ({selectedStrategyId})
+            </button>
+          ) : null}
+        </div>
+        {mErr && <ErrorNote err={mErr} />}
+        <BacktestMatrixTable data={mData} loading={mBusy} error={null} maxHeight={340}
+                             onSelectNode={(id) => setSid(String(id))}
+                             emptyHint="No node matched — clear the filter or select different ids." />
+      </div>
+
       {err && <StructuredError error={err} onDismiss={() => setErr(null)} />}
 
       <div className="btn-row" style={{ flexWrap: "wrap", gap: 10 }}>

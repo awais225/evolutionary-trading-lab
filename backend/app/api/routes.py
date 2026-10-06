@@ -3333,3 +3333,95 @@ def stats_node(sid: int) -> Dict[str, Any]:
     if not res:
         raise HTTPException(404, f"Strategy #{sid} not found")
     return res
+
+
+# ---------------- V4.5 Strategy Lab / Backtest Matrix ----------------
+# Research selection & comparison over the USER_RESEARCH population. Every
+# endpoint defaults to USER_RESEARCH (LEGACY_TEST is available only through an
+# explicit diagnostic include_legacy=true), filters/sorts/paginates in SQL and
+# reuses the V4.4 statistics primitives instead of re-deriving metrics.
+@router.get("/research/strategies")
+def research_strategies(limit: int = 50, offset: int = 0, sort: str = "return",
+                        dir: str = "desc", include_legacy: bool = False,
+                        search: Optional[str] = None, generation: Optional[str] = None,
+                        status: Optional[str] = None, symbol: Optional[str] = None,
+                        timeframe: Optional[str] = None, direction: Optional[str] = None,
+                        qualified: Optional[bool] = None,
+                        has_backtest: Optional[bool] = None,
+                        has_validation: Optional[bool] = None,
+                        validated_passed: Optional[bool] = None,
+                        stage: Optional[str] = None,
+                        shortlist_only: Optional[bool] = None,
+                        min_return: Optional[float] = None,
+                        min_net_profit: Optional[float] = None,
+                        min_profit_factor: Optional[float] = None,
+                        min_win_rate: Optional[float] = None,
+                        min_trades: Optional[int] = None,
+                        max_drawdown: Optional[float] = None,
+                        min_expectancy: Optional[float] = None,
+                        min_robustness: Optional[float] = None,
+                        min_oos_return: Optional[float] = None) -> Dict[str, Any]:
+    """Paged/filtered/sorted Strategy Lab table (USER_RESEARCH by default)."""
+    from ..stats import strategy_lab
+    return strategy_lab.strategy_list(
+        limit=limit, offset=offset, sort=sort, dir=dir, include_legacy=include_legacy,
+        search=search, generation=generation, status=status, symbol=symbol,
+        timeframe=timeframe, direction=direction, qualified=qualified,
+        has_backtest=has_backtest, has_validation=has_validation,
+        validated_passed=validated_passed, stage=stage, shortlist_only=shortlist_only,
+        min_return=min_return, min_net_profit=min_net_profit,
+        min_profit_factor=min_profit_factor, min_win_rate=min_win_rate,
+        min_trades=min_trades, max_drawdown=max_drawdown, min_expectancy=min_expectancy,
+        min_robustness=min_robustness, min_oos_return=min_oos_return)
+
+
+@router.get("/research/facets")
+def research_facets(include_legacy: bool = False) -> Dict[str, Any]:
+    """Filter options (data-driven) + the research population summary."""
+    from ..stats import strategy_lab
+    return strategy_lab.facets(include_legacy=include_legacy)
+
+
+@router.get("/research/matrix")
+def research_matrix(ids: Optional[str] = None, limit: int = 50, offset: int = 0,
+                    sort: str = "return", dir: str = "desc",
+                    include_legacy: bool = False, search: Optional[str] = None,
+                    generation: Optional[str] = None, status: Optional[str] = None,
+                    symbol: Optional[str] = None, timeframe: Optional[str] = None,
+                    direction: Optional[str] = None, qualified: Optional[bool] = None,
+                    has_backtest: Optional[bool] = None,
+                    has_validation: Optional[bool] = None,
+                    validated_passed: Optional[bool] = None,
+                    stage: Optional[str] = None,
+                    shortlist_only: Optional[bool] = None,
+                    min_return: Optional[float] = None,
+                    min_net_profit: Optional[float] = None,
+                    min_profit_factor: Optional[float] = None,
+                    min_win_rate: Optional[float] = None,
+                    min_trades: Optional[int] = None,
+                    max_drawdown: Optional[float] = None,
+                    min_expectancy: Optional[float] = None,
+                    min_robustness: Optional[float] = None,
+                    min_oos_return: Optional[float] = None) -> Dict[str, Any]:
+    """Backtest Matrix comparison table: one row per node with its stored
+    research results, validation state and separately labelled execution
+    record counts. ``ids`` compares an explicit selection; otherwise the same
+    filters as the Strategy Lab table apply."""
+    from ..stats import strategy_lab
+    return strategy_lab.matrix(
+        ids=ids, limit=limit, offset=offset, sort=sort, dir=dir,
+        include_legacy=include_legacy, search=search, generation=generation,
+        status=status, symbol=symbol, timeframe=timeframe, direction=direction,
+        qualified=qualified, has_backtest=has_backtest, has_validation=has_validation,
+        validated_passed=validated_passed, stage=stage, shortlist_only=shortlist_only,
+        min_return=min_return, min_net_profit=min_net_profit,
+        min_profit_factor=min_profit_factor, min_win_rate=min_win_rate,
+        min_trades=min_trades, max_drawdown=max_drawdown, min_expectancy=min_expectancy,
+        min_robustness=min_robustness, min_oos_return=min_oos_return)
+
+
+@router.get("/research/compare")
+def research_compare(ids: str) -> Dict[str, Any]:
+    """Side-by-side comparison (<= 8 nodes) reusing the V4.4 per-node builder."""
+    from ..stats import strategy_lab
+    return strategy_lab.compare(ids=ids)

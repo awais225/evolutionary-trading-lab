@@ -1,6 +1,17 @@
 // All requests use RELATIVE urls; the Vite dev server (or FastAPI in
 // single-port mode) serves both the app and the API from the same origin.
 
+/** Query string builder: drops empty/undefined/null values so a filter that is
+ *  not set can never reach the API as the literal string "undefined". */
+function qs(params = {}) {
+  const sp = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => {
+    if (v === undefined || v === null || v === "") return;
+    sp.set(k, String(v));
+  });
+  return sp.toString();
+}
+
 const inflightGets = new Map();
 
 /**
@@ -130,6 +141,12 @@ export const api = {
   statsScopeAudit: () => req("/api/stats/scope_audit"),
   statsNodes: (p = {}) => req(`/api/stats/nodes?${new URLSearchParams(p)}`),
   statsNode: (sid) => req(`/api/stats/node/${sid}`),
+
+  // V4.5 — Strategy Lab / Backtest Matrix (research selection & comparison)
+  researchStrategies: (p = {}) => req(`/api/research/strategies?${qs(p)}`),
+  researchFacets: (p = {}) => req(`/api/research/facets?${qs(p)}`),
+  researchMatrix: (p = {}) => req(`/api/research/matrix?${qs(p)}`),
+  researchCompare: (ids) => req(`/api/research/compare?${qs({ ids: Array.isArray(ids) ? ids.join(",") : ids })}`),
 
   researchRunState: () => req("/api/research-run/state"),
   researchRunStatus: () => req("/api/research-run/status"),

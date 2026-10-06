@@ -710,6 +710,45 @@ def node_list(db: Any = None, limit: int = 50, offset: int = 0, sort: str = "fit
 # --------------------------------------------------------------------------- #
 # per-node statistics & economics
 # --------------------------------------------------------------------------- #
+def reward_risk_from_genome(genome: Any) -> Dict[str, Any]:
+    """Genome-derived economics - the single source of truth for the risk and
+    stop/target numbers (the V4.4 node economics and the V4.5 matrix / compare
+    views both call this, so the formula exists exactly once).
+
+    Missing inputs stay ``None``: a node whose genome has no stop or target
+    multiple gets no made-up ratio.
+    """
+    g = genome
+    if isinstance(g, str):
+        try:
+            g = json.loads(g)
+        except Exception:
+            g = {}
+    g = g or {}
+    ex = g.get("exit") or {}
+    risk = g.get("risk") or {}
+    risk_pct = _f(risk.get("risk_per_trade"))
+    sl_mult = _f(ex.get("sl_atr_mult"))
+    tp_mult = _f(ex.get("tp_atr_mult"))
+    rr = None
+    if sl_mult and tp_mult and sl_mult > 0:
+        rr = round(tp_mult / sl_mult, 3)
+    return {
+        "risk_per_trade": risk_pct,
+        "risk_per_trade_pct": _round(risk_pct * 100.0, 4) if risk_pct is not None else None,
+        "sl_atr_multiple": _round(sl_mult, 3),
+        "tp_atr_multiple": _round(tp_mult, 3),
+        "atr_reference": ex.get("atr_spec") or None,
+        "reward_risk_ratio": rr,
+        "reward_risk_source": "tp_atr_mult / sl_atr_mult (calculated)",
+        "trailing": ex.get("trailing"),
+        "min_hold_bars": ex.get("min_hold_bars"),
+        "max_hold_bars": ex.get("max_hold_bars"),
+        "max_concurrent_positions": risk.get("max_concurrent"),
+        "source": "strategies.genome (stored research parameters)",
+    }
+
+
 def node_economics(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Node economics derived only from stored genome values + stored backtest stats.
 
@@ -733,12 +772,11 @@ def node_economics(payload: Dict[str, Any]) -> Dict[str, Any]:
     def na(metric: str, reason: str) -> None:
         unavailable.append({"metric": metric, "reason": reason})
 
-    risk_pct = _f(risk.get("risk_per_trade"))
-    sl_mult = _f(ex.get("sl_atr_mult"))
-    tp_mult = _f(ex.get("tp_atr_mult"))
-    rr = None
-    if sl_mult and tp_mult and sl_mult > 0:
-        rr = round(tp_mult / sl_mult, 3)
+    _rr = reward_risk_from_genome(genome)
+    risk_pct = _rr["risk_per_trade"]
+    sl_mult = _rr["sl_atr_multiple"]
+    tp_mult = _rr["tp_atr_multiple"]
+    rr = _rr["reward_risk_ratio"]
 
     for metric, present in (("risk_per_trade_pct", risk_pct is not None),
                             ("sl_atr_multiple", sl_mult is not None),
