@@ -37,6 +37,8 @@ import Logs from "../src/pages/Logs.jsx";
 import Settings from "../src/pages/Settings.jsx";
 import MarketData from "../src/pages/MarketData.jsx";
 import FinalTesting from "../src/pages/FinalTesting.jsx";
+import EvolutionTree from "../src/pages/EvolutionTree.jsx";
+import ResearchAI from "../src/pages/ResearchAI.jsx";
 
 const HOSTILE_NODE = {
   node: {
@@ -99,6 +101,7 @@ const PAGES = [
   ["Mt5DemoTrading", Mt5DemoTrading], ["LiveTesting", LiveTesting], ["LiveTestResults", LiveTestResults],
   ["PaperTrading", PaperTrading], ["Population", Population], ["Activity", Activity],
   ["Logs", Logs], ["Settings", Settings], ["MarketData", MarketData], ["FinalTesting", FinalTesting],
+  ["EvolutionTree", EvolutionTree], ["ResearchAI", ResearchAI],
 ];
 
 const LAB_VALUE = {
@@ -119,7 +122,15 @@ const LAB_VALUE = {
 };
 
 /** Data the stubbed API returns: valid shapes, hostile values. */
+let TREE_PAYLOAD = null;               // null = use the default hostile payload below
+
+/** V4.7 audit remediation: drive EvolutionTree with a controlled /api/tree payload. */
+export function setTreePayload(value) {
+  TREE_PAYLOAD = value;
+}
+
 export function payloadFor(path) {
+  if (path.includes("/api/tree")) return TREE_PAYLOAD === null ? {} : TREE_PAYLOAD;
   if (path.includes("/api/strategies/")) return HOSTILE_NODE;
   if (path.includes("/api/stats/node")) return HOSTILE_NODE;
   if (path.includes("/api/stats/")) return { scope: "USER_RESEARCH", population: { total: 10000, legacy_test: 787 }, generations: [], top: [], nodes: [] };
@@ -153,7 +164,7 @@ export async function runSmoke() {
   const container = document.createElement("div");
   document.body.appendChild(container);
 
-  const render = async (label, element) => {
+  const render = async (label, element, expect) => {
     const root = createRoot(container);
     try {
       await act(async () => {
@@ -167,6 +178,9 @@ export async function runSmoke() {
         const at = text.indexOf(first);
         const context = text.slice(Math.max(0, at - 90), at + 60).replace(/\s+/g, " ");
         results.push({ label, ok: false, error: `rendered text contains ${bad.join(", ")} … "${context}"` });
+      } else if (expect && !expect(text)) {
+        results.push({ label, ok: false,
+          error: `rendered output did not match the expectation … "${text.replace(/\s+/g, " ").slice(0, 120)}"` });
       } else {
         results.push({ label, ok: true });
       }
@@ -200,6 +214,37 @@ export async function runSmoke() {
   await render("NodeResearchDetail:busy", <NodeResearchDetail node={HOSTILE_NODE} busy />);
   await render("NodeResearchDetail:error", <NodeResearchDetail node={null} error="node 99999 not found" />);
   await render("NodeResearchDetail:no-id", <NodeResearchDetail node={{ node: {} }} busy={false} />);
+
+  // 3b. EvolutionTree resilience (V4.7 audit remediation): a missing or malformed
+  // /api/tree payload must not crash the page, and a valid payload must render
+  // the tree exactly as before.
+  const TREE_VALID = {
+    nodes: [
+      { id: 1908, parent_id: null, generation: 11, status: "QUALIFIED", fitness: 0.77523, symbol: "XAUUSD", timeframe: "M15" },
+      { id: 1195, parent_id: 1908, generation: 12, status: "QUALIFIED", fitness: 0.8123, symbol: "XAUUSD", timeframe: "M15" },
+    ],
+    edges: [{ source: 1908, target: 1195, target_status: "QUALIFIED", source_status: "QUALIFIED", is_dead_branch: false }],
+    truncated: false,
+    total_strategies: 10000,
+  };
+  const treePage = (
+    <LabContext.Provider value={LAB_VALUE}>
+      <EvolutionTree />
+    </LabContext.Provider>
+  );
+  setTreePayload(TREE_VALID);
+  await render("EvolutionTree:valid-nodes-and-edges", treePage,
+    (t) => t.includes("#1908") && t.includes("#1195"));
+  setTreePayload({ total_strategies: 10000 });                       // B: nodes missing
+  await render("EvolutionTree:missing-nodes", treePage, (t) => t.includes("Evolution Tree"));
+  setTreePayload({ nodes: TREE_VALID.nodes, total_strategies: 10000 }); // C: edges missing
+  await render("EvolutionTree:missing-edges", treePage, (t) => t.includes("#1908"));
+  setTreePayload({ nodes: "not-an-array", edges: { nope: true } });   // D: malformed
+  await render("EvolutionTree:malformed-nodes-and-edges", treePage, (t) => t.includes("Evolution Tree"));
+  setTreePayload({ nodes: [null, 7, { id: 1 }], edges: [null, "x", { source: 1, target: 1 }] });
+  await render("EvolutionTree:non-object-entries", treePage, (t) => t.includes("Evolution Tree"));
+  setTreePayload(TREE_VALID);                                        // restore for the page loop
+  await render("EvolutionTree:payload-restored", treePage, (t) => t.includes("#1908"));
 
   // 4. the V4.6 panels with hostile payloads
   await render("HistoricalRunResults:full", (

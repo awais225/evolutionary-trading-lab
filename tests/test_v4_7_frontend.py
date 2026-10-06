@@ -143,3 +143,43 @@ def test_pages_and_node_detail_render_with_hostile_data():
     assert "renders OK" in out
     assert "no page or node-detail render crashed" in out
     assert "FAIL" not in out
+
+    # V4.7 audit remediation: the smoke covers all 18 pages (including
+    # EvolutionTree and ResearchAI, which the first harness omitted) and the six
+    # EvolutionTree payload cases.
+    harness = _read(FRONTEND / "tests" / "v47_pages_smoke.jsx")
+    for case in ("EvolutionTree:valid-nodes-and-edges", "EvolutionTree:missing-nodes",
+                 "EvolutionTree:missing-edges", "EvolutionTree:malformed-nodes-and-edges",
+                 "EvolutionTree:non-object-entries", "EvolutionTree:payload-restored"):
+        assert case in harness, f"the render smoke lost the {case} case"
+    for page in ("EvolutionTree", "ResearchAI"):
+        assert f'["{page}", {page}]' in harness, f"{page} is not rendered by the smoke"
+    assert "thirty-nine" not in out
+    assert "renders OK" in out
+
+
+def test_evolution_tree_normalises_missing_or_malformed_payload():
+    """EvolutionTree must coerce nodes/edges instead of calling .forEach on
+    undefined (the defect the audit found)."""
+    tree = _read(SRC / "pages" / "EvolutionTree.jsx")
+    assert "function asNodeList(" in tree and "function asEdgeList(" in tree
+    assert "Array.isArray(value)" in tree
+    assert "const apiNodes = useMemo(() => asNodeList(data?.nodes), [data]);" in tree
+    assert "const apiEdges = useMemo(() => asEdgeList(data?.edges), [data]);" in tree
+    # layout() must normalise its own inputs as well (belt and braces)
+    assert "const nodeList = asNodeList(nodes);" in tree
+    assert "const edgeList = asEdgeList(edges);" in tree
+    # no unguarded use of the raw API lists is left anywhere in the page
+    for raw in ("data.nodes.forEach", "data.edges.forEach", "layout(data.nodes, data.edges)",
+                "data.nodes.map(", "data.edges.map(", "data.nodes.find(", "data.edges.find(",
+                "data.nodes.filter(", "data.edges.filter("):
+        assert raw not in tree, f"unguarded payload access is still present: {raw}"
+
+
+def test_lazy_loading_and_error_boundaries_still_intact():
+    """The V4.7 architecture must not have been weakened by the remediation."""
+    app = _read(SRC / "App.jsx")
+    assert "React.lazy" in app or "lazy(() => import(" in app
+    assert "<Suspense fallback={" in app
+    assert "<LocalErrorBoundary key={page}" in app
+    assert _read(SRC / "components" / "LocalErrorBoundary.jsx")

@@ -157,14 +157,35 @@ function EvoNode({ data, selected }) {
 
 const nodeTypes = { evo: EvoNode };
 
+/* V4.7 audit remediation: the tree payload arrives from the API, so `nodes` and
+   `edges` can be missing, of the wrong type, or contain non-object entries (a
+   partial, degraded or error response). Both lists are normalised to arrays of
+   objects here; a valid payload passes through untouched, so the layout and the
+   rendering of valid data are exactly the same as before. */
+function asNodeList(value) {
+  if (!Array.isArray(value)) return [];
+  // entries without a usable id/generation cannot be laid out (the layout groups
+  // by generation and indexes by id) - they are dropped like a missing list
+  return value.filter((n) => n && typeof n === "object"
+    && Number.isFinite(Number(n.id)) && Number.isFinite(Number(n.generation)));
+}
+
+function asEdgeList(value) {
+  if (!Array.isArray(value)) return [];
+  return value.filter((e) => e && typeof e === "object"
+    && Number.isFinite(Number(e.source)) && Number.isFinite(Number(e.target)));
+}
+
 // Hierarchical layout with generation rows & parent-anchored clustering
 function layout(nodes, edges) {
+  const nodeList = asNodeList(nodes);
+  const edgeList = asEdgeList(edges);
   const byGen = {};
-  nodes.forEach((n) => { (byGen[n.generation] ||= []).push(n); });
+  nodeList.forEach((n) => { (byGen[n.generation] ||= []).push(n); });
   const gens = Object.keys(byGen).map(Number).sort((a, b) => a - b);
   const pos = {};
   const childOf = {};
-  edges.forEach((e) => (childOf[e.target] = e.source));
+  edgeList.forEach((e) => (childOf[e.target] = e.source));
 
   gens.forEach((g) => {
     const list = byGen[g];
@@ -229,17 +250,22 @@ export default function EvolutionTree() {
     return () => clearInterval(t);
   }, [load, isDemoMode]);
 
+  // Normalised API lists: a malformed payload yields empty lists instead of a
+  // render crash, while valid payloads are passed through unchanged.
+  const apiNodes = useMemo(() => asNodeList(data?.nodes), [data]);
+  const apiEdges = useMemo(() => asEdgeList(data?.edges), [data]);
+
   // Selected node details object & immediate lineage
   const selectedNode = useMemo(() => {
     if (!selectedNodeId || !data) return null;
-    return data.nodes.find((n) => n.id === selectedNodeId) || null;
-  }, [selectedNodeId, data]);
+    return apiNodes.find((n) => n.id === selectedNodeId) || null;
+  }, [selectedNodeId, data, apiNodes]);
 
   // Direct children of selected node
   const directChildren = useMemo(() => {
     if (!selectedNodeId || !data) return [];
-    return data.nodes.filter((n) => n.parent_id === selectedNodeId);
-  }, [selectedNodeId, data]);
+    return apiNodes.filter((n) => n.parent_id === selectedNodeId);
+  }, [selectedNodeId, data, apiNodes]);
 
   // Full lineage set (ancestors + descendants) for highlighting (spec §31)
   const highlightedIds = useMemo(() => {
@@ -249,7 +275,7 @@ export default function EvolutionTree() {
     // Add ancestors up to root
     let cur = selectedNodeId;
     while (cur) {
-      const edge = data.edges.find((e) => e.target === cur);
+      const edge = apiEdges.find((e) => e.target === cur);
       if (edge && edge.source) {
         set.add(edge.source);
         cur = edge.source;
@@ -261,7 +287,7 @@ export default function EvolutionTree() {
     const frontier = [selectedNodeId];
     while (frontier.length > 0) {
       const top = frontier.pop();
-      const kids = data.edges.filter((e) => e.source === top).map((e) => e.target);
+      const kids = apiEdges.filter((e) => e.source === top).map((e) => e.target);
       kids.forEach((k) => {
         if (!set.has(k)) {
           set.add(k);
@@ -270,14 +296,14 @@ export default function EvolutionTree() {
       });
     }
     return set;
-  }, [selectedNodeId, data]);
+  }, [selectedNodeId, data, apiEdges]);
 
   // Build nodes & status-colored pathways (spec §20-§27)
   const { nodes, edges } = useMemo(() => {
     if (!data) return { nodes: [], edges: [] };
-    const pos = layout(data.nodes, data.edges);
+    const pos = layout(apiNodes, apiEdges);
 
-    const nodes = data.nodes.map((n) => {
+    const nodes = apiNodes.map((n) => {
       const isSelected = selectedNodeId === n.id;
       const isLineage = highlightedIds.has(n.id);
       const isDead = DEAD_STATUSES.has(n.status);
@@ -302,8 +328,8 @@ export default function EvolutionTree() {
     });
 
     // Parent -> Child edges with status-based pathways (spec §22-§26)
-    const edges = data.edges.map((e) => {
-      const targetNode = data.nodes.find((n) => n.id === e.target);
+    const edges = apiEdges.map((e) => {
+      const targetNode = apiNodes.find((n) => n.id === e.target);
       const isDeadBranch = targetNode ? DEAD_STATUSES.has(targetNode.status) : false;
       const isQualifiedOrPaper = targetNode ? ["QUALIFIED", "PAPER"].includes(targetNode.status) : false;
       const isLineageEdge = highlightedIds.has(e.source) && highlightedIds.has(e.target);
@@ -347,7 +373,7 @@ export default function EvolutionTree() {
     });
 
     return { nodes, edges };
-  }, [data, openStrategy, selectedNodeId, highlightedIds]);
+  }, [data, openStrategy, selectedNodeId, highlightedIds, apiNodes, apiEdges]);
 
   // Synchronize both nodes and edges to React Flow internal state
   useEffect(() => {

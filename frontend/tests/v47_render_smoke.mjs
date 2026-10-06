@@ -29,6 +29,13 @@ globalThis.navigator = dom.window.navigator;
 globalThis.HTMLElement = dom.window.HTMLElement;
 globalThis.Element = dom.window.Element;
 globalThis.Node = dom.window.Node;
+// DOM classes the graph view (react-flow) checks with instanceof
+globalThis.SVGElement = dom.window.SVGElement;
+globalThis.HTMLElement = dom.window.HTMLElement;
+globalThis.HTMLDivElement = dom.window.HTMLDivElement;
+globalThis.HTMLInputElement = dom.window.HTMLInputElement;
+globalThis.Event = dom.window.Event;
+globalThis.MouseEvent = dom.window.MouseEvent;
 globalThis.localStorage = dom.window.localStorage;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 globalThis.requestAnimationFrame = (cb) => setTimeout(() => cb(Date.now()), 0);
