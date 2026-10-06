@@ -235,6 +235,23 @@ class AppearanceConfig:
 
 
 @dataclass
+class LiveTestingConfig:
+    """V4.3 - controlled live (demo) testing limits.
+
+    Live Testing itself always starts INACTIVE: there is deliberately NO
+    "enabled" flag here (and none in the database) so no restart, reconnect or
+    reload can ever resume trading by itself. These are only the boundaries the
+    operator-configured activation is validated against.
+    """
+    risk_pct_default: float = 1.0      # % of account equity risked per trade
+    risk_pct_max: float = 2.0          # hard ceiling; above this a trade is BLOCKED
+    max_active_trades: int = 1         # conservative start
+    tick_interval_s: float = 15.0      # live-testing evaluation interval
+    max_data_age_s: int = 120          # stale market data blocks new trades
+    require_sl: bool = True            # risk-based sizing needs a real SL
+
+
+@dataclass
 class LabConfig:
     mt5: MT5Config = field(default_factory=MT5Config)
     data: DataConfig = field(default_factory=DataConfig)
@@ -246,6 +263,7 @@ class LabConfig:
     ai: AIConfig = field(default_factory=AIConfig)
     resources: ResourcesConfig = field(default_factory=ResourcesConfig)
     research: ResearchConfig = field(default_factory=ResearchConfig)
+    live_testing: LiveTestingConfig = field(default_factory=LiveTestingConfig)
     appearance: AppearanceConfig = field(default_factory=AppearanceConfig)
     database_path: str = "DATABASE/lab_state.db"
     log_level: str = "INFO"
@@ -253,9 +271,9 @@ class LabConfig:
 
 SECTIONS = (MT5Config, DataConfig, EvolutionConfig, BacktestConfig, FitnessConfig,
             RiskConfig, PaperConfig, AIConfig, ResourcesConfig, ResearchConfig,
-            AppearanceConfig)
+            AppearanceConfig, LiveTestingConfig)
 SECTION_NAMES = ("mt5", "data", "evolution", "backtest", "fitness", "risk",
-                 "paper", "ai", "resources", "research", "appearance")
+                 "paper", "ai", "resources", "research", "appearance", "live_testing")
 
 _lock = threading.RLock()
 _config: LabConfig | None = None

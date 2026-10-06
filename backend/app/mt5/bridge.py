@@ -61,6 +61,11 @@ class SymbolInfo:
     trade_stops_level: Optional[int] = None    # broker minimum SL/TP distance (points)
     freeze_level: Optional[int] = None
     filling_modes: Optional[List[int]] = None  # supported ORDER_FILLING_* modes
+    # V4.3 - broker specs used for risk-based position sizing (None = unknown,
+    # in which case the risk calculation refuses to guess)
+    trade_tick_size: Optional[float] = None    # price change for one tick
+    trade_tick_value: Optional[float] = None   # money per tick per 1.0 lot
+    currency_profit: Optional[str] = None
 
 
 @dataclass

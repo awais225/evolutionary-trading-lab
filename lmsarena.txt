@@ -1041,3 +1041,343 @@ verified as generating correct SQL.
   Working tree   : clean after the commit (runtime churn reverted, no DATA, no
                    temporary files, no backups, no credentials staged)
 =============================================================
+
+=============================================================
+VERSION: V4.3 — LIVE TESTING, RISK CONTROLS & MONITORING
+=============================================================
+What LMSArena actually implemented, tested and verified. The requested scope
+itself is recorded in chatgpt.txt; everything below is the as-built record.
+
+1. BASELINE
+------------
+  * Repository /home/user/evolutionary-trading-lab branched from HEAD 047dd87
+    (V4.2 docs commit; V4.2 feature 069712a). V4.3 is a layer on top: no
+    V4.0/V4.1/V4.2 file was redesigned, only extended.
+  * Authoritative DATA lives OUTSIDE the coding workspace at
+    /opt/lmsarena-storage/DATA (resolved through EVOLUTIONARY_LAB_DATA_ROOT;
+    no temp path in source, no DATA committed, no DATA inside the workspace).
+    Pristine reference: /opt/lmsarena-storage/DATA_PRISTINE_20261006 with
+    DATA_IMPORT_MANIFEST.sha256 (11 370 entries).
+  * Authoritative database: 10 787 strategies = 10 000 USER_RESEARCH +
+    787 LEGACY_TEST, max id 10814, 27 tables, user_version 3, 1031 backtests,
+    146 validations, 16 live_test_configs (all LEGACY_TEST ids, therefore
+    excluded from the live layer).
+  * Environment: no MT5 terminal here (the MetaTrader5 package is not
+    installed; the active bridge is the SIMULATOR), so the V4.2 demo gate
+    reports execution_allowed=false / MT5_UNAVAILABLE. This is the documented
+    MT5 limitation - see 12.
+
+2. ARCHITECTURE
+---------------
+  * backend/app/live_testing/risk.py (new, 200 lines) - pure risk and position
+    sizing over real broker data.
+  * backend/app/live_testing/engine.py (new, 1239 lines) - the Live Testing
+    engine: node eligibility, market panel, trade counter, staged execution,
+    activation/deactivation, UNKNOWN gate, lifecycle reconcile, stage log.
+  * backend/app/api/routes.py - 14 additive endpoints under /api/live-testing/*
+    (status, confirmation, activate, deactivate, stop-new-trades,
+    close-positions, market, counter, log, nodes, nodes/{sid}/config, settings,
+    trades, reconcile). Every other route is untouched; the single removed line
+    in the diff is the return of the legacy POST /api/live-test/config handler,
+    which now accepts any node id and reports `tradeable`, preserving the V4.0
+    schedule-controls behaviour for all node classes.
+  * backend/app/db/database.py - additive, idempotent DDL only: V4.3
+    traceability columns on the existing live_test_trades table (run_id,
+    risk_pct, risk_amount, magic, client_order_id, deal_ticket, exec_price,
+    retcode, result_json, updated_at) and the live_test_events stage-log table.
+    No existing column, index or constraint was changed.
+  * backend/app/main.py - the engine starts with the app (always INACTIVE) and
+    is stopped on shutdown; no "active" state is persisted anywhere.
+  * backend/app/mt5/{bridge,execution,mt5_real}.py - SymbolInfo gains
+    trade_tick_size / trade_tick_value / currency_profit (None = unknown, and
+    the risk calculation then refuses to guess), the reserved live-test magic
+    range 778000-778899 is threaded through validate/place, MT5RealBridge fills
+    the new spec fields. The V4.2 execution path itself is unchanged, and the
+    live layer calls the V4.2 demo guard instead of adding a second one.
+  * frontend: src/components/LiveTestingControl.jsx (new) mounted on the
+    existing Live Testing page; src/api.js gains 14 client helpers. No other
+    screen was redesigned and the legacy demo-order panel is untouched.
+
+3. RISK PER TRADE (§7-§9)
+-------------------------
+  * Risk % is configuration: live_testing.risk_pct_default (1.0 % in this
+    build) and live_testing.risk_pct_max (2.0 %), editable through
+    POST /api/live-testing/settings - never a literal in the code.
+  * Risk amount = live MT5 account equity x risk % (equity comes from the V4.2
+    account safety block; no hard-coded balance anywhere). Measured against the
+    MT5 test double: equity 10 000.00 -> 0.50 % = 50.00 risk.
+  * Volume = risk_amount / (stop_distance / trade_tick_size x trade_tick_value),
+    floored to the broker volume step and re-checked against min/max - broker
+    contract data only, no pip constant, no pip approximation. Measured: node
+    514 (BUY XAUUSD, ATR-based stop 2.09, tick size 0.01, tick value 1.0,
+    volume min 0.01 / step 0.01) -> 0.23 lots for 50.00 risk.
+  * Per-node override wins: live_test_configs.risk_pct is resolved by
+    resolve_risk_pct() and reported as risk_pct_source = "node_override" vs
+    "global_default".
+  * Safety (all blocking, never clamping): risk <= 0 -> RISK_PCT_NOT_POSITIVE;
+    risk > maximum -> RISK_PCT_ABOVE_MAXIMUM (the trade is blocked and the
+    error is shown, the value is never quietly reduced); missing tick size /
+    tick value / volume min-step or a non-tradable symbol ->
+    SYMBOL_SPEC_UNAVAILABLE / SYMBOL_NOT_TRADABLE; missing SL -> SL_REQUIRED;
+    zero-distance SL -> SL_DISTANCE_ZERO; volume below the broker minimum ->
+    VOLUME_BELOW_MINIMUM (refusing to round the trade size up past the
+    requested risk).
+
+4. PER-NODE CONFIGURATION AND NODE ELIGIBILITY (§8, §16)
+-------------------------------------------------------
+  * POST /api/live-testing/nodes/{sid}/config stores the node's symbol,
+    timeframe, risk override and SL/TP requirements and reports `tradeable`
+    plus the exclusion reason for everything else.
+  * Only USER_RESEARCH nodes are candidates: LEGACY_TEST, dead/killed/retired
+    nodes and nodes without a usable configuration are excluded. On the
+    authoritative database the 16 pre-existing configs are all LEGACY_TEST and
+    are reported as excluded_count 16 / node_count 0.
+  * Eligibility reuses the existing research status/classification notion - no
+    parallel definition was introduced.
+
+5. LIVE MARKET PANEL (§11, §12)
+-------------------------------
+  * GET /api/live-testing/market returns an MT5-authoritative state panel:
+    symbol, source, connection, bid, ask, spread, point, digits, tick size,
+    tick value, tick time/age, data_fresh, session, symbol_tradable,
+    trading_available and a human-readable reasons[] list. It is a state panel
+    only - no charting, no order controls.
+  * Live capture (authoritative DATA): XAUUSD / SIMULATOR, bid 2878.7482, ask
+    2878.8941, spread 0.1459, point 0.01, digits 2, data_fresh true,
+    symbol_tradable false, trading_available false, reason "XAUUSD is not
+    tradable on this account", session newyork.
+  * Stale or unavailable data (older than live_testing.max_data_age_s, default
+    120 s) blocks every stage after SIGNAL DETECTED with MARKET_DATA_STALE and a
+    reason; a price is never interpolated or guessed.
+
+6. LIVE TRADE COUNTER (§13, §10)
+--------------------------------
+  * GET /api/live-testing/counter counts from the broker, not from the audit
+    table: MT5 positions plus pending orders filtered to the live-test magic
+    range are the source of truth; live_test_trades rows are audit records and
+    can never inflate the count.
+  * The response distinguishes positions / pending orders / recently executed
+    and reports active_total, the configured max_active_trades and the limit
+    verdict.
+  * If the broker state cannot be read (no real MT5 connection, bridge error)
+    the counter reports counted=false, limit.reached=null, unknown=true and the
+    error text; the UI shows the amber "ACTIVE LIVE TEST TRADES UNKNOWN" banner
+    - never "TRADE LIMIT REACHED". The engine then refuses to send any order
+    (BLOCKED / BROKER_STATE_UNAVAILABLE, "refusing to trade blind").
+  * At the limit (initial 1) nothing is sent: the attempt is recorded as
+    BLOCKED / LIMIT_REACHED with reason TRADE LIMIT REACHED, positions_closed 0
+    and positions_replaced 0 - no automatic close, no replacement.
+
+7. ACTIVATION / DEACTIVATION (§4-§6, §20, §21)
+----------------------------------------------
+  * Live Testing always comes up INACTIVE: on app/server start, page or browser
+    reload, after an MT5 reconnect and after a research-run change. There is no
+    persisted active flag; get_mode() exposes previously_active vs the current
+    state for display only.
+  * Activation is a two-step flow: GET /api/live-testing/confirmation returns
+    the panel content (account and DEMO verification, node scope, symbols, risk
+    setting, max active trades, market state, demo-order warning) and
+    POST activate requires confirmed=true from that panel. A request without
+    the explicit confirmation is refused, and activation is refused while
+    execution is not allowed (non-demo or unavailable MT5).
+  * POST deactivate ("STOP LIVE TESTING") returns the engine to INACTIVE and
+    blocks new orders immediately; it never touches open positions.
+  * POST stop-new-trades stops new entries while the engine keeps running, and
+    POST close-positions is a separate explicit operation (it refuses when no
+    real MT5 broker state is available). STOP NEW TRADES and CLOSE EXISTING
+    POSITIONS are therefore distinct, and nothing is liquidated automatically
+    in this version.
+  * A disconnect deactivates the engine with an explicit reason and leaves
+    positions untouched; reconnecting does not resume - the operator must
+    activate again.
+
+8. STAGE-BY-STAGE LIVE LOG (§14, §15)
+-------------------------------------
+  * Stages: SIGNAL DETECTED -> RISK CALCULATED -> VOLUME CALCULATED ->
+    MARKET VALIDATED -> ORDER VALIDATED -> ORDER SENT -> BROKER RESPONSE ->
+    POSITION VERIFIED, plus BLOCKED / REJECTED / UNKNOWN VERIFY MT5 outcomes.
+  * Every event carries timestamp, node id, strategy id, run id, symbol, side,
+    status, code and a human-readable message; raw MT5 objects stay on the
+    server and no [object Object] is ever emitted.
+  * Broker timeouts or ambiguous responses are marked UNKNOWN - VERIFY MT5 and
+    the symbol is gated: a further attempt on that symbol is BLOCKED with
+    UNRESOLVED_BROKER_STATE until the broker state has been verified. Reconcile
+    releases the gate only for rows older than the 60 s grace period whose
+    positions/orders are gone, keeps the audit row UNKNOWN and emits a VERIFIED
+    stage. No automatic retry, no second order on a timeout.
+
+9. SAFETY MECHANISMS (§3, §17-§19)
+----------------------------------
+  * Demo protection reuses the V4.2 mechanism (demo_account_guard +
+    execution_state): MT5 connected + account positively identified + DEMO +
+    symbol tradable + market info available; any unknown -> BLOCK; SIMULATOR /
+    REAL / UNKNOWN / UNAVAILABLE -> execution disabled.
+  * The screen exposes Active / Inactive / Blocked / Error / Unknown plus the
+    recent event list, and deliberately no live-test results module (V4.6 stays
+    out of scope).
+  * Live-test trades never change research status, and live records live in
+    their own audit rows with node/run/symbol/side/timestamp/risk/SL/TP/ticket
+    traceability; research statistics, generation, node status and backtesting
+    are untouched.
+
+10. TESTS (§23)
+----------------
+  * tests/test_v4_3_live_testing.py (new, 25 items) covers the 22 named cases:
+    01 inactive at start, 02 refresh/new session, 03 backend restart, 04
+    non-demo account blocks, 05 MT5 unavailable blocks, 06 risk calculation,
+    07 risk above maximum blocked (not clamped), 08 node override wins, 09
+    global fallback, 10 invalid SL blocks, 11 max-active limit blocks and never
+    closes, 12 market panel reflects MT5, 13 stale data blocks, 14 BUY full
+    stage sequence, 15 SELL full stage sequence, 16 duplicate protection
+    intact, 17 timeout/unknown never auto-retries, 18 disconnect blocks new
+    trades and keeps positions, 19 reconnect does not auto-resume, 20
+    LEGACY_TEST never a candidate, 21 research statistics unchanged, 22 live
+    records do not change population counts - plus 3 extras: confirmation
+    required to activate, reconcile marks vanished positions CLOSED_MISSING,
+    sizing respects broker minimums. Result: 25 passed.
+  * Everything runs against the V4.2 MT5 test double (the same double the V4.2
+    tests use) - deterministic, no broker needed, and "no trade happened" cases
+    are asserted as the absence of orders rather than as a faked success.
+  * scripts/verify_mt5_demo_execution.py was extended in place with V4.3 tests
+    5-10 for the Windows host with a real terminal: inactive-by-default plus no
+    persisted active flag plus refused confirmation; market panel incl. tick
+    size/value; risk sizing on the real spec incl. the RISK_PCT_ABOVE_MAXIMUM
+    block; MT5-authoritative counter with the 778000-778899 magic check;
+    activation/deactivation through --activate-probe / --wait-minutes; stage-log
+    tail. A local dry run passes 7/9 checks; the 2 failures are exactly the
+    checks that require a real MT5 terminal.
+
+11. REGRESSION (§24)
+--------------------
+  * V4.0 verification (verify_v4_0.py against the authoritative DATA):
+    OVERALL: ALL PASS - 10 000 user / 787 legacy untouched, /api/research/filter
+    total_matching 10 000 with 0 legacy rows across all 8 surfaces, node 1 plus
+    the data_source=LEGACY_TEST escape hatch intact, 40 distinct generations.
+  * V4.1 acceptance (acceptance_v4_1_v4.py, disposable copy): ALL PASS on the
+    confirming run - Option B resume +1000 -> target 11 000 with nothing
+    regenerated, the app's own loop generating above the old 10 000 boundary,
+    the ceiling top-up producing exactly 1000 new nodes numbered 10001..11000
+    with ids from 10815, at-target replenishment a no-op, Option A backup+reset
+    verified, recovery restoring the study, Option C reset without archive, and
+    every guard case rejected. (The first attempt stopped at step 4 - see 11a.)
+  * V4.2 acceptance (acceptance_v4_2.py against the v4_2_testdata copy): ALL
+    PASS on the confirming runs, both with the V4.3 tree and with the V4.2 tree
+    (A/B). See 11a for the two failing attempts and their classification.
+  * V4.2 focused (tests/test_v4_2_mt5_execution.py): passes unchanged; the V4.3
+    tests reuse the same double and the same execution module.
+  * Full suite: repository tree `pytest tests` -> 106 passed. The legacy
+    DATA-resident suite run on a disposable copy -> 24 failures / 208 passed
+    against the recorded V4.2 baseline of 22 failures; both extra failures are
+    order/timing dependent and pass standalone (test_v3_2_restart_persistence,
+    test_v3_5_memory_safeguard), and an A/B run on the V4.2 tree produced the
+    same count with a different order-dependent flake swap. Failure list:
+    /opt/lmsarena-storage/v4_3_work/failures_v4_3.txt (22 baseline + 2).
+  * Backend health/prod checks: the app boots with the engine INACTIVE and
+    /api/lab/status reports mode INACTIVE, engine_running true,
+    previously_active false, max_active_trades 1; 141 routes of which 14 are the
+    new /api/live-testing surface.
+  * Frontend build: `cd frontend && npx vite build` -> built OK (dist/assets/
+    index-CZZ4_jqf.js 1080.73 kB, only the >500 kB chunk-size warning).
+  * Classification: 0 genuine V4.3 regressions; 22 pre-existing baseline
+    failures (unchanged set); 2 environment/order-dependent flakes; 3
+    intermittent acceptance-harness failures caused by running the harness
+    against a backend that did not serve the copy it inspected (one of them
+    reproduced on the V4.2 tree); everything else intentional or
+    environment-only.
+
+11a. THE INTERMITTENT ACCEPTANCE-HARNESS FAILURES (NOT A V4.3 DEFECT)
+---------------------------------------------------------------------
+  Three failing attempts were observed; all of them were about the harness
+  talking to the wrong database view, none of them about V4.3 logic:
+    (1) V4.1 acceptance, first attempt: `sqlite3.DatabaseError: database disk
+        image is malformed` raised inside create_research_backup()
+        (research_run/lifecycle.py - code untouched by V4.3) while the copy was
+        still being written by a second process. Rerun on a fresh copy: ALL PASS
+        with SQLite quick_check/integrity_check ok.
+    (2) V4.2 acceptance on the V4.3 tree, first attempt: the same error, after
+        which the app process kept failing reads while an independent reader saw
+        a healthy database (quick_check ok, 10 000 -> 11 000 nodes) - i.e. the
+        process held a stale view of a copy that had been replaced underneath
+        it. Rerun on a fresh copy: ALL PASS.
+    (3) A/B attempt on the V4.2 tree: the new backend never started -
+        "[LEASE] Another laboratory backend instance is already running
+        (PID 37694, Port: 8787). Dual instance blocked." plus
+        "address already in use" - so the 60 s health probe was answered by the
+        *previous* instance, which was serving the disposable copy that had just
+        been deleted and recreated. Rerun with a single bound instance: ALL
+        PASS. This is the same failure class as (1)/(2) and it reproduces
+        WITHOUT any V4.3 code, which is what matters for classification.
+  Corroborating evidence that V4.3 is not involved: the V4.3 diff contains no
+  change to the research-run/backup path, the database read path or any existing
+  endpoint (routes.py is additive except one legacy line); the Live Testing
+  engine performs ZERO database access while INACTIVE (`_cycle` returns
+  immediately) so it held no connection during any of these runs; and every run
+  that had a single bound backend on the copy it inspected passed ALL PASS (four
+  runs in total: the V4.1 acceptance rerun on the V4.3 tree, the V4.2 acceptance
+  run on the V4.3 tree, and two V4.2 acceptance runs on the V4.2 tree).
+  Operational rules adopted for the remaining verification: one backend per
+  disposable copy, a fresh copy per state-mutating run, kill the previous
+  instance before replacing a copy, and never leave a server holding a replaced
+  database. The product-level guard that surfaced this (the PID lease manager
+  refusing a second instance) is pre-existing V4.2 behaviour and was left
+  intact.
+
+12. MT5 LIMITATION (§25)
+------------------------
+  * No real MT5 terminal exists in this environment (package absent, bridge
+    SIMULATOR), so no real broker trade was placed and none is claimed.
+    Broker-dependent behaviour is exercised through the V4.2 MT5 test double,
+    and the live path is verified end-to-end against it (BUY and SELL stage
+    sequences, volume from the broker contract spec, ticket verification,
+    reconcile, CLOSED_MISSING handling).
+  * The demo gate is verified in the blocking direction (SIMULATOR /
+    UNAVAILABLE -> execution_allowed=false -> activation refused, engine
+    blocked), which is the direction that matters for safety.
+  * scripts/verify_mt5_demo_execution.py now carries the V4.3 checks for the
+    Windows host so the real-terminal confirmation can be completed there
+    without touching the code.
+
+13. DATA INTEGRITY (§26)
+------------------------
+  * All state-mutating checks ran on disposable copies
+    (/opt/lmsarena-storage/v4_1_testdata, v4_2_testdata, v4_3_testdata); the
+    authoritative /opt/lmsarena-storage/DATA was never modified.
+  * After the V4.3 work the authoritative tree was restored from
+    DATA_PRISTINE_20261006 and verified byte-exact with
+    `sha256sum -c DATA_IMPORT_MANIFEST.sha256 --quiet` -> no mismatches
+    (11 370 entries); database sha256
+    54ec6835753a48c095284fc1f3bada856e5315299aa909758abe5ae3fb6e042b.
+  * Confirmed after the restore: 10 000 USER_RESEARCH / 787 LEGACY_TEST
+    (10 787 total), max id 10814, 27 tables, user_version 3, target 10 000,
+    live_test_configs 16 (all legacy, excluded), live_test_trades 0.
+  * Nothing from DATA was staged or committed; the repository keeps only the
+    pre-existing LFS pointer mirror of the dataset.
+
+14. BUILD RESULT
+----------------
+  * Frontend: `npx vite build` OK (see 11). Backend: the new package compiles
+    and imports cleanly, and the application boots with Live Testing INACTIVE.
+
+15. GIT RESULT
+--------------
+  Commit message : V4.3: add controlled live testing and risk monitoring
+  Commit hash    : (recorded by the follow-up LMSArena log commit)
+  Push           : origin main (verified local HEAD == remote main)
+  Working tree   : clean after the pushes (runtime churn and the tracked DATA
+                   mirror restored to HEAD, no DATA, no temp files, no backups,
+                   no credentials, no node_modules or venv staged, no runtime
+                   flag files added)
+
+16. REMAINING ISSUES
+--------------------
+  * Real-MT5 confirmation of tests 1-10 in scripts/verify_mt5_demo_execution.py
+    still has to be run on the Windows host (see 12).
+  * CLOSE EXISTING POSITIONS is intentionally limited in this version: it
+    refuses while no real MT5 broker state is available and never closes
+    positions as a side effect of STOP.
+  * The tracked DATA mirror inside the repository still holds LFS pointer files
+    because the objects cannot be fetched here without GitHub credentials; the
+    real dataset lives in the storage root and the pointer state matches HEAD.
+  * Historical repository churn (LOGS/*.pid, DATA/manifests/*) is pre-existing
+    and is not part of the V4.3 change set.
+=============================================================

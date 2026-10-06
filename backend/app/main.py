@@ -108,6 +108,15 @@ async def startup() -> None:
 
     # 7. Start MT5 Connection & Feed Monitor (spec §15-19)
     get_connection_monitor().start()
+
+    # 8. V4.3: start the Live Testing monitor thread. It always comes up INACTIVE
+    #    (no persisted "active" flag) - order execution requires an explicit
+    #    operator activation with the confirmation panel (spec §4/§5/§21).
+    from .live_testing import get_live_testing_engine
+    lt = get_live_testing_engine()
+    lt.start()
+    activity.info("LIVE-TESTING", "Live Testing engine initialised — INACTIVE (activation required)",
+                  operation_id="startup")
     activity.success("SYSTEM", "Connection monitor started", operation_id="startup")
     activity.success("SYSTEM", "Dashboard ready — listening on http://127.0.0.1:8787", operation_id="startup")
 
@@ -124,6 +133,13 @@ def threading_start(mode: str) -> None:
 
 @app.on_event("shutdown")
 async def shutdown() -> None:
+    # V4.3: shut the live-testing loop down and drop the in-memory ACTIVE flag so a
+    # restart can never resume trading by itself (spec §21).
+    try:
+        from .live_testing import get_live_testing_engine
+        get_live_testing_engine().stop(reason="backend shutdown - Live Testing stays INACTIVE")
+    except Exception as e:  # never block shutdown
+        log.warning("live testing shutdown notice: %s", e)
     from .lease import get_lease_manager
     get_lease_manager().release()
 

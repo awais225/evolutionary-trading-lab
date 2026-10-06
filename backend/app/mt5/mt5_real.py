@@ -251,7 +251,10 @@ class MT5RealBridge(MarketBridge):
                           volume_step=float(getattr(si, "volume_step", 0.0) or 0.0),
                           trade_stops_level=int(getattr(si, "trade_stops_level", 0) or 0),
                           freeze_level=int(getattr(si, "freeze_level", 0) or 0),
-                          filling_modes=_filling_modes(si))
+                          filling_modes=_filling_modes(si),
+                          trade_tick_size=float(getattr(si, "trade_tick_size", 0.0) or 0.0) or None,
+                          trade_tick_value=float(getattr(si, "trade_tick_value", 0.0) or 0.0) or None,
+                          currency_profit=str(getattr(si, "currency_profit", "") or "") or None)
 
     def account_info(self) -> Optional[AccountInfo]:
         if not self._connected:

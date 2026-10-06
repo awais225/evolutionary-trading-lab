@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { api, fmt } from "../api.js";
 import { useLab } from "../App.jsx";
 import StructuredError from "../components/StructuredError.jsx";
+import LiveTestingControl from "../components/LiveTestingControl.jsx";
 
 export default function LiveTesting() {
   const { shortlist, toggleShortlist, setSelectedStrategyId, navigateTab } = useLab() || {};
@@ -203,6 +204,9 @@ export default function LiveTesting() {
           {actionMsg.text}
         </div>
       )}
+
+      {/* V4.3 — controlled demo execution: mode, safety, risk, market, counter, stage log */}
+      <LiveTestingControl />
 
       {/* Action Toolbar (Spec §12) */}
       <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900/60 p-3 rounded-xl border border-slate-800">

@@ -321,6 +321,7 @@ def _chk(checks: List[Dict], cid: str, label: str, ok: bool, detail: str = "",
 def validate_order_request(bridge=None, *, symbol: str = "", side: str = "",
                            volume: Any = None, sl: Any = None, tp: Any = None,
                            price: Any = None, strategy_id: Optional[int] = None,
+                           magic: Optional[int] = None,
                            require_live: bool = True) -> Dict[str, Any]:
     """Local validation of a requested demo order.
 
@@ -514,7 +515,7 @@ def validate_order_request(bridge=None, *, symbol: str = "", side: str = "",
 
     normalized = {"symbol": symbol_n, "side": side_n, "volume": vol, "sl": sl_f, "tp": tp_f,
                   "price": px, "strategy_id": strategy_id,
-                  "magic": _magic_for(strategy_id)}
+                  "magic": int(magic) if magic is not None else _magic_for(strategy_id)}
     return {
         "ok": not blocking,
         "placement_allowed": not blocking,
@@ -562,8 +563,18 @@ def assert_tradeable_strategy(strategy_id: int) -> Dict[str, Any]:
 
 def _magic_for(strategy_id: Optional[int]) -> int:
     # 777000 range = manual V4.2 demo orders; strategy-linked orders get +node id.
+    # V4.3 live-testing orders use an explicit magic from the 778000 range so the
+    # authoritative MT5 position list can be filtered per execution layer.
     base = 777000
     return base + (int(strategy_id) % 900 if strategy_id is not None else 0)
+
+
+LIVE_TEST_MAGIC_BASE = 778000
+
+
+def live_test_magic(strategy_id: Optional[int]) -> int:
+    """Magic range reserved for V4.3 live-testing orders."""
+    return LIVE_TEST_MAGIC_BASE + (int(strategy_id) % 900 if strategy_id is not None else 0)
 
 
 def pick_filling(symbol_info) -> int:
@@ -811,7 +822,8 @@ def place_demo_order(payload: Dict[str, Any], bridge=None) -> Dict[str, Any]:
         report = validate_order_request(
             bridge, symbol=symbol, side=side, volume=volume, sl=payload.get("sl"),
             tp=payload.get("tp"), price=payload.get("price"),
-            strategy_id=payload.get("strategy_id"), require_live=True)
+            strategy_id=payload.get("strategy_id"), magic=payload.get("magic"),
+            require_live=True)
         if not report["placement_allowed"]:
             raise MT5ExecutionError(
                 "VALIDATION_FAILED",

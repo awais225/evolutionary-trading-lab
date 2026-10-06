@@ -175,6 +175,22 @@ export const api = {
   liveTestResumeAll: () => req("/api/live-test/resume-all", { method: "POST" }),
   liveTestResults: (params = {}) => req(`/api/live-test/results?${new URLSearchParams(params)}`),
 
+  // V4.3 — controlled live testing (demo only, INACTIVE by default)
+  liveTestingStatus: () => req("/api/live-testing/status"),
+  liveTestingConfirmation: () => req("/api/live-testing/confirmation"),
+  liveTestingActivate: (body = {}) => req("/api/live-testing/activate", { method: "POST", body: { confirm: true, ...body } }),
+  liveTestingDeactivate: (reason) => req("/api/live-testing/deactivate", { method: "POST", body: { reason } }),
+  liveTestingStopNewTrades: (reason) => req("/api/live-testing/stop-new-trades", { method: "POST", body: { reason } }),
+  liveTestingClosePositions: () => req("/api/live-testing/close-positions", { method: "POST" }),
+  liveTestingMarket: (symbol) => req(`/api/live-testing/market${symbol ? `?symbol=${symbol}` : ""}`),
+  liveTestingCounter: () => req("/api/live-testing/counter"),
+  liveTestingLog: (params = {}) => req(`/api/live-testing/log?${new URLSearchParams(params)}`),
+  liveTestingNodes: () => req("/api/live-testing/nodes"),
+  liveTestingNodeConfig: (sid, body) => req(`/api/live-testing/nodes/${sid}/config`, { method: "POST", body }),
+  liveTestingSettings: (body) => req("/api/live-testing/settings", { method: "POST", body }),
+  liveTestingTrades: (params = {}) => req(`/api/live-testing/trades?${new URLSearchParams(params)}`),
+  liveTestingReconcile: () => req("/api/live-testing/reconcile", { method: "POST" }),
+
   // MT5 Demo Trading (V4)
   mt5DemoStatus: () => req("/api/mt5-demo/status"),
   toggleMt5Demo: (sid, confirmed = true) =>

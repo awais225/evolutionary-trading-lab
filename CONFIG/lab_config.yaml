@@ -146,6 +146,16 @@ research:
   export_enabled: true
   activity_retention: 5000
   backup_keep: 10
+live_testing:
+  # V4.3 - controlled live testing (demo only). Live Testing itself always starts
+  # INACTIVE and has no persisted 'active' flag; these values are only the limits
+  # an explicit operator activation is validated against.
+  risk_pct_default: 1.0
+  risk_pct_max: 2.0
+  max_active_trades: 1
+  tick_interval_s: 15.0
+  max_data_age_s: 120
+  require_sl: true
 appearance:
   theme: dark
   status_colors:

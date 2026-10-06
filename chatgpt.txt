@@ -2465,3 +2465,80 @@ STATUS:
 V4.2 requested. What was asked for is recorded here; what LMSArena actually
 implemented, tested and committed is recorded in lmsarena.txt.
 =============================================================
+=============================================================
+VERSION: V4.3
+=============================================================
+REQUESTED CHANGE:
+
+Implement the controlled live-testing layer on top of the V4.2 MT5 demo
+execution foundation - DEMO and controlled only:
+
+* risk per trade (configurable default risk %, risk amount = account equity x
+  risk %, volume derived from entry price, SL distance and the broker's own
+  contract specification - never a hard-coded balance, never a pip-only calc)
+* per-node risk override (a valid override wins over the global setting)
+* live market panel (compact, MT5-authoritative: symbol, bid, ask, spread,
+  timestamp, market/session state, trading availability, connection status;
+  optionally last price, tick time, point size, digits; state panel only, no
+  charting)
+* live trade counter (ACTIVE LIVE TEST TRADES: X taken from real MT5 positions
+  and orders, distinguishing active positions / pending orders / recently
+  executed; an audit record is not an open position)
+* Live Testing INACTIVE by default (after app / page / server restart, MT5
+  reconnect, research-run change or browser reload) with an explicit
+  confirmation panel and a safety lock before ACTIVE; never auto-resumes
+* "STOP LIVE TESTING" blocks new orders immediately and must not auto-close
+  existing positions (STOP NEW TRADES and CLOSE EXISTING POSITIONS stay
+  distinct operations)
+* maximum active trades (configurable, conservative - e.g. 1); at the limit
+  nothing is sent and TRADE LIMIT REACHED is shown, never an automatic close or
+  replacement
+* stage-by-stage live log: SIGNAL DETECTED -> RISK CALCULATED -> VOLUME
+  CALCULATED -> MARKET VALIDATED -> ORDER VALIDATED -> ORDER SENT -> BROKER
+  RESPONSE -> POSITION VERIFIED, or BLOCKED / REJECTED / UNKNOWN - VERIFY MT5,
+  each stage with timestamp, node/strategy, symbol, information, status and a
+  human-readable message (no raw objects, no [object Object])
+* strong MT5 demo protection (reuse the V4.2 mechanism rather than a second
+  account-detection system: MT5 connected + account positively identified +
+  DEMO + symbol tradable + market info available; any unknown blocks;
+  REAL / UNKNOWN / SIMULATOR / UNAVAILABLE disables execution)
+* MT5 disconnect / reconnect safety and basic live-trade lifecycle monitoring
+
+Safety rules recorded with the request: never silently clamp a dangerous value
+(risk above the configured maximum shows an error and blocks), risk must be
+greater than zero, volume must respect broker min/max/step, SL must exist and a
+zero-distance SL is rejected, invalid symbol data blocks the calculation, stale
+or unavailable market data blocks with a clear reason and a price is never
+guessed, no automatic retry after a timeout or an ambiguous broker response
+(mark UNKNOWN - VERIFY MT5 and inspect MT5), duplicate-submission protection is
+kept and submission stays disabled while an order is in flight, and every order
+requires an explicit user action plus confirmation.
+
+Node rules: only eligible USER_RESEARCH nodes may receive a trading
+configuration; LEGACY_TEST, dead, killed, retired and invalid nodes and nodes
+without a required trading configuration are excluded (reuse the existing
+eligibility logic). Live-test trades never change research status (ALIVE / DEAD
+/ QUALIFIED / FAILED / RETIRED / KILLED) and live results stay separate: every
+trade is traceable to node ID, strategy/run ID, symbol, side, timestamp, risk
+setting, SL, TP and the MT5 ticket/deal in a separate record that cannot
+contaminate research statistics.
+
+Also required: V4.0-V4.2 behaviour must stay intact (legacy isolation,
+USER_RESEARCH / LEGACY_TEST classification, research-run workflow, the V4.2 MT5
+execution path with demo guard, SL/TP, order validation, duplicate protection
+and MT5 error handling, statistics, generation, node status, backtesting); the
+full regression set must be run and compared with the previous baseline with
+every failure classified and genuine regressions fixed before committing; a
+missing real MT5 terminal must never be faked (use the existing MT5 test double,
+document the limitation and extend the Windows-host verification script where
+safe); DATA stays external and byte-exact with the disposable-copy + restore +
+manifest verification workflow; the requested change is recorded here only, the
+implementation report goes to lmsarena.txt, the work is committed with the V4.3
+message and pushed, then stop (the V4.4 statistics redesign, the Strategy Lab /
+Node Economics / Backtest Matrix redesign, MT5 backtesting and the full V4.6
+Live Test Results are out of scope).
+
+STATUS:
+V4.3 requested. What was asked for is recorded here; what LMSArena actually
+implemented, tested and committed is recorded in lmsarena.txt.
+=============================================================

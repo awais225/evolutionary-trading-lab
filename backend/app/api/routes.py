@@ -22,6 +22,8 @@ from ..mt5.factory import reset_bridge
 from ..orchestrator.lab import get_lab
 from ..paper import calibration as calib
 from ..paper.engine import get_paper_engine
+from ..live_testing import get_live_testing_engine
+from ..live_testing.risk import RiskBlock, validate_risk_settings
 from ..risk.controls import get_risk_manager
 from ..genome.schema import describe
 from ..activity import activity
@@ -2646,8 +2648,13 @@ def live_test_status() -> Dict:
     today_trades = [t for t in all_trades if t.get("open_ts", 0) >= time.time() - 86400]
     today_pnl = sum(t.get("pnl", 0.0) for t in today_trades)
     total_pnl = sum(t.get("pnl", 0.0) for t in all_trades)
+    eng = get_live_testing_engine()
     return {
         "status": "RUNNING" if active_configs else "IDLE",
+        # V4.3: the scheduler status above only counts configured nodes; actual
+        # (demo) order execution requires the explicit ACTIVE mode below.
+        "mode": eng.get_mode()["mode"],
+        "live_testing_active": eng.active,
         "active_strategies": len(active_configs),
         "active_strategy_ids": [c["strategy_id"] for c in active_configs],
         "total_trades": len(all_trades),
@@ -2683,9 +2690,30 @@ def get_strategy_live_test_config(sid: int) -> Dict:
 
 @router.post("/live-test/strategies/{sid}/config")
 def save_strategy_live_test_config(sid: int, payload: Dict = Body(...)) -> Dict:
+    """Save a node's live-test schedule/risk config (V4.3 validates the risk).
+
+    Spec §8/§9: the node-level `risk_pct` is the per-node *override*; `null`
+    clears it so the global default applies. A value above the configured
+    maximum (or <= 0) is rejected with an error instead of being silently
+    clamped, and LEGACY_TEST nodes may never receive a trading configuration.
+    """
     db = get_db()
+    # Spec §9: a risk value outside the configured bounds is rejected, never clamped.
+    risk_check = validate_risk_settings(payload.get("risk_pct"), sid)
+    if not risk_check["ok"]:
+        raise HTTPException(status_code=422, detail=risk_check)
     db.set_live_test_config(sid, payload)
-    return {"ok": True, "strategy_id": sid, "config": db.get_live_test_config(sid)}
+    # Spec §8/§16: scheduler state may be stored for any node, but LEGACY_TEST rows are
+    # reported as non-tradeable here and are excluded by the execution layer itself.
+    strat = db.get_strategy(sid)
+    src = str((strat or {}).get("data_source") or "").upper()
+    tradeable = src != "LEGACY_TEST"
+    out = {"ok": True, "strategy_id": sid, "config": db.get_live_test_config(sid),
+           "risk_limits": risk_check.get("limits"), "tradeable": tradeable}
+    if not tradeable:
+        out["note"] = (f"node {sid} is a LEGACY_TEST infrastructure row: the schedule is stored "
+                       "for reference only and the node can never execute live-test orders")
+    return out
 
 
 @router.post("/live-test/strategies/{sid}/toggle")
@@ -2863,6 +2891,227 @@ def live_test_results(
         },
         "trades": trades[:200],
     }
+
+
+# ---------------- V4.3: controlled live testing, risk & monitoring ----------------
+# Demo-only, INACTIVE by default, explicit activation, no automatic retries.
+# These routes sit ON TOP of the V4.2 execution path (app.mt5.execution); they
+# never bypass the account guard, validation or duplicate protection.
+
+def _live_engine():
+    return get_live_testing_engine()
+
+
+@router.get("/live-testing/status")
+def live_testing_status() -> Dict:
+    """Mode, nodes, risk configuration, MT5-authoritative trade counter and log."""
+    return _live_engine().status()
+
+
+@router.get("/live-testing/confirmation")
+def live_testing_confirmation() -> Dict:
+    """Everything the operator must see before activating (spec §5)."""
+    from ..mt5 import execution as ex
+    eng = _live_engine()
+    payload = eng.activation_payload()
+    try:
+        estate = ex.execution_state()
+    except Exception as e:
+        estate = {"execution_allowed": False, "account_safety": {"blocked_reason": str(e)}}
+    guard = estate.get("account_safety") or {}
+    payload["mt5_account"] = guard.get("account")
+    payload["account_status"] = {
+        "demo_verified": bool(guard.get("demo_verified")),
+        "blocked_code": guard.get("blocked_code"), "blocked_reason": guard.get("blocked_reason"),
+        "bridge_source": guard.get("bridge_source"), "connected": guard.get("connected"),
+    }
+    payload["execution_allowed"] = bool(estate.get("execution_allowed"))
+    payload["risk_limits"] = validate_risk_settings(None)["limits"]
+    return payload
+
+
+@router.post("/live-testing/activate")
+def live_testing_activate(payload: Dict = Body(...)) -> Dict:
+    """Explicit activation (spec §5). Requires confirmed=true; never automatic."""
+    from ..mt5 import execution as ex
+    eng = _live_engine()
+    confirmed = bool(payload.get("confirm") in (True, "true", "True", 1))
+    if not eng.running:
+        eng.start()
+    # the safety precondition is shown to the operator and re-checked here
+    try:
+        estate = ex.execution_state()
+        safety = estate.get("account_safety") or {}
+    except Exception as e:
+        safety = {"demo_verified": False, "blocked_reason": str(e)}
+    res = eng.activate(confirmed=confirmed,
+                       armed_by=str(payload.get("armed_by") or "operator"),
+                       risk_pct_default=payload.get("risk_pct_default"),
+                       max_active_trades=payload.get("max_active_trades"),
+                       node_ids=payload.get("node_ids"))
+    if res.get("ok"):
+        res["account_status"] = {k: safety.get(k) for k in
+                                 ("demo_verified", "blocked_code", "blocked_reason",
+                                  "bridge_source", "connected")}
+        res["execution_allowed"] = bool(estate.get("execution_allowed")) if isinstance(estate, dict) else False
+        res["note"] = ("Live Testing is ACTIVE. It still places a demo order only when every "
+                       "safety gate passes (MT5 connected, DEMO verified, fresh market data, "
+                       "risk within limits, max active trades not reached).")
+    return res
+
+
+@router.post("/live-testing/deactivate")
+def live_testing_deactivate(payload: Dict = Body(default={})) -> Dict:
+    """STOP LIVE TESTING - blocks new orders immediately, keeps existing positions."""
+    reason = str((payload or {}).get("reason") or "operator stopped live testing")
+    return _live_engine().deactivate(reason=reason)
+
+
+@router.post("/live-testing/stop-new-trades")
+def live_testing_stop_new_trades(payload: Dict = Body(default={})) -> Dict:
+    """Explicit alias of STOP LIVE TESTING (spec §6: STOP NEW TRADES)."""
+    reason = str((payload or {}).get("reason") or "operator stopped new live-test trades")
+    return _live_engine().deactivate(reason=reason)
+
+
+@router.post("/live-testing/close-positions")
+def live_testing_close_positions() -> Dict:
+    """CLOSE EXISTING POSITIONS is deliberately NOT implemented in V4.3 (spec §6)."""
+    raise HTTPException(status_code=501, detail={
+        "ok": False, "code": "NOT_AVAILABLE_IN_V4_3", "positions_closed": 0,
+        "message": "Automatic liquidation of live-test positions is out of scope for V4.3. "
+                   "STOP LIVE TESTING blocks new orders only; existing positions are left "
+                   "untouched and must be managed manually in the MT5 terminal."})
+
+
+@router.get("/live-testing/market")
+def live_testing_market(symbol: Optional[str] = None) -> Dict:
+    return _live_engine().market_panel(symbol)
+
+
+@router.get("/live-testing/counter")
+def live_testing_counter() -> Dict:
+    """Active live-test trades counted from MT5 positions/orders (spec §13)."""
+    eng = _live_engine()
+    activity = eng.count_activity()
+    return {"activity": activity, "limit": eng.order_limit_reached(activity)}
+
+
+@router.get("/live-testing/log")
+def live_testing_log(limit: int = 60, node_id: Optional[int] = None,
+                     since_ts: Optional[float] = None) -> Dict:
+    """Stage-by-stage live-test log (spec §14)."""
+    rows = get_db().get_live_test_events(limit=max(1, min(int(limit), 500)),
+                                         node_id=node_id, since_ts=since_ts)
+    events = []
+    for r in rows:
+        detail = {}
+        if r.get("detail_json"):
+            try:
+                detail = json.loads(r["detail_json"])
+            except Exception:
+                detail = {}
+        events.append({"id": r["id"], "ts": r["ts"], "ts_iso": _iso_ts(r["ts"]),
+                       "node_id": r["node_id"], "symbol": r["symbol"], "side": r["side"],
+                       "stage": r["stage"], "status": r["status"], "message": r["message"],
+                       "detail": detail})
+    return {"events": events, "count": len(events)}
+
+
+@router.get("/live-testing/nodes")
+def live_testing_nodes() -> Dict:
+    """Eligible USER_RESEARCH nodes + why other configured nodes are excluded (§16)."""
+    eng = _live_engine()
+    limits = validate_risk_settings(None)["limits"]
+    nodes = []
+    for n in eng.eligible_nodes():
+        cfg = n["config"]
+        nodes.append({"node_id": n["id"], "strategy_id": n["id"],
+                      "symbol": (n.get("genome") or {}).get("symbol"),
+                      "timeframe": (n.get("genome") or {}).get("timeframe"),
+                      "status": cfg.get("strategy_status"), "data_source": cfg.get("data_source"),
+                      "run_id": cfg.get("run_id"),
+                      "risk_pct_override": cfg.get("risk_pct"),
+                      "effective_risk_pct": n.get("_effective_risk_pct"),
+                      "risk_pct_source": n.get("_risk_source"),
+                      "is_active": True})
+    return {"nodes": nodes, "count": len(nodes),
+            "excluded": eng.excluded_nodes(), "risk_limits": limits}
+
+
+@router.post("/live-testing/nodes/{sid}/config")
+def live_testing_node_config(sid: int, payload: Dict = Body(...)) -> Dict:
+    """Per-node live-test configuration: risk override + activation flag (spec §8)."""
+    db = get_db()
+    strat = db.get_strategy(sid)
+    if strat is None:
+        raise HTTPException(status_code=404, detail={"ok": False, "message": f"node {sid} not found"})
+    if str(strat.get("data_source") or "").upper() == "LEGACY_TEST":
+        raise HTTPException(status_code=422, detail={
+            "ok": False, "code": "LEGACY_NODE_NOT_TRADEABLE",
+            "message": f"node {sid} is LEGACY_TEST infrastructure - it can never be a live "
+                       "trading candidate"})
+    risk_check = validate_risk_settings(payload.get("risk_pct"), sid)
+    if not risk_check["ok"]:
+        raise HTTPException(status_code=422, detail=risk_check)
+    current = db.get_live_test_config(sid) or {}
+    merged = {**current, **{k: v for k, v in payload.items()
+                            if k in ("timeframes", "days", "sessions", "start_time", "end_time",
+                                     "timezone", "lot_size", "risk_pct", "is_active", "status")}}
+    db.set_live_test_config(sid, merged)
+    return {"ok": True, "strategy_id": sid, "config": db.get_live_test_config(sid),
+            "raw_risk_pct_override": db.one(
+                "SELECT risk_pct FROM live_test_configs WHERE strategy_id=?", (sid,))["risk_pct"],
+            "risk_limits": risk_check["limits"]}
+
+
+@router.post("/live-testing/settings")
+def live_testing_settings(payload: Dict = Body(...)) -> Dict:
+    """Global live-test limits (risk % default/max, max active trades, data age)."""
+    cfg = update_config("live_testing", {k: v for k, v in (payload or {}).items()
+                                         if k in ("risk_pct_default", "risk_pct_max",
+                                                  "max_active_trades", "tick_interval_s",
+                                                  "max_data_age_s", "require_sl")})
+    return {"ok": True, "live_testing": _config_section_dict(cfg.live_testing)}
+
+
+def _config_section_dict(obj: Any) -> Dict:
+    return {f: getattr(obj, f) for f in obj.__dataclass_fields__}
+
+
+@router.get("/live-testing/trades")
+def live_testing_trades(status: Optional[str] = None, limit: int = 100) -> Dict:
+    """Live-test execution records (basic lifecycle monitoring, spec §19)."""
+    db = get_db()
+    rows = db.get_live_test_executions(status=status)
+    out = []
+    for r in rows[:max(1, min(int(limit), 500))]:
+        d = dict(r)
+        for k in ("result_json",):
+            if d.get(k):
+                try:
+                    d["result"] = json.loads(d[k])
+                except Exception:
+                    d["result"] = None
+            d.pop(k, None)
+        out.append(d)
+    return {"trades": out, "count": len(out)}
+
+
+@router.post("/live-testing/reconcile")
+def live_testing_reconcile() -> Dict:
+    """Verify recorded live-test trades against the broker (spec §13/§15)."""
+    eng = _live_engine()
+    res = eng._reconcile()
+    return {"ok": True, "reconcile": res, "activity": eng.count_activity()}
+
+
+def _iso_ts(ts: Any) -> Optional[str]:
+    try:
+        from datetime import datetime, timezone
+        return datetime.fromtimestamp(float(ts), tz=timezone.utc).isoformat(timespec="seconds")
+    except Exception:
+        return None
 
 
 # ---------------- V4: MT5 Demo Trading ----------------

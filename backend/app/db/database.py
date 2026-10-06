@@ -1156,6 +1156,117 @@ class Database:
         self._ensure_manual_order_table()
         return self.q("SELECT * FROM mt5_manual_orders ORDER BY id DESC LIMIT ?", (int(limit),))
 
+    # ---------- V4.3 live-testing trade records (reuses live_test_trades) ----------
+    V43_TRADE_COLUMNS = (
+        ("run_id", "TEXT"), ("risk_pct", "REAL"), ("risk_amount", "REAL"),
+        ("magic", "INTEGER"), ("client_order_id", "TEXT"), ("deal_ticket", "INTEGER"),
+        ("exec_price", "REAL"), ("retcode", "INTEGER"), ("result_json", "TEXT"),
+        ("updated_at", "REAL"),
+    )
+
+    def ensure_live_trade_columns(self) -> None:
+        """Additive, idempotent migration for the V4.3 traceability columns."""
+        self._ensure_live_trade_columns()
+
+    def _ensure_live_trade_columns(self) -> None:
+        cols = {r["name"] for r in self.q("PRAGMA table_info(live_test_trades)")}
+        for name, typ in self.V43_TRADE_COLUMNS:
+            if name not in cols:
+                self.x(f"ALTER TABLE live_test_trades ADD COLUMN {name} {typ}")
+
+    def record_live_test_execution(self, t: Dict[str, Any]) -> int:
+        """Insert a V4.3 live-testing trade record (node -> MT5 ticket traceability)."""
+        self._ensure_live_trade_columns()
+        from ..jsonutil import jd
+        cols = ["strategy_id", "ticket", "deal_ticket", "symbol", "timeframe", "side",
+                "entry_price", "exec_price", "exit_price", "sl", "tp", "lots", "pnl",
+                "pnl_pct", "open_ts", "close_ts", "close_reason", "session", "day_of_week",
+                "status", "run_id", "risk_pct", "risk_amount", "magic", "client_order_id",
+                "retcode", "result_json", "updated_at"]
+        # the pre-existing table declares several NOT NULL columns, so records that
+        # describe a *blocked* attempt still need concrete values there (0.0 / "")
+        def _nn(v, default):
+            return default if v is None else v
+
+        vals = (t.get("strategy_id"), t.get("ticket"), t.get("deal_ticket"),
+                _nn(t.get("symbol"), "XAUUSD"), _nn(t.get("timeframe"), "M15"),
+                _nn(t.get("side"), "BUY"),
+                _nn(t.get("entry_price"), _nn(t.get("exec_price"), 0.0)),
+                t.get("exec_price"), t.get("exit_price"), t.get("sl"),
+                t.get("tp"), _nn(t.get("lots"), 0.01), _nn(t.get("pnl"), 0.0),
+                _nn(t.get("pnl_pct"), 0.0),
+                _nn(t.get("open_ts"), time.time()), t.get("close_ts"), t.get("close_reason"),
+                t.get("session"), t.get("day_of_week"), _nn(t.get("status"), "OPEN"),
+                t.get("run_id"), t.get("risk_pct"), t.get("risk_amount"), t.get("magic"),
+                t.get("client_order_id"), t.get("retcode"),
+                jd(t.get("result")) if t.get("result") is not None else None,
+                time.time())
+        return self.x(f"INSERT INTO live_test_trades ({','.join(cols)}) "
+                      f"VALUES ({','.join('?' * len(cols))})", tuple(vals))
+
+    def update_live_test_trade(self, row_id: int, **fields: Any) -> None:
+        self._ensure_live_trade_columns()
+        allowed = {"ticket", "deal_ticket", "entry_price", "exec_price", "exit_price", "sl",
+                   "tp", "lots", "pnl", "pnl_pct", "close_ts", "close_reason", "status",
+                   "result_json", "retcode", "updated_at"}
+        sets, vals = [], []
+        for k, v in fields.items():
+            if k not in allowed:
+                continue
+            sets.append(f"{k}=?"); vals.append(v)
+        if not sets:
+            return
+        sets.append("updated_at=?"); vals.append(time.time())
+        vals.append(int(row_id))
+        self.x(f"UPDATE live_test_trades SET {','.join(sets)} WHERE id=?", tuple(vals))
+
+    def get_live_test_executions(self, status: Optional[str] = None) -> List[Dict[str, Any]]:
+        self._ensure_live_trade_columns()
+        if status:
+            return self.q("SELECT * FROM live_test_trades WHERE status=? ORDER BY id DESC", (status,))
+        return self.q("SELECT * FROM live_test_trades ORDER BY id DESC")
+
+    # ---------- V4.3 live-testing stage log ----------
+    def _ensure_live_event_table(self) -> None:
+        self.x("""CREATE TABLE IF NOT EXISTS live_test_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts REAL NOT NULL,
+            node_id INTEGER,
+            symbol TEXT,
+            side TEXT,
+            stage TEXT NOT NULL,
+            status TEXT,
+            message TEXT,
+            detail_json TEXT
+        )""")
+        self.x("CREATE INDEX IF NOT EXISTS idx_live_events_ts ON live_test_events(ts)")
+        self.x("CREATE INDEX IF NOT EXISTS idx_live_events_node ON live_test_events(node_id)")
+
+    def record_live_test_event(self, e: Dict[str, Any]) -> int:
+        self._ensure_live_event_table()
+        return self.x(
+            "INSERT INTO live_test_events (ts,node_id,symbol,side,stage,status,message,detail_json)"
+            " VALUES (?,?,?,?,?,?,?,?)",
+            (e.get("ts") or time.time(), e.get("node_id"), e.get("symbol"), e.get("side"),
+             e.get("stage"), e.get("status"), e.get("message"),
+             e.get("detail_json")))
+
+    def get_live_test_events(self, limit: int = 100, node_id: Optional[int] = None,
+                             since_ts: Optional[float] = None) -> List[Dict[str, Any]]:
+        self._ensure_live_event_table()
+        where, args = [], []
+        if node_id is not None:
+            where.append("node_id=?"); args.append(int(node_id))
+        if since_ts is not None:
+            where.append("ts>=?"); args.append(float(since_ts))
+        wsql = ("WHERE " + " AND ".join(where)) if where else ""
+        args.append(int(limit))
+        return self.q(f"SELECT * FROM live_test_events {wsql} ORDER BY id DESC LIMIT ?", tuple(args))
+
+    def clear_live_test_events(self) -> int:
+        self._ensure_live_event_table()
+        return self.x("DELETE FROM live_test_events")
+
     def get_pipeline_stage(self, strategy_id: int) -> str:
         row = self.one("SELECT stage FROM strategy_pipeline_states WHERE strategy_id=?", (strategy_id,))
         if row:
