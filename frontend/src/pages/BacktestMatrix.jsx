@@ -98,7 +98,6 @@ export default function BacktestMatrix() {
         >
           <option value="USER_RESEARCH">Current Research Run (default)</option>
           <option value="ALL">All Runs (including Historical)</option>
-          <option value="LEGACY_TEST">Legacy / Test Data</option>
         </select>
 
         <select value={sid} onChange={(e) => setSid(e.target.value)} style={{ minWidth: 360 }}>

@@ -118,21 +118,21 @@ class EvolutionEngine:
             cfg.evolution.total_node_target = target
         return target
 
-    def total_nodes(self, scope_run: Optional[bool] = None) -> int:
+    def total_nodes(self, scope_run: Optional[bool] = None, exclude_legacy: bool = False) -> int:
         if scope_run is False:
-            return self.db.total_strategies_count()
+            return self.db.total_strategies_count(exclude_legacy=exclude_legacy)
         if self.active_run_id:
-            return self.db.total_strategies_count(run_id=self.active_run_id)
-        return self.db.total_strategies_count()
+            return self.db.total_strategies_count(run_id=self.active_run_id, exclude_legacy=exclude_legacy)
+        return self.db.total_strategies_count(exclude_legacy=exclude_legacy)
 
-    def run_nodes(self, run_id: Optional[str] = None) -> int:
+    def run_nodes(self, run_id: Optional[str] = None, exclude_legacy: bool = False) -> int:
         rid = run_id or self.active_run_id
         if rid:
-            return self.db.total_strategies_count(run_id=rid)
-        return self.db.total_strategies_count()
+            return self.db.total_strategies_count(run_id=rid, exclude_legacy=exclude_legacy)
+        return self.db.total_strategies_count(exclude_legacy=exclude_legacy)
 
-    def all_persisted_nodes(self) -> int:
-        return self.db.total_strategies_count()
+    def all_persisted_nodes(self, exclude_legacy: bool = False) -> int:
+        return self.db.total_strategies_count(exclude_legacy=exclude_legacy)
 
     def remaining_nodes(self) -> int:
         target = self.get_total_node_target()
@@ -144,11 +144,15 @@ class EvolutionEngine:
         cur = self.run_nodes() if self.active_run_id else self.total_nodes()
         return cur >= target
 
-    def node_accounting(self, target: Optional[int] = None) -> Dict[str, int]:
-        """Audit all 9 distinct node metrics (User Spec §4, §9)."""
+    def node_accounting(self, target: Optional[int] = None, exclude_legacy: bool = False) -> Dict[str, int]:
+        """Audit all 9 distinct node metrics (User Spec §4, §9).
+
+        exclude_legacy (V4.0): scope the strategy status counts to the user
+        research population. Backtest/validation row counters are unchanged.
+        """
         target = target or self.get_total_node_target()
-        total_created = self.total_nodes()
-        counts = self.db.count_by_status()
+        total_created = self.total_nodes(exclude_legacy=exclude_legacy)
+        counts = self.db.count_by_status(exclude_legacy=exclude_legacy)
         eval_row = self.db.one("SELECT COUNT(DISTINCT strategy_id) e FROM backtests")
         bt_row = self.db.one("SELECT COUNT(*) b FROM backtests WHERE stage IN ('screen', 'detail')")
         val_row = self.db.one("SELECT COUNT(*) v FROM validations")
@@ -174,14 +178,26 @@ class EvolutionEngine:
             "TOTAL REMAINING": total_rem,
         }
 
-    def get_node_generation_state(self, force: bool = False) -> Dict[str, Any]:
-        """Authoritative single source of truth for node generation metrics (User Spec §3, §9)."""
+    def get_node_generation_state(self, force: bool = False, exclude_legacy: bool = True) -> Dict[str, Any]:
+        """Authoritative single source of truth for node generation metrics (User Spec §3, §9).
+
+        The snapshot describes the USER RESEARCH population: the ~787
+        LEGACY_TEST infrastructure records are excluded by default, because every
+        consumer of this snapshot is a research/dashboard surface (Overview, Live
+        Activity, pipeline state, milestones). Pass exclude_legacy=False for the
+        raw database-wide view.
+
+        The metric formulas, status classification and the engine's decision
+        gates (is_target_reached()/total_nodes()/remaining_nodes()) are unchanged:
+        this only controls the population scope of the reported statistics.
+        """
         now = time.time()
-        if not force and self._cached_node_state is not None and (now - self._cached_node_state_time < 1.0):
+        if (not force and exclude_legacy and self._cached_node_state is not None
+                and (now - self._cached_node_state_time < 1.0)):
             return dict(self._cached_node_state)
 
-        counts = self.db.count_by_status()
-        total_nodes = self.total_nodes()
+        counts = self.db.count_by_status(exclude_legacy=exclude_legacy)
+        total_nodes = self.total_nodes(exclude_legacy=exclude_legacy)
         target = self.get_total_node_target()
         remaining = max(0, target - total_nodes)
         gen = self.generation()
@@ -280,10 +296,12 @@ class EvolutionEngine:
             "LAST NODE FAILURE": last_failure_str,
         }
 
+        detailed_diagnostics["CURRENT PERSISTED NODES"] = self.all_persisted_nodes(exclude_legacy=exclude_legacy)
+
         res = {
             "current_nodes": total_nodes,
-            "run_nodes": self.run_nodes(),
-            "all_persisted_nodes": self.all_persisted_nodes(),
+            "run_nodes": self.run_nodes(exclude_legacy=exclude_legacy),
+            "all_persisted_nodes": self.all_persisted_nodes(exclude_legacy=exclude_legacy),
             "target_nodes": target,
             "remaining_nodes": remaining,
             "generation_number": gen,
@@ -300,13 +318,14 @@ class EvolutionEngine:
             "last_successful_generation_at": last_gen_at,
             "progress_pct": pct,
             "is_target_reached": is_complete,
-            "node_accounting": self.node_accounting(target),
+            "node_accounting": self.node_accounting(target, exclude_legacy=exclude_legacy),
             "diagnostics": detailed_diagnostics,
             # Flattened upper-case keys for direct diagnostic indexing
             **detailed_diagnostics,
         }
-        self._cached_node_state = res
-        self._cached_node_state_time = now
+        if exclude_legacy:
+            self._cached_node_state = res
+            self._cached_node_state_time = now
         return res
 
     def emit_stop_diagnostic(self, reason: str = "STOPPED", exception: Optional[Exception] = None,
@@ -381,10 +400,18 @@ class EvolutionEngine:
             pass
 
     # ---------- population bookkeeping ----------
-    def active_count(self) -> int:
-        row = self.db.one(
-            f"SELECT COUNT(*) c FROM strategies WHERE status IN ({','.join('?' * len(ACTIVE_STATES))})",
-            ACTIVE_STATES)
+    def active_count(self, exclude_legacy: bool = False) -> int:
+        """Count in-flight (active) nodes. exclude_legacy (V4.0) omits the
+        LEGACY_TEST infrastructure records for user-facing displays."""
+        if exclude_legacy:
+            row = self.db.one(
+                f"SELECT COUNT(*) c FROM strategies WHERE status IN ({','.join('?' * len(ACTIVE_STATES))}) "
+                f"AND COALESCE(data_source, 'USER_RESEARCH') <> 'LEGACY_TEST'",
+                ACTIVE_STATES)
+        else:
+            row = self.db.one(
+                f"SELECT COUNT(*) c FROM strategies WHERE status IN ({','.join('?' * len(ACTIVE_STATES))})",
+                ACTIVE_STATES)
         return row["c"] if row else 0
 
     def generation(self) -> int:

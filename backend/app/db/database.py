@@ -440,7 +440,8 @@ class Database:
                 row["research_node_num"] = rel
         return row
 
-    def get_qualified_strategies(self, data_source: Optional[str] = None, run_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    def get_qualified_strategies(self, data_source: Optional[str] = None, run_id: Optional[str] = None,
+                                 exclude_legacy: bool = False) -> List[Dict[str, Any]]:
         where = ["s.status IN ('QUALIFIED', 'PAPER')"]
         args = []
         if run_id:
@@ -449,6 +450,10 @@ class Database:
         if data_source and data_source.upper() != "ALL":
             where.append("s.data_source=?")
             args.append(data_source)
+        elif exclude_legacy:
+            # V4.0: hide LEGACY_TEST records from user-facing qualified lists
+            # unless the caller explicitly asks for that data source.
+            where.append("COALESCE(s.data_source, 'USER_RESEARCH') <> 'LEGACY_TEST'")
         wsql = "WHERE " + " AND ".join(where)
 
         rows = self.q(f"""
@@ -554,11 +559,21 @@ class Database:
             "message": "OK"
         }
 
-    def count_by_status(self, run_id: Optional[str] = None) -> Dict[str, int]:
+    def count_by_status(self, run_id: Optional[str] = None, exclude_legacy: bool = False) -> Dict[str, int]:
+        """Count strategies grouped by status.
+
+        exclude_legacy (V4.0): when True the ~787 LEGACY_TEST infrastructure
+        records are left out of the result. The status classification itself is
+        untouched - only the population scope of the count changes. Defaults to
+        False so every existing (engine/orchestrator) caller behaves as before.
+        """
+        where, args = [], []
         if run_id:
-            rows = self.q("SELECT status, COUNT(*) c FROM strategies WHERE run_id=? GROUP BY status", (run_id,))
-        else:
-            rows = self.q("SELECT status, COUNT(*) c FROM strategies GROUP BY status")
+            where.append("run_id=?"); args.append(run_id)
+        if exclude_legacy:
+            where.append("COALESCE(data_source, 'USER_RESEARCH') <> 'LEGACY_TEST'")
+        wsql = ("WHERE " + " AND ".join(where)) if where else ""
+        rows = self.q(f"SELECT status, COUNT(*) c FROM strategies {wsql} GROUP BY status", tuple(args))
         return {r["status"]: r["c"] for r in rows}
 
     def get_shortlist(self) -> List[int]:
@@ -595,11 +610,19 @@ class Database:
         )""")
         self.x("DELETE FROM research_shortlist")
 
-    def total_strategies_count(self, run_id: Optional[str] = None) -> int:
+    def total_strategies_count(self, run_id: Optional[str] = None, exclude_legacy: bool = False) -> int:
+        """Total persisted strategies.
+
+        exclude_legacy (V4.0): omit the ~787 LEGACY_TEST infrastructure records.
+        Defaults to False so existing engine/orchestrator callers are unchanged.
+        """
+        where, args = [], []
         if run_id:
-            row = self.one("SELECT COUNT(*) c FROM strategies WHERE run_id=?", (run_id,))
-        else:
-            row = self.one("SELECT COUNT(*) c FROM strategies")
+            where.append("run_id=?"); args.append(run_id)
+        if exclude_legacy:
+            where.append("COALESCE(data_source, 'USER_RESEARCH') <> 'LEGACY_TEST'")
+        wsql = ("WHERE " + " AND ".join(where)) if where else ""
+        row = self.one(f"SELECT COUNT(*) c FROM strategies {wsql}", tuple(args))
         return int(row["c"]) if row else 0
 
     # ---------- research runs (spec §6, §8) ----------
@@ -720,10 +743,19 @@ class Database:
     def next_strategy_id(self) -> int:
         return self.max_strategy_id() + 1
 
-    def reconstruct_state(self, total_node_target: int = 500) -> Dict[str, Any]:
-        """Fast state reconstruction from persisted SQLite database and disk (spec §V2.1 G)."""
-        counts = self.count_by_status()
-        total_nodes = self.total_strategies_count()
+    def reconstruct_state(self, total_node_target: int = 500, exclude_legacy: bool = False) -> Dict[str, Any]:
+        """Fast state reconstruction from persisted SQLite database and disk (spec §V2.1 G).
+
+        exclude_legacy (V4.0): when True, the population/status statistics
+        (status_counts, total_nodes, alive, dead, qualified, remaining,
+        target_reached, backtesting, validating) describe only user research
+        nodes - the ~787 LEGACY_TEST infrastructure records are excluded so they
+        no longer contaminate the dashboard statistics. The calculation rules
+        are unchanged; only the counted population differs. Defaults to False,
+        so existing callers keep the previous behaviour exactly.
+        """
+        counts = self.count_by_status(exclude_legacy=exclude_legacy)
+        total_nodes = self.total_strategies_count(exclude_legacy=exclude_legacy)
         next_id = self.next_strategy_id()
         gen_row = self.one("SELECT COALESCE(MAX(generation), 0) g FROM strategies")
         current_gen = int(gen_row["g"]) if gen_row else 0

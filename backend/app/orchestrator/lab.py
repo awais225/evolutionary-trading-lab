@@ -203,9 +203,15 @@ class Lab:
         return {"ok": True, "deleted": n}
 
     def recheck(self) -> Dict[str, Any]:
-        """V2.1 RECHECK: fast reconstruction of persisted state from SQLite without rerun (spec §V2.1 G)."""
+        """V2.1 RECHECK: fast reconstruction of persisted state from SQLite without rerun (spec §V2.1 G).
+
+        V4.0: the displayed research state excludes the ~787 LEGACY_TEST
+        infrastructure nodes (exclude_legacy=True), so the dashboard statistics
+        describe the user research population. Node statuses themselves are not
+        modified in any way.
+        """
         target = self.evo.get_total_node_target()
-        state = self.db.reconstruct_state(target)
+        state = self.db.reconstruct_state(target, exclude_legacy=True)
         self._generation = state["current_generation"]
         bus.publish("lab_recheck", state)
         bus.publish("lab_status", self.status())
@@ -219,9 +225,17 @@ class Lab:
         return state
 
     def status(self) -> Dict:
+        """Laboratory status payload for API/WebSocket display.
+
+        V4.0: the population/status statistics reported here describe the user
+        research population only - the ~787 LEGACY_TEST infrastructure records
+        are excluded (exclude_legacy=True). The status classification, metric
+        formulas and the engine's own internal counts are untouched; this is the
+        display scope only.
+        """
         target = self.evo.get_total_node_target()
-        reconstructed = self.db.reconstruct_state(target)
-        node_state = self.evo.get_node_generation_state()
+        reconstructed = self.db.reconstruct_state(target, exclude_legacy=True)
+        node_state = self.evo.get_node_generation_state(exclude_legacy=True)
         return {
             "running": self.running, "paused": self.paused,
             "safe_paused": getattr(self, "safe_paused", False),
@@ -229,7 +243,7 @@ class Lab:
             "consecutive_failures": getattr(self, "_consecutive_failures", 0),
             "mode": self.mode,
             "cycle": self._cycle, "generation": node_state["generation_number"],
-            "population_active": self.evo.active_count(),
+            "population_active": self.evo.active_count(exclude_legacy=True),
             "status_counts": reconstructed["status_counts"], "counters": self.counters,
             "last_error": self.last_error,
             "duplicates_blocked": self.evo.duplicates_blocked,

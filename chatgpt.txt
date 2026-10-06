@@ -2341,3 +2341,33 @@ Initial V4 environment setup requested. What was asked for is recorded here;
 what LMSArena actually did (implementation, testing, commit) is recorded in
 lmsarena.txt.
 =============================================================
+
+=============================================================
+VERSION: V4.0 — LEGACY NODE VISIBILITY ISOLATION
+=============================================================
+
+REQUESTED CHANGES:
+- Hide the ~787 legacy (LEGACY_TEST) nodes from the user-facing research and
+  dashboard views so the research interface shows only the ~10,000
+  user-generated nodes.
+- Preserve all existing application logic: statistics calculations, node status
+  logic, generation logic and research calculations must remain exactly as they
+  are - only legacy node visibility changes.
+- Apply the exclusion at the narrowest user-facing retrieval/display layer.
+  Do not introduce a global data-source filter over the database or statistics.
+- Do not redesign the dashboard and do not refactor/optimise unrelated code.
+- Do not delete, modify, migrate or merge any legacy node (kept for
+  infrastructure and regression testing) and do not change any node status
+  because it is legacy.
+- Do not add New Research Run functionality yet (backup/regenerate, resume,
+  start-new, destructive reset, archive) - that is a separate future iteration.
+- Before the change, capture the existing Overview statistics as the V4.0
+  baseline; after the change, user-research statistics must be unchanged and
+  the only difference must be that legacy nodes are no longer visible.
+- Record the implementation (baseline, files, filtering approach, tests,
+  regression results, DATA integrity, git result) in lmsarena.txt only.
+
+STATUS:
+V4.0 requested. What was asked for is recorded here; what LMSArena actually
+implemented, tested and committed is recorded in lmsarena.txt.
+=============================================================

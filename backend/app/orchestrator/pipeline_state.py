@@ -516,7 +516,9 @@ class PipelineStateManager:
         ceiling = self.node_total or (current_run_match["node_ceiling"] if current_run_match else 500)
         run_gen = current_run_match["current_generation"] if current_run_match else self.generation
 
-        cum_total = db.total_strategies_count()
+        # V4.0: the cumulative research figure shown on the dashboard excludes the
+        # ~787 LEGACY_TEST infrastructure records (display scope only).
+        cum_total = db.total_strategies_count(exclude_legacy=True)
         cum_completed = sum(r.get("completed_nodes", 0) for r in all_runs)
         cum_qualified = sum(r.get("qualified_nodes", 0) for r in all_runs)
 

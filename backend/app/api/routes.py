@@ -58,7 +58,8 @@ def status() -> Dict:
     db = get_db()
     lab = get_lab()
     bs = bridge_status()
-    counts = db.count_by_status()
+    # V4.0: user-facing status statistics exclude the LEGACY_TEST records
+    counts = db.count_by_status(exclude_legacy=True)
     from ..resources.manager import get_resource_manager
     from ..mt5.monitor import get_connection_monitor
     from ..activity import activity
@@ -253,6 +254,11 @@ def population(limit: int = 200, status: Optional[str] = None,
         where.append("s.run_id=?"); args.append(run_id)
     if data_source and data_source.upper() != "ALL":
         where.append("s.data_source=?"); args.append(data_source)
+    else:
+        # V4.0 legacy visibility isolation: the ~787 LEGACY_TEST infrastructure
+        # records are hidden from this user-facing node list by default. An
+        # explicit data_source=LEGACY_TEST request still returns them.
+        where.append("COALESCE(s.data_source, 'USER_RESEARCH') <> 'LEGACY_TEST'")
 
     wsql = ("WHERE " + " AND ".join(where)) if where else ""
     sort_col = {"fitness": "COALESCE(s.fitness,-1) DESC", "id": "s.id DESC",
@@ -283,14 +289,20 @@ def population(limit: int = 200, status: Optional[str] = None,
         r["has_equity_curve"] = bool(m.get("equity_curve") and len(m.get("equity_curve")) > 1) or bool(m.get("trades_sample"))
         out.append(r)
     return {"count": len(out), "strategies": out,
-            "status_counts": db.count_by_status(run_id=run_id)}
+            "status_counts": db.count_by_status(run_id=run_id, exclude_legacy=True)}
 
 
 @router.get("/strategies/qualified")
 def qualified_strategies(data_source: Optional[str] = None, run_id: Optional[str] = None) -> Dict:
-    """Hydrate qualified strategies immediately on startup with real persisted metrics (V3.6)."""
+    """Hydrate qualified strategies immediately on startup with real persisted metrics (V3.6).
+
+    V4.0: LEGACY_TEST records are hidden unless explicitly requested via
+    data_source=LEGACY_TEST.
+    """
     db = get_db()
-    strats = db.get_qualified_strategies(data_source=data_source, run_id=run_id)
+    strats = db.get_qualified_strategies(
+        data_source=data_source, run_id=run_id,
+        exclude_legacy=(not data_source or data_source.upper() == "ALL"))
     return {"count": len(strats), "strategies": strats}
 
 
@@ -305,6 +317,7 @@ def scatter(x: str = "total_return_pct", y: str = "max_drawdown_pct",
                       AND b.stage IN ('detail','screen') ORDER BY
                       CASE b.stage WHEN 'detail' THEN 0 ELSE 1 END, b.id DESC LIMIT 1) AS m
                    FROM strategies s WHERE s.fitness IS NOT NULL
+                     AND COALESCE(s.data_source, 'USER_RESEARCH') <> 'LEGACY_TEST'
                    ORDER BY s.fitness DESC LIMIT ?""", (limit,))
     metric_keys = {"total_return_pct", "max_drawdown_pct", "profit_factor", "sharpe",
                    "sortino", "trades", "consistency", "win_rate"}
@@ -354,6 +367,8 @@ def tree(max_nodes: int = 350, status: Optional[str] = None,
         where.append("status NOT IN ('FAILED','KILLED','RETIRED')")
     if dead_only:
         where.append("status IN ('FAILED','KILLED')")
+    # V4.0: the ancestry graph shown to the user never contains LEGACY_TEST nodes
+    where.append("COALESCE(data_source, 'USER_RESEARCH') <> 'LEGACY_TEST'")
     wsql = ("WHERE " + " AND ".join(where)) if where else ""
 
     if focus_id is not None:
@@ -369,7 +384,8 @@ def tree(max_nodes: int = 350, status: Optional[str] = None,
             kids = db.q(f"SELECT id FROM strategies WHERE parent_id IN ({qm})", tuple(frontier))
             frontier = [k["id"] for k in kids if k["id"] not in ids]
             ids.update(frontier)
-        rows = db.q(f"""SELECT * FROM strategies WHERE id IN ({",".join("?" * len(ids))})""",
+        rows = db.q(f"""SELECT * FROM strategies WHERE id IN ({",".join("?" * len(ids))})
+                        AND COALESCE(data_source, 'USER_RESEARCH') <> 'LEGACY_TEST'""",
                     tuple(ids))
     else:
         rows = db.q(f"""SELECT s.*, (SELECT b.metrics FROM backtests b
@@ -385,7 +401,9 @@ def tree(max_nodes: int = 350, status: Optional[str] = None,
         depth = 0
         while missing and depth < 6 and len(ids) + len(missing) < max_nodes * 1.4:
             extra = db.q(f"""SELECT * FROM strategies WHERE id IN
-                             ({",".join("?" * len(missing))})""", tuple(missing))
+                             ({",".join("?" * len(missing))})
+                             AND COALESCE(data_source, 'USER_RESEARCH') <> 'LEGACY_TEST'""",
+                         tuple(missing))
             rows.extend(extra)
             ids |= {e["id"] for e in extra}
             missing = {e["parent_id"] for e in extra
@@ -430,7 +448,8 @@ def tree(max_nodes: int = 350, status: Optional[str] = None,
                 "branch_state": "dead" if is_dead else "active",
             })
     return {"nodes": nodes, "edges": edges, "truncated": len(rows) >= max_nodes,
-            "total_strategies": db.one("SELECT COUNT(*) c FROM strategies")["c"]}
+            "total_strategies": db.one(
+                "SELECT COUNT(*) c FROM strategies WHERE COALESCE(data_source, 'USER_RESEARCH') <> 'LEGACY_TEST'")["c"]}
 
 
 @router.get("/strategies/{sid}")
@@ -684,6 +703,11 @@ def _filter_persisted_strategies(
     search_clean = (search or "").strip().lower()
 
     for r in rows:
+        # V4.0 legacy visibility isolation: LEGACY_TEST infrastructure nodes are
+        # never offered in the research tables/selectors (Strategy Laboratory,
+        # Final Testing, live-test & MT5 demo node selection, shortlists).
+        if (r.get("data_source") or "USER_RESEARCH").upper() == "LEGACY_TEST":
+            continue
         m = {}
         if r["metrics"]:
             try:
@@ -1449,8 +1473,9 @@ def paper_candidates(limit: int = 100) -> Dict[str, Any]:
                (SELECT v.robustness_score FROM validations v WHERE v.strategy_id=s.id
                 ORDER BY v.id DESC LIMIT 1) as robustness_score
         FROM strategies s
-        WHERE s.status IN ('QUALIFIED', 'PAPER_ELIGIBLE', 'PAPER', 'PAPER_TRADING', 'PAPER_PASSED', 'FINAL')
-           OR s.fitness > 0.6
+        WHERE (s.status IN ('QUALIFIED', 'PAPER_ELIGIBLE', 'PAPER', 'PAPER_TRADING', 'PAPER_PASSED', 'FINAL')
+           OR s.fitness > 0.6)
+          AND COALESCE(s.data_source, 'USER_RESEARCH') <> 'LEGACY_TEST'
         ORDER BY s.fitness DESC LIMIT ?
     """, (limit,))
 
@@ -1934,7 +1959,8 @@ def get_system_status_row() -> Dict[str, Any]:
     lab = get_lab()
     mm = get_milestone_manager()
     res = rm.live_metrics()
-    counts = db.count_by_status()
+    # V4.0: user-facing status row excludes the LEGACY_TEST records
+    counts = db.count_by_status(exclude_legacy=True)
 
     # Network detection
     try:

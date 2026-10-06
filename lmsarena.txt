@@ -260,3 +260,199 @@ NEXT ITERATION WORKFLOW (unchanged from the V4 specification):
   6. Record the milestone in this file (lmsarena.txt).
   7. Review git status/diff, commit, push to GitHub, update the workspace.
   8. DATA stays outside the workspace, referenced via EVOLUTIONARY_LAB_DATA_ROOT.
+
+
+=============================================================
+VERSION: V4.0 — LEGACY NODE VISIBILITY ISOLATION (IMPLEMENTED)
+=============================================================
+
+OBJECTIVE
+  Hide the 787 LEGACY_TEST infrastructure nodes from the user's research /
+  dashboard interface while preserving every existing calculation, status,
+  generation and research metric for the 10,000 user-generated nodes.
+  The existing application behaviour is authoritative; no statistics logic,
+  status classification, generation logic or research calculation was rewritten.
+
+1. BASELINE CAPTURED BEFORE ANY CHANGE (real DATA, running app)
+-------------------------------------------------------------
+  Method : full OpenAPI crawl (40 GET endpoints) + 13 JSON captures stored
+           outside the repo (/opt/lmsarena-storage/v4_0_baseline/, BEFORE and
+           after/). Captures used only for comparison - no mock data, no
+           reduced dataset, real DATA_ROOT throughout.
+  BEFORE (/api/lab/status):
+    TOTAL 10787 | ALIVE 195 | DEAD 10592 | QUALIFIED 136 | FAILED 10450
+    RETIRED 131 | KILLED 11 | PAPER 7 | SURVIVED 59 | TARGET 10000
+    GENERATION 39 | REMAINING 0
+  Raw database truth at baseline:
+    strategies 10787 = USER_RESEARCH 10000 + LEGACY_TEST 787
+    legacy by status : FAILED 483, RETIRED 131, QUALIFIED 124, SURVIVED 31,
+                       KILLED 11, PAPER 7
+    user   by status : FAILED 9967, QUALIFIED 5, SURVIVED 28
+  Legacy classification comes from the repository's own existing field
+  (backend/app/db/database.py): LEGACY_TEST iff
+    id <= 787 OR run_id IS NULL OR run_id LIKE '%TEST%'
+    OR run_id = 'RUN-HISTORICAL-PRESERVED'.
+
+2. FILES INSPECTED (to find the narrowest correct layer)
+--------------------------------------------------------
+  backend/app/db/database.py            - count_by_status / total_strategies_count /
+                                          reconstruct_state / get_qualified_strategies
+  backend/app/evolution/engine.py       - node accounting + get_node_generation_state
+  backend/app/orchestrator/lab.py       - Overview/lab status + recheck
+  backend/app/orchestrator/pipeline_state.py, stages.py, milestones.py
+                                        - pipeline/task-state/milestone displays
+  backend/app/api/routes.py             - 116-endpoint inventory; node-list,
+                                          candidate, scatter, tree, filter APIs
+  frontend/src/...                      - Overview, Strategy Laboratory, Final
+                                          Testing, Live/Mt5 selection, Backtest
+                                          matrix, search/selectors, charts
+
+3. FILTERING APPROACH (smallest possible change)
+------------------------------------------------
+  An optional `exclude_legacy` scope was added to the existing query helpers;
+  when enabled the WHERE clause is
+      COALESCE(data_source,'USER_RESEARCH') <> 'LEGACY_TEST'
+  so the metric formulas themselves are untouched - only the row scope changes.
+  Explicit `data_source` requests are still honoured (escape hatch intact).
+  Applied at the user-facing retrieval / display layer only:
+    database.py   : count_by_status, total_strategies_count, reconstruct_state,
+                    get_qualified_strategies (+exclude_legacy).
+    engine.py     : total_nodes, run_nodes, all_persisted_nodes, node_accounting,
+                    active_count (+exclude_legacy); get_node_generation_state now
+                    reports the USER RESEARCH population by default (this snapshot
+                    is consumed exclusively by display/pipeline surfaces: Overview,
+                    Live Activity, task_state, milestones, pipeline state).
+    lab.py        : recheck(), status().
+    pipeline_state.py : cumulative total.
+    routes.py     : /population, /strategies/qualified, /scatter, /tree (query +
+                    total), /paper/candidates, /status, /system/status_row,
+                    _filter_persisted_strategies (Strategy Laboratory, Final
+                    Testing, Live Testing, Mt5 Demo, Overview shortlist).
+    frontend      : removed the LEGACY_TEST option from the Backtest Matrix node
+                    selector (the only user-facing control that named it).
+  Deliberately NOT touched (engine decision paths stay on the full population):
+                    is_target_reached(), remaining_nodes(), lab._count_qualifies,
+                    mt5-demo start-all. Parameter defaults keep every existing
+                    internal caller behaving exactly as before at the DB layer.
+  No global scope/filter was introduced; the earlier broken approach
+  (data_source = USER_RESEARCH globally -> ALIVE 0 / QUALIFIED 0) was not used.
+  No node record, status, genome, backtest, lineage, timestamp, ID, run or
+  generation value was written, migrated or deleted - source/config only.
+
+4. REGRESSION: BEFORE -> AFTER (real DATA)
+------------------------------------------
+  metric        BEFORE   AFTER   note
+  TOTAL          10787   10000   user population only
+  ALIVE            195      33   = QUALIFIED 5 + SURVIVED 28
+  DEAD           10592    9967   = FAILED 9967 (+KILLED legacy-only)
+  QUALIFIED        136       5
+  FAILED         10450    9967
+  RETIRED          131   absent  (all 131 are legacy by construction)
+  KILLED            11   absent  (all 11 are legacy by construction)
+  PAPER              7   absent  (all 7 are legacy by construction)
+  SURVIVED          59      28
+  TARGET         10000   10000   unchanged
+  GENERATION        39      39   unchanged
+  The AFTER values were independently verified equal to user-scoped SQL counts
+  (COALESCE(data_source,'USER_RESEARCH')<>'LEGACY_TEST') for TOTAL / ALIVE /
+  DEAD / QUALIFIED. The shifts are the intended decontamination of previously
+  legacy-inclusive display statistics - not regressions; regression gate
+  (ALIVE must not go to 0) passed: ALIVE 33, QUALIFIED 5.
+
+5. LEGACY-VISIBILITY VERIFICATION (live app, final code) - ALL PASS
+-------------------------------------------------------------------
+  /api/population (default and data_source=USER_RESEARCH) 2000 rows, 0 legacy
+      (BEFORE: 2000 rows contained 787 legacy)
+  /api/population?data_source=LEGACY_TEST  50/50 legacy -> data kept reachable
+  /api/strategies/qualified   5 rows, 0 legacy (BEFORE 136 rows, 131 legacy)
+  /api/tree?max_nodes=1000    1000 nodes, 0 legacy (BEFORE 248 legacy)
+  /api/scatter                73 points, 0 legacy (BEFORE 321 points, 248 legacy)
+  /api/paper/candidates       29 rows, 0 legacy (BEFORE 100 rows, 100 legacy)
+  /api/research/shortlist / filter / final-testing lists  0 legacy
+      (filter total_matching 10787 -> 10000 and legacy-with-metrics nodes such
+      as node 240 / 234 are no longer listed)
+  /api/status status_counts   {FAILED 9967, QUALIFIED 5, SURVIVED 28}
+  Cross-endpoint agreement: Overview /api/lab/status, /api/workflow/task_state,
+  /api/workflow/milestones and /api/pipeline/state all report the same user
+  node counts (10000 / target 10000, remaining 0).
+  User nodes unchanged: the 2000 shared research rows are identical to BEFORE
+  (same ids and order, identical metrics); paging offset works; node detail OK.
+  Legacy nodes: still physically present in DATA (10787 rows, 787 LEGACY_TEST),
+  still retrievable by id, statuses untouched.
+  Known remaining legacy-inclusive (reported, not changed): /api/pipeline/state
+  cumulative completed_nodes/qualified_nodes/total_runs, /api/research/
+  restoration/report restored_nodes, lab "research.strategies_exported"
+  (reconciliation figure, no user-facing export surface exists), the Settings
+  Data-Management item counts (raw store inventory), and /api/lab/target
+  total_nodes. These are diagnostics/inventory figures, not research surfaces.
+
+6. TESTS / BUILD
+----------------
+  Existing suite (real DATA, /opt/lmsarena-storage/DATA/tests):
+      232 collected -> 212 passed / 20 failed
+      (baseline V4: 219 passed / 13 failed)
+  Classification of the 20 - all recorded, none fixed (per standing instruction):
+    13 pre-existing baseline failures (unchanged, already documented in the V4
+       baseline entry: Windows launcher tests, in-repo DATABASE path tests,
+       external DATA-root tests, backup ValueError, order/state-dependent test,
+       tree-window test).
+     7 failures that assert the OLD legacy-visible behaviour and therefore
+       CANNOT pass while V4.0 is correctly implemented:
+       test_v2_3_tree_lineage.py::{test_tree_api_returns_authoritative_lineage,
+         test_deterministic_spec_part_44_tree_data,
+         test_legacy_nodes_without_parent_compatible}
+         -> build legacy-like fixtures and assert /api/tree returns them.
+       test_final_testing_search_and_filter_apis (expects legacy id=1 in results)
+       test_v3_2_restoration_and_recovery.py::test_test_e_dashboard_synchronization
+         (asserts QUALIFIED == 129, exactly the legacy-inclusive value)
+       test_v4_comprehensive_workflow.py::{test_04_harmonized_metrics_across_endpoints,
+         test_07_shortlist_synchronization}
+         -> both require legacy node 240 to remain visible in research/filter.
+       One further failure observed while a dev server occupied port 8787 was
+       environmental: test_pid_lease_manager_and_port_prebind passes with the
+       port free (verified: 1 passed).
+  Two failures seen in an intermediate run (test_data_discovery_and_reconciliation::
+  test_test7_single_source_of_truth_agreement and test_final_testing_and_
+  orchestrator_loop_fix::test_single_source_of_truth_state_agreement, both
+  asserting 10000 == 10787) were resolved by extending the user-research scope to
+  the shared node-state snapshot consumers, i.e. by making the endpoints agree
+  rather than by weakening the isolation; they now pass.
+  Frontend build: PASS (frontend/dist rebuilt, index-QhnCcuGg.js / index-B8eHs4Np.css).
+
+7. DATA INTEGRITY
+-----------------
+  DATA stayed outside the workspace (external DATA_ROOT) throughout and was
+  never modified by the implementation. Running the project's own test suite
+  does mutate the authoritative DATA (it wrote strategy status transitions and
+  validation/research rows, and one meta value total_node_target 10000 -> 200 -
+  this is the cause of the transient "target 200" observation, not a code
+  regression). After all testing, DATA was restored from the byte-exact pristine
+  copy and re-verified against DATA_IMPORT_MANIFEST.sha256: 11,370/11,370 files
+  byte-exact; 10787 strategies / 787 legacy / target meta 10000 restored.
+  Tracked-file churn (CONFIG/lab_config.yaml, CONFIG/settings.json,
+  LOGS/lab.pid) was reverted before committing.
+
+8. FILES CHANGED IN THIS ITERATION
+----------------------------------
+  backend/app/api/routes.py
+  backend/app/db/database.py
+  backend/app/evolution/engine.py
+  backend/app/orchestrator/lab.py
+  backend/app/orchestrator/pipeline_state.py
+  frontend/src/pages/BacktestMatrix.jsx
+  chatgpt.txt (V4.0 requested-change entry), lmsarena.txt (this entry)
+  No DATA, no backup, no credential, no .gitignore change.
+
+9. FINAL STATUS
+---------------
+  Legacy nodes identified            : YES (787, existing data_source field)
+  Legacy hidden from user views      : YES (lists, tables, trees, scatter,
+                                       shortlists, candidates, selectors)
+  Legacy DATA modified / deleted     : NO  (787 nodes intact, reachable by id)
+  Statistics / status / generation / research logic changed : NO
+    (no formula or classification was rewritten; only the queried population)
+  Regression (Overview BEFORE -> AFTER) : intended decontamination only
+  DATA in workspace / temp : NO / YES (external DATA_ROOT, byte-exact)
+  Suite: 212 passed / 20 failed (13 pre-existing + 7 legacy-visibility tests)
+  V4.1 (New Research Run lifecycle) : NOT started (per instruction)
+=============================================================
