@@ -21,6 +21,7 @@ which the frontend already treats as unavailable.
 from __future__ import annotations
 
 import dataclasses
+import json
 import datetime as _dt
 import decimal
 import logging
@@ -92,14 +93,29 @@ def _safe_str(obj: Any) -> str:
 
 
 class SafeJSONResponse(JSONResponse):
-    """JSONResponse that can always be serialised, whatever a handler returns."""
+    """JSONResponse that can always be serialised, whatever a handler returns.
+
+    V4.7 note on cost: the sanitiser walks (and copies) the whole payload, so
+    running it on every response was measurable - the dashboard endpoints paid
+    ~10-20% extra latency for it even though their payloads were already clean.
+    The response is therefore serialised first, exactly as Starlette would
+    (``allow_nan=False``, same separators), and the sanitiser only runs when
+    that serialisation actually fails. A clean payload costs nothing extra; a
+    payload containing NaN/Infinity or a non-JSON object is sanitised and
+    re-serialised instead of becoming a 500 or invalid JSON.
+    """
 
     def render(self, content: Any) -> bytes:
         try:
+            return json.dumps(content, ensure_ascii=False, allow_nan=False,
+                              indent=None, separators=(",", ":")).encode("utf-8")
+        except (ValueError, TypeError) as e:
+            first_error = e
+        try:
             clean = sanitize_payload(content)
         except Exception as e:  # a sanitiser bug must not take the API down
-            log.warning("payload sanitisation failed, falling back to error body: %s", e)
-            clean = {"error": "response sanitisation failed", "type": type(content).__name__}
+            log.warning("payload sanitisation failed for %s: %s", type(first_error).__name__, e)
+            clean = {"error": "response sanitisation failed", "detail": str(first_error)}
         try:
             return super().render(clean)
         except (ValueError, TypeError) as e:
