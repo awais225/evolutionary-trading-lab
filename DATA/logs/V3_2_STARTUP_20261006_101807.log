@@ -1,0 +1,65 @@
+==============================================================================
+  EVOLUTIONARY TRADING RESEARCH LAB V3.6 — STARTUP DIAGNOSTIC REPORT
+==============================================================================
+TIMESTAMP (UTC):       2026-10-06 10:18:07 UTC
+SOFTWARE VERSION:      3.6
+DATA SCHEMA VERSION:   3
+HOST PLATFORM:         Windows 11 (AMD64)
+PYTHON ENVIRONMENT:    3.14.6 (CPython)
+PROCESS PID:           8988
+------------------------------------------------------------------------------
+1. PATHS & DIRECTORY DISCOVERY
+------------------------------------------------------------------------------
+  PROJECT ROOT:        D:\evolutionary-trading-lab
+  DATA ROOT:           D:\evolutionary-trading-lab\DATA (STATUS: DISCOVERED & VERIFIED)
+  TEST DATA ROOT:      D:\evolutionary-trading-lab\DATA\TEST_DATA (STATUS: ISOLATED)
+  CACHE ROOT:          D:\evolutionary-trading-lab\DATA\CACHE
+  DATABASE PATH:       D:\evolutionary-trading-lab\DATA\DATABASE\lab_state.db
+  PERSISTENT DATA LOGS:D:\evolutionary-trading-lab\DATA\logs
+------------------------------------------------------------------------------
+2. REAL MARKET DATA DISCOVERY & MANIFESTS
+------------------------------------------------------------------------------
+  MT5 XAUUSD DIR:      D:\evolutionary-trading-lab\DATA\MT5\XAUUSD
+  DATASETS DISCOVERED: 1
+  FEATURE SETS CACHED: 79
+  MANIFEST STATUS:     SYNCHRONIZED (manifest.json)
+------------------------------------------------------------------------------
+3. HISTORICAL RESEARCH ARTIFACT RESTORATION
+------------------------------------------------------------------------------
+  TOTAL NODES RESTORED:       10787
+  ANCESTRY EDGES RESTORED:    6663 parent/child connections
+  GENERATIONS RESTORED:       40 generations
+  BACKTESTS RESTORED:         116 completed evaluations
+  VALIDATIONS RESTORED:       20 completed batteries
+  QUALIFIED CANDIDATES:       136 strategies
+  DEAD / REJECTED CANDIDATES: 10592 strategies
+  IN-FLIGHT PENDING NODES:    59 strategies
+------------------------------------------------------------------------------
+4. CPU UTILIZATION & DYNAMIC WORKER POOL CONFIGURATION
+------------------------------------------------------------------------------
+  CPU HARDWARE CORES:  32 cores (16 physical)
+  CONFIGURED CPU TARGET:100%
+  DYNAMIC WORKER POOL: 32 active workers
+  SYSTEM TOTAL RAM:    63.2 GB (35.0% used)
+  EXECUTION POOL:      ProcessPoolExecutor (spawn/fork isolated)
+------------------------------------------------------------------------------
+5. RESEARCH RUN MANAGEMENT & HISTORICAL EXPERIMENTS
+------------------------------------------------------------------------------
+  TOTAL RESEARCH RUNS: 7 distinct runs discovered
+  [1] RUN ID: RUN-20261005-055251 | EXP: EXP-XAUUSD-M15 | Nodes: 10000/5000 | Completed: 9972 | Qualified: 5 | Status: COMPLETED | Created: 2026-10-05 05:52:51
+  [2] RUN ID: RUN-TEST-A-NEW2 | EXP: EXP-XAUUSD-M15 | Nodes: 37/200 | Completed: 37 | Qualified: 0 | Status: COMPLETED | Created: 2026-10-04 08:55:34
+  [3] RUN ID: RUN-20260927-CLEAN-MT5 | EXP: EXP-XAUUSD-M15 | Nodes: 29/29 | Completed: 28 | Qualified: 0 | Status: IDLE | Created: 2026-10-04 07:47:52
+  [4] RUN ID: RUN-HISTORICAL-PRESERVED | EXP: EXP-XAUUSD-M15 | Nodes: 721/721 | Completed: 691 | Qualified: 131 | Status: IDLE | Created: 2026-09-25 09:57:51
+  [5] RUN ID: RUN-20261005-CLEAN-MT5 | EXP: EXP-XAUUSD-M15 | Nodes: 0/1000 | Completed: 0 | Qualified: 0 | Status: COMPLETED | Created: 2026-10-05 04:53:34
+  [6] RUN ID: RUN-20261004-CLEAN-MT5 | EXP: EXP-XAUUSD-M15 | Nodes: 0/1000 | Completed: 0 | Qualified: 0 | Status: COMPLETED | Created: 2026-10-04 17:17:41
+  [7] RUN ID: RUN-TEST-A-NEW | EXP: EXP-XAUUSD-M15 | Nodes: 0/150 | Completed: 0 | Qualified: 0 | Status: COMPLETED | Created: 2026-10-04 08:55:34
+------------------------------------------------------------------------------
+6. STARTUP VERDICT & PERSISTENCE SUMMARY
+------------------------------------------------------------------------------
+  DATA RESTORATION:    COMPLETE — 100% historical research restored
+  EVOLUTION TREE:      RECONSTRUCTED — visual and API lineage synchronized
+  DATABASE STATE:      MIRRORED & RECONCILED (DATA/database/lab_state.db)
+  RESEARCH STATUS:     READY FOR RESUME OR NEW RUN
+==============================================================================
+  END OF STARTUP DIAGNOSTIC REPORT
+==============================================================================

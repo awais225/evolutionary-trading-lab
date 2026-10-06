@@ -1,0 +1,58 @@
+{
+  "hash": "998b8d2d5e555e621bd41a07b1c82232",
+  "parent_id": 287,
+  "generation": 4,
+  "symbol": "XAUUSD",
+  "timeframe": "M5",
+  "direction": "short",
+  "status": "BORN",
+  "creation_reason": "mutation of #287: excluded day [0]",
+  "mutation_type": "day_mutation",
+  "species_key": "M5|short|vwap",
+  "genome": {
+    "symbol": "XAUUSD",
+    "timeframe": "M5",
+    "direction": "short",
+    "features": [
+      "vwap"
+    ],
+    "entry_long": null,
+    "entry_short": {
+      "type": "compare",
+      "left": "vwap_dist",
+      "cmp": "<",
+      "right": -0.368
+    },
+    "exit": {
+      "atr_spec": "atr:7",
+      "sl_atr_mult": 2.34,
+      "tp_atr_mult": 2.14,
+      "trailing": null,
+      "min_hold_bars": 1,
+      "max_hold_bars": 24,
+      "exit_condition": null
+    },
+    "sessions": null,
+    "days": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "regime_filters": null,
+    "risk": {
+      "risk_per_trade": 0.005,
+      "max_concurrent": 1
+    }
+  },
+  "complexity": 3,
+  "origin": "mutation",
+  "hypothesis_id": null,
+  "seed": 607002254,
+  "mutation_params": null,
+  "config_version": "664c0d10a49d16b0",
+  "software_version": "3.6",
+  "run_id": "RUN-20261005-055251",
+  "data_source": "USER_RESEARCH",
+  "id": 2000
+}

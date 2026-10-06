@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+node_modules/
+dist/
+data_cache/
+lab_state.db*
+lab.log
+config/lab_config.yaml.bak
+.pytest_cache/
+*.parquet

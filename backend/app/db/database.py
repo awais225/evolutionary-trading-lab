@@ -1,0 +1,1094 @@
+"""
+SQLite persistence layer for lab state: strategies (genomes + ancestry),
+backtests, validations, paper trades, execution stats, hypotheses, events.
+
+Large market/feature datasets live in Parquet (see app/data/storage.py) and
+can be queried with DuckDB; this DB holds metadata & research state only.
+"""
+from __future__ import annotations
+
+import json
+import sqlite3
+import threading
+import time
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS strategies (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    hash TEXT UNIQUE NOT NULL,
+    parent_id INTEGER,
+    generation INTEGER NOT NULL DEFAULT 0,
+    symbol TEXT NOT NULL,
+    timeframe TEXT NOT NULL,
+    direction TEXT NOT NULL DEFAULT 'both',
+    status TEXT NOT NULL DEFAULT 'BORN',
+    creation_reason TEXT,
+    mutation_type TEXT,
+    species_key TEXT,
+    genome TEXT NOT NULL,
+    complexity INTEGER NOT NULL DEFAULT 0,
+    fitness REAL,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    origin TEXT NOT NULL DEFAULT 'seed',
+    hypothesis_id INTEGER,
+    run_id TEXT,
+    data_source TEXT DEFAULT 'USER_RESEARCH',
+    research_node_num INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_strategies_status ON strategies(status);
+CREATE INDEX IF NOT EXISTS idx_strategies_gen ON strategies(generation);
+CREATE INDEX IF NOT EXISTS idx_strategies_fitness ON strategies(fitness);
+CREATE INDEX IF NOT EXISTS idx_strategies_parent ON strategies(parent_id);
+CREATE INDEX IF NOT EXISTS idx_strategies_run ON strategies(run_id);
+CREATE INDEX IF NOT EXISTS idx_strategies_data_source ON strategies(data_source);
+CREATE INDEX IF NOT EXISTS idx_strategies_research_node_num ON strategies(research_node_num);
+
+CREATE TABLE IF NOT EXISTS backtests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    strategy_id INTEGER NOT NULL,
+    stage TEXT NOT NULL,            -- screen | detail | oos | walkforward | stress | perturbation | montecarlo | matrix
+    dataset_id TEXT NOT NULL,
+    window TEXT,                    -- json: {start,end,tag}
+    params TEXT,                    -- json: stress/perturbation params if any
+    metrics TEXT NOT NULL,          -- json blob
+    fitness REAL,
+    verdict TEXT,
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_bt_strategy ON backtests(strategy_id);
+
+CREATE TABLE IF NOT EXISTS validations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    strategy_id INTEGER NOT NULL UNIQUE,
+    oos TEXT, walkforward TEXT, perturbation TEXT,
+    spread_stress TEXT, slippage_stress TEXT, montecarlo TEXT,
+    regime_holdout TEXT,
+    robustness_score REAL,
+    passed INTEGER,
+    notes TEXT,
+    created_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS matrices (
+    strategy_id INTEGER NOT NULL PRIMARY KEY,
+    timeframe TEXT, session TEXT, day TEXT, regime TEXT, direction TEXT,
+    created_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS paper_trades (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    strategy_id INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    side TEXT NOT NULL,
+    signal_ts REAL NOT NULL,
+    requested_price REAL,
+    bid REAL, ask REAL, spread_points REAL,
+    exec_ts REAL, exec_price REAL,
+    exec_delay_ms REAL, slippage_points REAL,
+    exit_ts REAL, exit_price REAL, exit_reason TEXT,
+    lots REAL, pnl REAL, status TEXT NOT NULL DEFAULT 'OPEN',
+    regime TEXT, genome_hash TEXT, source TEXT NOT NULL DEFAULT 'SIMULATOR',
+    notes TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_pt_strategy ON paper_trades(strategy_id);
+
+CREATE TABLE IF NOT EXISTS executions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts REAL NOT NULL, source TEXT NOT NULL,   -- SIMULATOR | MT5_DEMO | MT5_LIVE
+    symbol TEXT, side TEXT, strategy_id INTEGER,
+    requested_price REAL, bid REAL, ask REAL, spread_points REAL,
+    signal_ts REAL, exec_ts REAL, exec_delay_ms REAL,
+    slippage_points REAL, result TEXT, rejected_by TEXT
+);
+
+CREATE TABLE IF NOT EXISTS hypotheses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    strategy_id INTEGER,
+    source TEXT NOT NULL DEFAULT 'rule_analyzer',  -- rule_analyzer | llm
+    observation TEXT NOT NULL,
+    hypothesis TEXT NOT NULL,
+    proposal TEXT NOT NULL,     -- json: genome mutation proposal
+    status TEXT NOT NULL DEFAULT 'PROPOSED',   -- PROPOSED | APPLIED | REJECTED
+    child_strategy_id INTEGER,
+    created_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts REAL NOT NULL,
+    type TEXT NOT NULL,
+    payload TEXT
+);
+
+CREATE TABLE IF NOT EXISTS datasets (
+    id TEXT PRIMARY KEY,
+    symbol TEXT NOT NULL, timeframe TEXT NOT NULL,
+    start_ts REAL, end_ts REAL, bars INTEGER,
+    source TEXT NOT NULL,   -- SIMULATOR | MT5
+    path TEXT NOT NULL,
+    feature_cache TEXT,     -- json list of cached feature specs
+    created_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS calibration (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts REAL NOT NULL, source TEXT NOT NULL, symbol TEXT NOT NULL,
+    metric TEXT NOT NULL, backtest_assumption REAL, observed REAL,
+    samples INTEGER, notes TEXT
+);
+
+CREATE TABLE IF NOT EXISTS generation_stats (
+    generation INTEGER PRIMARY KEY,
+    born INTEGER, tested INTEGER, failed INTEGER, survived INTEGER,
+    validated INTEGER, qualified INTEGER, killed INTEGER, retired INTEGER,
+    duplicates_blocked INTEGER, best_fitness REAL, avg_fitness REAL,
+    ts REAL
+);
+
+CREATE TABLE IF NOT EXISTS research_runs (
+    run_id TEXT PRIMARY KEY,
+    experiment_id TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    target_nodes INTEGER NOT NULL DEFAULT 500,
+    generated_nodes INTEGER NOT NULL DEFAULT 0,
+    completed_nodes INTEGER NOT NULL DEFAULT 0,
+    qualified_nodes INTEGER NOT NULL DEFAULT 0,
+    current_generation INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'IDLE',
+    persistence_status TEXT NOT NULL DEFAULT 'PERSISTED',
+    last_checkpoint REAL,
+    meta TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_runs_created ON research_runs(created_at);
+
+CREATE TABLE IF NOT EXISTS mt5_backtests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    strategy_id INTEGER NOT NULL,
+    run_id TEXT,
+    config TEXT,
+    symbol TEXT NOT NULL,
+    timeframe TEXT NOT NULL,
+    start_date TEXT,
+    end_date TEXT,
+    initial_capital REAL NOT NULL DEFAULT 10000.0,
+    final_capital REAL NOT NULL DEFAULT 10000.0,
+    net_profit REAL NOT NULL DEFAULT 0.0,
+    gross_profit REAL NOT NULL DEFAULT 0.0,
+    gross_loss REAL NOT NULL DEFAULT 0.0,
+    profit_factor REAL NOT NULL DEFAULT 0.0,
+    win_rate REAL NOT NULL DEFAULT 0.0,
+    trade_count INTEGER NOT NULL DEFAULT 0,
+    max_drawdown_pct REAL NOT NULL DEFAULT 0.0,
+    relative_drawdown_pct REAL NOT NULL DEFAULT 0.0,
+    recovery_factor REAL NOT NULL DEFAULT 0.0,
+    sharpe REAL NOT NULL DEFAULT 0.0,
+    avg_trade REAL NOT NULL DEFAULT 0.0,
+    largest_win REAL NOT NULL DEFAULT 0.0,
+    largest_loss REAL NOT NULL DEFAULT 0.0,
+    consecutive_wins INTEGER NOT NULL DEFAULT 0,
+    consecutive_losses INTEGER NOT NULL DEFAULT 0,
+    mt5_build TEXT,
+    status TEXT NOT NULL,
+    notes TEXT,
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_mt5_bt_strategy ON mt5_backtests(strategy_id);
+
+CREATE TABLE IF NOT EXISTS live_test_configs (
+    strategy_id INTEGER PRIMARY KEY,
+    timeframes TEXT,
+    days TEXT,
+    sessions TEXT,
+    start_time TEXT,
+    end_time TEXT,
+    timezone TEXT DEFAULT 'UTC',
+    lot_size REAL DEFAULT 0.1,
+    risk_pct REAL DEFAULT 1.0,
+    is_active INTEGER DEFAULT 0,
+    status TEXT DEFAULT 'IDLE',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS live_test_trades (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    strategy_id INTEGER NOT NULL,
+    ticket INTEGER,
+    symbol TEXT NOT NULL,
+    timeframe TEXT NOT NULL,
+    side TEXT NOT NULL,
+    entry_price REAL NOT NULL,
+    exit_price REAL,
+    sl REAL,
+    tp REAL,
+    lots REAL NOT NULL DEFAULT 0.1,
+    pnl REAL NOT NULL DEFAULT 0.0,
+    pnl_pct REAL NOT NULL DEFAULT 0.0,
+    open_ts REAL NOT NULL,
+    close_ts REAL,
+    close_reason TEXT,
+    session TEXT,
+    day_of_week TEXT,
+    status TEXT NOT NULL DEFAULT 'OPEN'
+);
+CREATE INDEX IF NOT EXISTS idx_live_trades_strategy ON live_test_trades(strategy_id);
+
+CREATE TABLE IF NOT EXISTS mt5_demo_configs (
+    strategy_id INTEGER PRIMARY KEY,
+    enabled INTEGER DEFAULT 0,
+    confirmed_demo_only INTEGER DEFAULT 0,
+    magic_number INTEGER,
+    max_positions INTEGER DEFAULT 1,
+    lot_size REAL DEFAULT 0.05,
+    risk_pct REAL DEFAULT 0.5,
+    status TEXT DEFAULT 'STOPPED',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS mt5_demo_trades (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    strategy_id INTEGER NOT NULL,
+    order_id INTEGER,
+    symbol TEXT NOT NULL,
+    timeframe TEXT NOT NULL,
+    side TEXT NOT NULL,
+    entry_price REAL NOT NULL,
+    exit_price REAL,
+    sl REAL,
+    tp REAL,
+    lots REAL NOT NULL,
+    pnl REAL NOT NULL DEFAULT 0.0,
+    open_ts REAL NOT NULL,
+    close_ts REAL,
+    status TEXT NOT NULL DEFAULT 'OPEN'
+);
+CREATE INDEX IF NOT EXISTS idx_mt5_demo_strategy ON mt5_demo_trades(strategy_id);
+
+CREATE TABLE IF NOT EXISTS strategy_pipeline_states (
+    strategy_id INTEGER PRIMARY KEY,
+    stage TEXT NOT NULL DEFAULT 'GENERATED',
+    notes TEXT,
+    updated_at REAL NOT NULL
+);
+"""
+
+
+class Database:
+    def __init__(self, path: str):
+        self.path = path
+        self._lock = threading.RLock()
+        p = Path(path).resolve()
+        from .. import paths as P
+        default_db = P.database_file().resolve()
+        if p == default_db and (not p.exists() or p.stat().st_size == 0):
+            mirror = P.DATABASE_DATA_DIR / "lab_state.db"
+            if mirror.exists() and mirror.stat().st_size > 0:
+                p.parent.mkdir(parents=True, exist_ok=True)
+                import shutil
+                shutil.copy2(str(mirror), str(p))
+        p.parent.mkdir(parents=True, exist_ok=True)
+        self._conn = sqlite3.connect(path, check_same_thread=False)
+        self._conn.row_factory = sqlite3.Row
+        with self._lock:
+            self._conn.execute("PRAGMA journal_mode=WAL")
+            self._conn.execute("PRAGMA synchronous=NORMAL")
+            # Ensure run_id column exists in existing strategies table before SCHEMA executes indexes
+            tables = [r[0] for r in self._conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='strategies'").fetchall()]
+            if tables:
+                cols = [col[1] for col in self._conn.execute("PRAGMA table_info(strategies)").fetchall()]
+                if "run_id" not in cols:
+                    self._conn.execute("ALTER TABLE strategies ADD COLUMN run_id TEXT")
+                    self._conn.commit()
+                if "data_source" not in cols:
+                    self._conn.execute("ALTER TABLE strategies ADD COLUMN data_source TEXT DEFAULT 'USER_RESEARCH'")
+                    self._conn.commit()
+                if "research_node_num" not in cols:
+                    self._conn.execute("ALTER TABLE strategies ADD COLUMN research_node_num INTEGER")
+                    self._conn.commit()
+
+                # V3.6: Non-destructive run isolation & dummy/legacy classification
+                # Classify the ~787 dummy/legacy development records
+                self._conn.execute("""
+                    UPDATE strategies
+                    SET data_source = 'LEGACY_TEST'
+                    WHERE (id <= 787 OR run_id IS NULL OR run_id LIKE '%TEST%' OR run_id = 'RUN-HISTORICAL-PRESERVED')
+                      AND (data_source IS NULL OR data_source != 'LEGACY_TEST')
+                """)
+                self._conn.execute("""
+                    UPDATE strategies
+                    SET data_source = 'USER_RESEARCH'
+                    WHERE data_source IS NULL
+                """)
+                # Dynamic relative node calculation: relative index within partition
+                self._conn.execute("""
+                    WITH numbered AS (
+                        SELECT id, ROW_NUMBER() OVER (PARTITION BY COALESCE(run_id, data_source) ORDER BY id) as rn
+                        FROM strategies
+                    )
+                    UPDATE strategies
+                    SET research_node_num = (SELECT rn FROM numbered WHERE numbered.id = strategies.id)
+                    WHERE research_node_num IS NULL
+                """)
+                self._conn.commit()
+            self._conn.executescript(SCHEMA)
+            self._conn.commit()
+            # V2: safe schema migration (preserves every V1 row; on failure
+            # raises MigrationError and writes LOGS/migration_error.log)
+            from .migrations import migrate
+            migrate(self._conn, SCHEMA)
+
+    @property
+    def conn(self) -> sqlite3.Connection:
+        return self._conn
+
+    # ---------- meta key/value ----------
+    def get_meta(self, key: str, default=None):
+        row = self.one("SELECT value FROM meta WHERE key=?", (key,))
+        return row["value"] if row else default
+
+    def set_meta(self, key: str, value: str) -> None:
+        self.x("INSERT OR REPLACE INTO meta (key,value) VALUES (?,?)", (key, value))
+
+    def close(self) -> None:
+        with self._lock:
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+
+    # ---------- helpers ----------
+    def q(self, sql: str, args: tuple = ()) -> List[Dict[str, Any]]:
+        with self._lock:
+            cur = self._conn.execute(sql, args)
+            rows = [dict(r) for r in cur.fetchall()]
+        return rows
+
+    def one(self, sql: str, args: tuple = ()) -> Optional[Dict[str, Any]]:
+        rows = self.q(sql, args)
+        return rows[0] if rows else None
+
+    def x(self, sql: str, args: tuple = ()) -> int:
+        with self._lock:
+            cur = self._conn.execute(sql, args)
+            self._conn.commit()
+            return cur.lastrowid or cur.rowcount
+
+    def xm(self, sql: str, seq: List[tuple]) -> None:
+        with self._lock:
+            self._conn.executemany(sql, seq)
+            self._conn.commit()
+
+    # ---------- strategies ----------
+    def insert_strategy(self, s: Dict[str, Any]) -> Optional[int]:
+        now = time.time()
+        rid = s.get("run_id") or ""
+        data_source = s.get("data_source")
+        if not data_source:
+            data_source = "LEGACY_TEST" if (not rid or "TEST" in rid.upper() or "HISTORICAL" in rid.upper()) else "USER_RESEARCH"
+
+        research_node_num = s.get("research_node_num")
+        if research_node_num is None:
+            if rid:
+                cnt = self.one("SELECT COUNT(*) c FROM strategies WHERE run_id=?", (rid,))["c"]
+            else:
+                cnt = self.one("SELECT COUNT(*) c FROM strategies WHERE data_source=?", (data_source,))["c"]
+            research_node_num = cnt + 1
+
+        try:
+            return self.x(
+                """INSERT INTO strategies
+                   (hash,parent_id,generation,symbol,timeframe,direction,status,
+                    creation_reason,mutation_type,species_key,genome,complexity,
+                    fitness,created_at,updated_at,origin,hypothesis_id,run_id,
+                    data_source,research_node_num)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (s["hash"], s.get("parent_id"), s.get("generation", 0), s["symbol"],
+                 s["timeframe"], s.get("direction", "both"), s.get("status", "BORN"),
+                 s.get("creation_reason"), s.get("mutation_type"), s.get("species_key"),
+                 json.dumps(s["genome"]), s.get("complexity", 0), s.get("fitness"),
+                 now, now, s.get("origin", "seed"), s.get("hypothesis_id"),
+                 s.get("run_id"), data_source, research_node_num),
+            )
+        except sqlite3.IntegrityError:
+            # duplicate genome hash -> caller handles dedupe
+            return None
+
+    def find_by_hash(self, h: str) -> Optional[Dict[str, Any]]:
+        return self.one("SELECT * FROM strategies WHERE hash=?", (h,))
+
+    def update_strategy(self, sid: int, **fields: Any) -> None:
+        if not fields:
+            return
+        fields["updated_at"] = time.time()
+        sets = ",".join(f"{k}=?" for k in fields)
+        self.x(f"UPDATE strategies SET {sets} WHERE id=?", tuple(fields.values()) + (sid,))
+
+    def get_strategy(self, sid: int) -> Optional[Dict[str, Any]]:
+        row = self.one("SELECT * FROM strategies WHERE id=?", (sid,))
+        if row:
+            row["genome"] = json.loads(row["genome"])
+            if row.get("research_node_num") is None:
+                rid = row.get("run_id")
+                if rid:
+                    rel = self.one("SELECT COUNT(*) c FROM strategies WHERE run_id=? AND id<=?", (rid, sid))["c"]
+                else:
+                    rel = self.one("SELECT COUNT(*) c FROM strategies WHERE data_source=? AND id<=?", (row.get("data_source", "LEGACY_TEST"), sid))["c"]
+                row["research_node_num"] = rel
+        return row
+
+    def get_qualified_strategies(self, data_source: Optional[str] = None, run_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        where = ["s.status IN ('QUALIFIED', 'PAPER')"]
+        args = []
+        if run_id:
+            where.append("s.run_id=?")
+            args.append(run_id)
+        if data_source and data_source.upper() != "ALL":
+            where.append("s.data_source=?")
+            args.append(data_source)
+        wsql = "WHERE " + " AND ".join(where)
+
+        rows = self.q(f"""
+            SELECT s.id, s.parent_id, s.generation, s.symbol, s.timeframe, s.direction,
+                   s.status, s.fitness, s.species_key, s.complexity, s.mutation_type,
+                   s.creation_reason, s.survival_reason, s.created_at, s.run_id,
+                   s.data_source, s.research_node_num,
+                   (SELECT b.metrics FROM backtests b WHERE b.strategy_id=s.id
+                      AND b.stage IN ('detail', 'screen') ORDER BY
+                      CASE b.stage WHEN 'detail' THEN 0 ELSE 1 END, b.id DESC LIMIT 1) AS m,
+                   (SELECT v.robustness_score FROM validations v WHERE v.strategy_id=s.id LIMIT 1) AS val_robustness,
+                   (SELECT v.passed FROM validations v WHERE v.strategy_id=s.id LIMIT 1) AS val_passed,
+                   (SELECT 1 FROM matrices mx WHERE mx.strategy_id=s.id LIMIT 1) AS has_matrix
+            FROM strategies s
+            {wsql}
+            ORDER BY COALESCE(s.fitness, 0) DESC
+        """, tuple(args))
+
+        out = []
+        for r in rows:
+            m = json.loads(r.pop("m")) if r.get("m") else {}
+            r["pf"] = m.get("profit_factor")
+            r["profit_factor"] = m.get("profit_factor")
+            r["return_pct"] = m.get("total_return_pct")
+            r["total_return_pct"] = m.get("total_return_pct")
+            r["dd"] = m.get("max_drawdown_pct")
+            r["max_drawdown_pct"] = m.get("max_drawdown_pct")
+            r["win_rate"] = m.get("win_rate")
+            r["trades"] = m.get("trades")
+            r["sharpe"] = m.get("sharpe")
+            r["net_profit"] = m.get("net_profit")
+            r["has_equity_curve"] = bool(m.get("equity_curve") and len(m.get("equity_curve")) > 1)
+            r["has_matrix"] = bool(r.get("has_matrix"))
+            out.append(r)
+        return out
+
+    def get_strategy_charts(self, sid: int) -> Dict[str, Any]:
+        row = self.get_strategy(sid)
+        if not row:
+            return {"strategy_id": sid, "has_equity_curve": False, "equity_curve": [], "drawdown_curve": [], "trades": [], "message": "STRATEGY NOT FOUND"}
+        
+        rel_num = row.get("research_node_num") or sid
+        # Check backtests for equity curve or trades
+        bt = self.one("""SELECT metrics FROM backtests WHERE strategy_id=? AND stage='detail' ORDER BY id DESC LIMIT 1""", (sid,))
+        if not bt:
+            bt = self.one("""SELECT metrics FROM backtests WHERE strategy_id=? ORDER BY id DESC LIMIT 1""", (sid,))
+        
+        if not bt or not bt.get("metrics"):
+            return {
+                "strategy_id": sid,
+                "research_node_num": rel_num,
+                "has_equity_curve": False,
+                "equity_curve": [],
+                "drawdown_curve": [],
+                "trades": [],
+                "message": "EQUITY CURVE DATA NOT FOUND FOR THIS STRATEGY"
+            }
+        
+        m = json.loads(bt["metrics"])
+        eq = m.get("equity_curve") or []
+        trades = m.get("trades_sample") or []
+        
+        # If equity curve is empty but trades exist, reconstruct from real trades
+        if (not eq or len(eq) <= 1) and trades:
+            cur_eq = 10000.0
+            eq = [[trades[0].get("entry_ts") or time.time(), round(cur_eq, 2)]]
+            peak = cur_eq
+            dd = [[trades[0].get("entry_ts") or time.time(), 0.0]]
+            for t in trades:
+                cur_eq += float(t.get("pnl") or 0.0)
+                ts = t.get("exit_ts") or t.get("entry_ts") or time.time()
+                eq.append([ts, round(cur_eq, 2)])
+                if cur_eq > peak:
+                    peak = cur_eq
+                cur_dd = ((peak - cur_eq) / peak) * 100.0 if peak > 0 else 0.0
+                dd.append([ts, round(cur_dd, 2)])
+        elif eq and len(eq) > 1:
+            peak = eq[0][1] if eq else 10000.0
+            dd = []
+            for ts, val in eq:
+                if val > peak:
+                    peak = val
+                cur_dd = ((peak - val) / peak) * 100.0 if peak > 0 else 0.0
+                dd.append([ts, round(cur_dd, 2)])
+        else:
+            return {
+                "strategy_id": sid,
+                "research_node_num": rel_num,
+                "has_equity_curve": False,
+                "equity_curve": [],
+                "drawdown_curve": [],
+                "trades": trades,
+                "message": "EQUITY CURVE DATA NOT FOUND FOR THIS STRATEGY"
+            }
+
+        return {
+            "strategy_id": sid,
+            "research_node_num": rel_num,
+            "has_equity_curve": True,
+            "equity_curve": eq,
+            "drawdown_curve": dd,
+            "trades": trades,
+            "message": "OK"
+        }
+
+    def count_by_status(self, run_id: Optional[str] = None) -> Dict[str, int]:
+        if run_id:
+            rows = self.q("SELECT status, COUNT(*) c FROM strategies WHERE run_id=? GROUP BY status", (run_id,))
+        else:
+            rows = self.q("SELECT status, COUNT(*) c FROM strategies GROUP BY status")
+        return {r["status"]: r["c"] for r in rows}
+
+    def get_shortlist(self) -> List[int]:
+        self.x("""CREATE TABLE IF NOT EXISTS research_shortlist (
+            strategy_id INTEGER PRIMARY KEY,
+            notes TEXT,
+            created_at REAL NOT NULL
+        )""")
+        rows = self.q("SELECT strategy_id FROM research_shortlist ORDER BY created_at DESC")
+        return [int(r["strategy_id"]) for r in rows]
+
+    def add_to_shortlist(self, strategy_id: int, notes: str = "") -> None:
+        self.x("""CREATE TABLE IF NOT EXISTS research_shortlist (
+            strategy_id INTEGER PRIMARY KEY,
+            notes TEXT,
+            created_at REAL NOT NULL
+        )""")
+        self.x("INSERT OR REPLACE INTO research_shortlist (strategy_id, notes, created_at) VALUES (?,?,?)",
+               (strategy_id, notes, time.time()))
+
+    def remove_from_shortlist(self, strategy_id: int) -> None:
+        self.x("""CREATE TABLE IF NOT EXISTS research_shortlist (
+            strategy_id INTEGER PRIMARY KEY,
+            notes TEXT,
+            created_at REAL NOT NULL
+        )""")
+        self.x("DELETE FROM research_shortlist WHERE strategy_id=?", (strategy_id,))
+
+    def clear_shortlist(self) -> None:
+        self.x("""CREATE TABLE IF NOT EXISTS research_shortlist (
+            strategy_id INTEGER PRIMARY KEY,
+            notes TEXT,
+            created_at REAL NOT NULL
+        )""")
+        self.x("DELETE FROM research_shortlist")
+
+    def total_strategies_count(self, run_id: Optional[str] = None) -> int:
+        if run_id:
+            row = self.one("SELECT COUNT(*) c FROM strategies WHERE run_id=?", (run_id,))
+        else:
+            row = self.one("SELECT COUNT(*) c FROM strategies")
+        return int(row["c"]) if row else 0
+
+    # ---------- research runs (spec §6, §8) ----------
+    def upsert_research_run(self, rec: Dict[str, Any]) -> None:
+        with self._lock:
+            meta_str = json.dumps(rec.get("meta", {})) if isinstance(rec.get("meta"), dict) else rec.get("meta")
+            self.x("""INSERT INTO research_runs
+                    (run_id, experiment_id, created_at, target_nodes, generated_nodes,
+                     completed_nodes, qualified_nodes, current_generation, status,
+                     persistence_status, last_checkpoint, meta)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                    ON CONFLICT(run_id) DO UPDATE SET
+                      experiment_id=excluded.experiment_id,
+                      target_nodes=excluded.target_nodes,
+                      generated_nodes=excluded.generated_nodes,
+                      completed_nodes=excluded.completed_nodes,
+                      qualified_nodes=excluded.qualified_nodes,
+                      current_generation=excluded.current_generation,
+                      status=excluded.status,
+                      persistence_status=excluded.persistence_status,
+                      last_checkpoint=excluded.last_checkpoint,
+                      meta=excluded.meta""",
+                 (rec["run_id"], rec.get("experiment_id", "EXP-XAUUSD-M15"),
+                  rec.get("created_at", time.time()), rec.get("target_nodes", 500),
+                  rec.get("generated_nodes", 0), rec.get("completed_nodes", 0),
+                  rec.get("qualified_nodes", 0), rec.get("current_generation", 0),
+                  rec.get("status", "IDLE"), rec.get("persistence_status", "PERSISTED"),
+                  rec.get("last_checkpoint", time.time()), meta_str))
+
+    def get_research_run(self, run_id: str) -> Optional[Dict[str, Any]]:
+        row = self.one("SELECT * FROM research_runs WHERE run_id=?", (run_id,))
+        if row:
+            d = dict(row)
+            if d.get("meta"):
+                try:
+                    d["meta"] = json.loads(d["meta"])
+                except Exception:
+                    pass
+            return d
+        return None
+
+    def get_all_research_runs(self) -> List[Dict[str, Any]]:
+        known_rows = {r["run_id"]: dict(r) for r in self.q("SELECT * FROM research_runs ORDER BY created_at DESC")}
+
+        strat_stats = self.q("""
+            SELECT COALESCE(NULLIF(run_id, ''), 'RUN-HISTORICAL-PRESERVED') as run_id,
+                   COUNT(*) as generated_nodes,
+                   SUM(CASE WHEN status IN ('QUALIFIED','KILLED','FAILED','RETIRED','PAPER') THEN 1 ELSE 0 END) as completed_nodes,
+                   SUM(CASE WHEN status IN ('QUALIFIED','PAPER') THEN 1 ELSE 0 END) as qualified_nodes,
+                   SUM(CASE WHEN status IN ('BORN','BACKTESTING','SURVIVED') THEN 1 ELSE 0 END) as pending_backtesting,
+                   SUM(CASE WHEN status IN ('VALIDATING') THEN 1 ELSE 0 END) as pending_validation,
+                   MAX(generation) as current_generation,
+                   MIN(created_at) as created_at,
+                   MAX(updated_at) as last_checkpoint
+            FROM strategies
+            GROUP BY COALESCE(NULLIF(run_id, ''), 'RUN-HISTORICAL-PRESERVED')
+            ORDER BY created_at DESC
+        """)
+
+        out = []
+        seen_runs = set()
+
+        for s in strat_stats:
+            rid = s["run_id"]
+            seen_runs.add(rid)
+            known = known_rows.get(rid, {})
+            target = known.get("target_nodes") or s["generated_nodes"]
+            exp_id = known.get("experiment_id") or "EXP-XAUUSD-M15"
+            is_done = (s["pending_backtesting"] == 0 and s["pending_validation"] == 0 and s["completed_nodes"] == s["generated_nodes"] and s["generated_nodes"] > 0)
+            status = known.get("status") or ("COMPLETED" if is_done else "IDLE")
+
+            out.append({
+                "run_id": rid,
+                "experiment_id": exp_id,
+                "created_at": known.get("created_at") or s["created_at"],
+                "node_ceiling": target,
+                "target_nodes": target,
+                "generated_nodes": s["generated_nodes"],
+                "completed_nodes": s["completed_nodes"],
+                "qualified_nodes": s["qualified_nodes"],
+                "pending_backtesting": s["pending_backtesting"],
+                "pending_validation": s["pending_validation"],
+                "current_generation": s["current_generation"] or 0,
+                "status": status,
+                "run_status": status,
+                "persistence_status": "PERSISTED",
+                "last_checkpoint": s["last_checkpoint"] or s["created_at"],
+                "meta": known.get("meta"),
+            })
+
+        for rid, known in known_rows.items():
+            if rid not in seen_runs:
+                out.append({
+                    "run_id": rid,
+                    "experiment_id": known.get("experiment_id", "EXP-XAUUSD-M15"),
+                    "created_at": known.get("created_at", time.time()),
+                    "node_ceiling": known.get("target_nodes", 500),
+                    "target_nodes": known.get("target_nodes", 500),
+                    "generated_nodes": known.get("generated_nodes", 0),
+                    "completed_nodes": known.get("completed_nodes", 0),
+                    "qualified_nodes": known.get("qualified_nodes", 0),
+                    "pending_backtesting": 0,
+                    "pending_validation": 0,
+                    "current_generation": known.get("current_generation", 0),
+                    "status": known.get("status", "IDLE"),
+                    "run_status": known.get("status", "IDLE"),
+                    "persistence_status": "PERSISTED",
+                    "last_checkpoint": known.get("last_checkpoint", time.time()),
+                    "meta": known.get("meta"),
+                })
+
+        return out
+
+    def max_strategy_id(self) -> int:
+        row = self.one("SELECT COALESCE(MAX(id), 0) m FROM strategies")
+        return int(row["m"]) if row else 0
+
+    def next_strategy_id(self) -> int:
+        return self.max_strategy_id() + 1
+
+    def reconstruct_state(self, total_node_target: int = 500) -> Dict[str, Any]:
+        """Fast state reconstruction from persisted SQLite database and disk (spec §V2.1 G)."""
+        counts = self.count_by_status()
+        total_nodes = self.total_strategies_count()
+        next_id = self.next_strategy_id()
+        gen_row = self.one("SELECT COALESCE(MAX(generation), 0) g FROM strategies")
+        current_gen = int(gen_row["g"]) if gen_row else 0
+
+        # ALIVE: BORN, BACKTESTING, SURVIVED, VALIDATING, PAPER, QUALIFIED
+        alive_statuses = ("BORN", "BACKTESTING", "SURVIVED", "VALIDATING", "PAPER", "QUALIFIED")
+        alive = sum(counts.get(s, 0) for s in alive_statuses)
+
+        # DEAD: FAILED, KILLED, RETIRED
+        dead_statuses = ("FAILED", "KILLED", "RETIRED")
+        dead = sum(counts.get(s, 0) for s in dead_statuses)
+
+        backtesting = counts.get("BACKTESTING", 0)
+        validating = counts.get("VALIDATING", 0)
+        qualified = counts.get("QUALIFIED", 0) + counts.get("PAPER", 0)
+
+        target = max(1, int(total_node_target))
+        remaining = max(0, target - total_nodes)
+        target_reached = total_nodes >= target
+
+        # Ancestry metrics
+        edges_row = self.one("SELECT COUNT(*) e FROM strategies WHERE parent_id IS NOT NULL")
+        roots_row = self.one("SELECT COUNT(*) r FROM strategies WHERE parent_id IS NULL")
+
+        # Fingerprints metrics
+        has_bt = self.one("SELECT name FROM sqlite_master WHERE type='table' AND name='backtests'")
+        if has_bt:
+            bt_cnt = self.one("""SELECT COUNT(*) c,
+                                        COUNT(CASE WHEN fingerprint IS NOT NULL AND fingerprint != '' THEN 1 END) fp,
+                                        COUNT(CASE WHEN stale=1 THEN 1 END) st
+                                 FROM backtests""")
+        else:
+            bt_cnt = {"c": 0, "fp": 0, "st": 0}
+
+        has_val = self.one("SELECT name FROM sqlite_master WHERE type='table' AND name='validations'")
+        if has_val:
+            val_cnt = self.one("""SELECT COUNT(*) c,
+                                         COUNT(CASE WHEN fingerprint IS NOT NULL AND fingerprint != '' THEN 1 END) fp
+                                  FROM validations""")
+        else:
+            val_cnt = {"c": 0, "fp": 0}
+
+        # Research files on disk
+        from ..paths import RESEARCH_DIR
+        def safe_file_count(p):
+            try:
+                return len(list(p.glob("*"))) if p.exists() else 0
+            except Exception:
+                return 0
+
+        research_state = {
+            "strategies_exported": safe_file_count(RESEARCH_DIR / "strategies"),
+            "generations_exported": safe_file_count(RESEARCH_DIR / "generations"),
+            "backtests_exported": safe_file_count(RESEARCH_DIR / "backtests"),
+            "validations_exported": safe_file_count(RESEARCH_DIR / "validations"),
+        }
+
+        # Datasets metrics
+        has_ds = self.one("SELECT name FROM sqlite_master WHERE type='table' AND name='datasets'")
+        ds_row = self.one("SELECT COUNT(*) c FROM datasets") if has_ds else {"c": 0}
+
+        eval_row = self.one("SELECT COUNT(DISTINCT strategy_id) e FROM backtests")
+        bt_stage_row = self.one("SELECT COUNT(*) b FROM backtests WHERE stage IN ('screen', 'detail')")
+        node_accounting = {
+            "total_created": total_nodes,
+            "total_evaluated": int(eval_row["e"]) if eval_row else 0,
+            "total_backtested": int(bt_stage_row["b"]) if bt_stage_row else 0,
+            "total_validated": int(val_cnt.get("c", 0)),
+            "total_qualified": qualified,
+            "total_rejected": counts.get("FAILED", 0) + counts.get("KILLED", 0),
+            "total_dead": dead,
+            "total_active": counts.get("BORN", 0) + backtesting + counts.get("SURVIVED", 0) + validating,
+            "total_remaining": remaining,
+        }
+
+        return {
+            "total_nodes": total_nodes,
+            "target": target,
+            "remaining": remaining,
+            "alive": alive,
+            "dead": dead,
+            "backtesting": backtesting,
+            "validating": validating,
+            "qualified": qualified,
+            "node_accounting": node_accounting,
+            "current_generation": current_gen,
+            "next_strategy_id": next_id,
+            "target_reached": target_reached,
+            "progress": f"{total_nodes} / {target}",
+            "progress_pct": round((total_nodes / target) * 100, 1) if target > 0 else 100.0,
+            "status_counts": counts,
+            "ancestry": {
+                "total_edges": int(edges_row["e"]) if edges_row else 0,
+                "root_nodes": int(roots_row["r"]) if roots_row else 0,
+                "max_depth": current_gen,
+            },
+            "fingerprints": {
+                "backtests_total": int(bt_cnt["c"]) if bt_cnt else 0,
+                "backtests_fingerprinted": int(bt_cnt["fp"]) if bt_cnt else 0,
+                "backtests_stale": int(bt_cnt["st"]) if bt_cnt else 0,
+                "validations_total": int(val_cnt["c"]) if val_cnt else 0,
+                "validations_fingerprinted": int(val_cnt["fp"]) if val_cnt else 0,
+            },
+            "research": research_state,
+            "evolution_seed": self.get_meta("evolution_seed") or "20250925",
+            "datasets_count": int(ds_row["c"]) if ds_row else 0,
+        }
+
+    # ---------- V4: MT5 Backtests, Live Testing & Demo Trading ----------
+    def record_mt5_backtest(self, rec: Dict[str, Any]) -> int:
+        from ..jsonutil import jd
+        sql = """
+            INSERT INTO mt5_backtests (
+                strategy_id, run_id, config, symbol, timeframe, start_date, end_date,
+                initial_capital, final_capital, net_profit, gross_profit, gross_loss,
+                profit_factor, win_rate, trade_count, max_drawdown_pct, relative_drawdown_pct,
+                recovery_factor, sharpe, avg_trade, largest_win, largest_loss,
+                consecutive_wins, consecutive_losses, mt5_build, status, notes, created_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """
+        cfg_str = rec.get("config")
+        if isinstance(cfg_str, (dict, list)):
+            cfg_str = jd(cfg_str)
+        return self.x(sql, (
+            rec.get("strategy_id"),
+            rec.get("run_id"),
+            cfg_str,
+            rec.get("symbol", "XAUUSD"),
+            rec.get("timeframe", "M15"),
+            rec.get("start_date", ""),
+            rec.get("end_date", ""),
+            rec.get("initial_capital", 10000.0),
+            rec.get("final_capital", 10000.0),
+            rec.get("net_profit", 0.0),
+            rec.get("gross_profit", 0.0),
+            rec.get("gross_loss", 0.0),
+            rec.get("profit_factor", 0.0),
+            rec.get("win_rate", 0.0),
+            rec.get("trade_count", 0),
+            rec.get("max_drawdown_pct", 0.0),
+            rec.get("relative_drawdown_pct", 0.0),
+            rec.get("recovery_factor", 0.0),
+            rec.get("sharpe", 0.0),
+            rec.get("avg_trade", 0.0),
+            rec.get("largest_win", 0.0),
+            rec.get("largest_loss", 0.0),
+            rec.get("consecutive_wins", 0),
+            rec.get("consecutive_losses", 0),
+            rec.get("mt5_build", "SIMULATOR_V4"),
+            rec.get("status", "COMPLETED"),
+            rec.get("notes", ""),
+            rec.get("created_at", time.time()),
+        ))
+
+    def get_mt5_backtests(self, strategy_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        if strategy_id is not None:
+            return self.q("SELECT * FROM mt5_backtests WHERE strategy_id=? ORDER BY id DESC", (strategy_id,))
+        return self.q("SELECT * FROM mt5_backtests ORDER BY id DESC")
+
+    def get_live_test_config(self, strategy_id: int) -> Optional[Dict[str, Any]]:
+        row = self.one("SELECT * FROM live_test_configs WHERE strategy_id=?", (strategy_id,))
+        if not row:
+            return None
+        import json
+        return {
+            "strategy_id": row["strategy_id"],
+            "timeframes": json.loads(row["timeframes"]) if row.get("timeframes") else ["M1", "M5", "M15"],
+            "days": json.loads(row["days"]) if row.get("days") else ["Mon", "Tue", "Wed", "Thu", "Fri"],
+            "sessions": json.loads(row["sessions"]) if row.get("sessions") else ["asia", "london", "newyork"],
+            "start_time": row.get("start_time") or "00:00",
+            "end_time": row.get("end_time") or "23:59",
+            "timezone": row.get("timezone") or "UTC",
+            "lot_size": row.get("lot_size") or 0.1,
+            "risk_pct": row.get("risk_pct") or 1.0,
+            "is_active": bool(row.get("is_active")),
+            "status": row.get("status") or "IDLE",
+            "created_at": row.get("created_at"),
+            "updated_at": row.get("updated_at"),
+        }
+
+    def set_live_test_config(self, strategy_id: int, cfg: Dict[str, Any]) -> None:
+        from ..jsonutil import jd
+        now = time.time()
+        sql = """
+            INSERT INTO live_test_configs (
+                strategy_id, timeframes, days, sessions, start_time, end_time,
+                timezone, lot_size, risk_pct, is_active, status, created_at, updated_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(strategy_id) DO UPDATE SET
+                timeframes=excluded.timeframes,
+                days=excluded.days,
+                sessions=excluded.sessions,
+                start_time=excluded.start_time,
+                end_time=excluded.end_time,
+                timezone=excluded.timezone,
+                lot_size=excluded.lot_size,
+                risk_pct=excluded.risk_pct,
+                is_active=excluded.is_active,
+                status=excluded.status,
+                updated_at=excluded.updated_at
+        """
+        self.x(sql, (
+            strategy_id,
+            jd(cfg.get("timeframes", ["M1", "M5", "M15"])),
+            jd(cfg.get("days", ["Mon", "Tue", "Wed", "Thu", "Fri"])),
+            jd(cfg.get("sessions", ["asia", "london", "newyork"])),
+            cfg.get("start_time", "00:00"),
+            cfg.get("end_time", "23:59"),
+            cfg.get("timezone", "UTC"),
+            cfg.get("lot_size", 0.1),
+            cfg.get("risk_pct", 1.0),
+            1 if cfg.get("is_active") else 0,
+            cfg.get("status", "IDLE"),
+            now,
+            now,
+        ))
+
+    def record_live_test_trade(self, t: Dict[str, Any]) -> int:
+        sql = """
+            INSERT INTO live_test_trades (
+                strategy_id, ticket, symbol, timeframe, side, entry_price, exit_price,
+                sl, tp, lots, pnl, pnl_pct, open_ts, close_ts, close_reason,
+                session, day_of_week, status
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """
+        return self.x(sql, (
+            t.get("strategy_id"),
+            t.get("ticket"),
+            t.get("symbol", "XAUUSD"),
+            t.get("timeframe", "M15"),
+            t.get("side", "BUY"),
+            t.get("entry_price", 0.0),
+            t.get("exit_price"),
+            t.get("sl"),
+            t.get("tp"),
+            t.get("lots", 0.1),
+            t.get("pnl", 0.0),
+            t.get("pnl_pct", 0.0),
+            t.get("open_ts", time.time()),
+            t.get("close_ts"),
+            t.get("close_reason"),
+            t.get("session", "london"),
+            t.get("day_of_week", "Mon"),
+            t.get("status", "OPEN"),
+        ))
+
+    def get_live_test_trades(self, strategy_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        if strategy_id is not None:
+            return self.q("SELECT * FROM live_test_trades WHERE strategy_id=? ORDER BY id DESC", (strategy_id,))
+        return self.q("SELECT * FROM live_test_trades ORDER BY id DESC")
+
+    def get_mt5_demo_config(self, strategy_id: int) -> Optional[Dict[str, Any]]:
+        row = self.one("SELECT * FROM mt5_demo_configs WHERE strategy_id=?", (strategy_id,))
+        if not row:
+            return None
+        return {
+            "strategy_id": row["strategy_id"],
+            "enabled": bool(row.get("enabled")),
+            "confirmed_demo_only": bool(row.get("confirmed_demo_only")),
+            "magic_number": row.get("magic_number") or (100000 + strategy_id),
+            "max_positions": row.get("max_positions") or 1,
+            "lot_size": row.get("lot_size") or 0.05,
+            "risk_pct": row.get("risk_pct") or 0.5,
+            "status": row.get("status") or "STOPPED",
+            "created_at": row.get("created_at"),
+            "updated_at": row.get("updated_at"),
+        }
+
+    def set_mt5_demo_config(self, strategy_id: int, cfg: Dict[str, Any]) -> None:
+        now = time.time()
+        sql = """
+            INSERT INTO mt5_demo_configs (
+                strategy_id, enabled, confirmed_demo_only, magic_number,
+                max_positions, lot_size, risk_pct, status, created_at, updated_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(strategy_id) DO UPDATE SET
+                enabled=excluded.enabled,
+                confirmed_demo_only=excluded.confirmed_demo_only,
+                magic_number=excluded.magic_number,
+                max_positions=excluded.max_positions,
+                lot_size=excluded.lot_size,
+                risk_pct=excluded.risk_pct,
+                status=excluded.status,
+                updated_at=excluded.updated_at
+        """
+        self.x(sql, (
+            strategy_id,
+            1 if cfg.get("enabled") else 0,
+            1 if cfg.get("confirmed_demo_only") else 0,
+            cfg.get("magic_number", 100000 + strategy_id),
+            cfg.get("max_positions", 1),
+            cfg.get("lot_size", 0.05),
+            cfg.get("risk_pct", 0.5),
+            cfg.get("status", "STOPPED"),
+            now,
+            now,
+        ))
+
+    def record_mt5_demo_trade(self, t: Dict[str, Any]) -> int:
+        sql = """
+            INSERT INTO mt5_demo_trades (
+                strategy_id, order_id, symbol, timeframe, side,
+                entry_price, exit_price, sl, tp, lots, pnl, open_ts, close_ts, status
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """
+        return self.x(sql, (
+            t.get("strategy_id"),
+            t.get("order_id"),
+            t.get("symbol", "XAUUSD"),
+            t.get("timeframe", "M15"),
+            t.get("side", "BUY"),
+            t.get("entry_price", 0.0),
+            t.get("exit_price"),
+            t.get("sl"),
+            t.get("tp"),
+            t.get("lots", 0.05),
+            t.get("pnl", 0.0),
+            t.get("open_ts", time.time()),
+            t.get("close_ts"),
+            t.get("status", "OPEN"),
+        ))
+
+    def get_mt5_demo_trades(self, strategy_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        if strategy_id is not None:
+            return self.q("SELECT * FROM mt5_demo_trades WHERE strategy_id=? ORDER BY id DESC", (strategy_id,))
+        return self.q("SELECT * FROM mt5_demo_trades ORDER BY id DESC")
+
+    def get_pipeline_stage(self, strategy_id: int) -> str:
+        row = self.one("SELECT stage FROM strategy_pipeline_states WHERE strategy_id=?", (strategy_id,))
+        if row:
+            return row["stage"]
+        s = self.get_strategy(strategy_id)
+        if s and s.get("status") == "QUALIFIED":
+            return "QUALIFIED"
+        return s.get("status", "GENERATED") if s else "GENERATED"
+
+    def set_pipeline_stage(self, strategy_id: int, stage: str, notes: Optional[str] = None) -> None:
+        now = time.time()
+        sql = """
+            INSERT INTO strategy_pipeline_states (strategy_id, stage, notes, updated_at)
+            VALUES (?,?,?,?)
+            ON CONFLICT(strategy_id) DO UPDATE SET
+                stage=excluded.stage,
+                notes=excluded.notes,
+                updated_at=excluded.updated_at
+        """
+        self.x(sql, (strategy_id, stage, notes or "", now))
+
+    def log_event(self, etype: str, payload: Dict[str, Any]) -> int:
+        from ..jsonutil import jd
+        return self.x("INSERT INTO events (ts,type,payload) VALUES (?,?,?)",
+                      (time.time(), etype, jd(payload)))
+
+
+_db: Optional[Database] = None
+
+
+def get_db(path: str | None = None) -> Database:
+    global _db
+    if _db is not None:
+        try:
+            _db._conn.execute("SELECT 1")
+        except (sqlite3.ProgrammingError, sqlite3.OperationalError):
+            _db = None
+    if _db is None:
+        from ..config import get_config
+        _db = Database(path or get_config().database_path)
+    return _db

@@ -1,0 +1,56 @@
+{
+  "hash": "45577d7d1a763e16303e85f68cd69089",
+  "parent_id": null,
+  "generation": 11,
+  "symbol": "XAUUSD",
+  "timeframe": "M15",
+  "direction": "short",
+  "status": "BORN",
+  "creation_reason": "Gen 11 candidate exploration (filling shortfall)",
+  "mutation_type": "random_exploration",
+  "species_key": "M15|short|vwap",
+  "genome": {
+    "symbol": "XAUUSD",
+    "timeframe": "M15",
+    "direction": "short",
+    "features": [
+      "vwap"
+    ],
+    "entry_long": null,
+    "entry_short": {
+      "type": "compare",
+      "left": "vwap_dist",
+      "cmp": "<",
+      "right": 0.204
+    },
+    "exit": {
+      "atr_spec": "atr:10",
+      "sl_atr_mult": 1.32,
+      "tp_atr_mult": 3.58,
+      "trailing": {
+        "atr_mult": 2.12,
+        "activation_mult": 1.29
+      },
+      "min_hold_bars": 3,
+      "max_hold_bars": 144,
+      "exit_condition": null
+    },
+    "sessions": null,
+    "days": null,
+    "regime_filters": null,
+    "risk": {
+      "risk_per_trade": 0.005,
+      "max_concurrent": 1
+    }
+  },
+  "complexity": 3,
+  "origin": "exploration",
+  "hypothesis_id": null,
+  "seed": 597624771,
+  "mutation_params": null,
+  "config_version": "664c0d10a49d16b0",
+  "software_version": "3.6",
+  "run_id": "RUN-20261005-055251",
+  "data_source": "USER_RESEARCH",
+  "id": 1955
+}

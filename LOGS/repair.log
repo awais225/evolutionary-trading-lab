@@ -1,0 +1,67 @@
+Requirement already satisfied: pip in .\.venv\Lib\site-packages (26.2.1)
+WARNING: Retrying (Retry(total=4, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ReadTimeoutError("HTTPSConnectionPool(host='pypi.org', port=443): Read timed out. (read timeout=15)")': /simple/pip/
+Requirement already satisfied: fastapi>=0.110 in .\.venv\Lib\site-packages (from -r E:\evolutionary-trading-lab\backend\requirements.txt (line 6)) (0.142.2)
+Requirement already satisfied: uvicorn>=0.29 in .\.venv\Lib\site-packages (from uvicorn[standard]>=0.29->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 7)) (0.54.0)
+Requirement already satisfied: psutil>=5.9.0 in .\.venv\Lib\site-packages (from -r E:\evolutionary-trading-lab\backend\requirements.txt (line 8)) (7.2.2)
+Requirement already satisfied: pydantic>=2.6 in .\.venv\Lib\site-packages (from -r E:\evolutionary-trading-lab\backend\requirements.txt (line 9)) (2.13.5)
+Requirement already satisfied: pyyaml>=6.0 in .\.venv\Lib\site-packages (from -r E:\evolutionary-trading-lab\backend\requirements.txt (line 10)) (6.0.3)
+Requirement already satisfied: httpx>=0.27 in .\.venv\Lib\site-packages (from -r E:\evolutionary-trading-lab\backend\requirements.txt (line 11)) (0.28.1)
+Requirement already satisfied: websockets>=12.0 in .\.venv\Lib\site-packages (from -r E:\evolutionary-trading-lab\backend\requirements.txt (line 12)) (17.2)
+Requirement already satisfied: numpy>=1.26 in .\.venv\Lib\site-packages (from -r E:\evolutionary-trading-lab\backend\requirements.txt (line 15)) (2.5.3)
+Requirement already satisfied: pandas>=2.1 in .\.venv\Lib\site-packages (from -r E:\evolutionary-trading-lab\backend\requirements.txt (line 16)) (3.0.6)
+Requirement already satisfied: pyarrow>=15.0 in .\.venv\Lib\site-packages (from -r E:\evolutionary-trading-lab\backend\requirements.txt (line 17)) (25.0.1)
+Requirement already satisfied: duckdb>=0.10 in .\.venv\Lib\site-packages (from -r E:\evolutionary-trading-lab\backend\requirements.txt (line 18)) (1.5.6)
+Requirement already satisfied: pywebview>=5.0 in .\.venv\Lib\site-packages (from -r E:\evolutionary-trading-lab\backend\requirements.txt (line 21)) (6.2.1)
+Requirement already satisfied: pytest>=8.0 in .\.venv\Lib\site-packages (from -r E:\evolutionary-trading-lab\backend\requirements.txt (line 24)) (9.1.1)
+Requirement already satisfied: MetaTrader5>=5.0.45 in .\.venv\Lib\site-packages (from -r E:\evolutionary-trading-lab\backend\requirements.txt (line 30)) (5.0.6231)
+Requirement already satisfied: starlette>=0.46.0 in .\.venv\Lib\site-packages (from fastapi>=0.110->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 6)) (1.7.0)
+Requirement already satisfied: typing-extensions>=4.8.0 in .\.venv\Lib\site-packages (from fastapi>=0.110->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 6)) (4.16.0)
+Requirement already satisfied: typing-inspection>=0.4.2 in .\.venv\Lib\site-packages (from fastapi>=0.110->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 6)) (0.4.4)
+Requirement already satisfied: annotated-doc>=0.0.2 in .\.venv\Lib\site-packages (from fastapi>=0.110->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 6)) (0.0.5)
+Requirement already satisfied: opentelemetry-api>=1.44.0 in .\.venv\Lib\site-packages (from fastapi>=0.110->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 6)) (1.45.0)
+Requirement already satisfied: click>=7.0 in .\.venv\Lib\site-packages (from uvicorn>=0.29->uvicorn[standard]>=0.29->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 7)) (8.5.0)
+Requirement already satisfied: h11>=0.8 in .\.venv\Lib\site-packages (from uvicorn>=0.29->uvicorn[standard]>=0.29->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 7)) (0.16.0)
+Requirement already satisfied: annotated-types>=0.6.0 in .\.venv\Lib\site-packages (from pydantic>=2.6->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 9)) (0.8.0)
+Requirement already satisfied: pydantic-core==2.46.5 in .\.venv\Lib\site-packages (from pydantic>=2.6->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 9)) (2.46.5)
+Requirement already satisfied: anyio in .\.venv\Lib\site-packages (from httpx>=0.27->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 11)) (4.15.1)
+Requirement already satisfied: certifi in .\.venv\Lib\site-packages (from httpx>=0.27->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 11)) (2026.7.22)
+Requirement already satisfied: httpcore==1.* in .\.venv\Lib\site-packages (from httpx>=0.27->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 11)) (1.0.9)
+Requirement already satisfied: idna in .\.venv\Lib\site-packages (from httpx>=0.27->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 11)) (3.20)
+Requirement already satisfied: python-dateutil>=2.8.2 in .\.venv\Lib\site-packages (from pandas>=2.1->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 16)) (2.9.0.post0)
+Requirement already satisfied: tzdata in .\.venv\Lib\site-packages (from pandas>=2.1->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 16)) (2026.5)
+Requirement already satisfied: pythonnet in .\.venv\Lib\site-packages (from pywebview>=5.0->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 21)) (3.2.0)
+Requirement already satisfied: proxy_tools in .\.venv\Lib\site-packages (from pywebview>=5.0->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 21)) (0.1.0)
+Requirement already satisfied: bottle in .\.venv\Lib\site-packages (from pywebview>=5.0->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 21)) (0.13.4)
+Requirement already satisfied: colorama>=0.4 in .\.venv\Lib\site-packages (from pytest>=8.0->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 24)) (0.4.6)
+Requirement already satisfied: iniconfig>=1.0.1 in .\.venv\Lib\site-packages (from pytest>=8.0->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 24)) (2.3.0)
+Requirement already satisfied: packaging>=22 in .\.venv\Lib\site-packages (from pytest>=8.0->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 24)) (26.3)
+Requirement already satisfied: pluggy<2,>=1.5 in .\.venv\Lib\site-packages (from pytest>=8.0->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 24)) (1.6.0)
+Requirement already satisfied: pygments>=2.7.2 in .\.venv\Lib\site-packages (from pytest>=8.0->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 24)) (2.21.0)
+Requirement already satisfied: six>=1.5 in .\.venv\Lib\site-packages (from python-dateutil>=2.8.2->pandas>=2.1->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 16)) (1.17.0)
+Requirement already satisfied: httptools>=0.8.0 in .\.venv\Lib\site-packages (from uvicorn[standard]>=0.29->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 7)) (0.8.0)
+Requirement already satisfied: python-dotenv>=0.13 in .\.venv\Lib\site-packages (from uvicorn[standard]>=0.29->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 7)) (1.2.4)
+Requirement already satisfied: watchfiles>=0.20 in .\.venv\Lib\site-packages (from uvicorn[standard]>=0.29->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 7)) (1.3.0)
+Requirement already satisfied: clr_loader<0.4.0,>=0.3.1 in .\.venv\Lib\site-packages (from pythonnet->pywebview>=5.0->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 21)) (0.3.1)
+Requirement already satisfied: cffi>=1.17 in .\.venv\Lib\site-packages (from clr_loader<0.4.0,>=0.3.1->pythonnet->pywebview>=5.0->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 21)) (2.1.1)
+Requirement already satisfied: pycparser in .\.venv\Lib\site-packages (from cffi>=1.17->clr_loader<0.4.0,>=0.3.1->pythonnet->pywebview>=5.0->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 21)) (3.0)
+npm warn deprecated recharts@2.15.4: 1.x and 2.x branches are no longer active. Bump to Recharts v3 to receive latest features and bugfixes. See https://github.com/recharts/recharts/wiki/3.0-migration-guide
+
+added 140 packages in 8s
+
+> evolab-dashboard@0.1.0 build
+> vite build
+
+[36mvite v5.4.21 [32mbuilding for production...[36m[39m
+transforming...
+[32m✓[39m 990 modules transformed.
+rendering chunks...
+computing gzip size...
+[2mdist/[22m[32mindex.html                 [39m[1m[2m    0.42 kB[22m[1m[22m[2m │ gzip:   0.28 kB[22m
+[2mdist/[22m[35massets/index-B8eHs4Np.css  [39m[1m[2m   13.91 kB[22m[1m[22m[2m │ gzip:   3.52 kB[22m
+[2mdist/[22m[36massets/index-3LccwKUV.js   [39m[1m[33m1,036.25 kB[39m[22m[2m │ gzip: 278.90 kB[22m
+[33m
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.[39m
+[32m✓ built in 4.32s[39m

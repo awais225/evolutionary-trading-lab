@@ -1,0 +1,94 @@
+{
+  "hash": "d9656b324524e83d3fe1980545b5a6be",
+  "parent_id": null,
+  "generation": 19,
+  "symbol": "XAUUSD",
+  "timeframe": "M15",
+  "direction": "both",
+  "status": "BORN",
+  "creation_reason": "Gen 19 candidate exploration (filling shortfall)",
+  "mutation_type": "random_exploration",
+  "species_key": "M15|both|adx,macd,roc",
+  "genome": {
+    "symbol": "XAUUSD",
+    "timeframe": "M15",
+    "direction": "both",
+    "features": [
+      "adx:14",
+      "macd:8:21:5",
+      "roc:6"
+    ],
+    "entry_long": {
+      "op": "and",
+      "clauses": [
+        {
+          "type": "compare",
+          "left": "roc:6",
+          "cmp": "<",
+          "right": 0.423
+        },
+        {
+          "type": "compare",
+          "left": "roc:6",
+          "cmp": ">",
+          "right": -0.395
+        },
+        {
+          "type": "compare",
+          "left": "roc:6",
+          "cmp": "<",
+          "right": -0.214
+        }
+      ]
+    },
+    "entry_short": {
+      "op": "and",
+      "clauses": [
+        {
+          "type": "compare",
+          "left": "adx:14",
+          "cmp": ">",
+          "right": 18
+        },
+        {
+          "type": "compare",
+          "left": "adx:14",
+          "cmp": ">",
+          "right": 28
+        },
+        {
+          "type": "compare",
+          "left": "adx:14",
+          "cmp": ">",
+          "right": 35
+        }
+      ]
+    },
+    "exit": {
+      "atr_spec": "atr:7",
+      "sl_atr_mult": 1.0,
+      "tp_atr_mult": 4.25,
+      "trailing": null,
+      "min_hold_bars": 1,
+      "max_hold_bars": 144,
+      "exit_condition": null
+    },
+    "sessions": null,
+    "days": null,
+    "regime_filters": null,
+    "risk": {
+      "risk_per_trade": 0.005,
+      "max_concurrent": 1
+    }
+  },
+  "complexity": 5,
+  "origin": "exploration",
+  "hypothesis_id": null,
+  "seed": 194293116,
+  "mutation_params": null,
+  "config_version": "664c0d10a49d16b0",
+  "software_version": "3.6",
+  "run_id": "RUN-20261005-055251",
+  "data_source": "USER_RESEARCH",
+  "id": 4665
+}

@@ -1,0 +1,80 @@
+{
+  "trades": 2,
+  "net_profit": 195.4,
+  "gross_profit": 248.0,
+  "gross_loss": 52.6,
+  "profit_factor": 4.715,
+  "profit_factor_raw": 4.715,
+  "win_rate": 0.5,
+  "avg_trade": 97.702,
+  "expectancy": 0.00977,
+  "max_drawdown_pct": 0.0051,
+  "sharpe": 10.07,
+  "sortino": 214053502.915,
+  "total_return_pct": 0.0195,
+  "final_equity": 10195.4,
+  "consistency": 1.0,
+  "monthly_pnl": {
+    "2026-09": 195.4
+  },
+  "avg_hold_bars": 0.0,
+  "avg_trade_duration_seconds": 0.0,
+  "min_trade_duration_seconds": 0.0,
+  "max_trade_duration_seconds": 0.0,
+  "avg_trade_duration_minutes": 0.0,
+  "min_trade_duration_minutes": 0.0,
+  "exit_reasons": {
+    "SL": 2
+  },
+  "avg_slippage_points": 0.872,
+  "total_spread_cost": 2.15,
+  "stage": "detail",
+  "dataset_id": "XAUUSD_M15",
+  "window": [
+    0,
+    1295
+  ],
+  "stress": {
+    "spread_mult": 1.0,
+    "slippage_mult": 1.0,
+    "commission_mult": 1.0,
+    "perturb": 0.0,
+    "mc_skip_prob": 0.0
+  },
+  "genome_hash": "b3e9a4e3465a73e499b8450ae3e540d9",
+  "runtime_ms": 2.8,
+  "trades_sample": [
+    {
+      "side": "buy",
+      "entry_ts": 1789538400.0,
+      "entry_price": 4321.75,
+      "exit_ts": 1789538400.0,
+      "exit_price": 4333.092,
+      "lots": 0.22,
+      "pnl": 248.0013,
+      "exit_reason": "SL",
+      "session": "asia",
+      "dow": 2,
+      "regime": "low_volatility",
+      "slippage_points": 0.47,
+      "spread_paid": 1.1,
+      "hold_bars": 0
+    },
+    {
+      "side": "buy",
+      "entry_ts": 1789733700.0,
+      "entry_price": 4394.578,
+      "exit_ts": 1789733700.0,
+      "exit_price": 4392.143,
+      "lots": 0.21,
+      "pnl": -52.5981,
+      "exit_reason": "SL",
+      "session": "newyork",
+      "dow": 4,
+      "regime": "trending",
+      "slippage_points": 1.27,
+      "spread_paid": 1.05,
+      "hold_bars": 0
+    }
+  ]
+}

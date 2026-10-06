@@ -1,0 +1,90 @@
+{
+  "hash": "23defd663cbd254ddda1d6dffa4db397",
+  "parent_id": 274,
+  "generation": 7,
+  "symbol": "XAUUSD",
+  "timeframe": "M1",
+  "direction": "long",
+  "status": "BORN",
+  "creation_reason": "mutation of #274: min_hold -> 3 bars",
+  "mutation_type": "min_hold_mutation",
+  "species_key": "M1|long|adx,bb,roc",
+  "genome": {
+    "symbol": "XAUUSD",
+    "timeframe": "M1",
+    "direction": "long",
+    "features": [
+      "bb:20:2.0",
+      "roc:24",
+      "adx:10"
+    ],
+    "entry_long": {
+      "op": "and",
+      "clauses": [
+        {
+          "type": "compare",
+          "left": "bb_pctb:20:2.0",
+          "cmp": ">",
+          "right": 0.905
+        },
+        {
+          "type": "compare",
+          "left": "roc:24",
+          "cmp": "<",
+          "right": 0.247
+        },
+        {
+          "type": "compare",
+          "left": "adx:10",
+          "cmp": ">",
+          "right": 25.0
+        },
+        {
+          "type": "compare",
+          "left": "adx:10",
+          "cmp": ">",
+          "right": 25.0
+        },
+        {
+          "type": "compare",
+          "left": "adx:10",
+          "cmp": ">",
+          "right": 25.0
+        },
+        {
+          "type": "compare",
+          "left": "adx:10",
+          "cmp": ">",
+          "right": 25.0
+        }
+      ]
+    },
+    "entry_short": null,
+    "exit": {
+      "atr_spec": "atr:14",
+      "sl_atr_mult": 2.94,
+      "tp_atr_mult": 3.42,
+      "trailing": null,
+      "min_hold_bars": 3,
+      "max_hold_bars": 144,
+      "exit_condition": null
+    },
+    "sessions": null,
+    "days": null,
+    "regime_filters": null,
+    "risk": {
+      "risk_per_trade": 0.005,
+      "max_concurrent": 1
+    }
+  },
+  "complexity": 5,
+  "origin": "mutation",
+  "hypothesis_id": null,
+  "seed": 880246317,
+  "mutation_params": null,
+  "config_version": "664c0d10a49d16b0",
+  "software_version": "3.6",
+  "run_id": "RUN-20261005-055251",
+  "data_source": "USER_RESEARCH",
+  "id": 4880
+}

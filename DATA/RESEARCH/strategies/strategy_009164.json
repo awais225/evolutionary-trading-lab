@@ -1,0 +1,76 @@
+{
+  "hash": "32b17c5dcd377bdf5f0de464c0c0855b",
+  "parent_id": null,
+  "generation": 33,
+  "symbol": "XAUUSD",
+  "timeframe": "M15",
+  "direction": "both",
+  "status": "BORN",
+  "creation_reason": "Gen 33 random exploration birth",
+  "mutation_type": "random_exploration",
+  "species_key": "M15|both|stoch,vwap",
+  "genome": {
+    "symbol": "XAUUSD",
+    "timeframe": "M15",
+    "direction": "both",
+    "features": [
+      "stoch:9:3",
+      "vwap"
+    ],
+    "entry_long": {
+      "op": "and",
+      "clauses": [
+        {
+          "type": "compare",
+          "left": "vwap_dist",
+          "cmp": "<",
+          "right": -0.34
+        },
+        {
+          "type": "compare",
+          "left": "vwap_dist",
+          "cmp": ">",
+          "right": 0.236
+        }
+      ]
+    },
+    "entry_short": {
+      "type": "crossover",
+      "a": "stoch_k:9:3",
+      "b": "stoch_d:9:3",
+      "dir": "down"
+    },
+    "exit": {
+      "atr_spec": "atr:10",
+      "sl_atr_mult": 1.92,
+      "tp_atr_mult": 4.08,
+      "trailing": {
+        "atr_mult": 2.77,
+        "activation_mult": 0.65
+      },
+      "min_hold_bars": 2,
+      "max_hold_bars": 96,
+      "exit_condition": null
+    },
+    "sessions": [
+      "asia",
+      "london"
+    ],
+    "days": null,
+    "regime_filters": null,
+    "risk": {
+      "risk_per_trade": 0.005,
+      "max_concurrent": 1
+    }
+  },
+  "complexity": 6,
+  "origin": "exploration",
+  "hypothesis_id": null,
+  "seed": 849173544,
+  "mutation_params": null,
+  "config_version": "73f86ee16ce4b5fd",
+  "software_version": "3.6",
+  "run_id": "RUN-20261005-055251",
+  "data_source": "USER_RESEARCH",
+  "id": 9164
+}

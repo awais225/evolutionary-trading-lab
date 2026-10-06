@@ -1,0 +1,84 @@
+{
+  "hash": "0c1b0898caea7f7150ee6c4a9a3fbecd",
+  "parent_id": null,
+  "generation": 1,
+  "symbol": "XAUUSD",
+  "timeframe": "M15",
+  "direction": "both",
+  "status": "BORN",
+  "creation_reason": "test candidate 133",
+  "mutation_type": "",
+  "species_key": "M15|both|adx,regime",
+  "genome": {
+    "symbol": "XAUUSD",
+    "timeframe": "M15",
+    "direction": "both",
+    "features": [
+      "adx:14",
+      "regime"
+    ],
+    "entry_long": {
+      "op": "and",
+      "clauses": [
+        {
+          "type": "compare",
+          "left": "adx:14",
+          "cmp": ">",
+          "right": 30
+        },
+        {
+          "type": "compare",
+          "left": "regime:breakout",
+          "cmp": ">",
+          "right": 0.5
+        }
+      ]
+    },
+    "entry_short": {
+      "op": "and",
+      "clauses": [
+        {
+          "type": "compare",
+          "left": "adx:14",
+          "cmp": ">",
+          "right": 28
+        },
+        {
+          "type": "compare",
+          "left": "adx:14",
+          "cmp": ">",
+          "right": 25
+        }
+      ]
+    },
+    "exit": {
+      "atr_spec": "atr:21",
+      "sl_atr_mult": 1.79,
+      "tp_atr_mult": 1.44,
+      "trailing": null,
+      "min_hold_bars": 3,
+      "max_hold_bars": 96,
+      "exit_condition": null
+    },
+    "sessions": [
+      "newyork",
+      "london"
+    ],
+    "days": null,
+    "regime_filters": null,
+    "risk": {
+      "risk_per_trade": 0.005,
+      "max_concurrent": 1
+    }
+  },
+  "complexity": 5,
+  "origin": "evolution",
+  "hypothesis_id": null,
+  "seed": 848505574,
+  "mutation_params": null,
+  "config_version": "4539d86fb191f907",
+  "software_version": "3.6",
+  "run_id": "RUN-20260927-CLEAN-MT5",
+  "data_source": "USER_RESEARCH",
+  "id": 133
+}

@@ -1,0 +1,96 @@
+{
+  "hash": "ce22fb7f19f436ef62d5f2a69bbddb5c",
+  "parent_id": null,
+  "generation": 22,
+  "symbol": "XAUUSD",
+  "timeframe": "M15",
+  "direction": "both",
+  "status": "BORN",
+  "creation_reason": "Gen 22 candidate exploration (filling shortfall)",
+  "mutation_type": "random_exploration",
+  "species_key": "M15|both|cci,roc,volatility",
+  "genome": {
+    "symbol": "XAUUSD",
+    "timeframe": "M15",
+    "direction": "both",
+    "features": [
+      "roc:12",
+      "cci:34",
+      "volatility:20"
+    ],
+    "entry_long": {
+      "op": "and",
+      "clauses": [
+        {
+          "type": "compare",
+          "left": "range_expansion:20",
+          "cmp": "<",
+          "right": 0.92
+        },
+        {
+          "type": "compare",
+          "left": "roc:12",
+          "cmp": ">",
+          "right": 0.098
+        },
+        {
+          "type": "compare",
+          "left": "cci:34",
+          "cmp": ">",
+          "right": -100
+        }
+      ]
+    },
+    "entry_short": {
+      "op": "and",
+      "clauses": [
+        {
+          "type": "compare",
+          "left": "cci:34",
+          "cmp": "<",
+          "right": -50
+        },
+        {
+          "type": "compare",
+          "left": "cci:34",
+          "cmp": ">",
+          "right": 100
+        },
+        {
+          "type": "compare",
+          "left": "cci:34",
+          "cmp": ">",
+          "right": 0
+        }
+      ]
+    },
+    "exit": {
+      "atr_spec": "atr:21",
+      "sl_atr_mult": 2.34,
+      "tp_atr_mult": 3.08,
+      "trailing": null,
+      "min_hold_bars": 1,
+      "max_hold_bars": 72,
+      "exit_condition": null
+    },
+    "sessions": [
+      "asia"
+    ],
+    "days": null,
+    "regime_filters": null,
+    "risk": {
+      "risk_per_trade": 0.005,
+      "max_concurrent": 1
+    }
+  },
+  "complexity": 6,
+  "origin": "exploration",
+  "hypothesis_id": null,
+  "seed": 694979587,
+  "mutation_params": null,
+  "config_version": "664c0d10a49d16b0",
+  "software_version": "3.6",
+  "run_id": "RUN-20261005-055251",
+  "data_source": "USER_RESEARCH",
+  "id": 5737
+}

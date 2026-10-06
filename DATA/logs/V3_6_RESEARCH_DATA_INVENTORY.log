@@ -1,0 +1,75 @@
+================================================================================
+EVOLUTIONARY TRADING RESEARCH LAB V3.6 - RESEARCH DATA INVENTORY LOG
+================================================================================
+TIMESTAMP (UTC):       2026-10-04 17:20:11 UTC
+SOFTWARE VERSION:      EVOLUTIONARY TRADING RESEARCH LAB V3.6
+DATA ROOT:             /home/user/evolutionary-trading-lab/DATA
+--------------------------------------------------------------------------------
+1. SQLITE MASTER DATABASE INVENTORY (DATA/DATABASE/lab_state.db)
+--------------------------------------------------------------------------------
+  activity                 :   5086 records
+  backtests                :    542 records
+  calibration              :     22 records
+  data_conflicts           :     41 records
+  datasets                 :     76 records
+  events                   :    250 records
+  executions               :     26 records
+  feature_meta             :   5551 records
+  generation_stats         :      4 records
+  hypotheses               :     13 records
+  integrity_reports        :    204 records
+  master_datasets          :      8 records
+  matrices                 :    127 records
+  meta                     :      4 records
+  paper_trades             :      8 records
+  research_memory          :     22 records
+  research_runs            :      3 records
+  research_shortlist       :      0 records
+  sqlite_sequence          :     13 records
+  strategies               :    787 records
+  validations              :    137 records
+
+--------------------------------------------------------------------------------
+2. STRATEGY STATUS DISTRIBUTION & CLASSIFICATION
+--------------------------------------------------------------------------------
+  FAILED              :    483 strategies
+  QUALIFIED           :    124 strategies
+  RETIRED             :    120 strategies
+  SURVIVED            :     42 strategies
+  KILLED              :     11 strategies
+  PAPER               :      7 strategies
+
+  DATA SOURCE CLASSIFICATION:
+    - LEGACY_TEST         :    787 strategies
+
+--------------------------------------------------------------------------------
+3. QUALIFIED RESEARCH STRATEGIES (TOP SURVIVORS WITH REAL PERSISTED METRICS)
+--------------------------------------------------------------------------------
+  ID         Research #   Status     TF     Fitness    Profit Fac   Return %   Trades   OOS Robust
+  ------------------------------------------------------------------------------------
+  Node_287   #287         PAPER      M5     0.983      3.16         67.7%      290      0.972     
+  Node_226   #226         PAPER      M5     0.982      3.00         65.6%      290      0.972     
+  Node_237   #237         PAPER      M5     0.982      3.16         70.7%      333      0.967     
+  Node_123   #123         PAPER      M5     0.982      3.17         71.5%      334      0.965     
+  Node_234   #234         QUALIFIED  M5     0.976      3.72         54.9%      231      0.969     
+  Node_228   #228         QUALIFIED  M5     0.974      3.21         70.9%      330      0.966     
+  Node_243   #243         QUALIFIED  M5     0.972      3.17         72.0%      336      0.969     
+  Node_186   #186         QUALIFIED  M1     0.967      3.39         243.8%     647      0.935     
+  Node_240   #240         QUALIFIED  M1     0.959      3.33         342.5%     665      0.939     
+  Node_298   #298         QUALIFIED  M30    0.957      4.12         115.5%     116      1.000     
+  Node_162   #162         QUALIFIED  M15    0.953      2.74         61.4%      316      0.962     
+  Node_233   #233         QUALIFIED  M1     0.952      3.41         150.7%     293      0.967     
+  Node_263   #263         QUALIFIED  M1     0.952      5.33         67.0%      145      0.934     
+  Node_300   #300         QUALIFIED  H1     0.950      4.47         73.2%      73       0.925     
+  Node_254   #254         QUALIFIED  M1     0.950      3.84         157.5%     321      0.977     
+
+--------------------------------------------------------------------------------
+4. PERSISTENT STORAGE SIZES & WORKSPACE CEILING AUDIT
+--------------------------------------------------------------------------------
+  TOTAL WORKSPACE SIZE:   89.82 MB
+  DATA DIRECTORY SIZE:    88.26 MB
+  WORKSPACE SNAPSHOT CAP: 125.00 MB
+  SNAPSHOT HEADROOM:      35.18 MB
+  TARGET THRESHOLD (<105):PASS (89.82 MB <= 105.00 MB)
+  CEILING THRESHOLD (<125):PASS (89.82 MB <= 125.00 MB)
+================================================================================

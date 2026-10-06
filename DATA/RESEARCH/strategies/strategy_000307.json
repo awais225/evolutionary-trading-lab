@@ -1,0 +1,62 @@
+{
+  "hash": "ba215c22b4cc8eba0ae5fa19894095ca",
+  "parent_id": null,
+  "generation": 1,
+  "symbol": "XAUUSD",
+  "timeframe": "M1",
+  "direction": "both",
+  "status": "BORN",
+  "creation_reason": "test candidate 307",
+  "mutation_type": "",
+  "species_key": "M1|both|sma",
+  "genome": {
+    "symbol": "XAUUSD",
+    "timeframe": "M1",
+    "direction": "both",
+    "features": [
+      "sma:50"
+    ],
+    "entry_long": {
+      "type": "compare",
+      "left": "sma:50",
+      "cmp": ">",
+      "right": "close"
+    },
+    "entry_short": {
+      "type": "compare",
+      "left": "sma:50",
+      "cmp": "<",
+      "right": "close"
+    },
+    "exit": {
+      "atr_spec": "atr:10",
+      "sl_atr_mult": 2.81,
+      "tp_atr_mult": 3.8,
+      "trailing": null,
+      "min_hold_bars": 1,
+      "max_hold_bars": 48,
+      "exit_condition": null
+    },
+    "sessions": [
+      "asia"
+    ],
+    "days": null,
+    "regime_filters": [
+      "high_volatility"
+    ],
+    "risk": {
+      "risk_per_trade": 0.005,
+      "max_concurrent": 1
+    }
+  },
+  "complexity": 4,
+  "origin": "evolution",
+  "hypothesis_id": null,
+  "seed": 1807503847,
+  "mutation_params": null,
+  "config_version": "4539d86fb191f907",
+  "software_version": "3.6",
+  "run_id": "RUN-20260927-CLEAN-MT5",
+  "data_source": "USER_RESEARCH",
+  "id": 307
+}

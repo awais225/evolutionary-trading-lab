@@ -1,0 +1,19 @@
+{
+ "symbol": "XAUUSD",
+ "timeframe": "M5",
+ "profile": {
+  "source": "SIMULATOR",
+  "broker": "LAB_SIMULATOR",
+  "server": "SIM",
+  "account": "0"
+ },
+ "profile_key": "SIMULATOR|LAB_SIMULATOR|SIM",
+ "schema_version": 3,
+ "partitions": {},
+ "rows": 0,
+ "first_ts": null,
+ "last_ts": null,
+ "version": 0,
+ "conflicts": 0,
+ "fingerprint": "2079f0e2677cb71681337992dd496aea"
+}

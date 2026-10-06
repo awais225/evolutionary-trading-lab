@@ -1,0 +1,99 @@
+{
+  "hash": "7c4bd0a5d5a2d52c339164a43accd7c5",
+  "parent_id": null,
+  "generation": 0,
+  "symbol": "XAUUSD",
+  "timeframe": "M30",
+  "direction": "both",
+  "status": "BORN",
+  "creation_reason": "generation-0 random seed",
+  "mutation_type": "random_exploration",
+  "species_key": "M30|both|momentum,prev_day,regime",
+  "genome": {
+    "symbol": "XAUUSD",
+    "timeframe": "M30",
+    "direction": "both",
+    "features": [
+      "momentum:20",
+      "regime",
+      "prev_day"
+    ],
+    "entry_long": {
+      "op": "and",
+      "clauses": [
+        {
+          "type": "compare",
+          "left": "regime:trending",
+          "cmp": ">",
+          "right": 0.5
+        },
+        {
+          "type": "compare",
+          "left": "break_prev_day_low",
+          "cmp": ">",
+          "right": 0.5
+        },
+        {
+          "type": "compare",
+          "left": "break_prev_day_high",
+          "cmp": ">",
+          "right": 0.5
+        }
+      ]
+    },
+    "entry_short": {
+      "op": "or",
+      "clauses": [
+        {
+          "type": "compare",
+          "left": "regime:low_volatility",
+          "cmp": ">",
+          "right": 0.5
+        },
+        {
+          "op": "and",
+          "clauses": [
+            {
+              "type": "compare",
+              "left": "regime:expansion",
+              "cmp": ">",
+              "right": 0.5
+            },
+            {
+              "type": "compare",
+              "left": "momentum:20",
+              "cmp": "<",
+              "right": 1.78
+            }
+          ]
+        }
+      ]
+    },
+    "exit": {
+      "atr_spec": "atr:21",
+      "sl_atr_mult": 1.26,
+      "tp_atr_mult": 4.81,
+      "trailing": null,
+      "min_hold_bars": 0,
+      "max_hold_bars": 72,
+      "exit_condition": null
+    },
+    "sessions": null,
+    "days": null,
+    "regime_filters": null,
+    "risk": {
+      "risk_per_trade": 0.005,
+      "max_concurrent": 1
+    }
+  },
+  "complexity": 5,
+  "origin": "seed",
+  "hypothesis_id": null,
+  "seed": 716648084,
+  "mutation_params": null,
+  "config_version": "a1b45e92183452b4",
+  "software_version": "3.6",
+  "run_id": "RUN-TEST-ENTROPY",
+  "data_source": "LEGACY_TEST",
+  "id": 38
+}

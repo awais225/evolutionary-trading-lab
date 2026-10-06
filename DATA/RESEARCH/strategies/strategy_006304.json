@@ -1,0 +1,53 @@
+{
+  "hash": "9d7b6811e596a49f4b6a99f00a80efd3",
+  "parent_id": 237,
+  "generation": 3,
+  "symbol": "XAUUSD",
+  "timeframe": "M5",
+  "direction": "short",
+  "status": "BORN",
+  "creation_reason": "mutation of #237: replaced vwap with adx:14",
+  "mutation_type": "indicator_replacement",
+  "species_key": "M5|short|adx",
+  "genome": {
+    "symbol": "XAUUSD",
+    "timeframe": "M5",
+    "direction": "short",
+    "features": [
+      "adx:14"
+    ],
+    "entry_long": null,
+    "entry_short": {
+      "type": "compare",
+      "left": "adx:14",
+      "cmp": ">",
+      "right": 30
+    },
+    "exit": {
+      "atr_spec": "atr:7",
+      "sl_atr_mult": 2.34,
+      "tp_atr_mult": 1.74,
+      "trailing": null,
+      "min_hold_bars": 2,
+      "max_hold_bars": 24,
+      "exit_condition": null
+    },
+    "sessions": null,
+    "days": null,
+    "regime_filters": null,
+    "risk": {
+      "risk_per_trade": 0.005,
+      "max_concurrent": 1
+    }
+  },
+  "complexity": 2,
+  "origin": "mutation",
+  "hypothesis_id": null,
+  "seed": 1127597102,
+  "mutation_params": null,
+  "config_version": "73f86ee16ce4b5fd",
+  "software_version": "3.6",
+  "run_id": "RUN-20261005-055251",
+  "data_source": "USER_RESEARCH",
+  "id": 6304
+}

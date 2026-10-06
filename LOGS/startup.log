@@ -1,0 +1,63 @@
+ 
+=========================================================== 
+EVOLUTIONARY TRADING RESEARCH LAB STARTUP 
+=========================================================== 
+[INFO] Timestamp: 05-Oct-26 10:51:05.99 
+[INFO] Root: E:\evolutionary-trading-lab 
+[INFO] Python: E:\evolutionary-trading-lab\.venv\Scripts\python.exe 
+[OK] Database file exists: E:\evolutionary-trading-lab\DATA\DATABASE\lab_state.db
+[OK] SQLite connection established
+[OK] SELECT 1 succeeded
+[OK] Schema version: 3
+[OK] Required tables detected (27 tables found in schema)
+[OK] Historical strategy data preserved (count: 787)
+[OK] Database verification successful
+[OK] Frontend production bundle detected. 
+[INFO] Port: 8787 
+[INFO] Launching backend server... 
+[OK] Backend process started. 
+[OK] Backend readiness confirmed. 
+[OK] Dashboard available at: http://127.0.0.1:8787 
+[OK] Browser launched. 
+[05-Oct-26 10:52:54.32] [WARN] Backend server stopped responding on port 8787 
+ 
+=========================================================== 
+EVOLUTIONARY TRADING RESEARCH LAB STARTUP 
+=========================================================== 
+[INFO] Timestamp: 06-Oct-26 15:16:56.14 
+[INFO] Root: D:\evolutionary-trading-lab 
+[INFO] Python: D:\evolutionary-trading-lab\.venv\Scripts\python.exe 
+[OK] Database file exists: D:\evolutionary-trading-lab\DATA\DATABASE\lab_state.db
+[OK] SQLite connection established
+[OK] SELECT 1 succeeded
+[OK] Schema version: 3
+[OK] Required tables detected (27 tables found in schema)
+[OK] Historical strategy data preserved (count: 10787)
+[OK] Database verification successful
+[OK] Frontend production bundle detected. 
+[INFO] Port: 8787 
+[INFO] Launching backend server... 
+[OK] Backend process started. 
+[06-Oct-26 15:17:29.77] [STARTUP_FAILED] Reason: Backend server did not respond at http://127.0.0.1:8787/health within 30 seconds. Check the 'EVOLAB Backend Server' console window and LOGS\lab.log. 
+[06-Oct-26 15:17:29.77] Command: D:\evolutionary-trading-lab\.venv\Scripts\python.exe backend\tools\wait_ready.py http://127.0.0.1:8787/health 30 
+ 
+=========================================================== 
+EVOLUTIONARY TRADING RESEARCH LAB STARTUP 
+=========================================================== 
+[INFO] Timestamp: 06-Oct-26 15:18:01.19 
+[INFO] Root: D:\evolutionary-trading-lab 
+[INFO] Python: D:\evolutionary-trading-lab\.venv\Scripts\python.exe 
+[OK] Database file exists: D:\evolutionary-trading-lab\DATA\DATABASE\lab_state.db
+[OK] SQLite connection established
+[OK] SELECT 1 succeeded
+[OK] Schema version: 3
+[OK] Required tables detected (27 tables found in schema)
+[OK] Historical strategy data preserved (count: 10787)
+[OK] Database verification successful
+[OK] Frontend production bundle detected. 
+[INFO] Port: 8787 
+[INFO] Launching backend server... 
+[OK] Backend process started. 
+[OK] Backend readiness confirmed. 
+[OK] Dashboard available at: http://127.0.0.1:8787 
+[OK] Browser launched. 

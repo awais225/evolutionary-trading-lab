@@ -1,0 +1,41 @@
+2026-09-25 09:57:39,338 WARNING mt5.factory: MT5 unavailable () -> falling back to SIMULATOR
+2026-09-25 09:57:39,338 INFO    main: Market bridge: simulator (simulated=True)
+2026-09-25 09:57:40,763 INFO    data.storage: wrote dataset XAUUSD_M1_20260826_20260925_SIMULATOR (31680 bars) -> /home/user/evolutionary-trading-lab/data_cache/XAUUSD_M1_20260826_20260925_SIMULATOR.parquet
+2026-09-25 09:57:42,234 INFO    data.storage: wrote dataset XAUUSD_M5_20260329_20260925_SIMULATOR (37272 bars) -> /home/user/evolutionary-trading-lab/data_cache/XAUUSD_M5_20260329_20260925_SIMULATOR.parquet
+2026-09-25 09:57:43,278 INFO    data.storage: wrote dataset XAUUSD_M15_20250930_20260925_SIMULATOR (24768 bars) -> /home/user/evolutionary-trading-lab/data_cache/XAUUSD_M15_20250930_20260925_SIMULATOR.parquet
+2026-09-25 09:57:43,891 INFO    data.storage: wrote dataset XAUUSD_M30_20250930_20260925_SIMULATOR (12384 bars) -> /home/user/evolutionary-trading-lab/data_cache/XAUUSD_M30_20250930_20260925_SIMULATOR.parquet
+2026-09-25 09:57:44,297 INFO    data.storage: wrote dataset XAUUSD_H1_20250930_20260925_SIMULATOR (6192 bars) -> /home/user/evolutionary-trading-lab/data_cache/XAUUSD_H1_20250930_20260925_SIMULATOR.parquet
+2026-09-25 09:57:44,798 INFO    orchestrator.lab: precomputed core features for XAUUSD_H1_20250930_20260925_SIMULATOR in 0.5s
+2026-09-25 09:57:46,368 INFO    orchestrator.lab: precomputed core features for XAUUSD_M1_20260826_20260925_SIMULATOR in 1.6s
+2026-09-25 09:57:47,704 INFO    orchestrator.lab: precomputed core features for XAUUSD_M15_20250930_20260925_SIMULATOR in 1.3s
+2026-09-25 09:57:48,620 INFO    orchestrator.lab: precomputed core features for XAUUSD_M30_20250930_20260925_SIMULATOR in 0.9s
+2026-09-25 09:57:50,984 INFO    orchestrator.lab: precomputed core features for XAUUSD_M5_20260329_20260925_SIMULATOR in 2.4s
+2026-09-25 09:57:57,979 WARNING risk.controls: RISK REJECT XAUUSD sell 45 lots=0.08: limit exceeded: concurrent
+2026-09-25 09:58:22,127 WARNING risk.controls: RISK REJECT XAUUSD sell 226 lots=0.08: limit exceeded: concurrent
+2026-09-25 09:58:23,443 WARNING risk.controls: RISK REJECT XAUUSD sell 234 lots=0.06: limit exceeded: concurrent
+2026-09-25 09:58:24,762 WARNING risk.controls: RISK REJECT XAUUSD sell 228 lots=0.08: limit exceeded: concurrent
+2026-09-25 09:58:26,088 WARNING risk.controls: RISK REJECT XAUUSD sell 243 lots=0.08: limit exceeded: concurrent
+2026-09-25 10:00:00,908 WARNING risk.controls: RISK REJECT XAUUSD sell 237 lots=0.07: limit exceeded: concurrent
+2026-09-25 10:00:00,911 WARNING risk.controls: RISK REJECT XAUUSD sell 123 lots=0.07: limit exceeded: concurrent
+2026-09-25 10:00:00,913 WARNING risk.controls: RISK REJECT XAUUSD sell 234 lots=0.06: limit exceeded: concurrent
+2026-09-25 10:00:00,916 WARNING risk.controls: RISK REJECT XAUUSD sell 228 lots=0.07: limit exceeded: concurrent
+2026-09-25 10:00:00,919 WARNING risk.controls: RISK REJECT XAUUSD sell 243 lots=0.07: limit exceeded: concurrent
+2026-09-25 10:04:59,003 WARNING mt5.factory: MT5 unavailable () -> falling back to SIMULATOR
+2026-09-25 10:04:59,003 INFO    main: Market bridge: simulator (simulated=True)
+2026-09-25 10:04:59,004 INFO    data.engine: dataset XAUUSD_M1_20260826_20260925_SIMULATOR already cached
+2026-09-25 10:04:59,004 INFO    data.engine: dataset XAUUSD_M5_20260329_20260925_SIMULATOR already cached
+2026-09-25 10:04:59,005 INFO    data.engine: dataset XAUUSD_M15_20250930_20260925_SIMULATOR already cached
+2026-09-25 10:04:59,005 INFO    data.engine: dataset XAUUSD_M30_20250930_20260925_SIMULATOR already cached
+2026-09-25 10:04:59,007 INFO    data.engine: dataset XAUUSD_H1_20250930_20260925_SIMULATOR already cached
+2026-09-25 10:05:23,753 WARNING mt5.factory: MT5 unavailable () -> falling back to SIMULATOR
+2026-09-25 10:05:23,753 INFO    main: Market bridge: simulator (simulated=True)
+2026-09-25 10:05:23,754 INFO    data.engine: dataset XAUUSD_M1_20260826_20260925_SIMULATOR already cached
+2026-09-25 10:05:23,755 INFO    data.engine: dataset XAUUSD_M5_20260329_20260925_SIMULATOR already cached
+2026-09-25 10:05:23,755 INFO    data.engine: dataset XAUUSD_M15_20250930_20260925_SIMULATOR already cached
+2026-09-25 10:05:23,757 INFO    data.engine: dataset XAUUSD_M30_20250930_20260925_SIMULATOR already cached
+2026-09-25 10:05:23,757 INFO    data.engine: dataset XAUUSD_H1_20250930_20260925_SIMULATOR already cached
+2026-09-25 10:05:24,021 INFO    orchestrator.lab: precomputed core features for XAUUSD_H1_20250930_20260925_SIMULATOR in 0.3s
+2026-09-25 10:05:24,666 INFO    orchestrator.lab: precomputed core features for XAUUSD_M1_20260826_20260925_SIMULATOR in 0.6s
+2026-09-25 10:05:25,301 INFO    orchestrator.lab: precomputed core features for XAUUSD_M15_20250930_20260925_SIMULATOR in 0.6s
+2026-09-25 10:05:25,573 INFO    orchestrator.lab: precomputed core features for XAUUSD_M30_20250930_20260925_SIMULATOR in 0.3s
+2026-09-25 10:05:26,203 INFO    orchestrator.lab: precomputed core features for XAUUSD_M5_20260329_20260925_SIMULATOR in 0.6s

@@ -1,0 +1,2323 @@
+EVOLUTIONARY TRADING RESEARCH LAB
+CHATGPT PROJECT HANDOFF / VERSION HISTORY / OPERATING RULES
+=============================================================
+
+PURPOSE OF THIS FILE
+--------------------
+This file is the persistent handoff document for the Evolutionary Trading Research Lab.
+
+It is intended to be committed to the project's GitHub repository as:
+
+    CHATGPT/chatgpt.txt
+
+A new ChatGPT account/session must read this file before making recommendations or producing a new LMSArena prompt.
+
+The project is being developed iteratively:
+    ChatGPT -> produces implementation prompt
+    LMSArena -> modifies/tests the dashboard
+    User -> runs/tests the resulting version
+    User -> reports actual behavior/errors/logs
+    ChatGPT -> diagnoses the feedback and produces the next versioned LMSArena prompt
+
+Do not assume that a requested feature is working merely because LMSArena reports that it was implemented.
+The user is the final runtime tester.
+Every version must be verified against the actual application and actual DATA.
+
+=============================================================
+1. PROJECT IN ONE PARAGRAPH
+=============================================================
+
+Evolutionary Trading Research Lab is a local Windows research dashboard for evolutionary algorithm based trading strategy discovery.
+
+The system generates large populations of trading strategy "nodes", evaluates/backtests them, records their genomes and economics, tracks ancestry and generations, filters and qualifies candidates, validates promising strategies, and eventually sends selected strategies into simulated/paper/MT5 testing.
+
+The long term objective is NOT simply to generate the highest backtest return.
+
+The objective is:
+
+    Generate
+      -> Persist
+      -> Screen
+      -> Validate
+      -> Backtest
+      -> Qualify
+      -> Strategy Laboratory
+      -> MT5 Backtest / Live Test
+      -> Paper/Demo Testing
+      -> Live Test Results
+      -> Robust Shortlist
+      -> AI Research
+      -> Intelligent Mutation / New Research
+      -> Repeat
+
+Only after a strategy has survived sufficient testing should real-money live trading ever be considered.
+
+AI integration is a FUTURE phase.
+Do not redesign the core research engine around AI until the deterministic dashboard, persistence, filtering, validation, MT5 testing, and results pipeline are reliable.
+
+=============================================================
+2. CURRENT PROJECT STATE
+=============================================================
+
+CURRENT MAJOR STATE:
+
+    5,000 user-generated research nodes have been generated.
+
+There are also approximately:
+
+    787 legacy nodes/strategies
+
+These legacy records MUST NOT be counted as part of the 5,000 user-generated research population.
+
+They may remain in the database for compatibility/history, but the dashboard's research population metrics must distinguish:
+
+    USER GENERATED NODES
+    LEGACY / IMPORTED NODES
+
+The user-generated population target is:
+
+    5,000
+
+Do NOT interpret database IDs such as Node_5787 as meaning 10,787 user-generated nodes.
+
+The logs previously showed:
+
+    TARGET NODES: 5000
+    CURRENT PERSISTED NODES: 5000
+    CURRENT GENERATED NODES: 5000
+    REMAINING NODES: 0
+    GENERATION: 44
+    LAST SUCCESSFUL NODE: Node_5787
+
+This is evidence that node IDs and population counts are separate concepts.
+
+The authoritative user population count must come from research/run state, not simply MAX(database ID).
+
+=============================================================
+3. CURRENT DASHBOARD TABS
+=============================================================
+
+The dashboard has/had the following major tabs:
+
+    Overview
+    Final Testing
+    Activity Stream
+    Evolution Tree
+    Population
+    Strategy Laboratory
+    Backtest Matrix
+    Paper Trading
+    Market Data
+    Research AI
+    Settings
+    Logs
+
+Future V4 direction additionally requires:
+
+    Node Economics
+    MT5 Backtest
+    Live Trading
+    Live Test Results
+
+Exact naming can be adapted to the existing UI, but functionality must remain clear.
+
+=============================================================
+4. ORIGINAL ARCHITECTURE / CORE PRINCIPLE
+=============================================================
+
+The fundamental V3.1 architecture principle is:
+
+    DATA = complete persistent research state
+
+and:
+
+    NODE LIMIT = generation ceiling, NOT processing cutoff
+
+The system must never assume that reaching the node target means all existing nodes can be discarded or that processing must stop immediately.
+
+Example:
+
+    Target = 5,000
+
+The system may stop creating NEW nodes at 5,000.
+
+But any already generated node that still needs:
+    validation
+    backtesting
+    result persistence
+    qualification
+    state transition
+
+must continue through its lifecycle.
+
+The same principle applies to:
+
+    5,000
+    50,000
+    100,000
+    200,000+
+
+=============================================================
+5. V1 / ORIGINAL RESEARCH LAB
+=============================================================
+
+The original project was an evolutionary trading research laboratory.
+
+Core concept:
+
+    strategy = node
+
+A node contains some combination of:
+
+    strategy genome
+    indicators
+    parameters
+    entry conditions
+    exit conditions
+    stop loss
+    take profit
+    timeframe
+    market/instrument
+    generation
+    parent
+    children
+    mutation lineage
+    backtest results
+    validation results
+    status
+
+The evolutionary engine creates candidate strategies, evaluates them and evolves promising candidates.
+
+Important concept:
+
+A node is not automatically a good strategy merely because it exists.
+
+Nodes have lifecycle states and must be evaluated through increasingly rigorous stages.
+
+=============================================================
+6. V2 / EARLY EVOLUTIONARY RESEARCH
+=============================================================
+
+The system evolved into a local Evolutionary Trading Research Lab using:
+
+    Python backend
+    frontend dashboard
+    SQLite/database state
+    parquet/feature datasets
+    evolutionary strategy generation
+    simulator/backtest infrastructure
+    MT5 integration architecture
+
+The system was intended to run locally on Windows and eventually connect to MetaTrader 5.
+
+The README/architecture also established that:
+
+    AI Researcher may propose/whitelist hypotheses
+
+but:
+
+    AI must NOT directly place orders
+    AI must NOT generate executable trading orders as an uncontrolled action
+    AI research must remain separated from execution
+
+=============================================================
+7. V3.1 - PERSISTENCE AND RESUME ARCHITECTURE
+=============================================================
+
+V3.1 was a major persistence/recovery architecture upgrade.
+
+Main objective:
+
+    Generate -> Persist -> Validate -> Backtest -> Qualify -> Continue
+
+Key requirements:
+
+1. DATA must contain persistent research state.
+
+2. Existing nodes must survive restart.
+
+3. Existing nodes must survive copying DATA into a fresh application installation.
+
+4. Existing nodes must not be regenerated.
+
+5. Latest node must be discovered automatically.
+
+6. Pending/unfinished nodes must resume correctly.
+
+7. Node limit must control generation only.
+
+8. Reaching the node ceiling must not destroy or abandon processing.
+
+9. Dashboard must reflect actual persistent state.
+
+10. Overview, Activity Stream, database and orchestrator must agree.
+
+11. Paper trading must be separate from real trading.
+
+12. Logs must explain state transitions.
+
+STARTUP ORDER:
+
+    Discover DATA
+    -> discover manifests
+    -> discover database
+    -> discover node records
+    -> discover checkpoints
+    -> discover latest node
+    -> discover completed nodes
+    -> discover unfinished nodes
+    -> discover qualified nodes
+    -> discover pending validation
+    -> discover pending backtests
+    -> discover generation
+    -> reconcile state
+    -> only then initialize research engine
+
+The system must NOT start generating nodes before loading persisted research state.
+
+DATA RECONCILIATION:
+
+Database, DATA manifest, and node artifacts must be reconciled.
+
+If they disagree:
+
+    DO NOT silently overwrite one with another.
+
+Instead report a persistence reconciliation problem and determine the authoritative/newer state using checkpoints/timestamps/version metadata.
+
+CHECKPOINTS:
+
+Persist important research state after meaningful batches and major state transitions.
+
+The persistent state must be sufficient to recover:
+
+    latest generated node
+    latest completed node
+    latest fully processed node
+    highest generation
+    active nodes
+    dead nodes
+    validating nodes
+    backtesting nodes
+    qualified nodes
+    queued nodes
+    pending nodes
+    failed nodes
+    parent/child relationships
+    node results
+    research configuration
+    dataset IDs
+    feature IDs
+    current pipeline stage
+    target ceiling
+    run state
+
+The system should avoid duplicating entire node records unnecessarily.
+
+=============================================================
+8. V3.1 PAPER TRADING ARCHITECTURE
+=============================================================
+
+The original intended flow was:
+
+    RESEARCH
+      -> VALIDATION
+      -> BACKTESTING
+      -> QUALIFIED NODES
+      -> STRATEGY REVIEW
+      -> PAPER TRADING
+      -> PAPER TRADING RESULTS
+      -> FURTHER STRATEGY RESEARCH
+
+Paper trading must remain simulation only.
+
+Suggested paper trading risk controls:
+
+    Paper Capital
+    Risk Per Trade %
+    Max Total Open Risk %
+    Max Daily Loss %
+    Max Drawdown %
+    Max Concurrent Positions
+
+Paper dashboard should show:
+
+    Starting Capital
+    Current Equity
+    Available Capital
+    Risk Per Trade
+    Risk Value
+    Total Open Risk
+    Daily P/L
+    Daily Loss Limit
+    Current Drawdown
+    Maximum Drawdown
+    Open Positions
+    Closed Trades
+
+Initial architecture testing can use approximately:
+
+    20 to 50 qualified strategies
+
+This is an engineering validation sample, NOT a claim of statistical sufficiency.
+
+=============================================================
+9. V3.2 - DIAGNOSTICS / DATA LOADING / NODE COUNT CONFUSION
+=============================================================
+
+V3.2 focused on diagnosing why previously generated nodes were not being loaded correctly.
+
+Important lessons:
+
+A. Node IDs are not population counts.
+
+Example:
+
+    Node_5787
+
+does NOT mean:
+
+    10,787 user-generated nodes.
+
+The logs explicitly reported:
+
+    TARGET = 5000
+    CURRENT PERSISTED = 5000
+    CURRENT GENERATED = 5000
+
+Therefore the dashboard must distinguish:
+
+    database ID
+    user-generated node count
+    legacy/imported count
+    target population
+    rejected/failed candidates
+    duplicate candidate attempts
+
+B. Dummy/legacy records must not contaminate research metrics.
+
+C. Startup must load DATA before starting new research.
+
+D. The dashboard needs clear diagnostics showing exactly what was loaded.
+
+Recommended startup diagnostics:
+
+    DATA ROOT
+    DATABASE PATH
+    DATABASE STRATEGY COUNT
+    USER NODE COUNT
+    LEGACY NODE COUNT
+    LATEST USER NODE
+    LATEST COMPLETED NODE
+    ACTIVE RUN
+    PENDING VALIDATION
+    PENDING BACKTEST
+    QUALIFIED
+    PAPER TRADING CANDIDATES
+    DATA INTEGRITY
+    RESUME POINT
+
+=============================================================
+10. V3.2 NODE GENERATION LOGGING
+=============================================================
+
+The generation logs showed values such as:
+
+    TARGET NODES: 5000
+    CURRENT PERSISTED NODES: 5000
+    CURRENT GENERATED NODES: 5000
+    REMAINING NODES: 0
+    CURRENT GENERATION / BATCH: Gen 44
+    ACTIVE WORKERS: 32
+    PENDING TASKS: 26
+    COMPLETED TASKS: 4509
+    REJECTED TASKS: 2405
+    DUPLICATE TASKS: 56471
+    FAILED TASKS: 12080
+    ELIGIBLE PARENTS: 20
+    CHILDREN GENERATED: 9975
+    CHILDREN REJECTED: 2405
+    STOP CONDITION: TARGET REACHED
+
+These numbers demonstrate why candidate attempts must be distinguished from actual persisted user nodes.
+
+Do not present rejected, duplicate or failed candidate attempts as generated strategies.
+
+=============================================================
+11. V3.3 / V3.4 DEVELOPMENT DIRECTION
+=============================================================
+
+The project increasingly focused on:
+
+    persistent state
+    node discovery
+    final testing
+    strategy laboratory
+    backtest matrices
+    validation
+    paper trading
+    filtering
+    evolution tree
+    lineage
+    MT5 integration
+
+Important UI expectation:
+
+Strategy Laboratory must become the main place where surviving strategies can be analyzed and shortlisted.
+
+The user wants:
+
+    sorting
+    filters
+    ranking
+    return filters
+    profit filters
+    drawdown filters
+    win rate filters
+    Sharpe filters
+    profit factor filters
+    trade count filters
+    robustness filters
+    timeframe filters
+    strategy type filters
+    status filters
+
+=============================================================
+12. V3.5 - SINGLE DATA FOLDER PORTABILITY
+=============================================================
+
+V3.5 consolidated persistent folders into DATA.
+
+Target:
+
+    DATA = portable persistent research state
+
+The following directories were moved under DATA:
+
+    DATA/BACKUPS
+    DATA/CACHE
+    DATA/data_cache
+    DATA/DATABASE
+    DATA/RESEARCH
+    DATA/TEST_DATA
+    DATA/tests
+    DATA/logs
+
+Other persistent DATA structures include:
+
+    DATA/manifests
+    DATA/metadata
+    DATA/features
+    DATA/MT5
+    DATA/manifest.json
+
+Important authoritative locations:
+
+    DATA/DATABASE
+    DATA/RESEARCH
+    DATA/BACKUPS
+    DATA/CACHE
+    DATA/data_cache
+    DATA/TEST_DATA
+    DATA/tests
+    DATA/logs
+
+The authoritative database is:
+
+    DATA/DATABASE/lab_state.db
+
+The redundant older database mirror was removed as authoritative state.
+
+Central path concept:
+
+    DATA_ROOT
+
+All persistent paths must derive from DATA_ROOT.
+
+The application supports an environment override:
+
+    EVOLUTIONARY_LAB_DATA_ROOT
+
+Otherwise:
+
+    DATA_ROOT = project root / DATA
+
+All persistence paths should derive from DATA_ROOT.
+
+V3.5 acceptance testing reported:
+
+    197 / 197 tests passing
+
+and approximately:
+
+    84.42 MB workspace persistence size
+
+with headroom under the platform's approximately 128 MB workspace snapshot constraint.
+
+NOTE:
+The platform workspace limitation is not the same as the local machine's disk capacity.
+
+=============================================================
+13. CRITICAL LMSARENA STORAGE LESSON
+=============================================================
+
+Previous LMSArena attempts produced:
+
+    "Something went wrong. Please try again."
+
+The investigation established that the failure was associated with the LMSArena turn-end workspace snapshot.
+
+The workspace had a strict approximately:
+
+    128 MB
+
+snapshot cap.
+
+Duplicating persistent folders instead of moving them pushed the workspace above the limit.
+
+Therefore:
+
+NEVER duplicate large DATA folders in the workspace unnecessarily.
+
+Use the local/tmp filesystem for large persistent data when supported.
+
+The user specifically wants the following architecture going forward:
+
+    GitHub repository
+        |
+        +-- code
+        +-- CHATGPT/chatgpt.txt
+        +-- DATA
+               |
+               +-- persistent research state
+
+BUT when LMSArena builds/tests the project:
+
+    CODE -> workspace
+    DATA -> tmp storage
+
+The DATA folder from GitHub must be placed in LMSArena's large temporary storage area rather than inside the 128 MB workspace.
+
+The known LMSArena environment has approximately:
+
+    20 GB tmp capacity
+
+versus approximately:
+
+    128 MB workspace snapshot limit
+
+Therefore DATA should NOT be copied into the workspace if the platform supports placing it in tmp.
+
+The code should reference the external DATA location through:
+
+    EVOLUTIONARY_LAB_DATA_ROOT
+
+or equivalent configuration.
+
+=============================================================
+14. GITHUB REPOSITORY OPERATING MODEL
+=============================================================
+
+The entire dashboard/codebase will be uploaded to GitHub.
+
+LMSArena should:
+
+1. Pull/clone the repository.
+
+2. Place the CODEBASE into its workspace.
+
+3. Place DATA into the large temporary directory.
+
+4. Set DATA_ROOT to that tmp DATA location.
+
+5. NEVER copy the large DATA directory into the limited workspace unless absolutely required.
+
+6. Run tests against the external DATA.
+
+7. Run the application.
+
+8. Make requested code changes.
+
+9. Run regression tests.
+
+10. Verify the result.
+
+11. Commit the latest source changes back to GitHub at the end of the iteration.
+
+12. Preserve CHATGPT/chatgpt.txt.
+
+13. Append the exact user prompt used for that iteration to the end of CHATGPT/chatgpt.txt.
+
+IMPORTANT:
+
+Do not commit generated temporary/build junk.
+
+Do not duplicate DATA unnecessarily.
+
+Do not overwrite the authoritative research database accidentally.
+
+Do not create a second database with fewer nodes and then accidentally make it authoritative.
+
+=============================================================
+15. CHATGPT <-> LMSARENA ITERATION RULE
+=============================================================
+
+This is mandatory.
+
+The USER will:
+
+    test the current version
+
+and then provide:
+
+    screenshots
+    errors
+    logs
+    behavior
+    observations
+    performance information
+
+CHATGPT must:
+
+1. Diagnose the actual issue.
+
+2. Separate confirmed facts from assumptions.
+
+3. Not claim an issue is fixed without evidence.
+
+4. Produce the next versioned LMSArena implementation prompt.
+
+5. Increment the version logically.
+
+6. Keep previous behavior intact unless intentionally changed.
+
+7. Require LMSArena to test the requested changes.
+
+8. Require a final implementation report.
+
+9. Require actual test results.
+
+10. Require LMSArena to commit the resulting source changes to GitHub.
+
+The user will then test the new version.
+
+This loop continues:
+
+    Vx
+      -> user test
+      -> feedback
+      -> ChatGPT diagnosis
+      -> Vx+1 prompt
+      -> LMSArena implementation
+      -> tests
+      -> GitHub commit
+      -> user test
+
+=============================================================
+16. VERSIONING RULES
+=============================================================
+
+Every meaningful implementation change gets a new version.
+
+Examples:
+
+    V3.1
+    V3.2
+    V3.5
+    V4.0
+    V4.1
+    V4.2
+
+Do NOT create arbitrary version numbers.
+
+Version number must represent a real project iteration.
+
+Major version:
+
+    architecture/workflow change
+
+Minor version:
+
+    feature/fix within the architecture
+
+Patch-style changes can be used where appropriate, but avoid unnecessary fragmentation.
+
+Every LMSArena prompt must start with:
+
+    TARGET VERSION
+    CURRENT VERSION
+    OBJECTIVE
+    NON-NEGOTIABLES
+    IMPLEMENTATION REQUIREMENTS
+    TEST REQUIREMENTS
+    FINAL REPORT REQUIREMENTS
+
+=============================================================
+17. CURRENT V4 DIRECTION
+=============================================================
+
+V4 is intended to turn the existing node-generation dashboard into a usable strategy discovery and testing pipeline.
+
+The user does NOT simply want more generated nodes.
+
+The user wants to answer:
+
+    Which strategies actually survive increasingly realistic testing?
+
+V4 should therefore improve:
+
+    Strategy Laboratory
+    Node Economics
+    validation
+    MT5 Backtesting
+    live testing
+    paper/demo trading
+    results
+    filtering
+    ranking
+
+=============================================================
+18. FINAL TESTING
+=============================================================
+
+Final Testing should contain the relevant user-generated candidate population after the generation/backtest pipeline.
+
+It should distinguish:
+
+    user-generated
+    legacy
+    qualified
+    rejected
+    pending
+    failed
+
+The user previously observed:
+
+    highest Final Testing return ~= 148%
+
+while Strategy Laboratory showed:
+
+    highest return ~= 342%
+
+This discrepancy must be investigated.
+
+It may be caused by:
+
+    different datasets
+    different populations
+    different qualification stages
+    different metric definitions
+    stale frontend state
+    duplicate records
+    legacy contamination
+    different aggregation
+    different time ranges
+    different return calculations
+
+DO NOT simply force the two tabs to display the same value.
+
+Instead trace the exact source of each metric and make the UI explain:
+
+    metric source
+    dataset
+    timeframe
+    calculation
+    node population
+    status
+
+=============================================================
+19. STRATEGY LABORATORY
+=============================================================
+
+Strategy Laboratory should become the primary strategy analysis/shortlisting interface.
+
+It should list actual user-generated nodes and provide:
+
+SORTING:
+
+    Return
+    Net Profit
+    Profit Factor
+    Sharpe
+    Sortino
+    Win Rate
+    Max Drawdown
+    Trade Count
+    Expectancy
+    Average Trade
+    Recovery Factor
+    Robustness score
+    Validation score
+    Paper/live-test performance
+    Generation
+    Node ID
+
+FILTERS:
+
+    Return min/max
+    Profit min/max
+    Drawdown max
+    Sharpe min
+    Profit Factor min
+    Win Rate min
+    Trade count min/max
+    Generation
+    Status
+    Timeframe
+    Symbol
+    Session
+    Strategy type
+    Validation status
+    MT5 test status
+    Paper trading status
+    Live test status
+
+Allow combining filters.
+
+Allow reset filters.
+
+Allow ascending/descending sorting.
+
+=============================================================
+20. NODE ECONOMICS
+=============================================================
+
+When a node is selected, the user wants a detailed node information view.
+
+This can be a dedicated:
+
+    NODE ECONOMICS
+
+tab/panel.
+
+It should show:
+
+IDENTITY:
+
+    Node ID
+    Generation
+    Parent
+    Children
+    Status
+
+INDICATORS:
+
+    ATR period/value
+    SMA period
+    EMA period
+    RSI
+    MACD
+    Bollinger Bands
+    etc.
+
+Only display indicators actually present in that node's genome.
+
+ENTRY:
+
+    exact entry conditions
+    direction
+    trigger
+    timeframe
+    session/day restrictions
+
+EXIT:
+
+    take profit
+    stop loss
+    trailing stop
+    time-based exit
+    opposite signal exit
+    other conditions
+
+RISK:
+
+    risk model
+    position sizing
+    fixed dollar amount if configured
+    leverage assumptions
+    max exposure
+
+ECONOMICS:
+
+    return
+    net profit
+    gross profit
+    gross loss
+    profit factor
+    Sharpe
+    Sortino
+    win rate
+    average win
+    average loss
+    expectancy
+    max drawdown
+    trade count
+
+ROBUSTNESS:
+
+    validation
+    walk-forward
+    out-of-sample
+    stress tests
+    Monte Carlo if available
+
+LINEAGE:
+
+    parent
+    children
+    mutations
+    ancestry
+
+=============================================================
+21. NODE ACTIONS
+=============================================================
+
+The node action menu previously contained:
+
+    VIEW RESULTS
+    VIEW TRADES
+    VIEW GENOME
+    RERUN BACKTEST
+    VIEW ANCESTRY & CHILDREN
+    RUN VALIDATION
+    EXPORT
+
+These should remain.
+
+RERUN BACKTEST and RUN VALIDATION previously returned:
+
+    422: [object Object]
+
+This must be fixed properly.
+
+The UI must display the actual backend validation error rather than:
+
+    [object Object]
+
+Backend must return structured error information.
+
+Frontend must render:
+
+    status code
+    error type
+    message
+    relevant fields
+    node ID
+    request parameters
+
+LMSArena must reproduce the error, identify the backend cause and test the fixed endpoint.
+
+=============================================================
+22. BACKTEST MATRIX
+=============================================================
+
+Backtest Matrix is NOT supposed to simply be another list of nodes.
+
+Its purpose is to provide matrix-style robustness/comparison analysis.
+
+Potential dimensions:
+
+    symbol
+    timeframe
+    date range
+    session
+    market regime
+    parameter variation
+    execution assumptions
+    spread
+    slippage
+    etc.
+
+It can compare a strategy across multiple environments.
+
+The current message:
+
+    "Matrices for this strategy have not been computed yet..."
+
+means the matrix computation has not been triggered/available for that strategy.
+
+The system must make the distinction clear:
+
+    ordinary node backtest
+    validation
+    matrix robustness testing
+
+Do not falsely imply that the matrix is the original node-generation backtest.
+
+=============================================================
+23. PAPER TRADING
+=============================================================
+
+Paper trading exists because ordinary historical backtesting and forward/live simulation answer different questions.
+
+Historical backtest:
+
+    "What would this strategy have done on historical data?"
+
+Paper/live test:
+
+    "What does this strategy actually do when signals arrive sequentially under current market conditions and realistic execution?"
+
+Paper trading can test:
+
+    live signal timing
+    execution assumptions
+    spread
+    slippage
+    data latency
+    position management
+    real-time state
+    missed signals
+    broker/session differences
+    risk management
+
+Paper trading must NOT be eliminated merely because backtesting exists.
+
+However, the project will also add:
+
+    MT5 BACKTEST
+
+because the user wants to test strategies through MetaTrader 5's strategy tester where practical.
+
+=============================================================
+24. MT5 BACKTEST
+=============================================================
+
+Add an:
+
+    MT5 BACKTEST
+
+tab.
+
+Purpose:
+
+Run selected strategy logic through MT5's testing environment where technically feasible.
+
+Controls should include:
+
+    Node selection
+    Symbol
+    Timeframe
+    Date range
+    Initial capital
+    Position sizing
+    Spread
+    Slippage if supported
+    Session/day controls
+    Execution mode
+    Strategy settings
+
+Results should capture:
+
+    equity curve
+    balance curve
+    drawdown
+    net profit
+    gross profit
+    gross loss
+    profit factor
+    Sharpe
+    win rate
+    trade count
+    average trade
+    max drawdown
+    consecutive wins/losses
+    monthly results
+    daily results
+    trade list
+
+MT5 testing must remain separate from the internal simulator unless the architecture explicitly maps them.
+
+Never claim an MT5 test was executed if only the internal simulator ran.
+
+=============================================================
+25. LIVE TRADING / LIVE TESTING
+=============================================================
+
+The future LIVE TRADING tab is intended primarily as an execution/control dashboard.
+
+It should show:
+
+    shortlisted nodes
+    running nodes
+    node status
+    running trades
+    closed trades
+    number of trades
+    current P/L
+    equity
+    drawdown
+    last signal
+    next possible setup
+    approximate next setup time when computable
+    symbol
+    timeframe
+    session
+    execution state
+    MT5 connection state
+
+Top controls:
+
+    LIVE ALL NODES
+    LIVE SHORTLIST NODES
+
+"Shortlist" means:
+
+    STARRED nodes
+
+A node can be starred/unstarred from:
+
+    Strategy Laboratory
+    Live Trading
+
+Each node should also have:
+
+    LIVE TEST
+
+button.
+
+IMPORTANT:
+
+There must be an obvious distinction between:
+
+    LIVE TEST / SIMULATION
+    MT5 DEMO
+    REAL LIVE TRADING
+
+Do not silently send real orders.
+
+=============================================================
+26. LIVE TEST SETTINGS
+=============================================================
+
+Each node should have a settings control before the LIVE TEST button.
+
+Settings should allow:
+
+    timeframe
+    custom timeframe
+    trading days
+    sessions
+    symbols
+    date/time windows
+    market hours
+    Monday
+    Tuesday
+    Wednesday
+    Thursday
+    Friday
+    etc.
+
+Example:
+
+User unchecks:
+
+    MONDAY
+
+Then that node must not generate live-test trades on Monday.
+
+This configuration should be node-specific.
+
+=============================================================
+27. LIVE TEST RESULTS
+=============================================================
+
+Add:
+
+    LIVE TEST RESULTS
+
+This tab should analyze forward/live-test performance.
+
+It should support:
+
+    one node
+    multiple nodes
+    all tested nodes
+
+Filters should include:
+
+    node
+    date range
+    symbol
+    timeframe
+    status
+    return
+    net profit
+    drawdown
+    win rate
+    profit factor
+    Sharpe
+    trade count
+
+Results should include prop-firm-style metrics where applicable:
+
+    starting balance
+    ending balance
+    equity
+    net profit
+    daily P/L
+    max drawdown
+    max daily drawdown
+    profit factor
+    win rate
+    average win
+    average loss
+    expectancy
+    consecutive losses
+    consecutive wins
+    trade count
+    exposure
+    return
+    equity curve
+    drawdown curve
+    monthly performance
+    daily performance
+
+The goal is to identify strategies that survive forward testing.
+
+=============================================================
+28. STAR / SHORTLIST SYSTEM
+=============================================================
+
+Stars are the user-controlled shortlist mechanism.
+
+Starred nodes should be visible in:
+
+    Strategy Laboratory
+    Final Testing
+    Live Trading
+
+Star/unstar must remain synchronized across tabs.
+
+Starred does NOT mean:
+
+    qualified
+    profitable
+    safe
+    live
+
+It simply means:
+
+    user shortlisted this strategy
+
+=============================================================
+29. PROPOSED END-TO-END WORKFLOW
+=============================================================
+
+CURRENT POSITION:
+
+    5,000 nodes already generated.
+
+DO NOT immediately generate another 5,000.
+
+STEP 1
+------
+Confirm DATA loading.
+
+Verify:
+
+    5,000 user nodes
+    787 legacy nodes excluded from user population
+    node states
+    backtest results
+    genomes
+    trades
+    generations
+    validation records
+
+STEP 2
+------
+Use Final Testing to understand the population.
+
+Do not pick the single highest-return node immediately.
+
+STEP 3
+------
+Use Strategy Laboratory.
+
+Apply filters such as:
+
+    minimum profit
+    minimum profit factor
+    minimum Sharpe
+    maximum drawdown
+    minimum trade count
+    minimum win rate
+
+Create an initial shortlist.
+
+STEP 4
+------
+Open Node Economics for shortlisted nodes.
+
+Inspect:
+
+    genome
+    entry
+    exit
+    SL
+    TP
+    indicators
+    timeframe
+    risk
+    lineage
+
+STEP 5
+------
+Run validation on shortlisted candidates.
+
+Fix any 422 errors first.
+
+STEP 6
+------
+Use Backtest Matrix / robustness analysis.
+
+Test strategies across different conditions.
+
+STEP 7
+------
+Run MT5 Backtest where available.
+
+Compare:
+
+    internal simulator
+    MT5 result
+
+Do not assume they are identical.
+
+STEP 8
+------
+Select a small number of strongest candidates for forward testing.
+
+A reasonable architecture test:
+
+    20 to 50 candidates
+
+STEP 9
+------
+Run LIVE TEST / Paper Trading.
+
+Use configurable:
+
+    days
+    sessions
+    timeframe
+    symbol
+    capital
+    risk
+
+STEP 10
+-------
+Monitor LIVE TEST RESULTS.
+
+Look for:
+
+    stable equity
+    controlled drawdown
+    consistent returns
+    adequate trade count
+    robust behavior
+
+STEP 11
+-------
+Only after successful forward testing:
+
+    MT5 DEMO ACCOUNT
+
+STEP 12
+-------
+If demo results remain robust:
+
+    consider real deployment
+
+This is NOT an automatic transition.
+
+=============================================================
+30. AI RESEARCH - FUTURE PHASE
+=============================================================
+
+AI is NOT the first next step.
+
+AI integration comes after:
+
+    persistence
+    node analysis
+    filtering
+    validation
+    MT5 testing
+    forward testing
+    results
+    execution architecture
+
+The future AI Research tab should allow the AI to reason over the existing research population.
+
+Potential AI functions:
+
+    identify patterns among successful nodes
+    analyze failed nodes
+    compare genomes
+    detect recurring indicator combinations
+    propose hypotheses
+    propose mutations
+    identify underexplored parameter regions
+    cluster strategies
+    suggest new evolutionary directions
+    prioritize backtests
+    propose robustness experiments
+
+The AI should NOT simply maximize historical return.
+
+It should consider:
+
+    return
+    drawdown
+    Sharpe
+    profit factor
+    trade count
+    stability
+    robustness
+    out-of-sample performance
+    forward performance
+    execution behavior
+
+AI-generated candidates must still pass the deterministic research pipeline.
+
+AI should propose/mutate.
+
+The research engine should evaluate.
+
+=============================================================
+31. FUTURE AI EVOLUTION LOOP
+=============================================================
+
+Eventually:
+
+    Existing 5,000 nodes
+            |
+            v
+    Strategy Laboratory
+            |
+            v
+    Identify successful clusters
+            |
+            v
+    AI Research
+            |
+            v
+    Hypothesis
+            |
+            v
+    Intelligent Mutation
+            |
+            v
+    New Candidate Nodes
+            |
+            v
+    Backtest
+            |
+            v
+    Validation
+            |
+            v
+    MT5 Backtest
+            |
+            v
+    Forward/Paper Test
+            |
+            v
+    Results
+            |
+            v
+    AI learns which mutations worked
+            |
+            v
+    Next research generation
+
+This is the eventual evolutionary intelligence loop.
+
+=============================================================
+32. RISK MANAGEMENT / EXAMPLE STRATEGY
+=============================================================
+
+A strategy may contain exit rules such as:
+
+    Take Profit: 3.42 x ATR
+    ATR period: 7
+
+    Stop Loss: 2.34 x ATR
+    ATR period: 7
+
+    Trailing Stop: None
+
+    Time Horizon:
+        minimum 1 bar
+        maximum 24 bars
+
+The user's testing methodology may also use:
+
+    fixed $1000 trade size
+
+When this configuration is used, the backtest must clearly distinguish:
+
+    fixed trade notional
+    risk per trade
+    stop-loss distance
+    account equity
+
+Do not confuse $1000 position size with $1000 risk.
+
+=============================================================
+33. PERFORMANCE / CPU UTILIZATION
+=============================================================
+
+A previous problem was:
+
+User selected:
+
+    100% CPU
+
+but actual CPU utilization remained around:
+
+    10% to 15%
+
+The desired behavior was to allow substantially higher actual CPU usage where the machine and workload permit.
+
+Important distinction:
+
+    CPU utilization != RAM utilization
+
+Do not label RAM usage as CPU usage.
+
+Dashboard controls should report:
+
+    CPU utilization
+    CPU worker count
+    worker utilization
+    RAM utilization
+    RAM used
+    RAM available
+    GPU utilization if supported
+    GPU memory if supported
+
+A CPU slider should control actual worker/parallelism behavior rather than merely changing a UI percentage.
+
+The system must not intentionally consume 100% CPU if this causes instability.
+
+Use safe worker limits.
+
+=============================================================
+34. LOGGING REQUIREMENTS
+=============================================================
+
+Every major process should produce persistent logs.
+
+At minimum:
+
+    application startup
+    DATA discovery
+    DATA reconciliation
+    database discovery
+    node generation
+    node persistence
+    validation
+    backtest
+    matrix generation
+    qualification
+    paper trading
+    MT5 test
+    live test
+    state transitions
+    errors
+    recovery
+    shutdown
+
+Each log should include:
+
+    timestamp
+    component
+    run ID
+    node ID where applicable
+    operation
+    status
+    error details
+    relevant parameters
+
+When something fails, the UI should show the real error.
+
+Never render Python/JavaScript objects as:
+
+    [object Object]
+
+=============================================================
+35. TESTING REQUIREMENTS FOR LMSARENA
+=============================================================
+
+LMSArena must actually run tests.
+
+Do not report:
+
+    "Implemented"
+
+without testing.
+
+Tests should cover:
+
+    startup
+    DATA discovery
+    database discovery
+    fresh installation
+    DATA portability
+    restart
+    node count
+    legacy exclusion
+    user node count
+    node ceiling
+    resume
+    filtering
+    sorting
+    node details
+    validation endpoint
+    rerun backtest endpoint
+    Backtest Matrix
+    MT5 integration where possible
+    paper trading
+    live test
+    result persistence
+
+Previously V3.5 reported:
+
+    197 / 197 tests passing
+
+This should not be treated as proof that later V4 functionality works.
+
+New functionality needs new tests.
+
+=============================================================
+36. DATA PORTABILITY ACCEPTANCE TEST
+=============================================================
+
+The ultimate portability test is:
+
+1. Fresh application code.
+2. Copy only DATA from the repository into the configured DATA location.
+3. Start the application.
+4. It discovers existing research.
+5. It does not regenerate existing nodes.
+6. Dashboard displays the correct user-generated population.
+7. Legacy nodes remain excluded from research population.
+8. Results/genomes/trades are available.
+9. State survives restart.
+
+This must work without manually copying multiple root folders.
+
+=============================================================
+37. DATA STRUCTURE
+=============================================================
+
+Expected high-level structure:
+
+    DATA/
+    |
+    +-- BACKUPS/
+    +-- CACHE/
+    +-- data_cache/
+    +-- DATABASE/
+    +-- RESEARCH/
+    |     +-- backtests/
+    |     +-- strategies/
+    |     +-- validations/
+    |     +-- generations/
+    |     +-- experiments/
+    |     +-- paper_trading/
+    |     +-- hypotheses/
+    |
+    +-- TEST_DATA/
+    +-- tests/
+    +-- logs/
+    +-- manifests/
+    +-- metadata/
+    +-- features/
+    +-- MT5/
+    +-- manifest.json
+
+Do not assume every subdirectory exists in every snapshot.
+
+Inspect the actual DATA.
+
+=============================================================
+38. DATABASE RULE
+=============================================================
+
+The database is authoritative for structured state where the application architecture requires it.
+
+The persistent research state must nevertheless remain portable through DATA.
+
+Do not create competing databases.
+
+If multiple databases exist:
+
+    identify them
+    compare them
+    determine authoritative state
+    preserve the superset
+    never silently discard newer research
+
+The database should contain enough metadata to distinguish:
+
+    legacy
+    user-generated
+    imported
+    current run
+    historical run
+
+=============================================================
+39. LEGACY NODE RULE
+=============================================================
+
+There are approximately:
+
+    787 legacy records
+
+They MUST NOT be counted as part of:
+
+    5,000 user-generated nodes
+
+They must not inflate:
+
+    total generated
+    strategy population
+    Final Testing
+    Strategy Laboratory
+    generation statistics
+    node generation progress
+
+If legacy nodes are shown, clearly label them.
+
+Never delete them merely to hide the problem.
+
+=============================================================
+40. NO DATA FABRICATION RULE
+=============================================================
+
+This is critical.
+
+Neither ChatGPT nor LMSArena may invent:
+
+    node counts
+    returns
+    win rates
+    trades
+    Sharpe values
+    profit factors
+    validation scores
+    database contents
+    file sizes
+    test results
+
+If data is unavailable:
+
+    say it is unavailable.
+
+If a value is from a dummy/test dataset:
+
+    label it as dummy/test.
+
+The dashboard must not display dummy values as real research results.
+
+=============================================================
+41. NO CLAIM WITHOUT TEST RULE
+=============================================================
+
+Never say:
+
+    "fixed"
+    "verified"
+    "working"
+    "fully compatible"
+    "all data loaded"
+
+unless the actual implementation/test confirms it.
+
+LMSArena final reports must include:
+
+    files changed
+    tests executed
+    tests passed
+    tests failed
+    DATA path
+    database path
+    user node count
+    legacy count
+    remaining limitations
+
+=============================================================
+42. PROMPT HISTORY
+=============================================================
+
+The exact historical implementation prompts are represented in the project history and should remain available in the GitHub repository.
+
+The major prompt themes were:
+
+V3.1:
+    persistent DATA
+    startup discovery
+    node ceiling
+    resume
+    checkpoints
+    Overview synchronization
+    paper trading architecture
+    storage optimization
+
+V3.2:
+    data retrieval/loading diagnostics
+    correct distinction between node IDs and user node count
+    generation logging
+    persistent process logs
+    recovery diagnostics
+
+V3.5:
+    single DATA folder
+    DATA_ROOT
+    move persistent directories
+    authoritative database
+    portability
+    storage-limit protection
+    regression testing
+
+V4:
+    Strategy Laboratory
+    filters
+    sorting
+    Node Economics
+    validation fixes
+    MT5 Backtest
+    Live Trading
+    Live Test Results
+    shortlist/stars
+    forward testing
+    future AI Research integration
+
+When the full historical prompts are available in prior project files, preserve them rather than replacing them with summaries.
+
+=============================================================
+43. HOW TO WRITE EVERY NEW LMSARENA PROMPT
+=============================================================
+
+Every new prompt should contain:
+
+A. VERSION
+B. CURRENT STATE
+C. EXACT PROBLEM
+D. ROOT CAUSE IF CONFIRMED
+E. OBJECTIVE
+F. NON-NEGOTIABLE DATA SAFETY RULES
+G. IMPLEMENTATION
+H. UI REQUIREMENTS
+I. API/BACKEND REQUIREMENTS
+J. TEST PLAN
+K. STORAGE LIMIT REQUIREMENTS
+L. GITHUB REQUIREMENTS
+M. FINAL REPORT REQUIREMENTS
+
+Every prompt must say:
+
+    Inspect the existing code before changing it.
+
+    Do not rebuild working systems unnecessarily.
+
+    Preserve existing research DATA.
+
+    Do not delete or overwrite authoritative research.
+
+    Do not fabricate test results.
+
+    Run tests after changes.
+
+    Commit verified source changes to GitHub.
+
+=============================================================
+44. LMSARENA GITHUB WORKFLOW
+=============================================================
+
+At the beginning:
+
+    git pull / clone latest repository
+
+Then:
+
+    CODE -> workspace
+    DATA -> tmp storage
+
+Configure:
+
+    EVOLUTIONARY_LAB_DATA_ROOT=<tmp DATA path>
+
+Then test.
+
+After changes:
+
+    run targeted tests
+    run regression tests
+    verify DATA integrity
+    verify application startup
+    verify requested UI behavior
+
+Then:
+
+    git status
+    git diff
+    commit source changes
+    push/commit latest verified changes
+
+Do not commit:
+
+    temporary caches
+    huge generated build artifacts
+    duplicate DATA copies
+    secrets
+    local credentials
+    machine-specific junk
+
+=============================================================
+45. CHATGPT.TXT APPEND RULE
+=============================================================
+
+At the end of every completed iteration, append the user's actual implementation prompt to this file.
+
+Recommended format:
+
+-------------------------------------------------------------
+ITERATION APPEND
+DATE:
+VERSION:
+USER PROMPT:
+[exact prompt]
+-------------------------------------------------------------
+
+Then LMSArena's implementation report may follow if desired.
+
+The goal is that the file becomes the complete chronological project record.
+
+Do not rewrite old history.
+
+Append new history.
+
+=============================================================
+46. WHAT THE USER SHOULD SEND TO A NEW CHATGPT
+=============================================================
+
+The user can simply upload:
+
+    CHATGPT/chatgpt.txt
+
+and say:
+
+    "Read this project handoff and continue from the current version."
+
+The new ChatGPT must then understand:
+
+    what the project is
+    why it exists
+    what DATA means
+    current node population
+    legacy-node rules
+    version history
+    LMSArena limitations
+    current workflow
+    V4 objectives
+    AI future plan
+    iteration rules
+
+The new ChatGPT should not make the user re-explain the architecture.
+
+=============================================================
+47. CURRENT NEXT LOGICAL STEPS
+=============================================================
+
+Do these in order.
+
+1.
+Fix/verify DATA loading and population accounting.
+
+2.
+Verify:
+
+    5,000 user-generated
+    ~787 legacy excluded
+
+3.
+Fix Strategy Laboratory.
+
+4.
+Add filters/sorting.
+
+5.
+Fix node detail / Node Economics.
+
+6.
+Investigate Final Testing vs Strategy Laboratory metric discrepancy.
+
+7.
+Fix:
+
+    RERUN BACKTEST 422
+
+8.
+Fix:
+
+    RUN VALIDATION 422
+
+9.
+Verify Backtest Matrix generation.
+
+10.
+Implement/verify MT5 Backtest.
+
+11.
+Implement node-specific LIVE TEST controls.
+
+12.
+Implement LIVE TEST RESULTS.
+
+13.
+Implement safe MT5 demo integration.
+
+14.
+Test a small shortlist.
+
+15.
+Only after this pipeline is reliable:
+
+    AI RESEARCH
+
+16.
+Then:
+
+    AI hypothesis generation
+    -> intelligent mutation
+    -> new nodes
+    -> evaluation
+    -> validation
+    -> MT5 testing
+    -> forward testing
+    -> feedback to AI
+
+=============================================================
+48. IMPORTANT: DO NOT GENERATE MORE NODES YET
+=============================================================
+
+The current 5,000-node population is enough to validate the downstream pipeline.
+
+Do NOT immediately jump to:
+
+    50,000
+    100,000
+    200,000
+
+until the system can reliably:
+
+    load the existing 5,000
+    analyze them
+    filter them
+    validate them
+    MT5 backtest them
+    forward-test them
+    persist their results
+    restart without data loss
+
+More nodes are useful only after the evaluation pipeline is trustworthy.
+
+=============================================================
+49. FINAL PROJECT VISION
+=============================================================
+
+The finished system should behave like a research laboratory, not a simple backtest screen.
+
+The complete conceptual architecture is:
+
+                    EVOLUTIONARY TRADING RESEARCH LAB
+                                  |
+                                  v
+                         MARKET DATA / FEATURES
+                                  |
+                                  v
+                        EVOLUTIONARY GENERATION
+                                  |
+                                  v
+                           5,000+ NODES
+                                  |
+                                  v
+                         HISTORICAL BACKTEST
+                                  |
+                                  v
+                         FINAL TESTING
+                                  |
+                                  v
+                       STRATEGY LABORATORY
+                                  |
+                    +-------------+-------------+
+                    |                           |
+                    v                           v
+             NODE ECONOMICS              EVOLUTION TREE
+                    |
+                    v
+               FILTER/RANK
+                    |
+                    v
+                SHORTLIST
+                    |
+          +---------+----------+
+          |                    |
+          v                    v
+    VALIDATION             MT5 BACKTEST
+          |                    |
+          +---------+----------+
+                    |
+                    v
+             FORWARD/LIVE TEST
+                    |
+                    v
+            LIVE TEST RESULTS
+                    |
+                    v
+             MT5 DEMO TEST
+                    |
+                    v
+             ROBUST STRATEGIES
+                    |
+                    v
+               RESEARCH AI
+                    |
+                    v
+          INTELLIGENT MUTATION
+                    |
+                    v
+             NEW RESEARCH
+                    |
+                    +----------------------+
+                                           |
+                                           v
+                                  BACK TO GENERATION
+
+This loop is the long-term objective.
+
+=============================================================
+50. SAFETY / EXECUTION PRINCIPLE
+=============================================================
+
+The system is a research/testing environment.
+
+Real-money execution must never happen accidentally.
+
+Any feature capable of sending MT5 orders must require an explicit execution mode.
+
+Clearly distinguish:
+
+    SIMULATION
+    PAPER
+    MT5 BACKTEST
+    MT5 DEMO
+    LIVE REAL ACCOUNT
+
+Never silently convert one mode into another.
+
+=============================================================
+51. FINAL ACCEPTANCE PHILOSOPHY
+=============================================================
+
+A version is complete only when:
+
+    it works on the actual application
+    existing DATA is preserved
+    actual tests pass
+    no fake data is introduced
+    node counts are correct
+    legacy nodes are excluded
+    restart works
+    DATA portability works
+    UI reflects backend state
+    logs explain failures
+    storage remains safe
+    GitHub contains the verified source
+
+The final objective remains:
+
+    Generate
+      -> Persist
+      -> Validate
+      -> Backtest
+      -> Qualify
+      -> Analyze
+      -> Forward Test
+      -> Demo Test
+      -> AI Research
+      -> Intelligent Evolution
+
+with:
+
+    DATA = complete portable research state
+
+and:
+
+    NODE LIMIT = generation ceiling, NOT processing cutoff
+
+and:
+
+    USER-GENERATED NODE COUNT != DATABASE MAX ID
+
+and:
+
+    LEGACY NODES != CURRENT RESEARCH POPULATION
+
+and:
+
+    CHATGPT = diagnosis + next implementation prompt
+
+and:
+
+    LMSARENA = implementation + testing + GitHub commit
+
+and:
+
+    USER = final real-world application tester
+
+=============================================================
+52. END OF CURRENT HANDOFF
+=============================================================
+
+CURRENT PRACTICAL STATUS:
+
+    User-generated nodes:
+        5,000
+
+    Legacy records:
+        approximately 787
+        excluded from user population metrics
+
+    Current major version:
+        V3.5 architecture / transition toward V4
+
+    DATA:
+        consolidated under DATA/
+
+    Database:
+        DATA/DATABASE/lab_state.db
+
+    Next major objective:
+        V4 downstream strategy evaluation pipeline
+
+    Immediate priority:
+        Strategy Laboratory + filtering/sorting + Node Economics
+        + validation/backtest error fixes
+        + MT5 Backtest
+        + Live Test
+        + Live Test Results
+
+    Future:
+        AI Research / intelligent mutation
+
+DO NOT GENERATE ANOTHER LARGE NODE POPULATION UNTIL THE DOWNSTREAM PIPELINE IS VERIFIED.
+
+=============================================================
+END OF HANDOFF DOCUMENT
+=============================================================

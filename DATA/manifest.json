@@ -1,0 +1,16 @@
+{
+  "schema_version": "3.2",
+  "app_version": "3.6",
+  "data_schema_version": 3,
+  "latest_persisted_node": 10814,
+  "latest_completed_node": 1950,
+  "resume_point": 10815,
+  "highest_generation": 39,
+  "total_persisted_nodes": 10786,
+  "qualified_nodes": 16,
+  "dead_nodes": 41,
+  "completed_backtests": 116,
+  "completed_validations": 20,
+  "updated_at": 1791281887.7285247,
+  "manifest_status": "SYNCHRONIZED"
+}

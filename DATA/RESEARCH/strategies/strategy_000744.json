@@ -1,0 +1,52 @@
+{
+  "hash": "4c13f22ffd77b9d84a7c9d596ce9defd",
+  "parent_id": 234,
+  "generation": 3,
+  "symbol": "XAUUSD",
+  "timeframe": "M5",
+  "direction": "short",
+  "status": "BORN",
+  "creation_reason": "mutation of #234: removed indicator bb:20:2.0 (simplification)",
+  "mutation_type": "indicator_removal",
+  "species_key": "M5|short|roc,vwap",
+  "genome": {
+    "symbol": "XAUUSD",
+    "timeframe": "M5",
+    "direction": "short",
+    "features": [
+      "vwap",
+      "roc:24"
+    ],
+    "entry_long": null,
+    "entry_short": {
+      "type": "compare",
+      "left": "vwap_dist",
+      "cmp": "<",
+      "right": -0.368
+    },
+    "exit": {
+      "atr_spec": "atr:7",
+      "sl_atr_mult": 2.94,
+      "tp_atr_mult": 3.42,
+      "trailing": null,
+      "min_hold_bars": 2,
+      "max_hold_bars": 24,
+      "exit_condition": null
+    },
+    "sessions": null,
+    "days": null,
+    "regime_filters": null,
+    "risk": {
+      "risk_per_trade": 0.005,
+      "max_concurrent": 1
+    }
+  },
+  "complexity": 3,
+  "origin": "mutation",
+  "hypothesis_id": null,
+  "seed": 1049464710,
+  "mutation_params": null,
+  "config_version": "46389a67494b475c",
+  "software_version": "2.4.0",
+  "id": 744
+}

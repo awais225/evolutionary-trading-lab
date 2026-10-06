@@ -1,0 +1,188 @@
+{
+  "ai": {
+    "llm_api_key_env": "LAB_LLM_API_KEY",
+    "llm_endpoint": "",
+    "llm_model": "",
+    "llm_provider": "none",
+    "max_hypotheses_per_cycle": 4,
+    "researcher_enabled": true
+  },
+  "appearance": {
+    "active_highlight": "#22c55e",
+    "edge_color": "#3b4658",
+    "edge_width": 1.4,
+    "node_hover": "#38bdf8",
+    "node_selected": "#facc15",
+    "status_colors": {
+      "BACKTESTING": "#0ea5e9",
+      "BORN": "#64748b",
+      "FAILED": "#ef4444",
+      "KILLED": "#dc2626",
+      "PAPER": "#f59e0b",
+      "QUALIFIED": "#16a34a",
+      "RETIRED": "#717171",
+      "SURVIVED": "#22c55e",
+      "VALIDATING": "#a78bfa"
+    },
+    "text_color": "#d5dbe8",
+    "theme": "dark"
+  },
+  "backtest": {
+    "commission_per_lot": 7.0,
+    "contract_size": 100.0,
+    "default_spread_points": 18.0,
+    "execution_delay_ms": 120,
+    "initial_balance": 10000.0,
+    "max_concurrent_positions": 1,
+    "max_hold_bars": 96,
+    "min_hold_bars": 1,
+    "min_trade_duration_seconds": 120,
+    "min_trades": 3,
+    "point_value": 0.01,
+    "risk_per_trade": 0.005,
+    "screen_max_hold_bars": 48,
+    "screen_min_trades": 2,
+    "slippage_max_points": 5.0,
+    "slippage_mean_points": 0.8,
+    "slippage_model": "normal",
+    "slippage_std_points": 0.6,
+    "swap_per_lot_per_day": -2.5,
+    "train_fraction": 0.7
+  },
+  "data": {
+    "cache_dir": "DATA/data_cache",
+    "data_root": "DATA",
+    "enabled_symbols": [
+      "XAUUSD"
+    ],
+    "future_symbols": [
+      "BTCUSD",
+      "NAS100",
+      "EURUSD"
+    ],
+    "history_months": {
+      "M15": 1
+    },
+    "integrity_quarantine": true,
+    "symbol": "XAUUSD",
+    "timeframes": [
+      "M15"
+    ]
+  },
+  "database_path": "DATA/DATABASE/lab_state.db",
+  "evolution": {
+    "crossover_pct": 0.3,
+    "detail_batch_size": 5,
+    "elite_pct": 0.1,
+    "exploration_pct": 0.1,
+    "loop_interval_s": 0.5,
+    "max_condition_depth": 3,
+    "max_conditions": 6,
+    "max_indicators": 3,
+    "max_indicators_hard": 8,
+    "mutation_pct": 0.5,
+    "mutation_rate": 0.35,
+    "population_size": 10,
+    "screen_batch_size": 10,
+    "simplify_probability": 0.15,
+    "species_cap_pct": 0.25,
+    "total_node_target": 5000,
+    "tournament_size": 6,
+    "validation_batch_size": 3,
+    "workers": 32
+  },
+  "fitness": {
+    "complexity_penalty_per_condition": 0.01,
+    "complexity_penalty_per_indicator": 0.02,
+    "max_drawdown_pct": 0.3,
+    "max_perturbation_instability": 0.55,
+    "max_stress_degradation": 0.6,
+    "min_profit_factor": 1.05,
+    "min_sharpe": 0.15,
+    "min_trades": 30,
+    "oos_degradation_limit": 0.65,
+    "weights": {
+      "complexity": 0.05,
+      "consistency": 0.1,
+      "drawdown": 0.15,
+      "oos": 0.1,
+      "profit_factor": 0.15,
+      "profitability": 0.2,
+      "risk_adjusted": 0.2,
+      "robustness": 0.05
+    }
+  },
+  "log_level": "INFO",
+  "mt5": {
+    "connection_mode": "auto",
+    "feed_stale_s": 120,
+    "login": 0,
+    "mode": "auto",
+    "password": "",
+    "path": "",
+    "reconnect_max_s": 60,
+    "reconnect_min_s": 5,
+    "server": "",
+    "timeout_ms": 60000
+  },
+  "paper": {
+    "autostart": false,
+    "divergence_alert_threshold": 0.5,
+    "enabled_strategies_max": 8,
+    "latency_ms_mean": 110,
+    "latency_ms_std": 40,
+    "max_concurrent_positions": 3,
+    "max_daily_loss_abs": 300.0,
+    "max_daily_loss_pct": 0.03,
+    "max_exposure_pct": 0.3,
+    "max_risk_per_trade_abs": 100.0,
+    "max_risk_per_trade_pct": 0.01,
+    "max_total_drawdown_pct": 0.1,
+    "slippage_mean_points": 1.0,
+    "slippage_std_points": 0.8,
+    "starting_capital": 10000.0,
+    "tick_interval_ms": 400
+  },
+  "research": {
+    "activity_retention": 5000,
+    "backup_keep": 10,
+    "export_enabled": true,
+    "legacy_result_policy": "reuse",
+    "reevaluate_on_data_growth": "qualified_only"
+  },
+  "resources": {
+    "cpu_limit_enabled": true,
+    "cpu_target_pct": 100,
+    "cpu_workers_max": 0,
+    "gpu_enabled": false,
+    "gpu_workload_limit_pct": 50,
+    "memory_limit_enabled": true,
+    "memory_limit_mode": "pct",
+    "memory_limit_value": 50.0
+  },
+  "risk": {
+    "allowed_sessions": [
+      "asia",
+      "london",
+      "newyork"
+    ],
+    "kill_switch": true,
+    "max_allowed_slippage_points": 10.0,
+    "max_concurrent_positions": 3,
+    "max_daily_drawdown_pct": 0.05,
+    "max_daily_loss_abs": 300.0,
+    "max_daily_loss_pct": 0.03,
+    "max_exposure_pct": 0.3,
+    "max_holding_seconds": 259200,
+    "max_position_size_lots": 2.0,
+    "max_risk_per_trade_abs": 100.0,
+    "max_risk_per_trade_pct": 0.01,
+    "max_spread_points": 45.0,
+    "max_strategy_drawdown_pct": 0.15,
+    "max_total_drawdown_pct": 0.1,
+    "max_trades_per_minute": 6,
+    "min_holding_seconds": 30,
+    "real_execution_enabled": false,
+    "starting_capital": 10000.0
+  }
+}

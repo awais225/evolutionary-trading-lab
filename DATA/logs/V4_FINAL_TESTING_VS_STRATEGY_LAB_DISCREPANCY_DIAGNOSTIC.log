@@ -1,0 +1,86 @@
+================================================================================
+EVOLUTIONARY TRADING RESEARCH LAB V4 - METRIC DISCREPANCY DIAGNOSTIC REPORT
+================================================================================
+TIMESTAMP (UTC):       2026-10-05 04:34:45 UTC
+INVESTIGATION TARGET:  FINAL TESTING (approx 148% return) vs STRATEGY LABORATORY (approx 342% return)
+STATUS:                RESOLVED & HARMONIZED IN AUTHORITATIVE V4 DATA MODEL
+================================================================================
+
+1. EXECUTIVE SUMMARY
+--------------------------------------------------------------------------------
+The dashboard exhibited a visible discrepancy where the highest return in FINAL TESTING
+was approximately 148% (Node_718), whereas STRATEGY LABORATORY displayed approximately
+342% (Node_240).
+
+Our root cause investigation determined that:
+(1) Strategy 240 (Return: 342.51%, PF: 3.326, 665 trades, M1) is indeed the highest
+    in-sample return strategy in the database.
+(2) Final Testing did not display Node_240 because of a duration filter field bug in
+    the legacy post-evaluation filtering endpoint (_filter_persisted_strategies).
+    Specifically, Final Testing initialized with a default filter of min_trade_duration_minutes=2.0
+    (120 seconds). In legacy backtest records, avg_trade_duration_seconds was not serialized
+    at the root of the metrics JSON dictionary (it was None). The filter evaluated
+    m.get('avg_trade_duration_seconds', 0) < 120, which returned True (0 < 120), dropping
+    Node_240 even though its actual sampled trades had an average duration of 28.26 minutes (1,695.4s).
+(3) Node_718 (Return: 148.10%, PF: 2.545, 905 trades) was evaluated in a later run where
+    avg_trade_duration_seconds=1154.5 was stored in the metrics root, allowing it to pass
+    the 120s filter and appear as the highest return strategy in Final Testing.
+(4) In addition, backtest stage selection was inconsistent: Strategy Laboratory prioritized
+    detail backtest metrics over screening, whereas Final Testing selected the MAX(id)
+    backtest without stage prioritization.
+(5) In-sample backtest return and out-of-sample validation return were both labeled 'Return'
+    generically without stage demarcation.
+
+2. DETAILED METRIC COMPARISON
+--------------------------------------------------------------------------------
+Node_240 (Authoritative Strategy):
+  - In-Sample Detail Backtest:
+      * Dataset:               XAUUSD_M1_20260826_20260925_SIMULATOR
+      * Total Return (IS):     342.51% (Net Profit: 4,251.01 on 0,000 initial capital)
+      * Profit Factor:         3.326
+      * Win Rate:              71.58% (665 trades)
+      * Max Drawdown:          5.29%
+      * Average Hold Time:     18.5 bars / 28.26 minutes (1,695.4s)
+  - Validation Battery:
+      * Robustness Score:      0.9392 (Passed all 6 batteries)
+      * Out-of-Sample Return:  284.10% (0.08 OOS degradation)
+      * Walk-Forward Folds:    Positive across all splits
+
+Node_718 (Previous Final Testing Default Leader):
+  - In-Sample Detail Backtest:
+      * Dataset:               XAUUSD_M1_20260826_20260925_SIMULATOR
+      * Total Return (IS):     148.10% (Net Profit: 4,810.00 on 0,000 initial capital)
+      * Profit Factor:         2.545
+      * Win Rate:              77.24% (905 trades)
+      * Max Drawdown:          4.05%
+      * Average Hold Time:     22.17 minutes (1,154.5s)
+  - Validation Battery:
+      * Status:                Not yet promoted to validation battery
+
+3. REMEDIATION & HARMONIZATION IN V4
+--------------------------------------------------------------------------------
+(1) UNIFIED AUTHORITATIVE DATA MODEL:
+    Both Final Testing and Strategy Laboratory now query through the same authoritative
+    model that prioritizes 'detail' stage backtests over screening, joins out-of-sample
+    validation metrics, and verifies shortlist status from SQLite.
+
+(2) DYNAMIC TRADE DURATION COMPUTATION:
+    If avg_trade_duration_seconds is missing from the metrics dictionary, it is dynamically
+    computed from trades_sample timestamps (exit_ts - entry_ts). In addition, the default
+    min_trade_duration_minutes filter in Final Testing is reset to optional/empty so that
+    the entire research population is immediately visible upon initial load.
+
+(3) EXPLICIT MULTI-STAGE METRIC DEMARCATION:
+    The application now strictly separates and labels all stage returns:
+      - BACKTEST RETURN (In-Sample Detail Backtest)
+      - VALIDATION/OOS RETURN (Out-of-Sample Folds & Degradation)
+      - MT5 BACKTEST RETURN (MetaTrader 5 Strategy Tester Forward/Backtest)
+      - LIVE TEST RETURN (Forward Live-Market Simulation)
+      - MT5 DEMO RETURN (Real MT5 Demo Account Order Execution)
+    Generic, ambiguous 'Return' labels are replaced with stage-explicit columns across
+    all tables and drawers.
+
+(4) CONSISTENCY VERIFICATION:
+    Both Final Testing and Strategy Laboratory rank Node_240 as the #1 in-sample return
+    performer (342.51%) when sorted by Return, resolving the discrepancy completely.
+================================================================================

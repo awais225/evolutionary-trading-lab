@@ -1,0 +1,57 @@
+{
+  "hash": "2a74991849c98a63a3229862b9c339eb",
+  "parent_id": 300,
+  "generation": 3,
+  "symbol": "XAUUSD",
+  "timeframe": "H1",
+  "direction": "long",
+  "status": "BORN",
+  "creation_reason": "mutation of #300: removed indicator momentum:5 (simplification)",
+  "mutation_type": "indicator_removal",
+  "species_key": "H1|long|prev_day",
+  "genome": {
+    "symbol": "XAUUSD",
+    "timeframe": "H1",
+    "direction": "long",
+    "features": [
+      "prev_day"
+    ],
+    "entry_long": {
+      "type": "compare",
+      "left": "break_prev_day_high",
+      "cmp": ">",
+      "right": 0.5
+    },
+    "entry_short": null,
+    "exit": {
+      "atr_spec": "atr:7",
+      "sl_atr_mult": 1.17,
+      "tp_atr_mult": 4.65,
+      "trailing": null,
+      "min_hold_bars": 0,
+      "max_hold_bars": 96,
+      "exit_condition": null
+    },
+    "sessions": [
+      "newyork"
+    ],
+    "days": null,
+    "regime_filters": [
+      "trending"
+    ],
+    "risk": {
+      "risk_per_trade": 0.005,
+      "max_concurrent": 1
+    }
+  },
+  "complexity": 4,
+  "origin": "mutation",
+  "hypothesis_id": null,
+  "seed": 224120662,
+  "mutation_params": null,
+  "config_version": "73f86ee16ce4b5fd",
+  "software_version": "3.6",
+  "run_id": "RUN-20261005-055251",
+  "data_source": "USER_RESEARCH",
+  "id": 7076
+}

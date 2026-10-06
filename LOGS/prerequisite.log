@@ -1,0 +1,282 @@
+ 
+=========================================================================== 
+[05-Oct-26 10:28:07.05] PREREQUISITE VERIFICATION STARTED (V3.2) 
+Root Directory: E:\evolutionary-trading-lab 
+=========================================================================== 
+[INFO] Inspecting system hardware... 
+[INFO] NVIDIA GPU: NVIDIA GeForce RTX 4090 Laptop GPU 
+[INFO] Detecting Python... 
+[INFO] Detected Python 3.14.6 at python 
+[INFO] Resolving virtual environment... 
+[INFO] Creating virtual environment at E:\evolutionary-trading-lab\.venv 
+[INFO] Verifying backend dependencies... 
+Requirement already satisfied: pip in .\.venv\Lib\site-packages (26.1.2)
+Collecting pip
+  Using cached pip-26.2.1-py3-none-any.whl.metadata (4.6 kB)
+Using cached pip-26.2.1-py3-none-any.whl (1.8 MB)
+Installing collected packages: pip
+  Attempting uninstall: pip
+    Found existing installation: pip 26.1.2
+    Uninstalling pip-26.1.2:
+      Successfully uninstalled pip-26.1.2
+Successfully installed pip-26.2.1
+Collecting fastapi>=0.110 (from -r E:\evolutionary-trading-lab\backend\requirements.txt (line 6))
+  Using cached fastapi-0.142.2-py3-none-any.whl.metadata (27 kB)
+Collecting uvicorn>=0.29 (from uvicorn[standard]>=0.29->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 7))
+  Using cached uvicorn-0.54.0-py3-none-any.whl.metadata (6.6 kB)
+Collecting psutil>=5.9.0 (from -r E:\evolutionary-trading-lab\backend\requirements.txt (line 8))
+  Using cached psutil-7.2.2-cp37-abi3-win_amd64.whl.metadata (22 kB)
+Collecting pydantic>=2.6 (from -r E:\evolutionary-trading-lab\backend\requirements.txt (line 9))
+  Using cached pydantic-2.13.5-py3-none-any.whl.metadata (110 kB)
+Collecting pyyaml>=6.0 (from -r E:\evolutionary-trading-lab\backend\requirements.txt (line 10))
+  Using cached pyyaml-6.0.3-cp314-cp314-win_amd64.whl.metadata (2.4 kB)
+Collecting httpx>=0.27 (from -r E:\evolutionary-trading-lab\backend\requirements.txt (line 11))
+  Using cached httpx-0.28.1-py3-none-any.whl.metadata (7.1 kB)
+Collecting websockets>=12.0 (from -r E:\evolutionary-trading-lab\backend\requirements.txt (line 12))
+  Using cached websockets-17.2-cp314-cp314-win_amd64.whl.metadata (6.5 kB)
+Collecting numpy>=1.26 (from -r E:\evolutionary-trading-lab\backend\requirements.txt (line 15))
+  Using cached numpy-2.5.3-cp314-cp314-win_amd64.whl.metadata (6.6 kB)
+Collecting pandas>=2.1 (from -r E:\evolutionary-trading-lab\backend\requirements.txt (line 16))
+  Using cached pandas-3.0.6-cp314-cp314-win_amd64.whl.metadata (19 kB)
+Collecting pyarrow>=15.0 (from -r E:\evolutionary-trading-lab\backend\requirements.txt (line 17))
+  Using cached pyarrow-25.0.1-cp314-cp314-win_amd64.whl.metadata (3.0 kB)
+Collecting duckdb>=0.10 (from -r E:\evolutionary-trading-lab\backend\requirements.txt (line 18))
+  Using cached duckdb-1.5.6-cp314-cp314-win_amd64.whl.metadata (4.2 kB)
+Collecting pywebview>=5.0 (from -r E:\evolutionary-trading-lab\backend\requirements.txt (line 21))
+  Using cached pywebview-6.2.1-py3-none-any.whl.metadata (4.9 kB)
+Collecting pytest>=8.0 (from -r E:\evolutionary-trading-lab\backend\requirements.txt (line 24))
+  Using cached pytest-9.1.1-py3-none-any.whl.metadata (7.6 kB)
+Collecting MetaTrader5>=5.0.45 (from -r E:\evolutionary-trading-lab\backend\requirements.txt (line 30))
+  Using cached metatrader5-5.0.6231-cp314-cp314-win_amd64.whl.metadata (2.8 kB)
+Collecting starlette>=0.46.0 (from fastapi>=0.110->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 6))
+  Using cached starlette-1.7.0-py3-none-any.whl.metadata (6.6 kB)
+Collecting typing-extensions>=4.8.0 (from fastapi>=0.110->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 6))
+  Using cached typing_extensions-4.16.0-py3-none-any.whl.metadata (3.3 kB)
+Collecting typing-inspection>=0.4.2 (from fastapi>=0.110->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 6))
+  Using cached typing_inspection-0.4.4-py3-none-any.whl.metadata (2.6 kB)
+Collecting annotated-doc>=0.0.2 (from fastapi>=0.110->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 6))
+  Using cached annotated_doc-0.0.5-py3-none-any.whl.metadata (6.5 kB)
+Collecting opentelemetry-api>=1.44.0 (from fastapi>=0.110->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 6))
+  Using cached opentelemetry_api-1.45.0-py3-none-any.whl.metadata (1.4 kB)
+Collecting click>=7.0 (from uvicorn>=0.29->uvicorn[standard]>=0.29->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 7))
+  Using cached click-8.5.0-py3-none-any.whl.metadata (2.6 kB)
+Collecting h11>=0.8 (from uvicorn>=0.29->uvicorn[standard]>=0.29->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 7))
+  Using cached h11-0.16.0-py3-none-any.whl.metadata (8.3 kB)
+Collecting annotated-types>=0.6.0 (from pydantic>=2.6->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 9))
+  Using cached annotated_types-0.8.0-py3-none-any.whl.metadata (15 kB)
+Collecting pydantic-core==2.46.5 (from pydantic>=2.6->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 9))
+  Using cached pydantic_core-2.46.5-cp314-cp314-win_amd64.whl.metadata (6.7 kB)
+Collecting anyio (from httpx>=0.27->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 11))
+  Using cached anyio-4.15.1-py3-none-any.whl.metadata (4.7 kB)
+Collecting certifi (from httpx>=0.27->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 11))
+  Using cached certifi-2026.7.22-py3-none-any.whl.metadata (2.5 kB)
+Collecting httpcore==1.* (from httpx>=0.27->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 11))
+  Using cached httpcore-1.0.9-py3-none-any.whl.metadata (21 kB)
+Collecting idna (from httpx>=0.27->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 11))
+  Using cached idna-3.20-py3-none-any.whl.metadata (7.2 kB)
+Collecting python-dateutil>=2.8.2 (from pandas>=2.1->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 16))
+  Using cached python_dateutil-2.9.0.post0-py2.py3-none-any.whl.metadata (8.4 kB)
+Collecting tzdata (from pandas>=2.1->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 16))
+  Using cached tzdata-2026.5-py2.py3-none-any.whl.metadata (1.4 kB)
+Collecting pythonnet (from pywebview>=5.0->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 21))
+  Using cached pythonnet-3.2.0-cp311.cp312.cp313.cp314.cp315-none-any.whl.metadata (6.5 kB)
+Collecting proxy_tools (from pywebview>=5.0->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 21))
+  Using cached proxy_tools-0.1.0-py3-none-any.whl
+Collecting bottle (from pywebview>=5.0->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 21))
+  Using cached bottle-0.13.4-py2.py3-none-any.whl.metadata (1.6 kB)
+Collecting colorama>=0.4 (from pytest>=8.0->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 24))
+  Using cached colorama-0.4.6-py2.py3-none-any.whl.metadata (17 kB)
+Collecting iniconfig>=1.0.1 (from pytest>=8.0->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 24))
+  Using cached iniconfig-2.3.0-py3-none-any.whl.metadata (2.5 kB)
+Collecting packaging>=22 (from pytest>=8.0->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 24))
+  Using cached packaging-26.3-py3-none-any.whl.metadata (3.5 kB)
+Collecting pluggy<2,>=1.5 (from pytest>=8.0->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 24))
+  Using cached pluggy-1.6.0-py3-none-any.whl.metadata (4.8 kB)
+Collecting pygments>=2.7.2 (from pytest>=8.0->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 24))
+  Using cached pygments-2.21.0-py3-none-any.whl.metadata (2.5 kB)
+Collecting six>=1.5 (from python-dateutil>=2.8.2->pandas>=2.1->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 16))
+  Using cached six-1.17.0-py2.py3-none-any.whl.metadata (1.7 kB)
+Collecting httptools>=0.8.0 (from uvicorn[standard]>=0.29->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 7))
+  Using cached httptools-0.8.0-cp314-cp314-win_amd64.whl.metadata (3.7 kB)
+Collecting python-dotenv>=0.13 (from uvicorn[standard]>=0.29->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 7))
+  Using cached python_dotenv-1.2.4-py3-none-any.whl.metadata (29 kB)
+Collecting watchfiles>=0.20 (from uvicorn[standard]>=0.29->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 7))
+  Using cached watchfiles-1.3.0-cp310-abi3-win_amd64.whl.metadata (5.0 kB)
+Collecting clr_loader<0.4.0,>=0.3.1 (from pythonnet->pywebview>=5.0->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 21))
+  Using cached clr_loader-0.3.1-py3-none-any.whl.metadata (1.4 kB)
+Collecting cffi>=1.17 (from clr_loader<0.4.0,>=0.3.1->pythonnet->pywebview>=5.0->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 21))
+  Using cached cffi-2.1.1-cp314-cp314-win_amd64.whl.metadata (2.6 kB)
+Collecting pycparser (from cffi>=1.17->clr_loader<0.4.0,>=0.3.1->pythonnet->pywebview>=5.0->-r E:\evolutionary-trading-lab\backend\requirements.txt (line 21))
+  Using cached pycparser-3.0-py3-none-any.whl.metadata (8.2 kB)
+Using cached fastapi-0.142.2-py3-none-any.whl (144 kB)
+Using cached uvicorn-0.54.0-py3-none-any.whl (87 kB)
+Using cached psutil-7.2.2-cp37-abi3-win_amd64.whl (137 kB)
+Using cached pydantic-2.13.5-py3-none-any.whl (472 kB)
+Using cached pydantic_core-2.46.5-cp314-cp314-win_amd64.whl (2.0 MB)
+Using cached pyyaml-6.0.3-cp314-cp314-win_amd64.whl (156 kB)
+Using cached httpx-0.28.1-py3-none-any.whl (73 kB)
+Using cached httpcore-1.0.9-py3-none-any.whl (78 kB)
+Using cached websockets-17.2-cp314-cp314-win_amd64.whl (218 kB)
+Using cached numpy-2.5.3-cp314-cp314-win_amd64.whl (12.7 MB)
+Using cached pandas-3.0.6-cp314-cp314-win_amd64.whl (9.8 MB)
+Using cached pyarrow-25.0.1-cp314-cp314-win_amd64.whl (28.6 MB)
+Using cached duckdb-1.5.6-cp314-cp314-win_amd64.whl (13.7 MB)
+Using cached pywebview-6.2.1-py3-none-any.whl (525 kB)
+Using cached pytest-9.1.1-py3-none-any.whl (386 kB)
+Using cached pluggy-1.6.0-py3-none-any.whl (20 kB)
+Using cached metatrader5-5.0.6231-cp314-cp314-win_amd64.whl (49 kB)
+Using cached annotated_doc-0.0.5-py3-none-any.whl (5.3 kB)
+Using cached annotated_types-0.8.0-py3-none-any.whl (13 kB)
+Using cached click-8.5.0-py3-none-any.whl (125 kB)
+Using cached colorama-0.4.6-py2.py3-none-any.whl (25 kB)
+Using cached h11-0.16.0-py3-none-any.whl (37 kB)
+Using cached iniconfig-2.3.0-py3-none-any.whl (7.5 kB)
+Using cached opentelemetry_api-1.45.0-py3-none-any.whl (60 kB)
+Using cached packaging-26.3-py3-none-any.whl (129 kB)
+Using cached pygments-2.21.0-py3-none-any.whl (1.3 MB)
+Using cached python_dateutil-2.9.0.post0-py2.py3-none-any.whl (229 kB)
+Using cached six-1.17.0-py2.py3-none-any.whl (11 kB)
+Using cached starlette-1.7.0-py3-none-any.whl (78 kB)
+Using cached anyio-4.15.1-py3-none-any.whl (132 kB)
+Using cached idna-3.20-py3-none-any.whl (69 kB)
+Using cached typing_extensions-4.16.0-py3-none-any.whl (45 kB)
+Using cached typing_inspection-0.4.4-py3-none-any.whl (14 kB)
+Using cached httptools-0.8.0-cp314-cp314-win_amd64.whl (92 kB)
+Using cached python_dotenv-1.2.4-py3-none-any.whl (23 kB)
+Using cached watchfiles-1.3.0-cp310-abi3-win_amd64.whl (290 kB)
+Using cached bottle-0.13.4-py2.py3-none-any.whl (103 kB)
+Using cached certifi-2026.7.22-py3-none-any.whl (136 kB)
+Using cached pythonnet-3.2.0-cp311.cp312.cp313.cp314.cp315-none-any.whl (222 kB)
+Using cached clr_loader-0.3.1-py3-none-any.whl (55 kB)
+Using cached cffi-2.1.1-cp314-cp314-win_amd64.whl (187 kB)
+Using cached pycparser-3.0-py3-none-any.whl (48 kB)
+Using cached tzdata-2026.5-py2.py3-none-any.whl (347 kB)
+Installing collected packages: proxy_tools, bottle, websockets, tzdata, typing-extensions, six, pyyaml, python-dotenv, pygments, pycparser, pyarrow, psutil, pluggy, packaging, numpy, iniconfig, idna, httptools, h11, duckdb, colorama, click, certifi, annotated-types, annotated-doc, uvicorn, typing-inspection, python-dateutil, pytest, pydantic-core, opentelemetry-api, MetaTrader5, httpcore, cffi, anyio, watchfiles, starlette, pydantic, pandas, httpx, clr_loader, pythonnet, fastapi, pywebview
+
+Successfully installed MetaTrader5-5.0.6231 annotated-doc-0.0.5 annotated-types-0.8.0 anyio-4.15.1 bottle-0.13.4 certifi-2026.7.22 cffi-2.1.1 click-8.5.0 clr_loader-0.3.1 colorama-0.4.6 duckdb-1.5.6 fastapi-0.142.2 h11-0.16.0 httpcore-1.0.9 httptools-0.8.0 httpx-0.28.1 idna-3.20 iniconfig-2.3.0 numpy-2.5.3 opentelemetry-api-1.45.0 packaging-26.3 pandas-3.0.6 pluggy-1.6.0 proxy_tools-0.1.0 psutil-7.2.2 pyarrow-25.0.1 pycparser-3.0 pydantic-2.13.5 pydantic-core-2.46.5 pygments-2.21.0 pytest-9.1.1 python-dateutil-2.9.0.post0 python-dotenv-1.2.4 pythonnet-3.2.0 pywebview-6.2.1 pyyaml-6.0.3 six-1.17.0 starlette-1.7.0 typing-extensions-4.16.0 typing-inspection-0.4.4 tzdata-2026.5 uvicorn-0.54.0 watchfiles-1.3.0 websockets-17.2
+2026-10-05 10:29:08 [INFO] ===========================================================
+2026-10-05 10:29:08 [INFO] EVOLUTIONARY TRADING RESEARCH LAB - V2.3 DEPENDENCY VERIFIER
+2026-10-05 10:29:08 [INFO] ===========================================================
+2026-10-05 10:29:08 [INFO] Python interpreter: E:\evolutionary-trading-lab\.venv\Scripts\python.exe
+2026-10-05 10:29:08 [INFO] Python version: 3.14.6 (win32)
+2026-10-05 10:29:08 [WARN] Python 3.14 detected (pre-release/latest version).
+2026-10-05 10:29:08 [INFO] Some binary C-extensions like MetaTrader5 on Windows may require Python 3.10 - 3.13.
+2026-10-05 10:29:08 [INFO] The research lab will operate cleanly using the SIMULATOR market data engine.
+2026-10-05 10:29:08 [OK] psutil verified (7.2.2).
+2026-10-05 10:29:08 [OK] fastapi verified (0.142.2).
+2026-10-05 10:29:08 [OK] uvicorn verified (0.54.0).
+2026-10-05 10:29:08 [OK] pydantic verified (2.13.5).
+2026-10-05 10:29:08 [OK] yaml verified (6.0.3).
+2026-10-05 10:29:08 [OK] httpx verified (0.28.1).
+2026-10-05 10:29:08 [OK] websockets verified (17.2).
+2026-10-05 10:29:08 [OK] numpy verified (2.5.3).
+2026-10-05 10:29:09 [OK] pandas verified (3.0.6).
+2026-10-05 10:29:09 [OK] pyarrow verified (25.0.1).
+2026-10-05 10:29:09 [OK] duckdb verified (1.5.6).
+2026-10-05 10:29:09 [OK] MetaTrader5 Python package installed (5.0.6231).
+2026-10-05 10:29:09 [OK] Database verified at DATABASE/lab_state.db (user_version=3, strategies=787). Historical data preserved.
+2026-10-05 10:29:10 [OK] Application main module imported successfully (FastAPI v3.6).
+2026-10-05 10:29:10 [OK] ALL BACKEND RUNTIME DEPENDENCIES & APPLICATION ENTRYPOINTS VERIFIED.
+[INFO] Running backend import smoke test (from app.main import app)... 
+[OK] Core Application Imported Successfully
+[INFO] Running backend\tools\verify_database.py... 
+[OK] Database file exists: E:\evolutionary-trading-lab\DATA\DATABASE\lab_state.db
+[OK] SQLite connection established
+[OK] SELECT 1 succeeded
+[OK] Schema version: 3
+[OK] Required tables detected (27 tables found in schema)
+[OK] Historical strategy data preserved (count: 787)
+[OK] Database verification successful
+[INFO] Inspecting Node.js and frontend bundle... 
+[INFO] Node: , npm:  
+ 
+=========================================================================== 
+[06-Oct-26 15:16:47.44] PREREQUISITE VERIFICATION STARTED (V3.2) 
+Root Directory: D:\evolutionary-trading-lab 
+=========================================================================== 
+[INFO] Inspecting system hardware... 
+[INFO] NVIDIA GPU: NVIDIA GeForce RTX 4090 Laptop GPU 
+[INFO] Detecting Python... 
+[INFO] Detected Python 3.14.6 at python 
+[INFO] Resolving virtual environment... 
+[INFO] Verifying backend dependencies... 
+Requirement already satisfied: pip in .\.venv\Lib\site-packages (26.2.1)
+Requirement already satisfied: fastapi>=0.110 in .\.venv\Lib\site-packages (from -r D:\evolutionary-trading-lab\backend\requirements.txt (line 6)) (0.142.2)
+Requirement already satisfied: uvicorn>=0.29 in .\.venv\Lib\site-packages (from uvicorn[standard]>=0.29->-r D:\evolutionary-trading-lab\backend\requirements.txt (line 7)) (0.54.0)
+Requirement already satisfied: psutil>=5.9.0 in .\.venv\Lib\site-packages (from -r D:\evolutionary-trading-lab\backend\requirements.txt (line 8)) (7.2.2)
+Requirement already satisfied: pydantic>=2.6 in .\.venv\Lib\site-packages (from -r D:\evolutionary-trading-lab\backend\requirements.txt (line 9)) (2.13.5)
+Requirement already satisfied: pyyaml>=6.0 in .\.venv\Lib\site-packages (from -r D:\evolutionary-trading-lab\backend\requirements.txt (line 10)) (6.0.3)
+Requirement already satisfied: httpx>=0.27 in .\.venv\Lib\site-packages (from -r D:\evolutionary-trading-lab\backend\requirements.txt (line 11)) (0.28.1)
+Requirement already satisfied: websockets>=12.0 in .\.venv\Lib\site-packages (from -r D:\evolutionary-trading-lab\backend\requirements.txt (line 12)) (17.2)
+Requirement already satisfied: numpy>=1.26 in .\.venv\Lib\site-packages (from -r D:\evolutionary-trading-lab\backend\requirements.txt (line 15)) (2.5.3)
+Requirement already satisfied: pandas>=2.1 in .\.venv\Lib\site-packages (from -r D:\evolutionary-trading-lab\backend\requirements.txt (line 16)) (3.0.6)
+Requirement already satisfied: pyarrow>=15.0 in .\.venv\Lib\site-packages (from -r D:\evolutionary-trading-lab\backend\requirements.txt (line 17)) (25.0.1)
+Requirement already satisfied: duckdb>=0.10 in .\.venv\Lib\site-packages (from -r D:\evolutionary-trading-lab\backend\requirements.txt (line 18)) (1.5.6)
+Requirement already satisfied: pywebview>=5.0 in .\.venv\Lib\site-packages (from -r D:\evolutionary-trading-lab\backend\requirements.txt (line 21)) (6.2.1)
+Requirement already satisfied: pytest>=8.0 in .\.venv\Lib\site-packages (from -r D:\evolutionary-trading-lab\backend\requirements.txt (line 24)) (9.1.1)
+Requirement already satisfied: MetaTrader5>=5.0.45 in .\.venv\Lib\site-packages (from -r D:\evolutionary-trading-lab\backend\requirements.txt (line 30)) (5.0.6231)
+Requirement already satisfied: starlette>=0.46.0 in .\.venv\Lib\site-packages (from fastapi>=0.110->-r D:\evolutionary-trading-lab\backend\requirements.txt (line 6)) (1.7.0)
+Requirement already satisfied: typing-extensions>=4.8.0 in .\.venv\Lib\site-packages (from fastapi>=0.110->-r D:\evolutionary-trading-lab\backend\requirements.txt (line 6)) (4.16.0)
+Requirement already satisfied: typing-inspection>=0.4.2 in .\.venv\Lib\site-packages (from fastapi>=0.110->-r D:\evolutionary-trading-lab\backend\requirements.txt (line 6)) (0.4.4)
+Requirement already satisfied: annotated-doc>=0.0.2 in .\.venv\Lib\site-packages (from fastapi>=0.110->-r D:\evolutionary-trading-lab\backend\requirements.txt (line 6)) (0.0.5)
+Requirement already satisfied: opentelemetry-api>=1.44.0 in .\.venv\Lib\site-packages (from fastapi>=0.110->-r D:\evolutionary-trading-lab\backend\requirements.txt (line 6)) (1.45.0)
+Requirement already satisfied: click>=7.0 in .\.venv\Lib\site-packages (from uvicorn>=0.29->uvicorn[standard]>=0.29->-r D:\evolutionary-trading-lab\backend\requirements.txt (line 7)) (8.5.0)
+Requirement already satisfied: h11>=0.8 in .\.venv\Lib\site-packages (from uvicorn>=0.29->uvicorn[standard]>=0.29->-r D:\evolutionary-trading-lab\backend\requirements.txt (line 7)) (0.16.0)
+Requirement already satisfied: annotated-types>=0.6.0 in .\.venv\Lib\site-packages (from pydantic>=2.6->-r D:\evolutionary-trading-lab\backend\requirements.txt (line 9)) (0.8.0)
+Requirement already satisfied: pydantic-core==2.46.5 in .\.venv\Lib\site-packages (from pydantic>=2.6->-r D:\evolutionary-trading-lab\backend\requirements.txt (line 9)) (2.46.5)
+Requirement already satisfied: anyio in .\.venv\Lib\site-packages (from httpx>=0.27->-r D:\evolutionary-trading-lab\backend\requirements.txt (line 11)) (4.15.1)
+Requirement already satisfied: certifi in .\.venv\Lib\site-packages (from httpx>=0.27->-r D:\evolutionary-trading-lab\backend\requirements.txt (line 11)) (2026.7.22)
+Requirement already satisfied: httpcore==1.* in .\.venv\Lib\site-packages (from httpx>=0.27->-r D:\evolutionary-trading-lab\backend\requirements.txt (line 11)) (1.0.9)
+Requirement already satisfied: idna in .\.venv\Lib\site-packages (from httpx>=0.27->-r D:\evolutionary-trading-lab\backend\requirements.txt (line 11)) (3.20)
+Requirement already satisfied: python-dateutil>=2.8.2 in .\.venv\Lib\site-packages (from pandas>=2.1->-r D:\evolutionary-trading-lab\backend\requirements.txt (line 16)) (2.9.0.post0)
+Requirement already satisfied: tzdata in .\.venv\Lib\site-packages (from pandas>=2.1->-r D:\evolutionary-trading-lab\backend\requirements.txt (line 16)) (2026.5)
+Requirement already satisfied: pythonnet in .\.venv\Lib\site-packages (from pywebview>=5.0->-r D:\evolutionary-trading-lab\backend\requirements.txt (line 21)) (3.2.0)
+Requirement already satisfied: proxy_tools in .\.venv\Lib\site-packages (from pywebview>=5.0->-r D:\evolutionary-trading-lab\backend\requirements.txt (line 21)) (0.1.0)
+Requirement already satisfied: bottle in .\.venv\Lib\site-packages (from pywebview>=5.0->-r D:\evolutionary-trading-lab\backend\requirements.txt (line 21)) (0.13.4)
+Requirement already satisfied: colorama>=0.4 in .\.venv\Lib\site-packages (from pytest>=8.0->-r D:\evolutionary-trading-lab\backend\requirements.txt (line 24)) (0.4.6)
+Requirement already satisfied: iniconfig>=1.0.1 in .\.venv\Lib\site-packages (from pytest>=8.0->-r D:\evolutionary-trading-lab\backend\requirements.txt (line 24)) (2.3.0)
+Requirement already satisfied: packaging>=22 in .\.venv\Lib\site-packages (from pytest>=8.0->-r D:\evolutionary-trading-lab\backend\requirements.txt (line 24)) (26.3)
+Requirement already satisfied: pluggy<2,>=1.5 in .\.venv\Lib\site-packages (from pytest>=8.0->-r D:\evolutionary-trading-lab\backend\requirements.txt (line 24)) (1.6.0)
+Requirement already satisfied: pygments>=2.7.2 in .\.venv\Lib\site-packages (from pytest>=8.0->-r D:\evolutionary-trading-lab\backend\requirements.txt (line 24)) (2.21.0)
+Requirement already satisfied: six>=1.5 in .\.venv\Lib\site-packages (from python-dateutil>=2.8.2->pandas>=2.1->-r D:\evolutionary-trading-lab\backend\requirements.txt (line 16)) (1.17.0)
+Requirement already satisfied: httptools>=0.8.0 in .\.venv\Lib\site-packages (from uvicorn[standard]>=0.29->-r D:\evolutionary-trading-lab\backend\requirements.txt (line 7)) (0.8.0)
+Requirement already satisfied: python-dotenv>=0.13 in .\.venv\Lib\site-packages (from uvicorn[standard]>=0.29->-r D:\evolutionary-trading-lab\backend\requirements.txt (line 7)) (1.2.4)
+Requirement already satisfied: watchfiles>=0.20 in .\.venv\Lib\site-packages (from uvicorn[standard]>=0.29->-r D:\evolutionary-trading-lab\backend\requirements.txt (line 7)) (1.3.0)
+Requirement already satisfied: clr_loader<0.4.0,>=0.3.1 in .\.venv\Lib\site-packages (from pythonnet->pywebview>=5.0->-r D:\evolutionary-trading-lab\backend\requirements.txt (line 21)) (0.3.1)
+Requirement already satisfied: cffi>=1.17 in .\.venv\Lib\site-packages (from clr_loader<0.4.0,>=0.3.1->pythonnet->pywebview>=5.0->-r D:\evolutionary-trading-lab\backend\requirements.txt (line 21)) (2.1.1)
+Requirement already satisfied: pycparser in .\.venv\Lib\site-packages (from cffi>=1.17->clr_loader<0.4.0,>=0.3.1->pythonnet->pywebview>=5.0->-r D:\evolutionary-trading-lab\backend\requirements.txt (line 21)) (3.0)
+2026-10-06 15:16:49 [INFO] ===========================================================
+2026-10-06 15:16:49 [INFO] EVOLUTIONARY TRADING RESEARCH LAB - V2.3 DEPENDENCY VERIFIER
+2026-10-06 15:16:49 [INFO] ===========================================================
+2026-10-06 15:16:49 [INFO] Python interpreter: D:\evolutionary-trading-lab\.venv\Scripts\python.exe
+2026-10-06 15:16:49 [INFO] Python version: 3.14.6 (win32)
+2026-10-06 15:16:49 [WARN] Python 3.14 detected (pre-release/latest version).
+2026-10-06 15:16:49 [INFO] Some binary C-extensions like MetaTrader5 on Windows may require Python 3.10 - 3.13.
+2026-10-06 15:16:49 [INFO] The research lab will operate cleanly using the SIMULATOR market data engine.
+2026-10-06 15:16:49 [OK] psutil verified (7.2.2).
+2026-10-06 15:16:49 [OK] fastapi verified (0.142.2).
+2026-10-06 15:16:49 [OK] uvicorn verified (0.54.0).
+2026-10-06 15:16:49 [OK] pydantic verified (2.13.5).
+2026-10-06 15:16:49 [OK] yaml verified (6.0.3).
+2026-10-06 15:16:49 [OK] httpx verified (0.28.1).
+2026-10-06 15:16:49 [OK] websockets verified (17.2).
+2026-10-06 15:16:50 [OK] numpy verified (2.5.3).
+2026-10-06 15:16:51 [OK] pandas verified (3.0.6).
+2026-10-06 15:16:51 [OK] pyarrow verified (25.0.1).
+2026-10-06 15:16:51 [OK] duckdb verified (1.5.6).
+2026-10-06 15:16:51 [OK] MetaTrader5 Python package installed (5.0.6231).
+2026-10-06 15:16:51 [OK] Database verified at DATABASE/lab_state.db (user_version=3, strategies=10787). Historical data preserved.
+2026-10-06 15:16:51 [OK] Application main module imported successfully (FastAPI v3.6).
+2026-10-06 15:16:51 [OK] ALL BACKEND RUNTIME DEPENDENCIES & APPLICATION ENTRYPOINTS VERIFIED.
+[INFO] Running backend import smoke test (from app.main import app)... 
+[OK] Core Application Imported Successfully
+[INFO] Running backend\tools\verify_database.py... 
+[OK] Database file exists: D:\evolutionary-trading-lab\DATA\DATABASE\lab_state.db
+[OK] SQLite connection established
+[OK] SELECT 1 succeeded
+[OK] Schema version: 3
+[OK] Required tables detected (27 tables found in schema)
+[OK] Historical strategy data preserved (count: 10787)
+[OK] Database verification successful
+[INFO] Inspecting Node.js and frontend bundle... 
+[INFO] Node: , npm:  

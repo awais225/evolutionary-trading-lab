@@ -1,0 +1,72 @@
+{
+  "hash": "5478dce61c22c1d47493fe6098e1cc2b",
+  "parent_id": null,
+  "generation": 1,
+  "symbol": "XAUUSD",
+  "timeframe": "M5",
+  "direction": "long",
+  "status": "BORN",
+  "creation_reason": "test candidate 357",
+  "mutation_type": "",
+  "species_key": "M5|long|bb,regime,roc",
+  "genome": {
+    "symbol": "XAUUSD",
+    "timeframe": "M5",
+    "direction": "long",
+    "features": [
+      "bb:20:2.0",
+      "regime",
+      "roc:24"
+    ],
+    "entry_long": {
+      "op": "and",
+      "clauses": [
+        {
+          "type": "compare",
+          "left": "regime:low_volatility",
+          "cmp": ">",
+          "right": 0.5
+        },
+        {
+          "type": "compare",
+          "left": "roc:24",
+          "cmp": "<",
+          "right": 0.317
+        },
+        {
+          "type": "compare",
+          "left": "regime:momentum",
+          "cmp": ">",
+          "right": 0.5
+        }
+      ]
+    },
+    "entry_short": null,
+    "exit": {
+      "atr_spec": "atr:21",
+      "sl_atr_mult": 2.31,
+      "tp_atr_mult": 3.18,
+      "trailing": null,
+      "min_hold_bars": 3,
+      "max_hold_bars": 144,
+      "exit_condition": null
+    },
+    "sessions": null,
+    "days": null,
+    "regime_filters": null,
+    "risk": {
+      "risk_per_trade": 0.005,
+      "max_concurrent": 1
+    }
+  },
+  "complexity": 5,
+  "origin": "evolution",
+  "hypothesis_id": null,
+  "seed": 834343382,
+  "mutation_params": null,
+  "config_version": "4539d86fb191f907",
+  "software_version": "3.6",
+  "run_id": "RUN-20260927-CLEAN-MT5",
+  "data_source": "USER_RESEARCH",
+  "id": 357
+}

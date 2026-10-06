@@ -1,0 +1,18 @@
+{
+  "datasets": {
+    "XAUUSD_M15": {
+      "file_size_bytes": 96529,
+      "first_ts": 1788742800.0,
+      "last_ts": 1791179100.0,
+      "last_updated": 1791281886.0457113,
+      "normalized_path": "MT5/normalized/XAUUSD_M15.parquet",
+      "raw_path": "MT5/XAUUSD/M15.parquet",
+      "rows": 1850,
+      "source": "MT5",
+      "symbol": "XAUUSD",
+      "timeframe": "M15"
+    }
+  },
+  "updated_at": 1791281912.1471975,
+  "version": 1
+}

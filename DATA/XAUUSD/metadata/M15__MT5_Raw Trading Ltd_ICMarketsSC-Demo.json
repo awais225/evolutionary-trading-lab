@@ -1,0 +1,32 @@
+{
+ "symbol": "XAUUSD",
+ "timeframe": "M15",
+ "profile": {
+  "source": "MT5",
+  "broker": "Raw Trading Ltd",
+  "server": "ICMarketsSC-Demo",
+  "account": "53071066"
+ },
+ "profile_key": "MT5|Raw Trading Ltd|ICMarketsSC-Demo",
+ "schema_version": 3,
+ "partitions": {
+  "202609": {
+   "rows": 1646,
+   "first_ts": 1788742800.0,
+   "last_ts": 1790811900.0,
+   "sha256": "03f68513c5a8119431de451bbeea4257"
+  },
+  "202610": {
+   "rows": 204,
+   "first_ts": 1790816400.0,
+   "last_ts": 1791179100.0,
+   "sha256": "cf7ef13674bd4aa39d0c9f700c7675a8"
+  }
+ },
+ "rows": 1850,
+ "first_ts": 1788742800.0,
+ "last_ts": 1791179100.0,
+ "version": 1,
+ "conflicts": 0,
+ "fingerprint": "8d4d0cb6d3a5f465dec5b43da4048bd2"
+}

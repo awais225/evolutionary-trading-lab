@@ -1,0 +1,53 @@
+{
+  "hash": "cddd8e4f09fa8b30b2fa8ec5e80dfd2c",
+  "parent_id": null,
+  "generation": 1,
+  "symbol": "XAUUSD",
+  "timeframe": "H1",
+  "direction": "long",
+  "status": "BORN",
+  "creation_reason": "test candidate 163",
+  "mutation_type": "",
+  "species_key": "H1|long|stoch",
+  "genome": {
+    "symbol": "XAUUSD",
+    "timeframe": "H1",
+    "direction": "long",
+    "features": [
+      "stoch:9:3"
+    ],
+    "entry_long": {
+      "type": "crossover",
+      "a": "stoch_k:9:3",
+      "b": "stoch_d:9:3",
+      "dir": "down"
+    },
+    "entry_short": null,
+    "exit": {
+      "atr_spec": "atr:7",
+      "sl_atr_mult": 1.27,
+      "tp_atr_mult": 4.79,
+      "trailing": null,
+      "min_hold_bars": 0,
+      "max_hold_bars": 144,
+      "exit_condition": null
+    },
+    "sessions": null,
+    "days": null,
+    "regime_filters": null,
+    "risk": {
+      "risk_per_trade": 0.005,
+      "max_concurrent": 1
+    }
+  },
+  "complexity": 2,
+  "origin": "evolution",
+  "hypothesis_id": null,
+  "seed": 1907468539,
+  "mutation_params": null,
+  "config_version": "4539d86fb191f907",
+  "software_version": "3.6",
+  "run_id": "RUN-20260927-CLEAN-MT5",
+  "data_source": "USER_RESEARCH",
+  "id": 163
+}

@@ -1,0 +1,73 @@
+{
+  "hash": "377bcbd1495499f76510ea9c5141d510",
+  "parent_id": 186,
+  "generation": 2,
+  "symbol": "XAUUSD",
+  "timeframe": "M1",
+  "direction": "both",
+  "status": "BORN",
+  "creation_reason": "mutation of #186: regime filter -> {'breakout'}",
+  "mutation_type": "regime_mutation",
+  "species_key": "M1|both|bb,roc,vwap",
+  "genome": {
+    "symbol": "XAUUSD",
+    "timeframe": "M1",
+    "direction": "both",
+    "features": [
+      "bb:20:2.0",
+      "roc:24",
+      "vwap"
+    ],
+    "entry_long": {
+      "op": "and",
+      "clauses": [
+        {
+          "type": "compare",
+          "left": "bb_pctb:20:2.0",
+          "cmp": ">",
+          "right": 0.95
+        },
+        {
+          "type": "compare",
+          "left": "roc:24",
+          "cmp": "<",
+          "right": 0.247
+        }
+      ]
+    },
+    "entry_short": {
+      "type": "compare",
+      "left": "vwap_dist",
+      "cmp": "<",
+      "right": -0.368
+    },
+    "exit": {
+      "atr_spec": "atr:14",
+      "sl_atr_mult": 2.94,
+      "tp_atr_mult": 3.42,
+      "trailing": null,
+      "min_hold_bars": 1,
+      "max_hold_bars": 24,
+      "exit_condition": null
+    },
+    "sessions": null,
+    "days": null,
+    "regime_filters": [
+      "breakout"
+    ],
+    "risk": {
+      "risk_per_trade": 0.005,
+      "max_concurrent": 1
+    }
+  },
+  "complexity": 6,
+  "origin": "mutation",
+  "hypothesis_id": null,
+  "seed": 1292408447,
+  "mutation_params": null,
+  "config_version": "664c0d10a49d16b0",
+  "software_version": "3.6",
+  "run_id": "RUN-20261005-055251",
+  "data_source": "USER_RESEARCH",
+  "id": 1748
+}

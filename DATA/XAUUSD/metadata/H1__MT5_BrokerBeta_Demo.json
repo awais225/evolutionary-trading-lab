@@ -1,0 +1,18 @@
+{
+ "symbol": "XAUUSD",
+ "timeframe": "H1",
+ "profile": {
+  "source": "MT5",
+  "broker": "BrokerBeta",
+  "server": "Demo"
+ },
+ "profile_key": "MT5|BrokerBeta|Demo",
+ "schema_version": 2,
+ "partitions": {},
+ "rows": 0,
+ "first_ts": null,
+ "last_ts": null,
+ "version": 0,
+ "conflicts": 0,
+ "fingerprint": "6bca46024febae441eef3804969e7a07"
+}

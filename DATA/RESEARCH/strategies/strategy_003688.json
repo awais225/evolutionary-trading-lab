@@ -1,0 +1,59 @@
+{
+  "hash": "8e3a84afbdc34f1498a686c6d7e9ac67",
+  "parent_id": 287,
+  "generation": 4,
+  "symbol": "XAUUSD",
+  "timeframe": "M5",
+  "direction": "short",
+  "status": "BORN",
+  "creation_reason": "crossover of #287 x #300: crossover of features/filters/exit (3 indicators)",
+  "mutation_type": "crossover",
+  "species_key": "M5|short|momentum,prev_day,vwap",
+  "genome": {
+    "symbol": "XAUUSD",
+    "timeframe": "M5",
+    "direction": "short",
+    "features": [
+      "vwap",
+      "momentum:5",
+      "prev_day"
+    ],
+    "entry_long": null,
+    "entry_short": {
+      "type": "compare",
+      "left": "vwap_dist",
+      "cmp": "<",
+      "right": -0.368
+    },
+    "exit": {
+      "atr_spec": "atr:7",
+      "sl_atr_mult": 1.17,
+      "tp_atr_mult": 2.14,
+      "trailing": null,
+      "min_hold_bars": 1,
+      "max_hold_bars": 96,
+      "exit_condition": null
+    },
+    "sessions": [
+      "newyork"
+    ],
+    "days": null,
+    "regime_filters": [
+      "trending"
+    ],
+    "risk": {
+      "risk_per_trade": 0.005,
+      "max_concurrent": 1
+    }
+  },
+  "complexity": 6,
+  "origin": "crossover",
+  "hypothesis_id": null,
+  "seed": 1747081015,
+  "mutation_params": null,
+  "config_version": "664c0d10a49d16b0",
+  "software_version": "3.6",
+  "run_id": "RUN-20261005-055251",
+  "data_source": "USER_RESEARCH",
+  "id": 3688
+}

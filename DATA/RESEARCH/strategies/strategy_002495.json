@@ -1,0 +1,53 @@
+{
+  "hash": "b0a80c68267330fb9f9ff521a794967f",
+  "parent_id": 237,
+  "generation": 3,
+  "symbol": "XAUUSD",
+  "timeframe": "M5",
+  "direction": "short",
+  "status": "BORN",
+  "creation_reason": "mutation of #237: threshold jitter (1 values)",
+  "mutation_type": "param_mutation",
+  "species_key": "M5|short|vwap",
+  "genome": {
+    "symbol": "XAUUSD",
+    "timeframe": "M5",
+    "direction": "short",
+    "features": [
+      "vwap"
+    ],
+    "entry_long": null,
+    "entry_short": {
+      "type": "compare",
+      "left": "vwap_dist",
+      "cmp": "<",
+      "right": -0.381
+    },
+    "exit": {
+      "atr_spec": "atr:7",
+      "sl_atr_mult": 2.34,
+      "tp_atr_mult": 1.74,
+      "trailing": null,
+      "min_hold_bars": 2,
+      "max_hold_bars": 24,
+      "exit_condition": null
+    },
+    "sessions": null,
+    "days": null,
+    "regime_filters": null,
+    "risk": {
+      "risk_per_trade": 0.005,
+      "max_concurrent": 1
+    }
+  },
+  "complexity": 2,
+  "origin": "mutation",
+  "hypothesis_id": null,
+  "seed": 1112571638,
+  "mutation_params": null,
+  "config_version": "664c0d10a49d16b0",
+  "software_version": "3.6",
+  "run_id": "RUN-20261005-055251",
+  "data_source": "USER_RESEARCH",
+  "id": 2495
+}
