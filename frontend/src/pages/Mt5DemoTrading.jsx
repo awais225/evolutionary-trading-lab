@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { api, fmt } from "../api.js";
+import DemoAccountSafety from "../components/DemoAccountSafety.jsx";
+import { NA_TEXT, numOrNull, txt } from "../lib/safe.js";
 import { useLab } from "../App.jsx";
 import StructuredError from "../components/StructuredError.jsx";
 import DemoOrderPanel from "../components/DemoOrderPanel.jsx";
@@ -132,8 +134,8 @@ export default function Mt5DemoTrading() {
         </div>
 
         <div className="text-right text-xs font-mono text-purple-200">
-          <div>Broker: <span className="text-white font-bold">{demoStatus?.broker || "MetaQuotes-Demo"}</span></div>
-          <div>Account: <span className="text-cyan-300 font-bold">{demoStatus?.account_id || "DEMO-100294"}</span></div>
+          <div>Broker: <span className="text-white font-bold">{txt(demoStatus?.broker, NA_TEXT)}</span></div>
+          <div>Account: <span className="text-cyan-300 font-bold">{txt(demoStatus?.account_id, NA_TEXT)}</span></div>
         </div>
       </div>
 
@@ -142,19 +144,19 @@ export default function Mt5DemoTrading() {
         <div className="bg-slate-900/80 p-3.5 rounded-xl border border-slate-800 font-mono">
           <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Demo Balance</span>
           <span className="text-lg font-bold text-white mt-1 block">
-            {fmt.currency(demoStatus?.balance || 10000)}
+            {numOrNull(demoStatus?.balance) === null ? NA_TEXT : fmt.currency(demoStatus.balance)}
           </span>
         </div>
         <div className="bg-slate-900/80 p-3.5 rounded-xl border border-slate-800 font-mono">
           <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Demo Equity</span>
           <span className="text-lg font-bold text-cyan-300 mt-1 block">
-            {fmt.currency(demoStatus?.equity || 10000)}
+            {numOrNull(demoStatus?.equity) === null ? NA_TEXT : fmt.currency(demoStatus.equity)}
           </span>
         </div>
         <div className="bg-slate-900/80 p-3.5 rounded-xl border border-slate-800 font-mono">
           <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Free Margin</span>
           <span className="text-lg font-bold text-slate-200 mt-1 block">
-            {fmt.currency(demoStatus?.free_margin || 9500)}
+            {numOrNull(demoStatus?.free_margin) === null ? NA_TEXT : fmt.currency(demoStatus.free_margin)}
           </span>
         </div>
         <div className="bg-slate-900/80 p-3.5 rounded-xl border border-slate-800 font-mono">
@@ -172,10 +174,13 @@ export default function Mt5DemoTrading() {
         <div className="bg-slate-900/80 p-3.5 rounded-xl border border-slate-800 font-mono">
           <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Total Demo P/L</span>
           <span className={`text-lg font-bold mt-1 block ${(demoStatus?.total_pnl || 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-            {fmt.pnl(demoStatus?.total_pnl || 0)}
+            {numOrNull(demoStatus?.total_pnl) === null ? NA_TEXT : fmt.pnl(demoStatus.total_pnl)}
           </span>
         </div>
       </div>
+
+      {/* V4.8 — account type / connection / safety state, then the manual order panel */}
+      <DemoAccountSafety />
 
       {/* V4.2 — manual, explicitly-confirmed demo order execution */}
       <DemoOrderPanel />

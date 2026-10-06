@@ -909,6 +909,9 @@ export default function Settings() {
           <input placeholder='type: ENABLE REAL TRADING' value={realConfirm}
                  onChange={(e) => setRealConfirm(e.target.value)} style={{ width: 240 }} />
           <button className="btn danger" disabled={realConfirm !== "ENABLE REAL TRADING"}
+                  title={realConfirm !== "ENABLE REAL TRADING"
+                    ? "type ENABLE REAL TRADING in the box to unlock this button"
+                    : "enable real-money execution (demo terminal and safety gates still apply)"}
                   onClick={() => toggleReal(true)}>Enable real execution</button>
           <button className="btn" onClick={() => toggleReal(false)}>Disable</button>
         </div>

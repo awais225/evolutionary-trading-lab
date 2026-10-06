@@ -307,8 +307,10 @@ export default function Stats() {
             {fmt.num(total, 0)} matching · page {Math.floor(listState.offset / 50) + 1}
           </span>
           <button className="btn" disabled={listState.offset === 0}
+                  title={listState.offset <= 0 ? "already on the first page" : "previous page"}
                   onClick={() => setListState((s) => ({ ...s, offset: Math.max(0, s.offset - 50) }))}>‹ prev</button>
           <button className="btn" disabled={listState.offset + 50 >= total}
+                  title="next page"
                   onClick={() => setListState((s) => ({ ...s, offset: s.offset + 50 }))}>next ›</button>
         </div>
         <ErrorNote err={listErr} />

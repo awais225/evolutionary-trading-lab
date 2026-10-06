@@ -3,6 +3,10 @@ import { api, fmt } from "../api.js";
 import { useLab } from "../App.jsx";
 import StructuredError from "../components/StructuredError.jsx";
 import LiveTestingControl from "../components/LiveTestingControl.jsx";
+import { RiskStrip, ManualOrderPanel, LiveMarketPanel, StageTimeline } from "../components/LiveTestingPanels.jsx";
+import { NA_TEXT, txt } from "../lib/safe.js";
+import LiveTradeCounter from "../components/LiveTradeCounter.jsx";
+import { Badge } from "../components/ui.jsx";
 
 export default function LiveTesting() {
   const { shortlist, toggleShortlist, setSelectedStrategyId, navigateTab } = useLab() || {};
@@ -197,6 +201,31 @@ export default function LiveTesting() {
           </div>
         </div>
       </div>
+
+      {/* V4.8 — activation state: nothing runs until the operator starts it */}
+      <div className={"kit-banner " + (statusSummary?.active ? "real" : "sim")} role="status">
+        <b>{statusSummary?.active ? "LIVE TESTING IS ACTIVE" : "IDLE ON ENTRY — NOTHING IS RUNNING"}</b>
+        <div className="muted" style={{ marginTop: 3, fontSize: 12 }}>
+          {statusSummary?.active
+            ? <>The engine loop is running ({txt(statusSummary?.cycle_count, "0")} cycles). Every position it opens is simulated; real money is always $0.</>
+            : <>Entering this page never starts anything. Activate live testing and start a node explicitly — no order can be sent without those two actions.</>}
+        </div>
+        <div className="kit-cols" style={{ marginTop: 6 }}>
+          <Badge tone={statusSummary?.active ? "ok" : "mute"}>engine: {txt(statusSummary?.active ? "RUNNING" : "STOPPED")}</Badge>
+          <Badge tone="warn">bridge: {txt(statusSummary?.bridge_source || statusSummary?.source, "SIMULATOR")}</Badge>
+          <Badge tone="info">real money: $0 (ZERO)</Badge>
+          <Badge tone="sim">demo / live-test account only</Badge>
+        </div>
+      </div>
+
+      {/* V4.8 — global risk strip + per-node risk */}
+      <RiskStrip nodes={strategies} lab={statusSummary} onChanged={loadLiveState} />
+
+      {/* V4.8 — live market + conditions, manual order panel, counter, stage log */}
+      <LiveMarketPanel nodes={strategies} engineRunning={Boolean(statusSummary?.active)} />
+      <ManualOrderPanel />
+      <LiveTradeCounter />
+      <StageTimeline nodes={strategies} />
 
       {error && <StructuredError error={error} onDismiss={() => setError(null)} />}
       {actionMsg && (

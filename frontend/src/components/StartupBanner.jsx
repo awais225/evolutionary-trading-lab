@@ -21,6 +21,9 @@ export default function StartupBanner() {
   const [showDetail, setShowDetail] = useState(false);
   const timerRef = useRef(null);
 
+  const [unreachable, setUnreachable] = useState(null);   // { reason, at }
+  const [nonce, setNonce] = useState(0);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -29,10 +32,17 @@ export default function StartupBanner() {
         const h = await api.health();
         if (cancelled) return;
         setSnap(h);
+        setUnreachable(null);
         if (h?.ready || h?.status === "error") return;   // stop polling
       } catch (e) {
         if (cancelled) return;
-        setSnap({ status: "error", startup: { state: "unknown", failed_steps: [] }, error: txt(e?.message) });
+        /* V4.8 QA: a failed *probe* is not a failed *backend*. Never claim the
+         * backend reported a startup failure when we simply could not read its
+         * status (proxy/network/non-JSON response) — say what actually happened
+         * and offer a retry instead of a misleading red banner. */
+        setUnreachable({ reason: txt(e?.message || "no response"), at: new Date().toLocaleTimeString() });
+        if (e?.status && e.status !== 0) setSnap(null);   // HTTP answer we could parse: not a transport problem
+        timerRef.current = setTimeout(poll, 5000);
         return;
       }
       if (!cancelled) timerRef.current = setTimeout(poll, 4000);
@@ -43,7 +53,25 @@ export default function StartupBanner() {
       cancelled = true;
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, []);
+  }, [nonce]);
+
+  if (unreachable) {
+    return (
+      <div className="warn-banner" style={{
+        background: "#2a2110", borderColor: "#78350f", color: "#fcd34d",
+        padding: "8px 14px", margin: "0 0 1rem 0",
+      }}>
+        <div className="flex justify-between items-center">
+          <div style={{ fontSize: 12.5 }}>
+            <b>Backend status could not be read.</b>{" "}
+            {unreachable.reason} <span className="muted">(last attempt {unreachable.at})</span>
+            {" "}— retrying automatically; the pages below keep their own loading/error states.
+          </div>
+          <button className="btn btn-sm btn-subtle" onClick={() => setNonce((n) => n + 1)}>retry now</button>
+        </div>
+      </div>
+    );
+  }
 
   if (!snap || snap.ready) return null;
   const st = snap.startup || {};

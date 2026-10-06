@@ -34,7 +34,14 @@ export default function PaperTrading() {
   const acct = st?.account || {};
   const limits = st?.limits || risk?.limits || {};
   const promoted = st?.promoted_strategies || [];
-  const waitingCandidates = promoted.filter((p) => p.paper_result === "WAITING" || p.status === "QUALIFIED" || p.status === "PAPER_ELIGIBLE");
+  /* V4.8 — dead nodes are never tradable paper candidates. They stay in the
+   * full population record, but the execution candidate list excludes them and
+   * says how many were excluded instead of hiding the fact. */
+  const DEAD = new Set(["FAILED", "KILLED", "RETIRED", "DEAD"]);
+  const tradablePromoted = promoted.filter((p) => !DEAD.has(String(p.status || "").toUpperCase())
+                                                && !DEAD.has(String(p.paper_result || "").toUpperCase()));
+  const excludedDead = promoted.length - tradablePromoted.length;
+  const waitingCandidates = tradablePromoted.filter((p) => p.paper_result === "WAITING" || p.status === "QUALIFIED" || p.status === "PAPER_ELIGIBLE");
 
   return (
     <div>
@@ -49,8 +56,10 @@ export default function PaperTrading() {
 
       <div className="btn-row" style={{ marginBottom: 14 }}>
         <button className="btn success" disabled={st?.running || busy === "start"}
+                title={st?.running ? "paper trading is already running" : busy === "start" ? "starting…" : "start the internal paper portfolio simulation"}
                 onClick={() => act("start", api.paperStart)}>▶ START PAPER TRADING</button>
         <button className="btn danger" disabled={!st?.running || busy === "stop"}
+                title={!st?.running ? "paper trading is not running" : busy === "stop" ? "stopping…" : "stop paper trading"}
                 onClick={() => act("stop", api.paperStop)}>⏹ STOP PAPER TRADING</button>
         <button className={"btn " + (risk?.kill_switch ? "success" : "danger")}
                 onClick={() => act("kill", () => api.killSwitch(!risk?.kill_switch))}>
@@ -185,6 +194,12 @@ export default function PaperTrading() {
           </span>
         </div>
         <div className="scroll-y" style={{ maxHeight: 280 }}>
+          {excludedDead > 0 && (
+            <div className="kit-inline-err" style={{ marginBottom: 6 }}>
+              <b>{excludedDead} dead node(s) excluded from the paper-trading candidate list.</b>
+              They remain in the full population record and are never traded here.
+            </div>
+          )}
           <table className="tbl">
             <thead>
               <tr>
@@ -204,7 +219,7 @@ export default function PaperTrading() {
               </tr>
             </thead>
             <tbody>
-              {arr(promoted).map((p) => (
+              {arr(tradablePromoted).map((p) => (
                 <tr key={p.id} onClick={() => openStrategy(p.id)}>
                   <td className="mono" style={{ fontWeight: "bold" }}>{p.node}</td>
                   <td className="mono muted" style={{ fontSize: 11, maxWidth: 220 }}>#{p.id} · {p.desc}</td>
@@ -227,7 +242,7 @@ export default function PaperTrading() {
                   </td>
                 </tr>
               ))}
-              {!arr(promoted).length && (
+              {!arr(tradablePromoted).length && (
                 <tr>
                   <td colSpan={13} className="muted" style={{ textAlign: "center", padding: "1.5rem" }}>
                     No candidates promoted yet — strategies must survive screening, detailed backtesting, and the validation battery before qualifying.

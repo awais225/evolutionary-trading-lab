@@ -3,6 +3,7 @@ import { api, fmt } from "../api.js";
 import { useLab } from "../App.jsx";
 import { Card, ErrorNote, Metric, Pill, Spinner } from "../components/common.jsx";
 import NodeResearchDetail from "../components/NodeResearchDetail.jsx";
+import NodeDetailDrawer from "../components/NodeDetailDrawer.jsx";
 import BacktestMatrixTable from "../components/BacktestMatrixTable.jsx";
 import HistoricalBacktestPanel from "../components/HistoricalBacktestPanel.jsx";
 
@@ -40,19 +41,28 @@ const STAGES = [
 const EMPTY_FILTERS = {
   search: "", generation: "", status: "", symbol: "", timeframe: "", direction: "",
   result_state: "", stage: "", min_return: "", min_profit_factor: "", min_trades: "",
-  max_drawdown: "", min_robustness: "",
+  max_drawdown: "", min_robustness: "", min_win_rate: "", min_expectancy: "",
 };
+
+/** Accepts "10590", "Node_10590", "#10590" (any case/spacing) for the search box. */
+export function normaliseNodeSearch(raw) {
+  const s = String(raw ?? "").trim();
+  if (!s) return "";
+  const m = s.match(/^(?:#|node[\s_]*#?)?\s*(\d+)$/i);
+  return m ? m[1] : s;
+}
 
 function filtersToParams(f) {
   const p = {};
-  if (f.search) p.search = f.search.trim();
+  if (f.search) p.search = normaliseNodeSearch(f.search);
   if (f.generation) p.generation = f.generation;
   if (f.status) p.status = f.status;
   if (f.symbol) p.symbol = f.symbol;
   if (f.timeframe) p.timeframe = f.timeframe;
   if (f.direction) p.direction = f.direction;
   if (f.stage) p.stage = f.stage;
-  ["min_return", "min_profit_factor", "min_trades", "max_drawdown", "min_robustness"].forEach((k) => {
+  ["min_return", "min_profit_factor", "min_trades", "max_drawdown", "min_robustness",
+   "min_win_rate", "min_expectancy"].forEach((k) => {
     if (f[k] !== "" && f[k] !== undefined) p[k] = f[k];
   });
   if (f.result_state === "backtested") p.has_backtest = true;
@@ -88,6 +98,7 @@ export default function StrategyLab() {
   const [actionErr, setActionErr] = useState(null);
 
   const [detail, setDetail] = useState(null);
+  const [drawerId, setDrawerId] = useState(null);
   const [detailBusy, setDetailBusy] = useState(false);
   const [detailErr, setDetailErr] = useState(null);
 
@@ -137,6 +148,30 @@ export default function StrategyLab() {
 
   const toggleSelected = (id) => {
     setSelectedIds((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
+  };
+
+  /** Open the full V4.8 drawer (identity, equity curve, lineage, raw data). */
+  const openDrawer = (id) => { setDrawerId(id); openDetail(id); };
+
+  /** Download the research profile of the selection (from the API payloads). */
+  const exportProfile = () => {
+    const ids = selectedIds.length ? selectedIds : (detail?.node?.id ? [detail.node.id] : []);
+    if (!ids.length) return;
+    const profile = {
+      exported_at: new Date().toISOString(),
+      source: "GET /api/research/strategies + /api/strategies/{id}/economics",
+      scope: list?.scope, population_total: list?.population_total,
+      filters_applied: list?.filters, sort, dir,
+      selected_ids: ids,
+      rows: nodes.filter((n) => ids.includes(n.id)),
+      detail: detail ? detail : undefined,
+    };
+    const blob = new Blob([JSON.stringify(profile, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `research_profile_${ids.length}_nodes.json`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
   };
 
   const openDetail = (id) => {
@@ -248,6 +283,12 @@ const clearSelection = () => { setSelectedIds([]); setCompare(null); setMatrix(n
           <input className="input" style={{ width: 130 }} placeholder="min robustness"
                  title="minimum validation robustness score"
                  value={filters.min_robustness} onChange={(e) => setFilters({ ...filters, min_robustness: e.target.value })} />
+          <input className="input" style={{ width: 120 }} placeholder="min win rate"
+                 title="minimum stored win rate (e.g. 0.4 = 40%)"
+                 value={filters.min_win_rate} onChange={(e) => setFilters({ ...filters, min_win_rate: e.target.value })} />
+          <input className="input" style={{ width: 130 }} placeholder="min expectancy"
+                 title="minimum stored expectancy"
+                 value={filters.min_expectancy} onChange={(e) => setFilters({ ...filters, min_expectancy: e.target.value })} />
           <button className="btn" onClick={() => setFilters(EMPTY_FILTERS)}>reset</button>
         </div>
         <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>
@@ -289,8 +330,12 @@ const clearSelection = () => { setSelectedIds([]); setCompare(null); setMatrix(n
           <select className="input" value={limit} onChange={(e) => setLimit(Number(e.target.value))}>
             {[25, 50, 100, 200].map((n) => <option key={n} value={n}>{n} / page</option>)}
           </select>
-          <button className="btn" disabled={offset <= 0} onClick={() => setOffset(Math.max(0, offset - limit))}>‹ prev</button>
-          <button className="btn" disabled={offset + limit >= total} onClick={() => setOffset(offset + limit)}>next ›</button>
+          <button className="btn" disabled={offset <= 0}
+                  title={offset <= 0 ? "already on the first page" : "previous page"}
+                  onClick={() => setOffset(Math.max(0, offset - limit))}>‹ prev</button>
+          <button className="btn" disabled={offset + limit >= total}
+                  title={offset + limit >= total ? "no more matching nodes" : "next page"}
+                  onClick={() => setOffset(offset + limit)}>next ›</button>
           <button className="btn" onClick={selectPage}>select page</button>
         </div>
 
@@ -328,7 +373,7 @@ const clearSelection = () => { setSelectedIds([]); setCompare(null); setMatrix(n
                     </td>
                     <td>
                       <button className="btn" style={{ padding: "1px 6px" }}
-                              onClick={() => openDetail(n.id)} title="open the node detail (research / economics / execution)">
+                              onClick={() => openDrawer(n.id)} title="open the node detail drawer (identity / metrics / equity / lineage / raw data)">
                         Node_{n.id}
                       </button>
                       {starred ? <span title="shortlisted" style={{ marginLeft: 4 }}>⭐</span> : null}
@@ -375,8 +420,16 @@ const clearSelection = () => { setSelectedIds([]); setCompare(null); setMatrix(n
             <button className="btn" style={{ marginLeft: 8 }} onClick={clearSelection}>clear</button>
           )}
           <button className="btn" style={{ marginLeft: 8 }} disabled={!selectedIds.length || busyAction === "matrix"}
+                  title={!selectedIds.length ? "select at least one node first" :
+                         busyAction === "matrix" ? "building the matrix…" :
+                         "build the comparison matrix for the selected nodes"}
                   onClick={() => runMatrix()}>
             {busyAction === "matrix" ? "building matrix…" : "Backtest Matrix"}
+          </button>
+          <button className="btn" style={{ marginLeft: 8 }} disabled={!selectedIds.length}
+                  title="download the research profile of the selected nodes (JSON)"
+                  onClick={exportProfile}>
+            Export research profile
           </button>
           <button className="btn primary" style={{ marginLeft: 8 }}
                   disabled={!selectedIds.length || selectedIds.length > maxCompare || busyAction === "compare"}
@@ -541,11 +594,15 @@ const clearSelection = () => { setSelectedIds([]); setCompare(null); setMatrix(n
         </span>
       </h3>
       {detailErr && <ErrorNote err={detailErr} />}
+      {drawerId !== null && (
+        <NodeDetailDrawer id={drawerId} onClose={() => setDrawerId(null)} onOpenStrategy={openInWorkspace} />
+      )}
       <NodeResearchDetail node={detail} busy={detailBusy}
                           emptyHint="Click a node id in the table above to load the V4.4 detail (research results, node economics and the separate execution records)."
                           onOpenStrategy={openInWorkspace} />
       {detail && !detailBusy && (
         <div className="btn-row" style={{ marginTop: 8 }}>
+          <button className="btn primary" onClick={() => openDrawer(detail.node?.id)}>open full detail drawer</button>
           <button className="btn" onClick={() => openInWorkspace(detail.node?.id)}>open in workspace</button>
           <button className="btn" onClick={() => toggleShortlist && toggleShortlist(detail.node?.id)}>
             {(shortlist || []).includes(detail.node?.id) ? "remove from shortlist" : "add to shortlist"}

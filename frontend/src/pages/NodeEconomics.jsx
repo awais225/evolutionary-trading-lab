@@ -1,710 +1,546 @@
-import React, { useState, useEffect, useCallback } from "react";
+/* V4.8 — Node Economics: complete visual node-control page (§4).
+ *
+ * Everything on this page comes from the existing backend surface:
+ *   GET  /api/strategies/{sid}/economics      (authoritative model + all stages)
+ *   GET  /api/strategies/{sid}/charts         (equity curve availability)
+ *   POST /api/research/shortlist/toggle       (shortlist)
+ *   POST /api/strategies/{sid}/pipeline-stage (promotion pipeline)
+ *   POST /api/live-test/strategies/{sid}/toggle   (per-node live testing)
+ *   POST /api/mt5-demo/strategies/{sid}/toggle    (per-node demo)
+ *   GET  /api/mt5-historical/runs?strategy_id= (a completed MT5 backtest is
+ *        required before the MT5-Backtested stage can be marked)
+ *
+ * No metric is invented: anything the stored research does not contain renders
+ * as N/A, and a stage transition that the backend does not actually perform is
+ * reported as a failure instead of being shown as success.
+ */
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, fmt } from "../api.js";
+import { arr, NA_TEXT, txt, objOrNull, numOrNull } from "../lib/safe.js";
+import { Badge, Card, Kpi, SectionTitle, StateBlock, Star, parseNodeId, fmtId } from "../components/ui.jsx";
+import { JsonView } from "../components/common.jsx";
 import { useLab } from "../App.jsx";
-import StructuredError from "../components/StructuredError.jsx";
+
+const DEAD = new Set(["FAILED", "KILLED", "RETIRED", "DEAD", "LEGACY_TEST"]);
+
+/* The promotion pipeline, in order. `backend` is the value the API stores. */
+const PIPELINE = [
+  { key: "QUALIFIED", label: "Qualified", backend: "QUALIFIED" },
+  { key: "SHORTLISTED", label: "Shortlisted", backend: "SHORTLISTED" },
+  { key: "MT5_BACKTESTED", label: "MT5 Backtested", backend: "MT5_BACKTESTED" },
+  { key: "LIVE_TESTING", label: "Live Testing", backend: "LIVE_TESTING" },
+  { key: "MT5_DEMO", label: "MT5 Demo", backend: "MT5_DEMO" },
+  { key: "FINAL_CANDIDATE", label: "Final Candidate", backend: "FINAL_CANDIDATE" },
+];
+
+function stageIndex(stage) {
+  const i = PIPELINE.findIndex((s) => s.key === String(stage || "").toUpperCase());
+  if (i >= 0) return i;
+  // GENERATED / SCREENED / VALIDATED are pre-pipeline states
+  return -1;
+}
+
+function pctOrNull(v) {
+  const n = numOrNull(v);
+  return n === null ? null : (Math.abs(n) <= 1.001 ? n * 100 : n);
+}
 
 export default function NodeEconomics() {
-  const { selectedStrategyId, setSelectedStrategyId, shortlist, toggleShortlist, navigateTab } = useLab() || {};
-  const [nodeIdInput, setNodeIdInput] = useState(selectedStrategyId ? String(selectedStrategyId) : "240");
+  const lab = useLab() || {};
+  const [input, setInput] = useState("1195");
+  const [sid, setSid] = useState(1195);
   const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [actionMsg, setActionMsg] = useState(null);
-  const [actionBusy, setActionBusy] = useState("");
+  const [charts, setCharts] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState(null);
+  const [notice, setNotice] = useState(null);
+  const [showDead, setShowDead] = useState(false);
+  const [busy, setBusy] = useState("");
+  const [runs, setRuns] = useState(null);
+  const inputRef = useRef(null);
 
-  const currentSid = selectedStrategyId || 240;
-
-  const fetchEconomics = useCallback(async (sid) => {
-    if (!sid) return;
-    setLoading(true);
-    setError(null);
+  const load = useCallback(async (id) => {
+    setLoading(true); setErr(null);
     try {
-      const res = await api.nodeEconomics(sid);
-      setData(res);
-      if (setSelectedStrategyId) setSelectedStrategyId(sid);
-    } catch (err) {
-      setError(err);
+      const d = await api.nodeEconomics(id);
+      setData(d);
+      api.strategyCharts(id).then(setCharts).catch(() => setCharts(null));
+      api.mt5HistoricalRuns({ strategy_id: id, limit: 5 }).then(setRuns).catch(() => setRuns(null));
+    } catch (e) {
+      setErr(e.message || String(e));
+      setData(null);
     } finally {
       setLoading(false);
     }
-  }, [setSelectedStrategyId]);
+  }, []);
 
+  useEffect(() => { load(sid); }, [sid, load]);
+
+  // "/" focuses the node lookup, as advertised in the hint
   useEffect(() => {
-    if (selectedStrategyId) {
-      setNodeIdInput(String(selectedStrategyId));
-      fetchEconomics(selectedStrategyId);
-    } else {
-      fetchEconomics(240);
-    }
-  }, [selectedStrategyId, fetchEconomics]);
-
-  const handleLookup = (e) => {
-    e?.preventDefault();
-    const cleanId = parseInt(nodeIdInput.replace(/[^0-9]/g, ""), 10);
-    if (!cleanId) return;
-    fetchEconomics(cleanId);
-  };
-
-  const handleToggleStar = async () => {
-    if (!data?.id) return;
-    try {
-      if (toggleShortlist) {
-        await toggleShortlist(data.id);
-      } else {
-        await api.toggleShortlist(data.id);
+    const onKey = (e) => {
+      if (e.key === "/" && !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName)) {
+        e.preventDefault();
+        inputRef.current?.focus();
       }
-      fetchEconomics(data.id);
-    } catch (err) {
-      setError(err);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const id = parseNodeId(input);
+  /* V4.8 QA: an unresolvable lookup used to be a silent no-op — the button did
+   * nothing, the page kept the previously loaded node and "Resolved id" showed
+   * N/A, so invalid input looked like a broken control. Now it is refused with
+   * an explicit reason and the displayed node is named, never silently reused. */
+  const loadNode = () => {
+    const n = parseNodeId(input);
+    if (n === null) {
+      setNotice({
+        ok: false,
+        text: input.trim()
+          ? `"${input.trim()}" does not contain a node id. Use 10590, Node_10590 or #10590.`
+          : "Enter a node id first (for example 10590, Node_10590 or #10590).",
+      });
+      return;
     }
+    setNotice(null);
+    setSid(n); setShowDead(false);
   };
 
-  const handlePromoteStage = async (newStage) => {
-    if (!data?.id) return;
-    setActionBusy("stage");
-    setActionMsg(null);
+  const node = objOrNull(data);
+  const status = String(node?.status || "").toUpperCase();
+  const isDead = DEAD.has(status);
+  const blockedDead = isDead && !showDead;
+
+  const stage = stageIndex(node?.pipeline_stage);
+  const children = arr(node?.children);
+  const metrics = objOrNull(node?.metrics) || {};
+  const returns = objOrNull(node?.returns) || {};
+  const pfs = objOrNull(node?.profit_factors) || {};
+  const backtest = objOrNull(metrics.backtest) || {};
+  const validation = objOrNull(metrics.validation) || {};
+  const mt5b = objOrNull(metrics.mt5_backtest) || {};
+  const liveT = objOrNull(metrics.live_test) || {};
+  const demoT = objOrNull(metrics.mt5_demo) || {};
+  const genome = objOrNull(node?.genome) || {};
+  const indicators = arr(node?.indicators);
+  const entries = objOrNull(node?.entry_conditions) || { long: [], short: [] };
+  const exits = objOrNull(node?.exit_conditions) || {};
+  const sizing = objOrNull(node?.position_management) || {};
+
+  const entryClauses = arr(entries.long).length + arr(entries.short).length;
+  const exitClauses = Object.values(exits).filter((v) => v && v !== "None").length;
+  const regime = objOrNull(genome.regime_filters);
+  const regimeList = regime ? Object.entries(regime).filter(([, v]) => v !== null && v !== undefined && v !== false && v !== "") : [];
+  const sessions = genome.sessions ?? null;
+  const days = Array.isArray(genome.days) ? genome.days : null;
+
+  const completedRun = useMemo(() => {
+    const list = arr(runs?.runs).filter((r) => String(r?.status || "").toUpperCase() === "COMPLETED");
+    return list[0] || null;
+  }, [runs]);
+
+  /* ------------------------------------------------------------ transitions */
+  const setStage = async (target, extraNotes = "") => {
+    setBusy(target); setNotice(null);
     try {
-      await api.updatePipelineStage(data.id, newStage, `Advanced via Node Economics`);
-      setActionMsg({ ok: true, text: `✓ Strategy pipeline state updated to ${newStage}` });
-      fetchEconomics(data.id);
-    } catch (err) {
-      setError(err);
-    } finally {
-      setActionBusy("");
-    }
+      const res = await api.updatePipelineStage(sid, target, extraNotes);
+      if (res?.ok === false) throw new Error(txt(res.error, "the backend refused the stage change"));
+      setNotice({ ok: true, text: `Stage set to ${target}.` });
+      await load(sid);
+    } catch (e) {
+      setNotice({ ok: false, text: `Stage change failed: ${e.message || e}` });
+    } finally { setBusy(""); }
   };
 
-  const isShortlisted = shortlist?.includes(data?.id) || data?.shortlisted;
-  const g = data?.genome || {};
-  const mBt = data?.metrics?.backtest || {};
-  const mVal = data?.metrics?.validation || {};
-  const mMt5 = data?.metrics?.mt5_backtest || {};
-  const mLive = data?.metrics?.live_test || {};
-  const mDemo = data?.metrics?.mt5_demo || {};
+  const toggleShortlist = async () => {
+    setBusy("shortlist"); setNotice(null);
+    try {
+      const res = await api.toggleShortlist(sid);
+      setNotice({ ok: true, text: res?.shortlisted ? "Added to the shortlist." : "Removed from the shortlist." });
+      await load(sid);
+    } catch (e) {
+      setNotice({ ok: false, text: `Shortlist update failed: ${e.message || e}` });
+    } finally { setBusy(""); }
+  };
+
+  const toggleLive = async () => {
+    setBusy("live"); setNotice(null);
+    try {
+      const res = await api.toggleLiveTest(sid);
+      const active = res?.is_active ?? res?.active;
+      setNotice({ ok: true, text: `Live testing for this node: ${active ? "started" : "stopped"} (${txt(res?.status, "no status")}).` });
+      if (active) await api.updatePipelineStage(sid, "LIVE_TESTING", "started live testing from Node Economics").catch(() => {});
+      await load(sid);
+    } catch (e) {
+      setNotice({ ok: false, text: `Live testing toggle failed: ${e.message || e}` });
+    } finally { setBusy(""); }
+  };
+
+  const toggleDemo = async () => {
+    setBusy("demo"); setNotice(null);
+    try {
+      const res = await api.toggleMt5Demo(sid);
+      const enabled = res?.enabled ?? res?.active;
+      setNotice({ ok: true, text: `MT5 demo for this node: ${enabled ? "enabled" : "disabled"}.` });
+      if (enabled) await api.updatePipelineStage(sid, "MT5_DEMO", "enabled demo trading from Node Economics").catch(() => {});
+      await load(sid);
+    } catch (e) {
+      setNotice({ ok: false, text: `MT5 demo toggle failed: ${e.message || e}` });
+    } finally { setBusy(""); }
+  };
+
+  /* ---------------------------------------------------------------- actions */
+  const quickNav = (page) => {
+    if (typeof lab.navigateTab === "function") lab.navigateTab(page, sid);
+    else setNotice({ ok: false, text: "Navigation is unavailable in this context." });
+  };
+
+  const kpis = [
+    { label: "OOS Return", value: pctOrNull(returns.validation_oos_return_pct), pct: true, tone: numOrNull(returns.validation_oos_return_pct) >= 0 ? "pos" : "neg" },
+    { label: "Profit Factor", value: numOrNull(pfs.oos ?? pfs.in_sample), digits: 2 },
+    { label: "Max Drawdown", value: pctOrNull(validation.max_drawdown_pct ?? backtest.max_drawdown_pct), pct: true, tone: "warn" },
+    { label: "Robustness Score", value: numOrNull(node?.robustness_score), digits: 3 },
+    { label: "Sharpe Ratio", value: numOrNull(validation.sharpe ?? backtest.sharpe), digits: 2 },
+  ];
+
+  const stageCards = [
+    {
+      key: "research", name: "Research / Qualification", status: node?.pipeline_stage || node?.status,
+      ret: pctOrNull(returns.backtest_return_pct), pnl: numOrNull(backtest.net_profit),
+      trades: numOrNull(backtest.trades), action: { label: "Open in Strategy Lab", onClick: () => quickNav("lab") },
+    },
+    {
+      key: "backtest", name: "Backtest", status: txt(node?.dataset_id, "no dataset"),
+      ret: pctOrNull(returns.backtest_return_pct), pnl: numOrNull(backtest.net_profit),
+      trades: numOrNull(backtest.trades), action: { label: "Backtest Matrix", onClick: () => quickNav("matrix") },
+    },
+    {
+      key: "validation", name: "Validation / Robustness", status: validation.passed === true ? "PASSED" : validation.passed === false ? "FAILED" : "NOT RUN",
+      ret: pctOrNull(returns.validation_oos_return_pct), pnl: numOrNull(validation.total_pnl ?? validation.net_profit),
+      trades: numOrNull(validation.trades), action: { label: "Backtest Matrix", onClick: () => quickNav("matrix") },
+    },
+    {
+      key: "live", name: "Live Testing", status: txt(liveT.status, "IDLE"),
+      ret: pctOrNull(returns.live_test_return_pct), pnl: numOrNull(liveT.total_pnl),
+      trades: numOrNull(liveT.total_trades), action: { label: "Live Testing", onClick: () => quickNav("live_test") },
+    },
+    {
+      key: "demo", name: "MT5 Demo", status: txt(demoT.status, "STOPPED"),
+      ret: pctOrNull(returns.mt5_demo_return_pct), pnl: numOrNull(demoT.total_pnl),
+      trades: numOrNull(demoT.total_trades), action: { label: "MT5 Demo Trading", onClick: () => quickNav("mt5_demo") },
+    },
+  ];
+
+  const canAdvance = (key) => {
+    if (key === "SHORTLISTED") return true;
+    if (key === "MT5_BACKTESTED") return Boolean(completedRun);
+    if (key === "LIVE_TESTING") return Boolean(liveT.is_active) || Number(liveT.total_trades || 0) > 0;
+    if (key === "MT5_DEMO") return Boolean(demoT.enabled) || Number(demoT.total_trades || 0) > 0;
+    if (key === "FINAL_CANDIDATE") return Number(demoT.total_trades || 0) > 0 && Number(liveT.total_trades || 0) > 0;
+    return true;
+  };
+
+  const onStageClick = (s, i) => {
+    setNotice(null);
+    if (i === stage) { setNotice({ ok: true, text: `This node is already at ${s.label}.` }); return; }
+    if (i > stage && stage >= 0) {
+      if (!canAdvance(s.key)) {
+        const why = s.key === "MT5_BACKTESTED"
+          ? "No completed MT5 historical backtest exists for this node yet — run one on the MT5 Backtest page first."
+          : s.key === "LIVE_TESTING"
+            ? "Start live testing for this node (the button below) before marking this stage."
+            : s.key === "MT5_DEMO"
+              ? "Enable MT5 demo trading for this node before marking this stage."
+              : "Final Candidate requires both live-test and demo trade history for this node.";
+        setNotice({ ok: false, text: `Cannot mark ${s.label}: ${why}` });
+        return;
+      }
+    }
+    if (s.key === "SHORTLISTED") { setStage("SHORTLISTED", "marked from Node Economics"); return; }
+    setStage(s.key, "set from Node Economics");
+  };
 
   return (
-    <div className="node-economics-page p-6 max-w-7xl mx-auto space-y-6 animate-in fade-in duration-300">
-      {/* Top Header & Strategy Selector */}
-      <div className="flex flex-wrap items-center justify-between gap-4 bg-slate-900/80 p-4 rounded-xl border border-slate-800 shadow-md">
+    <div>
+      {/* ------------------------------------------------------------ header */}
+      <div className="kit-head">
         <div>
-          <div className="flex items-center gap-3">
-            <h2 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
-              <span>🧬 NODE ECONOMICS</span>
-              <span className="text-xs px-2 py-0.5 rounded font-mono bg-cyan-950 text-cyan-400 border border-cyan-800">
-                V4 AUTHORITATIVE GENOME MODEL
-              </span>
-            </h2>
-            {data && (
-              <button
-                type="button"
-                onClick={handleToggleStar}
-                className={`p-1.5 rounded-lg border transition-all ${
-                  isShortlisted
-                    ? "bg-amber-500/20 text-amber-400 border-amber-500/40 hover:bg-amber-500/30"
-                    : "bg-slate-800 text-slate-400 border-slate-700 hover:text-amber-400 hover:border-slate-600"
-                }`}
-                title={isShortlisted ? "Remove from persistent shortlist" : "Add to persistent shortlist (⭐)"}
-              >
-                {isShortlisted ? "⭐ Shortlisted" : "☆ Add to Shortlist"}
-              </button>
-            )}
+          <h2 className="page-title" style={{ marginBottom: 2 }}>Node Economics</h2>
+          <div className="muted" style={{ fontSize: 12 }}>
+            Authoritative genome model — identity, lineage, promotion pipeline, market model and every stage result.
           </div>
-          <p className="text-xs text-slate-400 mt-1">
-            Authoritative strategy architecture, indicator parameters, exact entry/exit conditions, risk rules, and stage-separated performance.
-          </p>
         </div>
-
-        {/* Node Selector Form */}
-        <form onSubmit={handleLookup} className="flex items-center gap-2">
-          <label className="text-xs font-semibold text-slate-300">Select Node:</label>
-          <div className="relative">
-            <input
-              type="text"
-              value={nodeIdInput}
-              onChange={(e) => setNodeIdInput(e.target.value)}
-              placeholder="e.g. 240"
-              className="w-28 px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-sm font-mono text-cyan-300 focus:outline-none focus:border-cyan-500"
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={loading}
-            className="px-3.5 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white font-medium text-xs rounded-lg transition-colors shadow disabled:opacity-50"
-          >
-            {loading ? "Loading..." : "Load Node"}
-          </button>
-        </form>
+        <Badge tone="violet">Authoritative Genome Model</Badge>
       </div>
 
-      {error && <StructuredError error={error} onDismiss={() => setError(null)} />}
-      {actionMsg && (
-        <div className={`p-3 rounded-lg text-xs font-mono ${actionMsg.ok ? "bg-emerald-950/60 border border-emerald-500/40 text-emerald-300" : "bg-rose-950/60 border border-rose-500/40 text-rose-300"}`}>
-          {actionMsg.text}
+      <div className="kit-strip" style={{ marginBottom: 12 }}>
+        <div className="item" style={{ flex: "0 0 240px" }}>
+          <span className="k">Node lookup</span>
+          <input ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)}
+                 onKeyDown={(e) => { if (e.key === "Enter") loadNode(); }}
+                 placeholder="10590 / Node_10590 / #10590" className="mono" />
+        </div>
+        <div className="item">
+          <span className="k">&nbsp;</span>
+          <button className="btn primary" onClick={loadNode} disabled={loading}>
+            {loading ? "loading…" : "Load Node"}
+          </button>
+        </div>
+        <div className="item">
+          <span className="k">Shortcut</span>
+          <span className="mono" style={{ fontSize: 12 }}>press <b>/</b> to focus the lookup</span>
+        </div>
+        <div className="item">
+          <span className="k">Shortlist</span>
+          <Star on={Boolean(node?.shortlisted)} onClick={toggleShortlist} disabled={busy === "shortlist" || !node} />
+        </div>
+        <div className="item">
+          <span className="k">Resolved id</span>
+          <span className="mono">
+            {id === null ? NA_TEXT : fmtId(id)}
+            {id !== null && node && Number(node.id) !== id && (
+              <span className="muted"> · could not load {fmtId(id)}</span>
+            )}
+          </span>
+          {id === null && node && (
+            <span className="muted" style={{ fontSize: 11 }}>
+              showing {fmtId(node.id)} (last successfully loaded node)
+            </span>
+          )}
+        </div>
+      </div>
+
+      {notice && (
+        <div className={notice.ok ? "kit-ok" : "kit-inline-err"} role="status">
+          {notice.text}
         </div>
       )}
 
-      {loading && !data && (
-        <div className="p-12 text-center text-slate-400 font-mono text-sm animate-pulse">
-          Fetching authoritative strategy genome and stage metrics...
-        </div>
-      )}
-
-      {data && (
-        <div className="space-y-6">
-          {/* Section 1: IDENTITY & MARKET SPECIFICATION */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Identity Card */}
-            <div className="bg-slate-900/80 rounded-xl border border-slate-800 p-5 shadow-sm">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
-                <span className="text-xs uppercase font-bold tracking-wider text-slate-400">
-                  Node Identity
-                </span>
-                <span className={`text-[11px] font-mono font-bold px-2.5 py-0.5 rounded border ${fmt.stageBadge(data.pipeline_stage || data.status)}`}>
-                  {data.pipeline_stage || data.status}
-                </span>
-              </div>
-              <div className="grid grid-cols-2 gap-y-3 gap-x-4 text-xs font-mono">
-                <div>
-                  <span className="text-slate-500 block">Authoritative ID:</span>
-                  <span className="text-white font-bold text-sm">Node_{data.id}</span>
-                </div>
-                <div>
-                  <span className="text-slate-500 block">Research Node #:</span>
-                  <span className="text-cyan-400 font-semibold">#{data.research_node_num}</span>
-                </div>
-                <div>
-                  <span className="text-slate-500 block">Run ID:</span>
-                  <span className="text-slate-300 truncate block" title={data.run_id}>{data.run_id}</span>
-                </div>
-                <div>
-                  <span className="text-slate-500 block">Generation:</span>
-                  <span className="text-amber-300 font-semibold">{data.generation}</span>
-                </div>
-                <div>
-                  <span className="text-slate-500 block">Parent Node:</span>
-                  <span className="text-slate-300">
-                    {data.parent_id ? (
-                      <button
-                        type="button"
-                        onClick={() => fetchEconomics(data.parent_id)}
-                        className="text-cyan-400 hover:underline"
-                      >
-                        Node_{data.parent_id}
-                      </button>
-                    ) : "Root Gen 0 (None)"}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-slate-500 block">Children Count:</span>
-                  <span className="text-slate-300">{data.children?.length || 0} direct descendants</span>
-                </div>
-                <div>
-                  <span className="text-slate-500 block">Created At:</span>
-                  <span className="text-slate-400">{fmt.dt(data.created_at)}</span>
-                </div>
-                <div>
-                  <span className="text-slate-500 block">Data Source:</span>
-                  <span className="text-slate-300">{data.data_source}</span>
-                </div>
-              </div>
-
-              {/* Pipeline Advancement Buttons */}
-              <div className="mt-5 pt-3 border-t border-slate-800">
-                <div className="text-[10px] text-slate-500 mb-2 uppercase font-semibold">
-                  Advance Promotion Pipeline (Spec §13):
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {["QUALIFIED", "SHORTLISTED", "MT5_BACKTESTED", "LIVE_TESTING", "MT5_DEMO", "FINAL_CANDIDATE"].map((st) => (
-                    <button
-                      key={st}
-                      type="button"
-                      disabled={actionBusy === "stage" || data.pipeline_stage === st}
-                      onClick={() => handlePromoteStage(st)}
-                      className={`px-2 py-1 rounded text-[10px] font-mono transition-colors ${
-                        data.pipeline_stage === st
-                          ? "bg-cyan-500/30 text-cyan-300 border border-cyan-400 font-bold"
-                          : "bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700"
-                      }`}
-                    >
-                      {st}
-                    </button>
-                  ))}
-                </div>
-              </div>
+      <StateBlock loading={loading} error={err} onRetry={() => load(sid)}
+                   empty={!node} emptyHint="Load a node to see its economics.">
+        {blockedDead ? (
+          <Card title="Dead node hidden" tone="warn">
+            <div style={{ fontSize: 13 }}>
+              Node <b className="mono">{fmtId(sid)}</b> is <Badge tone="danger">{status}</Badge> — dead nodes are hidden by default
+              because they failed the research gates and are not tradable candidates.
             </div>
-
-            {/* Market Specification */}
-            <div className="bg-slate-900/80 rounded-xl border border-slate-800 p-5 shadow-sm">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
-                <span className="text-xs uppercase font-bold tracking-wider text-slate-400">
-                  Market & Session Architecture
-                </span>
-                <span className="text-[11px] font-mono text-cyan-400 bg-cyan-950/60 px-2 py-0.5 rounded border border-cyan-800/40">
-                  {data.symbol} · {data.timeframe}
-                </span>
-              </div>
-              <div className="grid grid-cols-2 gap-y-3 gap-x-4 text-xs font-mono">
-                <div>
-                  <span className="text-slate-500 block">Asset Symbol:</span>
-                  <span className="text-white font-bold">{data.symbol}</span>
-                </div>
-                <div>
-                  <span className="text-slate-500 block">Primary Timeframe:</span>
-                  <span className="text-cyan-300 font-semibold">{data.timeframe}</span>
-                </div>
-                <div>
-                  <span className="text-slate-500 block">Trade Direction:</span>
-                  <span className="text-amber-300 uppercase font-bold">{data.direction || "BOTH"}</span>
-                </div>
-                <div>
-                  <span className="text-slate-500 block">Dataset Reference:</span>
-                  <span className="text-slate-300 truncate block text-[11px]" title={data.dataset_id}>
-                    {data.dataset_id || "Master In-Sample"}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-slate-500 block">Active Sessions:</span>
-                  <span className="text-slate-300">
-                    {g.sessions && g.sessions.length > 0 ? g.sessions.join(", ") : "All Sessions (24h)"}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-slate-500 block">Active Days:</span>
-                  <span className="text-slate-300">
-                    {g.days && g.days.length < 5 ? g.days.map(d => ["Mon","Tue","Wed","Thu","Fri"][d]).join(", ") : "Mon - Fri (All Trading Days)"}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-slate-500 block">Regime Filters:</span>
-                  <span className="text-slate-300">
-                    {g.regime_filters && g.regime_filters.length > 0 ? g.regime_filters.join(", ") : "Unconstrained (All Regimes)"}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-slate-500 block">Complexity Score:</span>
-                  <span className="text-slate-300">{data.complexity || 3} indicators / clauses</span>
-                </div>
-              </div>
-
-              {/* Navigation Action Links */}
-              <div className="mt-5 pt-3 border-t border-slate-800 flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => navigateTab && navigateTab("mt5_backtest", data.id)}
-                  className="px-2.5 py-1 bg-cyan-950/80 hover:bg-cyan-900 border border-cyan-800/60 text-cyan-300 rounded text-[11px] font-mono transition-colors"
-                >
-                  → Run MT5 Backtest
-                </button>
-                <button
-                  type="button"
-                  onClick={() => navigateTab && navigateTab("live_test", data.id)}
-                  className="px-2.5 py-1 bg-blue-950/80 hover:bg-blue-900 border border-blue-800/60 text-blue-300 rounded text-[11px] font-mono transition-colors"
-                >
-                  → Configure Live Test
-                </button>
-                <button
-                  type="button"
-                  onClick={() => navigateTab && navigateTab("matrix", data.id)}
-                  className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded text-[11px] font-mono transition-colors"
-                >
-                  → Backtest Matrix
-                </button>
-              </div>
+            <div className="muted" style={{ marginTop: 6, fontSize: 12 }}>
+              Reason on record: {txt(node?.survival_reason || node?.creation_reason, "not stated in the stored record")}
             </div>
-          </div>
-
-          {/* Section 2: INDICATORS PRESENT IN GENOME (Spec §6) */}
-          <div className="bg-slate-900/80 rounded-xl border border-slate-800 p-5 shadow-sm">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
-              <span className="text-xs uppercase font-bold tracking-wider text-slate-400">
-                Active Technical Indicators (Only Indicators Present in Genome)
-              </span>
-              <span className="text-xs font-mono text-slate-400">
-                {data.indicators?.length || 0} Indicators Loaded
-              </span>
+            <div className="btn-row" style={{ marginTop: 10, marginBottom: 0 }}>
+              <button className="btn" onClick={() => setShowDead(true)}>Show Dead Node</button>
+              <label className="fld" style={{ display: "flex", gap: 6, alignItems: "center", margin: 0 }}>
+                <input type="checkbox" style={{ width: "auto" }} checked={showDead}
+                       onChange={(e) => setShowDead(e.target.checked)} />
+                Show Dead Nodes
+              </label>
             </div>
-
-            {(!data.indicators || data.indicators.length === 0) ? (
-              <div className="text-slate-500 text-xs font-mono py-2">
-                No external indicators referenced in genome (price-action based rules).
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
-                {data.indicators.map((ind, idx) => (
-                  <div key={idx} className="bg-slate-950/80 border border-slate-800 rounded-lg p-3">
-                    <div className="text-cyan-400 font-bold text-xs">{ind.name}</div>
-                    <div className="text-slate-200 font-mono text-xs mt-1">{ind.display}</div>
-                    <div className="text-slate-500 font-mono text-[10px] mt-1.5 flex justify-between">
-                      <span>Spec: {ind.spec}</span>
-                    </div>
-                  </div>
-                ))}
+          </Card>
+        ) : (
+          <div className={isDead && showDead ? "kit-dim" : ""}>
+            {isDead && showDead && (
+              <div className="kit-banner unavail">
+                <b>DEAD NODE — {status}</b>
+                <div className="muted" style={{ marginTop: 3 }}>
+                  Shown because you asked for it. This node is not a tradable candidate; the research/trading pages exclude it.
+                </div>
+                {/* V4.8 QA: the blocked state shows the reason on record; keep it
+                    visible after revealing, otherwise the stored explanation for
+                    the failure disappears exactly when it is most useful. */}
+                <div className="muted" style={{ marginTop: 4 }}>
+                  Reason on record:{" "}
+                  <b>{txt(node?.survival_reason || node?.creation_reason, "not stated in the stored record")}</b>
+                </div>
               </div>
             )}
+
+            {/* ------------------------------------------------------ identity */}
+            <SectionTitle hint="The stored authoritative identifiers — no recomputation.">Identity &amp; Lineage</SectionTitle>
+            <div className="grid cols-4" style={{ marginBottom: 6 }}>
+              <Card><div className="kit-kv"><span className="k">Authoritative ID</span><b className="mono">{txt(node?.id)}</b></div>
+                <div className="kit-kv"><span className="k">Node label</span><span className="mono">{txt(node?.node_id)}</span></div></Card>
+              <Card><div className="kit-kv"><span className="k">Research index</span><b className="mono">{txt(node?.research_node_num, "—")}</b></div>
+                <div className="kit-kv"><span className="k">Run ID</span><span className="mono">{txt(node?.run_id, "—")}</span></div></Card>
+              <Card><div className="kit-kv"><span className="k">Generation</span><b className="mono">{txt(node?.generation)}</b></div>
+                <div className="kit-kv"><span className="k">Status</span><span><Badge tone={isDead ? "danger" : status === "QUALIFIED" ? "ok" : "info"}>{txt(status, "UNKNOWN")}</Badge></span></div></Card>
+              <Card><div className="kit-kv"><span className="k">Parent node</span>
+                  <span>{node?.parent_id ? <button className="kit-chip mono" onClick={() => { setInput(String(node.parent_id)); setSid(Number(node.parent_id)); setShowDead(false); }}>#{node.parent_id}</button> : <span className="muted">{NA_TEXT} (root)</span>}</span></div>
+                <div className="kit-kv"><span className="k">Descendants</span><b className="mono">{children.length}</b></div></Card>
+            </div>
+            <Card title="Direct children" style={{ marginBottom: 4 }}>
+              {children.length === 0
+                ? <span className="muted">No children recorded for this node.</span>
+                : (
+                  <div>
+                    {children.map((c, i) => {
+                      const cid = parseNodeId(c?.id ?? c);
+                      if (cid === null) return <span key={i} className="kit-chip muted">{NA_TEXT}</span>;
+                      return (
+                        <button key={cid} className="kit-chip mono" onClick={() => { setInput(String(cid)); setSid(cid); setShowDead(false); }}>
+                          #{cid}{c?.status ? <span className="muted"> · {c.status}</span> : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+            </Card>
+
+            {/* ----------------------------------------------- promotion track */}
+            <SectionTitle hint="Every transition calls the real backend operation — nothing is marked complete by the UI alone.">
+              Promotion Pipeline
+            </SectionTitle>
+            <PipelineTrack stage={stage} busy={busy} onPick={onStageClick} />
+            <div className="muted" style={{ fontSize: 11.5, marginTop: 6 }}>
+              Current stage: <b>{stage >= 0 ? PIPELINE[stage].label : txt(node?.pipeline_stage, "not in the promotion pipeline")}</b>
+              {completedRun ? <> · MT5 backtest <span className="mono">{completedRun.run_id}</span> COMPLETED</> : " · no completed MT5 backtest"}
+            </div>
+
+            <div className="btn-row" style={{ marginTop: 10 }}>
+              <button className="btn" disabled={busy === "live"} onClick={toggleLive}>
+                {liveT.is_active ? "■ Stop Live Testing" : "▶ Start Live Testing"}
+              </button>
+              <button className="btn" disabled={busy === "demo"} onClick={toggleDemo}>
+                {demoT.enabled ? "■ Disable MT5 Demo" : "▶ Enable MT5 Demo"}
+              </button>
+            </div>
+
+            {/* ------------------------------------------------------- KPI cards */}
+            <SectionTitle hint="Unavailable values are shown as N/A — the stored research does not contain them.">Key Metrics</SectionTitle>
+            <div className="grid cols-4" style={{ gridTemplateColumns: "repeat(5, minmax(0,1fr))" }}>
+              {kpis.map((k) => (
+                <Kpi key={k.label} label={k.label} tone={k.tone}
+                     value={k.value === null ? NA_TEXT : k.pct ? fmt.pct(k.value / 100, 2) : fmt.num(k.value, k.digits ?? 2)} />
+              ))}
+            </div>
+
+            {/* ----------------------------------------------------- stage cards */}
+            <SectionTitle>Stage Results</SectionTitle>
+            <div className="grid cols-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))" }}>
+              {stageCards.map((s) => (
+                <div className="kit-stage-card" key={s.key}>
+                  <div className="hd">
+                    <span className="nm">{s.name}</span>
+                    <Badge tone={/PASSED|QUALIFIED|COMPLETED/i.test(String(s.status)) ? "ok"
+                      : /FAIL|KILL|STOP|NOT RUN|IDLE/i.test(String(s.status)) ? "mute" : "info"}>
+                      {txt(s.status)}
+                    </Badge>
+                  </div>
+                  <div className="kit-kv"><span className="k">Return</span><span className={s.ret === null ? "muted" : s.ret >= 0 ? "pos" : "neg"}>{s.ret === null ? NA_TEXT : fmt.pct(s.ret / 100, 2)}</span></div>
+                  <div className="kit-kv"><span className="k">P/L</span><span className={s.pnl === null ? "muted" : s.pnl >= 0 ? "pos" : "neg"}>{s.pnl === null ? NA_TEXT : fmt.pnl(s.pnl)}</span></div>
+                  <div className="kit-kv"><span className="k">Trades</span><span className="mono">{s.trades === null ? NA_TEXT : fmt.num(s.trades, 0)}</span></div>
+                  <button className="btn" style={{ width: "100%", marginTop: 8 }} onClick={s.action.onClick}>{s.action.label}</button>
+                </div>
+              ))}
+            </div>
+
+            {/* ------------------------------------------------- market & session */}
+            <SectionTitle hint="Taken from the genome clause set — no interpretation is added.">Market &amp; Session Model</SectionTitle>
+            <div className="grid cols-2">
+              <Card title="Regime filters">
+                {regimeList.length === 0
+                  ? <div><Badge tone="info">Unconstrained</Badge> <span className="muted" style={{ marginLeft: 6 }}>the genome applies no regime filter</span></div>
+                  : <div>{regimeList.map(([k, v]) => <span key={k} className="kit-chip">{k}: <b>{String(v)}</b></span>)}</div>}
+                <div className="kit-kv" style={{ marginTop: 8 }}><span className="k">Sessions</span><span>{sessions === null || (Array.isArray(sessions) && sessions.length === 0) ? <Badge tone="info">All sessions</Badge> : <span className="mono">{JSON.stringify(sessions)}</span>}</span></div>
+                <div className="kit-kv"><span className="k">Days</span><span>{days === null ? <Badge tone="info">All days</Badge> : <span className="mono">{days.join(", ")}</span>}</span></div>
+              </Card>
+              <Card title="Clause set">
+                <div className="kit-kv"><span className="k">Entry clauses</span><b className="mono">{entryClauses}</b></div>
+                <div className="kit-kv"><span className="k">Exit clauses</span><b className="mono">{exitClauses}</b></div>
+                <div className="kit-kv"><span className="k">Total clauses</span><b className="mono">{entryClauses + exitClauses}</b></div>
+                <div className="kit-kv"><span className="k">Complexity</span><b className="mono">{txt(node?.complexity, "—")}</b></div>
+                <div className="kit-kv"><span className="k">Direction</span><span>{txt(node?.direction)}</span></div>
+              </Card>
+            </div>
+
+            <div className="kit-cols" style={{ marginTop: 12 }}>
+              <Card title="Indicators &amp; rules" style={{ flex: "1 1 320px" }}>
+                {indicators.length === 0 ? <span className="muted">No indicators parsed from the genome.</span> : (
+                  <>
+                    <div>{indicators.map((ind, i) => (
+                      <span className="kit-chip" key={i}>{txt(ind?.display || ind?.spec, NA_TEXT)}</span>
+                    ))}</div>
+                    <div style={{ marginTop: 8 }}>
+                      {arr(entries.short).map((c, i) => <div key={`s${i}`} className="mono" style={{ fontSize: 11.5 }}>short: {txt(c)}</div>)}
+                      {arr(entries.long).map((c, i) => <div key={`l${i}`} className="mono" style={{ fontSize: 11.5 }}>long: {txt(c)}</div>)}
+                      {entryClauses === 0 && <span className="muted">No explicit entry clause text stored.</span>}
+                    </div>
+                  </>
+                )}
+              </Card>
+              <Card title="Position sizing" style={{ flex: "1 1 260px" }}>
+                {Object.keys(sizing).length === 0 ? <span className="muted">No sizing record stored.</span> : (
+                  Object.entries(sizing).map(([k, v]) => (
+                    <div className="kit-kv" key={k}><span className="k">{k.replace(/_/g, " ")}</span><span>{txt(v)}</span></div>
+                  ))
+                )}
+              </Card>
+            </div>
+
+            {/* ------------------------------------------------ exits + safety */}
+            <div className="kit-cols" style={{ marginTop: 12 }}>
+              <Card title="Exit model" style={{ flex: "1 1 320px" }}>
+                {Object.keys(exits).length === 0 ? <span className="muted">No exit model stored.</span> : (
+                  Object.entries(exits).map(([k, v]) => (
+                    <div className="kit-kv" key={k}><span className="k">{k.replace(/_/g, " ")}</span><span>{txt(v)}</span></div>
+                  ))
+                )}
+              </Card>
+              <Card title="Safety" style={{ flex: "1 1 260px" }}>
+                <div className="kit-kv"><span className="k">Live stage — Real Money</span>
+                  <b style={{ color: "var(--green)" }}>$0 (ZERO)</b></div>
+                <div className="muted" style={{ fontSize: 11.5, marginBottom: 6 }}>
+                  Live testing is a monitored lab stage; the V4.2 execution path cannot place a real-money order.
+                </div>
+                <div className="kit-kv"><span className="k">Demo stage — Safety Gating</span><Badge tone="ok">CONFIRMED</Badge></div>
+                <div className="kit-kv"><span className="k">Account Type</span><Badge tone="sim">DEMO ONLY</Badge></div>
+              </Card>
+            </div>
+
+            {/* -------------------------------------------------- quick navigation */}
+            <SectionTitle hint="The current node is carried into the destination page.">Quick Navigation</SectionTitle>
+            <div className="btn-row">
+              <button className="btn" onClick={() => quickNav("mt5_backtest")}>MT5 Backtest →</button>
+              <button className="btn" onClick={() => quickNav("live_test")}>Live Testing →</button>
+              <button className="btn" onClick={() => quickNav("matrix")}>Backtest Matrix →</button>
+              <button className="btn" onClick={() => quickNav("lab")}>Strategy Lab →</button>
+            </div>
+
+            {/* ------------------------------------------------------- raw data */}
+            <SectionTitle hint="Exactly what the API returned for this node.">Raw Data View</SectionTitle>
+            <Card>
+              <JsonView data={data} maxHeight={320} />
+              <div className="muted" style={{ fontSize: 11.5, marginTop: 6 }}>
+                Equity curve data: {charts?.equity?.length ? <Badge tone="ok">{charts.equity.length} points</Badge>
+                  : node?.has_equity_curve ? <Badge tone="info">available on the Backtest Matrix / details drawer</Badge> : <Badge tone="mute">not available</Badge>}
+              </div>
+            </Card>
           </div>
+        )}
+      </StateBlock>
+    </div>
+  );
+}
 
-          {/* Section 3: ENTRY & EXIT CONDITIONS */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Entry Conditions */}
-            <div className="bg-slate-900/80 rounded-xl border border-slate-800 p-5 shadow-sm">
-              <div className="border-b border-slate-800 pb-3 mb-4">
-                <span className="text-xs uppercase font-bold tracking-wider text-emerald-400">
-                  Entry Signal Logic (Human-Readable AST)
-                </span>
-              </div>
-              <div className="space-y-4">
-                <div>
-                  <div className="text-xs font-bold text-emerald-300 mb-1 flex items-center gap-1.5">
-                    <span>🟢 LONG ENTRY CONDITIONS:</span>
-                  </div>
-                  {data.entry_conditions?.long && data.entry_conditions.long.length > 0 ? (
-                    <div className="space-y-1.5">
-                      {data.entry_conditions.long.map((cond, i) => (
-                        <div key={i} className="bg-slate-950/80 border border-emerald-950 rounded p-2 text-xs font-mono text-emerald-200 flex items-start gap-2">
-                          <span className="text-slate-500 shrink-0">#{i + 1}</span>
-                          <span>{cond}</span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="text-slate-500 text-xs font-mono italic">No long entry clause (short-only).</div>
-                  )}
-                </div>
-
-                <div>
-                  <div className="text-xs font-bold text-rose-300 mb-1 flex items-center gap-1.5">
-                    <span>🔴 SHORT ENTRY CONDITIONS:</span>
-                  </div>
-                  {data.entry_conditions?.short && data.entry_conditions.short.length > 0 ? (
-                    <div className="space-y-1.5">
-                      {data.entry_conditions.short.map((cond, i) => (
-                        <div key={i} className="bg-slate-950/80 border border-rose-950 rounded p-2 text-xs font-mono text-rose-200 flex items-start gap-2">
-                          <span className="text-slate-500 shrink-0">#{i + 1}</span>
-                          <span>{cond}</span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="text-slate-500 text-xs font-mono italic">No short entry clause (long-only).</div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Exit Conditions & Position Management */}
-            <div className="space-y-6">
-              {/* Exit Conditions */}
-              <div className="bg-slate-900/80 rounded-xl border border-slate-800 p-5 shadow-sm">
-                <div className="border-b border-slate-800 pb-3 mb-4">
-                  <span className="text-xs uppercase font-bold tracking-wider text-amber-400">
-                    Exit Conditions & Risk Orders
-                  </span>
-                </div>
-                <div className="grid grid-cols-2 gap-3 text-xs font-mono">
-                  <div className="bg-slate-950/60 p-2.5 rounded border border-slate-800">
-                    <span className="text-slate-500 block text-[11px]">Take Profit:</span>
-                    <span className="text-emerald-400 font-semibold">{data.exit_conditions?.take_profit || "None"}</span>
-                  </div>
-                  <div className="bg-slate-950/60 p-2.5 rounded border border-slate-800">
-                    <span className="text-slate-500 block text-[11px]">Stop Loss:</span>
-                    <span className="text-rose-400 font-semibold">{data.exit_conditions?.stop_loss || "None"}</span>
-                  </div>
-                  <div className="bg-slate-950/60 p-2.5 rounded border border-slate-800">
-                    <span className="text-slate-500 block text-[11px]">Trailing Stop:</span>
-                    <span className="text-slate-300">{data.exit_conditions?.trailing_stop || "None"}</span>
-                  </div>
-                  <div className="bg-slate-950/60 p-2.5 rounded border border-slate-800">
-                    <span className="text-slate-500 block text-[11px]">Time Horizon Exit:</span>
-                    <span className="text-slate-300">{data.exit_conditions?.time_exit}</span>
-                  </div>
-                  <div className="col-span-2 bg-slate-950/60 p-2.5 rounded border border-slate-800">
-                    <span className="text-slate-500 block text-[11px]">Opposite Signal Exit:</span>
-                    <span className="text-slate-300">{data.exit_conditions?.opposite_signal_exit}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Position Management */}
-              <div className="bg-slate-900/80 rounded-xl border border-slate-800 p-5 shadow-sm">
-                <div className="border-b border-slate-800 pb-3 mb-4">
-                  <span className="text-xs uppercase font-bold tracking-wider text-cyan-400">
-                    Position Management & Sizing
-                  </span>
-                </div>
-                <div className="grid grid-cols-2 gap-3 text-xs font-mono">
-                  <div className="bg-slate-950/60 p-2.5 rounded border border-slate-800">
-                    <span className="text-slate-500 block text-[11px]">Risk Per Trade:</span>
-                    <span className="text-white font-bold">{data.position_management?.risk_per_trade}</span>
-                  </div>
-                  <div className="bg-slate-950/60 p-2.5 rounded border border-slate-800">
-                    <span className="text-slate-500 block text-[11px]">Max Concurrent Orders:</span>
-                    <span className="text-white font-bold">{data.position_management?.max_concurrent_positions}</span>
-                  </div>
-                  <div className="bg-slate-950/60 p-2.5 rounded border border-slate-800">
-                    <span className="text-slate-500 block text-[11px]">Leverage Factor:</span>
-                    <span className="text-slate-300">{data.position_management?.leverage}</span>
-                  </div>
-                  <div className="bg-slate-950/60 p-2.5 rounded border border-slate-800">
-                    <span className="text-slate-500 block text-[11px]">Scaling / Pyramiding:</span>
-                    <span className="text-slate-300">{data.position_management?.pyramiding}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Section 4: STAGE-SEPARATED PERFORMANCE (Spec §2 & §6) */}
-          <div className="bg-slate-900/80 rounded-xl border border-slate-800 p-5 shadow-sm space-y-4">
-            <div className="border-b border-slate-800 pb-3 flex items-center justify-between">
-              <div>
-                <span className="text-xs uppercase font-bold tracking-wider text-white block">
-                  Authoritative Stage-Separated Performance (Spec §2)
-                </span>
-                <span className="text-[11px] text-slate-400">
-                  Each testing stage is independently audited and explicitly labeled. Never combined or conflated.
-                </span>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-              {/* Stage 1: IN-SAMPLE BACKTEST */}
-              <div className="bg-slate-950/90 rounded-xl border border-cyan-900/40 p-4 flex flex-col justify-between">
-                <div>
-                  <div className="text-[10px] font-bold text-cyan-400 uppercase tracking-wider mb-2">
-                    1. In-Sample Backtest
-                  </div>
-                  <div className="text-2xl font-bold font-mono text-cyan-300">
-                    {fmt.ret(data.returns?.backtest_return_pct)}
-                  </div>
-                  <div className="text-[11px] text-slate-400 font-mono mt-0.5">
-                    Net: {fmt.currency(mBt.net_profit)}
-                  </div>
-                  <div className="mt-3 space-y-1 text-[11px] font-mono text-slate-300">
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Profit Factor:</span>
-                      <span className="font-semibold">{fmt.ratio(mBt.profit_factor)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Win Rate:</span>
-                      <span>{fmt.pct(mBt.win_rate)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Trades:</span>
-                      <span>{mBt.trades || 0}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Max DD:</span>
-                      <span className="text-rose-400">{fmt.pct(mBt.max_drawdown_pct)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Sharpe:</span>
-                      <span>{fmt.num(mBt.sharpe)}</span>
-                    </div>
-                  </div>
-                </div>
-                <div className="mt-4 pt-2 border-t border-slate-800/80 text-[10px] text-slate-500 font-mono">
-                  Stage: DETAIL_IN_SAMPLE
-                </div>
-              </div>
-
-              {/* Stage 2: OUT-OF-SAMPLE VALIDATION */}
-              <div className="bg-slate-950/90 rounded-xl border border-emerald-900/40 p-4 flex flex-col justify-between">
-                <div>
-                  <div className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider mb-2">
-                    2. OOS Validation
-                  </div>
-                  <div className="text-2xl font-bold font-mono text-emerald-300">
-                    {fmt.ret(data.returns?.validation_oos_return_pct)}
-                  </div>
-                  <div className="text-[11px] text-slate-400 font-mono mt-0.5">
-                    Robustness: {fmt.ratio(data.robustness_score, 3)}
-                  </div>
-                  <div className="mt-3 space-y-1 text-[11px] font-mono text-slate-300">
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">OOS PF:</span>
-                      <span className="font-semibold">{fmt.ratio(data.profit_factors?.oos)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Validation:</span>
-                      <span className={mVal.passed ? "text-emerald-400 font-bold" : "text-slate-400"}>
-                        {mVal.passed ? "PASSED" : (data.robustness_score ? "EVALUATED" : "PENDING")}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">OOS Degradation:</span>
-                      <span>{fmt.pct(mVal.oos?.degradation)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Walk-Forward:</span>
-                      <span>{mVal.walkforward ? "4 Folds" : "–"}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Monte Carlo:</span>
-                      <span>{mVal.montecarlo ? "95% Conf" : "–"}</span>
-                    </div>
-                  </div>
-                </div>
-                <div className="mt-4 pt-2 border-t border-slate-800/80 text-[10px] text-slate-500 font-mono">
-                  Stage: OUT_OF_SAMPLE_BATTERY
-                </div>
-              </div>
-
-              {/* Stage 3: MT5 STRATEGY TESTER */}
-              <div className="bg-slate-950/90 rounded-xl border border-indigo-900/40 p-4 flex flex-col justify-between">
-                <div>
-                  <div className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider mb-2">
-                    3. MT5 Backtest
-                  </div>
-                  <div className="text-2xl font-bold font-mono text-indigo-300">
-                    {data.returns?.mt5_backtest_return_pct != null
-                      ? fmt.ret(data.returns.mt5_backtest_return_pct)
-                      : "–"}
-                  </div>
-                  <div className="text-[11px] text-slate-400 font-mono mt-0.5">
-                    {mMt5.net_profit != null ? fmt.currency(mMt5.net_profit) : "Not yet tested"}
-                  </div>
-                  <div className="mt-3 space-y-1 text-[11px] font-mono text-slate-300">
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Tester PF:</span>
-                      <span className="font-semibold">{fmt.ratio(mMt5.profit_factor)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Win Rate:</span>
-                      <span>{fmt.pct(mMt5.win_rate)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Trades:</span>
-                      <span>{mMt5.trade_count || 0}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Max DD:</span>
-                      <span className="text-rose-400">{fmt.pct(mMt5.max_drawdown_pct)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Status:</span>
-                      <span className="text-[10px] truncate max-w-[90px]" title={mMt5.status}>
-                        {mMt5.status ? "COMPLETED" : "UNTESTED"}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-                <div className="mt-4 pt-2 border-t border-slate-800/80 flex items-center justify-between text-[10px] font-mono">
-                  <span className="text-slate-500">MT5 TESTER</span>
-                  <button
-                    type="button"
-                    onClick={() => navigateTab && navigateTab("mt5_backtest", data.id)}
-                    className="text-cyan-400 hover:underline"
-                  >
-                    Run Test →
-                  </button>
-                </div>
-              </div>
-
-              {/* Stage 4: LIVE FORWARD TESTING */}
-              <div className="bg-slate-950/90 rounded-xl border border-blue-900/40 p-4 flex flex-col justify-between">
-                <div>
-                  <div className="text-[10px] font-bold text-blue-400 uppercase tracking-wider mb-2">
-                    4. Live Testing (No Real $)
-                  </div>
-                  <div className="text-2xl font-bold font-mono text-blue-300">
-                    {data.returns?.live_test_return_pct != null
-                      ? fmt.ret(data.returns.live_test_return_pct)
-                      : "–"}
-                  </div>
-                  <div className="text-[11px] text-slate-400 font-mono mt-0.5">
-                    P/L: {fmt.currency(mLive.total_pnl || 0)}
-                  </div>
-                  <div className="mt-3 space-y-1 text-[11px] font-mono text-slate-300">
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Status:</span>
-                      <span className={mLive.is_active ? "text-emerald-400 font-bold" : "text-slate-400"}>
-                        {mLive.status || "IDLE"}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Live Trades:</span>
-                      <span>{mLive.total_trades || 0}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Open Pos:</span>
-                      <span>{mLive.open_trades?.length || 0}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Win Rate:</span>
-                      <span>{fmt.pct(mLive.win_rate)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Real Money:</span>
-                      <span className="text-emerald-400 font-bold">$0 (ZERO)</span>
-                    </div>
-                  </div>
-                </div>
-                <div className="mt-4 pt-2 border-t border-slate-800/80 flex items-center justify-between text-[10px] font-mono">
-                  <span className="text-slate-500">FORWARD LIVE</span>
-                  <button
-                    type="button"
-                    onClick={() => navigateTab && navigateTab("live_test", data.id)}
-                    className="text-blue-400 hover:underline"
-                  >
-                    Configure →
-                  </button>
-                </div>
-              </div>
-
-              {/* Stage 5: MT5 DEMO TRADING */}
-              <div className="bg-slate-950/90 rounded-xl border border-purple-900/40 p-4 flex flex-col justify-between">
-                <div>
-                  <div className="text-[10px] font-bold text-purple-400 uppercase tracking-wider mb-2">
-                    5. MT5 Demo Trading
-                  </div>
-                  <div className="text-2xl font-bold font-mono text-purple-300">
-                    {data.returns?.mt5_demo_return_pct != null
-                      ? fmt.ret(data.returns.mt5_demo_return_pct)
-                      : "–"}
-                  </div>
-                  <div className="text-[11px] text-slate-400 font-mono mt-0.5">
-                    Demo P/L: {fmt.currency(mDemo.total_pnl || 0)}
-                  </div>
-                  <div className="mt-3 space-y-1 text-[11px] font-mono text-slate-300">
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Demo Status:</span>
-                      <span className={mDemo.enabled ? "text-purple-400 font-bold" : "text-slate-400"}>
-                        {mDemo.status || "STOPPED"}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Demo Trades:</span>
-                      <span>{mDemo.total_trades || 0}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Open Orders:</span>
-                      <span>{mDemo.open_trades?.length || 0}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Safety Gating:</span>
-                      <span className="text-amber-400 font-semibold">CONFIRMED</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Account Type:</span>
-                      <span className="text-purple-300">DEMO ONLY</span>
-                    </div>
-                  </div>
-                </div>
-                <div className="mt-4 pt-2 border-t border-slate-800/80 flex items-center justify-between text-[10px] font-mono">
-                  <span className="text-slate-500">MT5 DEMO</span>
-                  <button
-                    type="button"
-                    onClick={() => navigateTab && navigateTab("mt5_demo", data.id)}
-                    className="text-purple-400 hover:underline"
-                  >
-                    Manage Demo →
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+/* --------------------------------------------------------------- track UI */
+function PipelineTrack({ stage, busy, onPick }) {
+  return (
+    <div className="kit-track">
+      {PIPELINE.map((s, i) => {
+        const done = stage > i;
+        const active = stage === i;
+        const cls = active ? " active" : done ? " done" : "";
+        return (
+          <button key={s.key} className={"kit-track-step" + cls} disabled={Boolean(busy)}
+                  title={active ? "Current stage" : done ? "Already completed" : "Click to mark this stage"}
+                  onClick={() => onPick(s, i)}>
+            <span className="dot">{done ? "✓" : active ? "●" : i + 1}</span>
+            <span className="lbl">{s.label}</span>
+            <span className="st">{active ? "CURRENT" : done ? "DONE" : "NEXT"}</span>
+          </button>
+        );
+      })}
     </div>
   );
 }

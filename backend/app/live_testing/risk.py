@@ -146,6 +146,54 @@ def compute_volume(*, symbol: str, side: str, entry: Any, sl: Any, risk_amount: 
     return out
 
 
+def risk_for_volume(*, symbol: str, side: str, entry: Any, sl: Any, volume: Any,
+                    spec: Any) -> Dict[str, Any]:
+    """Money at risk for an already-chosen volume (the reverse of compute_volume).
+
+    V4.8: used by the read-only order preview so the dashboard can convert
+    lot size -> risk with the *same* broker tick math (tick size / tick value
+    from the symbol specification) instead of duplicating it in the browser.
+    Pure calculation: it never touches the bridge, the database or an order.
+    """
+    sym = (symbol or "").upper()
+    entry_f = _f(entry)
+    sl_f = _f(sl)
+    vol_f = _f(volume)
+    if entry_f is None or entry_f <= 0:
+        raise RiskBlock("INVALID_ENTRY_PRICE", f"Entry price unavailable for {sym}: cannot size the trade")
+    if sl_f is None or sl_f <= 0:
+        raise RiskBlock("SL_MISSING", "Stop loss required for risk sizing (none resolved)")
+    dist = abs(entry_f - sl_f)
+    if dist <= 0:
+        raise RiskBlock("SL_DISTANCE_ZERO", "Stop loss distance is zero: refusing to size the trade")
+    if vol_f is None or vol_f <= 0:
+        raise RiskBlock("VOLUME_INVALID", "Lot size is not positive")
+
+    tick_size = _spec_get(spec, "trade_tick_size")
+    tick_value = _spec_get(spec, "trade_tick_value")
+    vmin = _spec_get(spec, "volume_min")
+    vstep = _spec_get(spec, "volume_step")
+    digits = _spec_get(spec, "digits")
+    base = {"symbol": sym, "side": (side or "").upper(), "entry": entry_f, "sl": sl_f,
+            "stop_distance": round(dist, 6), "volume": vol_f,
+            "tick_size": tick_size, "tick_value": tick_value,
+            "volume_min": vmin, "volume_step": vstep, "spec_source": "broker_symbol_info"}
+    if tick_size is None or tick_value is None or tick_size <= 0 or tick_value <= 0:
+        raise RiskBlock("INVALID_SYMBOL_DATA",
+                        f"Broker specifications for {sym} are incomplete "
+                        "(tick size / tick value unavailable)", base)
+    risk_per_lot = (dist / tick_size) * tick_value
+    out = dict(base)
+    out.update({"risk_per_lot": round(risk_per_lot, 4),
+                "actual_risk": round(vol_f * risk_per_lot, 2)})
+    if vmin is not None and vol_f < vmin - 1e-12:
+        out["below_minimum"] = True
+        out["minimum_risk"] = round(vmin * risk_per_lot, 2)
+    if digits is not None:
+        out["digits"] = int(digits)
+    return out
+
+
 def compute_risk(*, node_id: int, strategy_id: Optional[int], symbol: str, side: str,
                  entry: Any, sl: Any, equity: Any, global_pct: Any, override_pct: Any,
                  spec: Any) -> Dict[str, Any]:

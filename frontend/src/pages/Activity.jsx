@@ -3,6 +3,7 @@ import { api, fmt } from "../api.js";
 import { arr } from "../lib/safe.js";
 import { useLabEvents } from "../ws.js";
 import { Card, Pill } from "../components/common.jsx";
+import PipelinePath from "../components/PipelinePath.jsx";
 
 const FILTERS = [
   "Newest", "Oldest", "Errors", "Warnings", "Active",
@@ -107,6 +108,9 @@ export default function Activity() {
 
   return (
     <div className="page activity-page">
+      {/* V4.8 — clickable research milestone path (Research → … → Final) */}
+      <PipelinePath />
+
       <div className="page-header flex justify-between items-center" style={{ marginBottom: "1.2rem" }}>
         <div>
           <h2>⚡ Operational Activity Stream</h2>

@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useMemo, useRef } from "react";
 import { api, fmt } from "../api.js";
+import StructuredError from "../components/StructuredError.jsx";
 import { useLab } from "../App.jsx";
 import { EventFeed } from "../components/common.jsx";
 
@@ -122,6 +123,19 @@ export default function Logs() {
     }
   };
 
+  /* V4.8 — group the console by the stage the entry belongs to. The backend
+   * already tags every entry with a category; nothing is re-classified here. */
+  const CATEGORY_GROUPS = ["Research", "Backtest", "Validation", "MT5", "Live", "Demo", "System"];
+  const [nodeFilter, setNodeFilter] = useState("");
+  const categoryCounts = useMemo(() => {
+    const m = {};
+    logs.forEach((l) => {
+      const c = String(l.category || "System").trim() || "System";
+      m[c] = (m[c] || 0) + 1;
+    });
+    return m;
+  }, [logs]);
+
   const filteredLogs = useMemo(() => {
     let list = [...logs];
 
@@ -139,6 +153,10 @@ export default function Logs() {
       }
     }
 
+    if (nodeFilter.trim()) {
+      const nf = String(nodeFilter).replace(/[^0-9]/g, "");
+      if (nf) list = list.filter((l) => String(l.node_id ?? "").includes(nf) || String(l.message || "").includes(nf));
+    }
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       list = list.filter((l) => {
@@ -153,7 +171,7 @@ export default function Logs() {
     }
 
     return list;
-  }, [logs, activeFilter, searchQuery]);
+  }, [logs, activeFilter, searchQuery, nodeFilter]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 120px)" }}>
@@ -296,6 +314,39 @@ export default function Logs() {
               })}
             </div>
 
+            {/* V4.8 — stage grouping. Categories come from the backend tags; the
+                count is the number of entries currently held for that stage. */}
+            <div className="kit-strip" style={{ border: "none", padding: 0, gap: 6, margin: "6px 0" }}>
+              {CATEGORY_GROUPS.map((g) => {
+                const n = categoryCounts[g] ?? 0;
+                return (
+                  <button key={g} className="kit-chip" onClick={() => setActiveFilter(activeFilter === g ? "" : g)}
+                          style={activeFilter === g ? { borderColor: "var(--accent)", color: "#fff" } : undefined}
+                          title={`Show only ${g} entries`}>
+                    {g} <b>{n}</b>
+                  </button>
+                );
+              })}
+              {activeFilter && (
+                <button className="btn ghost" style={{ fontSize: 11 }} onClick={() => setActiveFilter("")}>clear</button>
+              )}
+            </div>
+
+            {/* V4.8 — node filter: the same box accepts a node id wherever it appears */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <input
+                type="text"
+                placeholder="Node id (10590…)"
+                value={nodeFilter}
+                onChange={(e) => setNodeFilter(e.target.value)}
+                style={{
+                  padding: "4px 8px", fontSize: "0.8rem", background: "var(--bg-box)",
+                  border: "1px solid var(--border)", borderRadius: 4, color: "var(--fg)", width: 120,
+                }}
+                title="Filters the console to entries for one node (also matched inside messages)"
+              />
+            </div>
+
             {/* Right Controls: Search, Auto-scroll, Copy Button */}
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <input
@@ -418,6 +469,23 @@ export default function Logs() {
                   <div style={{ whiteSpace: "pre-wrap", color: "var(--fg)", wordBreak: "break-word" }}>
                     {l.message}
                   </div>
+
+                  {/* V4.8 §18 — an entry that carries structured error data is shown as
+                      Status / Endpoint / Node / Message / field details / Timestamp
+                      instead of one unreadable console line. */}
+                  {isError && (l.detail || l.error_detail || l.structured) && (
+                    <StructuredError
+                      title={`${l.module || l.logger || "SYSTEM"} failed`}
+                      error={{
+                        status: l.status ?? l.detail?.status ?? l.error_detail?.status,
+                        endpoint: l.endpoint || l.detail?.endpoint || l.error_detail?.endpoint,
+                        node_id: l.node_id ?? l.detail?.node_id ?? l.error_detail?.node_id,
+                        message: l.message,
+                        timestamp: l.ts || l.time_str,
+                        detail: l.detail ?? l.error_detail ?? l.structured,
+                      }}
+                    />
+                  )}
 
                   {l.exc_text && (
                     <pre

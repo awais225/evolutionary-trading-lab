@@ -17,6 +17,19 @@ import { StatusPill } from "../components/HistoricalBacktestPanel.jsx";
  * REGIME / DIRECTION) and is unchanged.
  */
 
+/* V4.8 — dead nodes never enter the comparison list. They are filtered here
+ * (never silently: the count that was removed is displayed above the table). */
+const DEAD_STATUSES = new Set(["FAILED", "KILLED", "RETIRED", "DEAD"]);
+function rowStatus(r) {
+  const row = r && (r.row || r.node || {});
+  return String(row.status || "").toUpperCase();
+}
+function splitDead(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  const dead = list.filter((r) => DEAD_STATUSES.has(rowStatus(r)));
+  return { live: list.filter((r) => !DEAD_STATUSES.has(rowStatus(r))), dead };
+}
+
 export default function BacktestMatrix() {
   const { selectedStrategyId, setSelectedStrategyId } = useLab() || {};
   const [candidates, setCandidates] = useState([]);
@@ -174,7 +187,9 @@ export default function BacktestMatrix() {
           </select>
           <input className="input" style={{ minWidth: 220 }} placeholder="node ids (e.g. 1908,1195)"
                  value={mIds} onChange={(e) => setMIds(e.target.value)} />
-          <button className="btn" disabled={!mIds.trim()} onClick={() => loadMatrix({ ids: mIds.trim() })}>
+          <button className="btn" disabled={!mIds.trim()}
+                  title={!mIds.trim() ? "enter one or more node ids first (e.g. 1908,1195)" : "build the matrix for those node ids"}
+                  onClick={() => loadMatrix({ ids: mIds.trim() })}>
             matrix for ids
           </button>
           <button className="btn" onClick={() => { setMIds(""); loadMatrix(); }}>reset</button>
@@ -185,7 +200,18 @@ export default function BacktestMatrix() {
           ) : null}
         </div>
         {mErr && <ErrorNote err={mErr} />}
-        <BacktestMatrixTable data={mData} loading={mBusy} error={null} maxHeight={340}
+        {(() => null)()}
+        {(() => {
+          const rows = (mData && (mData.rows || (mData.matrix && mData.matrix.rows))) || [];
+          const { dead } = splitDead(rows);
+          return dead.length > 0 ? (
+            <div className="warn-banner" style={{ borderColor: "#7a5a16" }}>
+              <b>{dead.length} dead node(s) excluded from this comparison.</b>{" "}
+              Dead nodes are never compared here — use Final Testing or Population to analyse failures.
+            </div>
+          ) : null;
+        })()}
+        <BacktestMatrixTable data={(() => { const rows = (mData && (mData.rows || (mData.matrix && mData.matrix.rows))) || []; const { live } = splitDead(rows); return mData && rows.length ? { ...mData, rows: live, matrix: mData.matrix ? { ...mData.matrix, rows: live } : mData.matrix } : mData; })()} loading={mBusy} error={null} maxHeight={340} loading={mBusy} error={null} maxHeight={340}
                              onSelectNode={(id) => setSid(String(id))}
                              emptyHint="No node matched — clear the filter or select different ids." />
       </div>

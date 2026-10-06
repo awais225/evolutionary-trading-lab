@@ -101,7 +101,24 @@ async function req(path, opts = {}) {
         throw err;
       }
 
-      return await res.json();
+      try {
+        return await res.json();
+      } catch (parseErr) {
+        // A 2xx that is not JSON means the request never reached the API (for
+        // example a dev-server SPA fallback page). Surface that plainly instead
+        // of leaking "Unexpected token '<' ... is not valid JSON" to the UI.
+        const ctype = (res.headers && res.headers.get && res.headers.get("content-type")) || "unknown";
+        const err = new Error(
+          `${path} returned ${res.status} ${ctype} instead of JSON — ` +
+          "the request did not reach the API (check the dev-server proxy / backend route)."
+        );
+        err.status = res.status;
+        err.endpoint = path;
+        err.contentType = ctype;
+        err.parseError = String((parseErr && parseErr.message) || parseErr);
+        err.timestamp = new Date().toISOString();
+        throw err;
+      }
     } finally {
       if (timerId) clearTimeout(timerId);
     }
@@ -218,6 +235,8 @@ export const api = {
   liveTestingStopNewTrades: (reason) => req("/api/live-testing/stop-new-trades", { method: "POST", body: { reason } }),
   liveTestingClosePositions: () => req("/api/live-testing/close-positions", { method: "POST" }),
   liveTestingMarket: (symbol) => req(`/api/live-testing/market${symbol ? `?symbol=${symbol}` : ""}`),
+  // V4.8 §7 read-only per-condition truth table (never places an order)
+  liveTestingConditions: (symbol) => req(`/api/live-testing/conditions${symbol ? `?symbol=${symbol}` : ""}`),
   liveTestingCounter: () => req("/api/live-testing/counter"),
   liveTestingLog: (params = {}) => req(`/api/live-testing/log?${new URLSearchParams(params)}`),
   liveTestingNodes: () => req("/api/live-testing/nodes"),
@@ -241,6 +260,8 @@ export const api = {
   mt5ExecutionState: () => req("/api/mt5-execution/state"),
   mt5ExecutionStatus: () => req("/api/mt5-execution/status"),
   mt5ExecutionValidate: (body) => req("/api/mt5-execution/validate", { method: "POST", body }),
+  // V4.8 read-only risk <-> lot preview (never places an order)
+  mt5ExecutionPreview: (payload) => req("/api/mt5-execution/preview", { method: "POST", body: payload }),
   mt5ExecutionPlace: (body) => req("/api/mt5-execution/place", { method: "POST", body }),
 
   // Hypotheses & AI Researcher

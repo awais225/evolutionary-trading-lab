@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { fmt } from "../api.js";
 
 export function Metric({ label, value, sub, color }) {
@@ -25,11 +25,58 @@ export function SignedNum({ v, pct, digits = 2 }) {
   return <span className={cls}>{pct ? fmt.pct(v, digits) : fmt.signed(v, digits)}</span>;
 }
 
-export function JsonView({ data, maxHeight }) {
+/* V4.8 QA: a raw payload is a diagnostic, not the page. Rendering every byte of
+ * a /strategies/{id}/economics response dumped ~146 kB of JSON into the DOM and
+ * pushed the actual analysis off-screen, so the raw view is now collapsed by
+ * default, states its own size, and stays one click away (with copy). */
+export function JsonView({ data, maxHeight, defaultOpen = false, label = "raw JSON" }) {
+  const [open, setOpen] = useState(defaultOpen);
+  const [copied, setCopied] = useState("");
+  let text = "";
+  try {
+    text = JSON.stringify(data, null, 2) ?? "null";
+  } catch (e) {
+    text = `/* payload could not be serialised: ${e && e.message ? e.message : e} */`;
+  }
+  const kb = (text.length / 1024).toFixed(1);
+  const lines = text.split("\n").length;
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied("copied");
+    } catch {
+      setCopied("copy blocked by the browser");
+    }
+    setTimeout(() => setCopied(""), 2000);
+  };
+  if (!open) {
+    return (
+      <div className="kit-kv" style={{ alignItems: "center" }}>
+        <span className="k">
+          {label} — {lines.toLocaleString()} lines, {kb} kB (hidden so it does not flood the page)
+        </span>
+        <span style={{ display: "flex", gap: 6 }}>
+          <button className="btn btn-xs" onClick={() => setOpen(true)}>show raw JSON</button>
+          <button className="btn btn-xs" onClick={copy}>copy</button>
+          {copied && <span className="muted" style={{ fontSize: 11 }}>{copied}</span>}
+        </span>
+      </div>
+    );
+  }
   return (
-    <pre className="json" style={maxHeight ? { maxHeight } : undefined}>
-      {JSON.stringify(data, null, 2)}
-    </pre>
+    <div>
+      <div className="kit-kv" style={{ marginBottom: 4 }}>
+        <span className="k">{label} — {lines.toLocaleString()} lines, {kb} kB</span>
+        <span style={{ display: "flex", gap: 6 }}>
+          <button className="btn btn-xs" onClick={copy}>copy</button>
+          <button className="btn btn-xs" onClick={() => setOpen(false)}>hide</button>
+          {copied && <span className="muted" style={{ fontSize: 11 }}>{copied}</span>}
+        </span>
+      </div>
+      <pre className="json" style={maxHeight ? { maxHeight } : undefined}>
+        {text}
+      </pre>
+    </div>
   );
 }
 

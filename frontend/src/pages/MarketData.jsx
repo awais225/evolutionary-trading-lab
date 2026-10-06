@@ -1,9 +1,12 @@
 import React, { useEffect, useState } from "react";
 import { api, fmt } from "../api.js";
+import { SourceChip, Badge, Card, SectionTitle, StateBlock } from "../components/ui.jsx";
+import DatasetAvailability from "../components/DatasetAvailability.jsx";
 import { arr } from "../lib/safe.js";
 import { ErrorNote, Spinner } from "../components/common.jsx";
 
 export default function MarketData() {
+  // V4.8 — the operator-facing availability view speaks first.
   const [ds, setDs] = useState(null);
   const [sel, setSel] = useState("");
   const [bars, setBars] = useState(null);
@@ -45,6 +48,8 @@ export default function MarketData() {
 
   return (
     <div>
+      <DatasetAvailability />
+
       <h2 className="page-title">Market Data</h2>
       <div className="page-sub">
         Historical data is downloaded ONCE per (symbol, timeframe, window), stored as Parquet and

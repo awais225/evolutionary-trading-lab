@@ -2891,3 +2891,177 @@ V4.7 AUDIT REMEDIATION - FINAL PRE-MANUAL-TEST AUDIT DEFECTS
      remediated endpoints and the EvolutionTree page are the only code that
      changed.
 =============================================================
+
+=============================================================
+=============================================================
+VERSION: V4.8 — DASHBOARD INTERACTION AND INTEGRATION QA
+=============================================================
+(what was actually implemented)
+
+0. SCOPE
+  * Phase 2 of V4.8: a dedicated black-box interaction and integration QA pass
+    over the whole dashboard while it ran against a real backend and a real
+    (copy of the) DATA population. Nothing was redesigned and no working
+    behaviour was replaced: every defect found was fixed at its root cause, a
+    regression test was added, and the affected suites were re-run.
+  * Read-only by construction: no live trading was activated, no order was
+    placed, no MT5 real account was touched, and the authoritative DATA root
+    was never written to.
+
+1. HOW THE QA WAS RUN (real browser, real backend, real data)
+  * Servers: backend uvicorn on :8787 with EVOLUTIONARY_LAB_DATA_ROOT pointing
+    at a disposable copy of the authoritative study (10,000 USER_RESEARCH /
+    787 LEGACY_TEST); Vite dev server on :5173 proxying /api, /ws and /health.
+  * Browser: headless Chromium (Playwright) driving the real UI. Three harnesses
+    (kept outside the repository):
+      - tab-level audit: 115 checks over all 18 tabs (render, API data,
+        console/page errors, failed requests, [object Object]/undefined/NaN,
+        every disabled control carrying a reason);
+      - interaction audit: 117 checks driving the real user flows (Node
+        Economics end-to-end, Strategy Lab, Backtest Matrix, MT5 Backtest,
+        Live Testing, MT5 Demo, Market Data, Logs, Activity, Settings) and
+        asserting the actual API traffic each control produces;
+      - destructive-lifecycle audit: 47 checks over four scenarios (archive,
+        delete, resume, settings reset), each on its own freshly restored copy
+        of the pristine dataset, with every /api request re-pointed to a second
+        backend bound to that disposable copy.
+  * Final results: 115/115 tab checks, 117/117 interaction checks, 47/47
+    destructive checks, zero uncaught console/page errors across all sessions.
+
+2. PAGES EXERCISED
+  Overview, Stats, Final Testing, Strategy Laboratory, Node Economics, Backtest
+  Matrix, MT5 Backtest, Live Testing, Live Test Results, MT5 Demo Trading,
+  Paper Trading, Activity Stream, Evolution Tree, Population, Market Data,
+  Research AI, Settings, Logs - all 18 tabs loaded, rendered and served data.
+
+3. DEFECTS FOUND (all fixed in this iteration)
+  D1 A failed status probe was reported as "Backend startup failed".
+     The banner treated any exception from the /health probe as a failed
+     backend, so an unreachable or non-JSON answer produced a red startup
+     failure claim. Fixed: a new "Backend status could not be read" state with
+     the real reason, the last attempt time and a "retry now" control; the
+     failed-startup wording is now used only when the backend itself reports
+     failed steps. (components/StartupBanner.jsx)
+  D2 api.health() called the root /health endpoint, which the dev-server proxy
+     did not forward, so the SPA fallback returned HTML and JSON.parse threw
+     "Unexpected token '<'". Fixed: the proxy now forwards /health as well, and
+     api.js no longer parses a 2xx response unguarded - a non-JSON answer now
+     raises a clear diagnostic ("... did not reach the API") carrying the
+     content type, status and endpoint instead of a raw SyntaxError.
+     (vite.config.js, api.js)
+  D3 An unresolvable node lookup was a silent no-op: "Load Node" with text that
+     contains no id did nothing at all, left the previously loaded node on
+     screen and showed "RESOLVED ID: N/A". Fixed: the lookup now refuses with
+     an explicit message naming the accepted forms, and the header states which
+     node is actually displayed ("showing Node_1195 (last successfully loaded
+     node)"). (pages/NodeEconomics.jsx)
+  D4 Revealing a dead node hid its stored failure reason. The blocked state
+     showed "Reason on record: DATASET UNAVAILABLE: ..." but the revealed view
+     dropped it. Fixed: the revealed dead banner keeps the reason on record.
+     (pages/NodeEconomics.jsx)
+  D5 The node economics raw-payload view dumped the entire API response
+     (146 kB of JSON, ~157 lines per node) into the page. Fixed: the raw view is
+     collapsed by default, states its own size (lines/kB), and can be revealed
+     or copied on demand; the drawer payloads are labelled.
+     (components/common.jsx, components/NodeDetailDrawer.jsx)
+  D6 Six controls were disabled without saying why (Final Testing pager,
+     Strategy Lab pager, Backtest Matrix "matrix for ids", Live Testing per-node
+     Reset, Paper Trading START/STOP, Settings "Enable real execution"). Fixed:
+     each now carries a title explaining the reason.
+  D7 "Resume & Add Nodes" was offered on an empty study although the backend
+     correctly refuses it ("no active USER_RESEARCH population to resume").
+     Fixed: the option card is blocked with that reason up-front and the run
+     button cannot be submitted.
+  (The earlier 73-check finding - the tab label mismatch in the audit script
+   itself - was an instrumentation bug, not an application defect.)
+
+4. INTERACTIONS VERIFIED (highlights)
+  * Node Economics end to end with a real node: lookup by 10590 / Node_10590 /
+    #10590; the blocked dead-node state with its stored reason (node 10590 is a
+    real FAILED node that failed with DATASET UNAVAILABLE) and "Show Dead Node";
+    identity/lineage (parent #1034, child #1482), six-stage promotion pipeline
+    with real transition controls and a genuine refusal when a stage lacks its
+    prerequisite work, KPI cards, safety panel, quick navigation to MT5
+    Backtest / Live Testing / Backtest Matrix / Strategy Lab with the node still
+    selected, shortlist toggle verified through the API and across a reload.
+  * Strategy Lab: server-side search, sort key and direction, metric filter
+    (min PF), pagination, "select page" + selection surviving page navigation
+    with the hidden-selection notice, compare (real /api/research/compare call),
+    export (real JSON download), node drawer with identity/metrics/equity/raw
+    data, and hostile search input producing a clean empty state.
+  * Backtest Matrix: stored metrics with N/A for missing values, sorting,
+    research-vs-execution separation, legacy exclusion.
+  * MT5 Backtest: run over stored simulator data, run state, history, and the
+    legacy live-tester path disabled with its reason; no order path exists.
+  * Live Testing: completely IDLE on entry (engine STOPPED, 0 nodes, 0 orders),
+    global risk limits from the backend, require-SL policy, editable equity/risk
+    inputs, engine-authoritative indicator conditions, manual sizing, per-node
+    and bulk start/stop controls, STOP ALL returning a safe state - and the
+    order counters stayed 0 for the whole session.
+  * MT5 Demo: demo-only wording, account-type gate, stop-loss requirement,
+    confirmation required, and unconfirmed orders refused by the API (409).
+  * Market Data: REAL / SIMULATED / UNAVAILABLE datasets each with an exact
+    usability reason; real dataset shows XAUUSD M15 with bar counts.
+  * Logs: level/category filters re-query the backend, search works, structured
+    errors render as readable text.
+  * Activity: real event feed (time/level/category/message), filter chips
+    re-query the backend, current task/timer, milestone path controls.
+  * Settings: hardware/resource/appearance/evolution sections, MT5 bridge
+    selection with the simulator fallback, masked credentials, real-money
+    execution disabled with its reason, backup listing, and destructive
+    data-management controls that ask for confirmation and leave the study
+    intact when cancelled.
+  * Run lifecycle (on disposable copies only): all three options with their
+    warnings, wrong node count blocked / exact count enabling, archive creating
+    and verifying a backup before reset, delete resetting without a backup,
+    resume preserving existing nodes and raising the target, LEGACY_TEST 787
+    intact in all three cases.
+
+5. TESTS / BUILD / STARTUP
+  * pytest (full suite): 269 passed, 0 failed (was 262; +7 new V4.8 phase-2
+    regression tests in tests/test_v4_8_frontend.py).
+  * V4.8 jsdom smoke: 40/40 (was 38/38; +2 checks: a failed status probe is not
+    reported as a failed backend, and the raw payload view is collapsed and
+    expandable).
+  * V4.7 render smoke: 39/39 renders OK.
+  * API smoke: 10787 strategies restored, 6663 lineage edges, 116 backtests,
+    1 dataset (XAUUSD M15, 1850 bars), /api/ready state=ready ready=True
+    failed=[].
+  * Frontend build: npx vite build OK (~6 s).
+  * Both backends started cleanly with EVOLUTIONARY_LAB_STARTUP_BLOCKING=1 and
+    reached state=ready with no failed startup steps.
+
+6. DATA INTEGRITY (measured before and after every phase of the QA)
+  * Authoritative DATA and the pristine reference are byte-identical: tree
+    sha256 230ba75403e5e2311162973a64fb9ff5b5cb1063ae0ad052bab99e6bdadd2bfc,
+    11370 files, USER_RESEARCH 10000, LEGACY_TEST 787, physical 10787,
+    backtests 1031, validations 146, executions 26.
+  * Every mutating test ran on a disposable copy; the destructive lifecycle
+    scenarios each started from a freshly restored copy of the pristine
+    reference, and the authoritative and pristine trees were re-hashed after the
+    scenarios with no change.
+
+7. SAFETY
+  * Live trading was never activated: /api/live-testing/status stayed
+    mode=INACTIVE, active=false for the whole session.
+  * Zero orders and zero positions: stats kept signals 0 / blocked 0 /
+    orders_sent 0 / positions_opened 0 throughout, including after the
+    per-node and bulk control exercises.
+  * Order execution gate verified closed: execution_allowed=false with
+    blocked_code MT5_UNAVAILABLE ("the active market bridge is 'SIMULATOR'").
+  * No real MT5 account was used or contacted; demo order submission without
+    confirmation is refused (409), and the demo bridge path requires
+    confirmed_demo_only.
+  * Simulator data is identified as simulator data everywhere it appears (feed
+    chip, banners, backtest history, dataset availability).
+
+8. GIT RESULT
+  Commit         : (recorded in the commit message of this iteration)
+                   "V4.8: complete dashboard interaction QA"
+  Files changed  : the V4.8 implementation files plus the four new components,
+                    the V4.8 tests and this entry; no DATA, database file,
+                    WAL/SHM, ZIP, PID, log, cache, node_modules, virtualenv or
+                    secret is included, and no temporary path appears in any
+                    tracked file (CONFIG/lab_config.yaml and CONFIG/settings.json
+                    are runtime-generated and were reverted before the commit).
+=============================================================

@@ -15,6 +15,11 @@ export default function StructuredError({ error, title = "Operation Failed", onD
   const formattedMsg = error.formattedMessage || error.message || String(error);
   const rawJson = error.rawJson || error.detail;
   const timestamp = error.timestamp || new Date().toLocaleTimeString();
+  // V4.8 — the node a failure belongs to belongs in the error block itself, so a
+  // failing node never has to be guessed from a stack of console lines.
+  const nodeRef = error.node_id ?? error.nodeId ?? error.node
+    ?? (typeof rawJson === "object" && rawJson ? (rawJson.node_id ?? rawJson.node ?? rawJson.detail?.node_id) : null)
+    ?? (/\bNode_(\d+)\b/.exec(String(formattedMsg))?.[1] ?? /\bnode[ _#]?(\d{3,})\b/i.exec(String(formattedMsg))?.[1] ?? null);
 
   // If rawJson contains FastAPI validation errors list
   const fieldErrors = Array.isArray(rawJson)
@@ -42,6 +47,11 @@ export default function StructuredError({ error, title = "Operation Failed", onD
             <div className="mt-0.5 text-rose-200 font-mono text-[11px] break-words">
               {formattedMsg}
             </div>
+            {(endpoint || nodeRef) && (
+              <div className="mt-1 text-[10px] text-rose-300/80 font-mono">
+                {endpoint ? `endpoint: ${endpoint}` : ""}{endpoint && nodeRef ? " · " : ""}{nodeRef ? `node: ${nodeRef}` : ""}
+              </div>
+            )}
           </div>
         </div>
 
@@ -94,8 +104,8 @@ export default function StructuredError({ error, title = "Operation Failed", onD
 
       {showDetails && rawJson && (
         <div className="mt-2 pt-2 border-t border-rose-800/40">
-          <div className="flex justify-between items-center text-[10px] text-slate-400 mb-1">
-            <span>Endpoint: {endpoint || "Local action"}</span>
+          <div className="flex flex-wrap justify-between items-center gap-2 text-[10px] text-slate-400 mb-1">
+            <span>Status: {status || "n/a"} · Endpoint: {endpoint || "Local action"} · Node: {nodeRef ?? "—"}</span>
             <span>{timestamp}</span>
           </div>
           <pre className="p-2 bg-slate-950/80 rounded border border-rose-900/50 overflow-x-auto text-[10px] font-mono text-slate-300 max-h-36">

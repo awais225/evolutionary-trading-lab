@@ -769,6 +769,7 @@ def _filter_persisted_strategies(
     query = """
         SELECT s.id, s.symbol, s.timeframe, s.direction, s.status, s.fitness, s.parent_id, s.generation,
                s.mutation_type, s.creation_reason, s.created_at, s.run_id, s.data_source, s.research_node_num,
+               s.failure_reason, s.survival_reason,
                b.stage as bt_stage, b.metrics, b.verdict, b.fitness as bt_fitness, b.created_at as bt_created_at,
                v.robustness_score, v.oos
         FROM strategies s
@@ -962,6 +963,13 @@ def _filter_persisted_strategies(
             "generation": r["generation"],
             "mutation_type": r["mutation_type"],
             "creation_reason": r.get("creation_reason", ""),
+            # V4.8 §2 — the readable reason a node lived or died, straight from the
+            # authoritative strategy row (never a derived or invented explanation).
+            "failure_reason": r.get("failure_reason") or None,
+            "survival_reason": r.get("survival_reason") or None,
+            # only a dead node has a death reason; a survivor's reason is its survival_reason
+            "dead_reason": (r.get("failure_reason") if str(r.get("status") or "").upper() in
+                            ("FAILED", "KILLED", "RETIRED", "DEAD") else None),
             "stage": r["bt_stage"] or "NONE",
             "verdict": r["verdict"] or "NONE",
             "trades": m.get("trades", 0),
@@ -3183,6 +3191,20 @@ def live_testing_market(symbol: Optional[str] = None) -> Dict:
     return _live_engine().market_panel(symbol)
 
 
+@router.get("/live-testing/conditions")
+def live_testing_conditions(symbol: Optional[str] = None) -> Dict:
+    """V4.8 §7 read-only condition inspection.
+
+    For every enrolled node, evaluate each top-level entry clause on the last
+    CLOSED bar with the engine's own features and evaluator, so the market panel
+    can show ✓/✕ per condition and "n of m conditions met" without duplicating
+    any trading maths in the browser. It never starts the engine, never writes
+    and never touches an order.
+    """
+    from ..live_testing.conditions import node_condition_states
+    return node_condition_states(_live_engine(), symbol)
+
+
 @router.get("/live-testing/counter")
 def live_testing_counter() -> Dict:
     """Active live-test trades counted from MT5 positions/orders (spec §13)."""
@@ -3462,6 +3484,86 @@ def mt5_execution_validate(payload: Dict = Body(default_factory=dict)) -> Dict:
         volume=payload.get("volume"), sl=payload.get("sl"), tp=payload.get("tp"),
         price=payload.get("price"), strategy_id=payload.get("strategy_id"),
         require_live=True)
+
+
+@router.post("/mt5-execution/preview")
+def mt5_execution_preview(payload: Dict = Body(default_factory=dict)) -> Dict:
+    """Read-only risk <-> lot preview for the manual order panel (V4.8).
+
+    Reuses the *existing* live-testing sizing logic (app/live_testing/risk.py:
+    compute_volume / risk_for_volume) against the active bridge's symbol
+    specification, so the dashboard never duplicates broker maths:
+
+      risk_amount given -> the volume the broker step allows (rounded DOWN)
+      volume given      -> the money at risk for that lot size
+
+    It never places, modifies or cancels an order: no execution path is touched.
+    """
+    from ..live_testing.risk import RiskBlock, compute_volume, risk_for_volume, risk_limits
+    from ..mt5 import get_bridge
+
+    symbol = str(payload.get("symbol") or "XAUUSD").upper()
+    side = str(payload.get("side") or "BUY").upper()
+    entry = payload.get("entry")
+    sl = payload.get("sl")
+    risk_amount = payload.get("risk_amount")
+    volume = payload.get("volume")
+
+    bridge = get_bridge()
+    spec = None
+    quote = None
+    try:
+        spec = bridge.symbol_info(symbol)
+    except Exception as e:                                    # pragma: no cover - defensive
+        return {"ok": False, "mode": None, "blocked": {
+            "code": "SYMBOL_INFO_UNAVAILABLE", "message": f"symbol_info({symbol}) failed: {e}"}}
+    try:
+        q = bridge.quote(symbol)
+        if q is not None:
+            quote = {"bid": getattr(q, "bid", None), "ask": getattr(q, "ask", None),
+                     "ts": getattr(q, "ts", None),
+                     "source": getattr(spec, "source", None) if spec is not None else None}
+    except Exception:
+        quote = None
+
+    limits = risk_limits()
+    mode = "risk_to_lot" if (volume in (None, "") and risk_amount not in (None, "")) else \
+           "lot_to_risk" if volume not in (None, "") else None
+    if mode is None:
+        return {"ok": False, "mode": None, "blocked": {
+            "code": "INPUT_REQUIRED",
+            "message": "provide either risk_amount (money at risk) or volume (lots)"}}
+
+    sizing = None
+    blocked = None
+    if mode == "risk_to_lot":
+        try:
+            sizing = compute_volume(symbol=symbol, side=side, entry=entry, sl=sl,
+                                    risk_amount=risk_amount, spec=spec)
+        except RiskBlock as e:
+            blocked = {"code": e.code, "message": e.message, "detail": e.detail or {}}
+    else:
+        try:
+            sizing = risk_for_volume(symbol=symbol, side=side, entry=entry, sl=sl,
+                                     volume=volume, spec=spec)
+        except RiskBlock as e:
+            blocked = {"code": e.code, "message": e.message, "detail": e.detail or {}}
+
+    sym_info = None
+    if spec is not None:
+        sym_info = {"symbol": symbol, "digits": getattr(spec, "digits", None),
+                    "point": getattr(spec, "point", None),
+                    "volume_min": getattr(spec, "volume_min", None),
+                    "volume_max": getattr(spec, "volume_max", None),
+                    "volume_step": getattr(spec, "volume_step", None),
+                    "tick_size": getattr(spec, "trade_tick_size", None),
+                    "tick_value": getattr(spec, "trade_tick_value", None),
+                    "source": getattr(spec, "source", None)}
+    return {"ok": blocked is None, "mode": mode, "sizing": sizing, "blocked": blocked,
+            "symbol_info": sym_info, "quote": quote, "risk_limits": limits,
+            "orders_placed": False, "read_only": True,
+            "note": ("preview only - no order is sent, and the live execution path itself "
+                     "still refuses to run without a real demo terminal")}
 
 
 @router.post("/mt5-execution/place")

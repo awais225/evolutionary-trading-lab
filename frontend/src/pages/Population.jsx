@@ -6,6 +6,7 @@ import {
 import { api, fmt } from "../api.js";
 import { useLab } from "../App.jsx";
 import { Pill, SignedNum, ErrorNote, Spinner } from "../components/common.jsx";
+import PopulationSummary from "../components/PopulationSummary.jsx";
 
 const AXIS_OPTIONS = [
   ["total_return_pct", "Return %"], ["max_drawdown_pct", "Max DD %"],
@@ -26,6 +27,7 @@ export default function Population() {
   const [scatter, setScatter] = useState(null);
   const [rows, setRows] = useState([]);
   const [statusFilter, setStatusFilter] = useState("");
+  const [search, setSearch] = useState("");
   const [err, setErr] = useState(null);
 
   useEffect(() => {
@@ -49,6 +51,10 @@ export default function Population() {
 
   return (
     <div>
+      {/* V4.8 — population counters, distribution and search (dead nodes stay visible) */}
+      <PopulationSummary onPick={(id) => openStrategy(id)} statusFilter={statusFilter}
+                         setStatusFilter={setStatusFilter} search={search} setSearch={setSearch} />
+
       <h2 className="page-title">Population</h2>
       <div className="page-sub">
         Live population visualization — diversity is preserved via species (timeframe + direction +

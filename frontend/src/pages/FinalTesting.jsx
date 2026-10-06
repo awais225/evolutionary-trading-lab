@@ -1,6 +1,8 @@
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useRef } from "react";
 import { api, fmt } from "../api.js";
 import { useLab } from "../App.jsx";
+import { Badge, Kpi } from "../components/ui.jsx";
+import { NA_TEXT, numOrNull, objOrNull, txt as stxt } from "../lib/safe.js";
 import { Pill, SignedNum, ErrorNote } from "../components/common.jsx";
 import StructuredError from "../components/StructuredError.jsx";
 
@@ -41,6 +43,8 @@ export default function FinalTesting() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [resultsData, setResultsData] = useState(null);
+  const [pageLimit, setPageLimit] = useState(250);   // V4.8 server-side paging
+  const [pageOffset, setPageOffset] = useState(0);
   const [sortCol, setSortCol] = useState("total_return_pct");
   const [sortDir, setSortDir] = useState("desc");
 
@@ -76,14 +80,17 @@ export default function FinalTesting() {
   }, []);
 
   // Fetch Filtered Strategies (Zero-recomputation)
-  const fetchStrategies = async (customFilters = null) => {
+  /* V4.8 — any new query starts from page 1; paging only moves the window. */
+  const fetchStrategies = async (customFilters = null, resetPage = true) => {
+    const offsetToUse = resetPage ? 0 : pageOffset;
+    if (resetPage && pageOffset !== 0) setPageOffset(0);
     setLoading(true);
     setError(null);
     try {
       const p = customFilters || filters;
       const payload = {
-        limit: 300,
-        offset: 0,
+        limit: pageLimit,
+        offset: offsetToUse,
         search: searchInput.trim() || undefined,
         node_id: exactNodeInput ? parseInt(exactNodeInput, 10) : undefined,
         status_category: p.status_category !== "ALL" ? p.status_category : undefined,
@@ -124,6 +131,20 @@ export default function FinalTesting() {
   useEffect(() => {
     fetchStrategies();
   }, [shortlistOnly]);
+
+  /* V4.8 — moving the page refetches that window from the server; the guard
+   * prevents a second identical request when a filter change resets to page 1. */
+  const lastOffsetRef = useRef(-1);
+  useEffect(() => {
+    if (lastOffsetRef.current === pageOffset) return;
+    lastOffsetRef.current = pageOffset;
+    fetchStrategies(null, false);
+  }, [pageOffset]);
+
+  /* V4.8 — population counters for the KPI row come from the authoritative
+   * facets endpoint, not from a recount of the page held in the browser. */
+  const [facets, setFacets] = useState(null);
+  useEffect(() => { api.researchFacets().then(setFacets).catch(() => setFacets(null)); }, []);
 
   // Open Node Detail Drawer
   const handleOpenDetail = async (sid) => {
@@ -287,6 +308,23 @@ export default function FinalTesting() {
           <div className="page-sub" style={{ marginBottom: 0 }}>
             Inspect complete persisted results, apply multi-metric filters, review individual trade tickets, and manage research shortlists.
           </div>
+        </div>
+
+        {/* V4.8 — population KPIs, from /api/research/facets (server-side counts) */}
+        <div className="kit-kpi-row" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {(() => {
+            const pop = objOrNull(facets?.population);
+            return pop ? (
+              <>
+                <Kpi label="Total logged" value={numOrNull(pop.total)?.toLocaleString?.() ?? NA_TEXT} sub="USER_RESEARCH" />
+                <Kpi label="Alive" value={numOrNull(pop.alive)?.toLocaleString?.() ?? NA_TEXT} tone="pos" />
+                <Kpi label="Dead" value={numOrNull(pop.dead)?.toLocaleString?.() ?? NA_TEXT} sub="shown here by design" />
+                <Kpi label="Qualified" value={numOrNull(pop.qualified)?.toLocaleString?.() ?? NA_TEXT} tone="pos" />
+                <Kpi label="Matching filter" value={numOrNull(resultsData?.total_matching)?.toLocaleString?.() ?? NA_TEXT}
+                     sub={`of ${numOrNull(resultsData?.total_evaluated)?.toLocaleString?.() ?? NA_TEXT} evaluated`} />
+              </>
+            ) : <Kpi label="Population counters" value={NA_TEXT} sub="facets unavailable" />;
+          })()}
         </div>
 
         {/* Global Shortlist Status Badge & Actions */}
@@ -651,6 +689,7 @@ export default function FinalTesting() {
                 <th style={{ width: "35px" }}>★</th>
                 <th onClick={() => handleSort("id")} style={{ cursor: "pointer" }}>ID{sortArrow("id")}</th>
                 <th onClick={() => handleSort("status")} style={{ cursor: "pointer" }}>Status{sortArrow("status")}</th>
+                <th style={{ minWidth: 190 }}>Dead / outcome reason</th>
                 <th onClick={() => handleSort("generation")} style={{ cursor: "pointer" }}>Gen{sortArrow("generation")}</th>
                 <th onClick={() => handleSort("symbol")} style={{ cursor: "pointer" }}>Symbol/TF{sortArrow("symbol")}</th>
                 <th onClick={() => handleSort("trades")} style={{ cursor: "pointer" }}>Trades{sortArrow("trades")}</th>
@@ -694,6 +733,11 @@ export default function FinalTesting() {
                     </td>
                     <td className="mono font-bold">#{s.id}</td>
                     <td><Pill status={s.status} /></td>
+                    <td className="muted" style={{ fontSize: "0.72rem", maxWidth: 240 }}>
+                      {s.dead_reason || s.survival_reason
+                        ? (s.dead_reason || s.survival_reason)
+                        : <span title="The engine recorded no reason for this node">reason not recorded by the engine</span>}
+                    </td>
                     <td className="mono">G{s.generation}</td>
                     <td>{s.symbol} {s.timeframe}</td>
                     <td className="mono font-bold">{s.trades}</td>
@@ -736,7 +780,7 @@ export default function FinalTesting() {
               })}
               {displayedStrategies.length === 0 && (
                 <tr>
-                  <td colSpan={16} className="muted" style={{ textAlign: "center", padding: "24px" }}>
+                  <td colSpan={17} className="muted" style={{ textAlign: "center", padding: "24px" }}>
                     {loading ? "Loading matching strategies..." : "No strategies match the current filters."}
                   </td>
                 </tr>
@@ -744,6 +788,30 @@ export default function FinalTesting() {
             </tbody>
           </table>
         </div>
+
+        {/* V4.8 — server-side pagination: the browser never holds the whole population */}
+        <div className="kit-pager" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+          <button className="btn btn-xs" disabled={loading || pageOffset <= 0}
+                  title={loading ? "waiting for the current page" : pageOffset <= 0 ? "already on the first page" : "previous page"}
+                  onClick={() => setPageOffset(Math.max(0, pageOffset - pageLimit))}>‹ prev</button>
+          <span className="muted" style={{ fontSize: 11.5 }}>
+            showing {(resultsData?.total_matching ?? 0) === 0 ? 0 : pageOffset + 1}–{Math.min(pageOffset + pageLimit, resultsData?.total_matching ?? 0)}
+            {" "}of {(resultsData?.total_matching ?? 0).toLocaleString()}
+            {" "}· page {Math.floor(pageOffset / pageLimit) + 1} of {Math.max(1, Math.ceil((resultsData?.total_matching ?? 0) / pageLimit))}
+          </span>
+          <button className="btn btn-xs" disabled={loading || pageOffset + pageLimit >= (resultsData?.total_matching ?? 0)}
+                  title={loading ? "waiting for the current page" : pageOffset + pageLimit >= (resultsData?.total_matching ?? 0) ? "no more matching nodes" : "next page"}
+                  onClick={() => setPageOffset(pageOffset + pageLimit)}>next ›</button>
+          <label className="fld" style={{ display: "flex", alignItems: "center", gap: 6, margin: 0 }}>
+            <span className="muted" style={{ fontSize: 11.5 }}>rows per page</span>
+            <select value={String(pageLimit)} style={{ width: 80 }}
+                    onChange={(e) => { setPageLimit(parseInt(e.target.value, 10)); setPageOffset(0); }}>
+              {[50, 100, 250, 500].map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </label>
+          {shortlistOnly && <Badge tone="info">shortlist only</Badge>}
+        </div>
+
       </div>
 
       {/* 4. NODE DETAIL DRAWER / MODAL (User Spec §19, §20) */}

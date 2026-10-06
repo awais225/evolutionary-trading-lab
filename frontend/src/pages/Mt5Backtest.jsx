@@ -3,6 +3,8 @@ import { api, fmt } from "../api.js";
 import { useLab } from "../App.jsx";
 import StructuredError from "../components/StructuredError.jsx";
 import HistoricalBacktestPanel from "../components/HistoricalBacktestPanel.jsx";
+import { SimulatorBanner, SourceChip, Badge } from "../components/ui.jsx";
+import { NA_TEXT, numOrNull } from "../lib/safe.js";
 import HistoricalRunResults from "../components/HistoricalRunResults.jsx";
 import { txt } from "../lib/safe.js";
 
@@ -116,6 +118,25 @@ export default function Mt5Backtest() {
             {loading ? "Loading..." : "Select"}
           </button>
         </form>
+      </div>
+
+      {/* V4.8 — the environment this page actually runs in, stated up front */}
+      <SimulatorBanner strict source={histRuns?.[0]?.data?.source || "SIMULATOR"}
+        detail="REAL MT5 TRADING UNAVAILABLE — SIMULATOR MODE ACTIVE. Historical runs execute over the stored MT5 bars with the lab's own engine: this is not a MetaTrader Strategy Tester session and never a live order." />
+      <div className="kit-strip" style={{ marginBottom: 10 }}>
+        <div className="item"><span className="k">Run mode</span>
+          <span className="v">{(() => {
+            const src = String(histRuns?.[0]?.data?.source || histRuns?.[0]?.source || "SIMULATOR").toUpperCase();
+            const real = src.includes("MT5") && !src.includes("SIM");
+            return real ? <Badge tone="real">REAL MT5 DATA</Badge> : <Badge tone="sim">SIMULATOR</Badge>;
+          })()}</span></div>
+        <div className="item"><span className="k">Node carried into this page</span>
+          <span className="v mono">{(() => {
+            const id = numOrNull(activeStrategy?.id) ?? numOrNull(activeStrategy?.node_id) ?? numOrNull(selectedStrategyId);
+            return id === null ? NA_TEXT : `#${id}`;
+          })()}</span></div>
+        <div className="item"><span className="k">Saved runs</span><span className="v mono">{histRuns.length}</span></div>
+        <div className="item"><span className="k">Orders placed</span><span className="v"><Badge tone="ok">NEVER</Badge></span></div>
       </div>
 
       {/* ======================= V4.6 — HISTORICAL MT5 BACKTEST ======================= */}
