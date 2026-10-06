@@ -2900,3 +2900,65 @@ STATUS:
 V4.7 requested. What was asked for is recorded here; what LMSArena actually
 implemented, tested and committed is recorded in lmsarena.txt.
 =============================================================
+
+=============================================================
+=============================================================
+V4.7 AUDIT REMEDIATION (what was requested)
+=============================================================
+Fix ONLY the three defects the final pre-manual-test audit found, with
+regression tests proving each fix, and nothing else.
+
+* /api/data/management/status must stop returning HTTP 500 (missing pathlib.Path
+  dependency in the API routes module): fix the dependency correctly, do not
+  alter the endpoint's calculations or response schema, and add a focused
+  regression test proving it no longer returns 500.
+* the same missing-dependency problem in the /api/data/inventory fallback branch
+  must be made safe rather than ignored because the current dataset does not
+  trigger it; add a regression test that deliberately exercises the fallback
+  branch with a registered dataset whose expected raw file is absent, and verify
+  HTTP 200, valid JSON, correct fallback behaviour and no NameError, without
+  changing normal inventory behaviour.
+* EvolutionTree must handle missing or malformed nodes/edges defensively: treat
+  missing/non-array nodes and edges as empty arrays, never crash the page, keep
+  normal rendering for valid payloads, do not hide genuine application errors,
+  do not change the API contract and do not change the layout/visual behaviour
+  for valid payloads. Add focused frontend regression tests for a valid payload,
+  missing nodes, missing edges and malformed nodes/edges.
+* do not change the two audit observations: the /api/data/clear/nodes
+  confirmation behaviour and the repository's DATA tracking / DATA/BACKUPS zips /
+  WAL sidecars (no DATA cleanup, migration, deletion, compression or
+  restructuring).
+* absolute DATA protection: authoritative DATA in /opt/lmsarena-storage/DATA is
+  never modified; record the DB SHA256, file count and the research/legacy/
+  backtest/validation/execution counts before testing (expected 10000 / 787 /
+  10787 / 1031 / 146 / 26) and verify the tree is byte-identical afterwards
+  (DB SHA256 still 54ec6835...6e042b); use disposable copies for all writable
+  tests; commit no DATA, database, runtime or test artifacts.
+* run the focused tests first, then the existing V4.1-V4.7 suites without
+  weakening or deleting anything (expected baseline 210 passed / 0 failed) and
+  report any regression separately.
+* run npx vite build and the existing frontend render smoke, and explicitly
+  exercise EvolutionTree with valid, missing-nodes, missing-edges and malformed
+  payloads, confirming no page-wide crash and that the lazy-loading /
+  error-boundary architecture is intact.
+* real-data smoke on a fresh disposable copy only: the two remediated endpoints,
+  Settings Data Management, Market Data, Evolution Tree with the real payload,
+  Stats / Strategy Lab / Backtest Matrix, MT5 Historical Backtest, Live Testing
+  inactive, MT5 execution simulator-only, no orders placed, no research node
+  created or modified and no legacy leakage.
+* git: inspect before and after (git status / git diff --stat /
+  git diff --name-only), change only the intended source and test files, keep
+  DATA, database files, ZIP/PID/runtime artifacts and secrets out of the commit,
+  make sure the commit contains real implementation files and is not docs-only,
+  then commit and push the remediation as "V4.7: fix final audit defects" and
+  confirm local HEAD == origin/main with a clean working tree.
+* final report: previous HEAD, new commit hash, exact files changed, the result
+  of each of the three fixes, regression tests, the V4.1-V4.7 suite result, the
+  frontend build result, the EvolutionTree malformed-payload tests, the real-data
+  smoke result, the research/legacy counts, the DATA SHA256 before/after, the
+  safety verification and the GitHub HEAD / cleanliness state - and no claim that
+  the audit passed unless every requested check actually passed.
+
+Status: V4.7 audit remediation requested and finished; what was implemented,
+tested and pushed is recorded in lmsarena.txt.
+=============================================================

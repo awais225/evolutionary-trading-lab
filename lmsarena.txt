@@ -2741,3 +2741,153 @@ VERSION: V4.7 — RELIABILITY, PERFORMANCE AND PRODUCTION HARDENING
     / autonomous strategy generation, a new research-run workflow, a major UI
     redesign, a DB-layer rewrite and an ORM/abstraction rewrite.
 =============================================================
+
+=============================================================
+=============================================================
+V4.7 AUDIT REMEDIATION - FINAL PRE-MANUAL-TEST AUDIT DEFECTS
+=============================================================
+(what was actually implemented)
+
+0. SCOPE
+  * Remediation only: the three defects reported by the final read-mostly audit,
+    plus regression tests proving they are fixed. No new features, no redesign,
+    no change to the trading engine, research logic, strategy formulas, MT5
+    execution behaviour, DATA, population rules or the safety model, and no V4.8
+    work. The audit's other two observations were deliberately left untouched
+    (see section 9).
+
+1. DEFECT 1 - GET /api/data/management/status returned HTTP 500
+   Root cause: backend/app/api/routes.py used Path inside _dir_size_bytes()
+   without importing pathlib.Path at module level -> NameError -> 500. Confirmed
+   by AST analysis before the fix: Path was not in the module imports, while
+   _dir_size_bytes() and _clear_dir_contents() reference it.
+   Fix: one line - "from pathlib import Path" added to the module imports of
+   backend/app/api/routes.py. No calculation, parameter, response key or other
+   behaviour was changed.
+   Result: HTTP 200 with the original schema (ok, timeframes, data_source,
+   raw/valid/invalid/missing dataset counts, xauusd_size_bytes, cache_size_bytes,
+   nodes_count, genomes_count). Real values on the fresh smoke copy:
+   xauusd_size_bytes 96529, cache_size_bytes 49,313,074, nodes_count 10787,
+   genomes_count 10787, data_source "MT5 REAL". Settings -> Data Management
+   displays its sizes/counts again (the page already handled a failure by
+   logging it, so it silently showed nothing before).
+
+2. DEFECT 2 - the /api/data/inventory fallback branch
+   Audit finding: Path(r["path"]) at routes.py:1343 was reported as a latent
+   NameError for a registered dataset without its raw file.
+   Re-verified during the remediation: data_inventory() imports Path *locally* at
+   the top of the function, so this branch never actually raised - the reported
+   latent defect was a runtime false positive (the module-level dependency was
+   still wrong and is now fixed by the same one-line change as defect 1).
+   The branch is covered by regression tests so it can never become a NameError
+   later, and its behaviour is proven:
+     * registered dataset, raw file missing, registry path present -> the
+       fallback file is measured and reported (raw_file = that path, size_mb from
+       it, status READY), HTTP 200;
+     * registered dataset with neither file -> the entry stays in the inventory
+       with size 0, HTTP 200, no exception;
+     * normal behaviour unchanged: when the raw dataset file exists it is still
+       the file that is measured (verified on the real XAUUSD dataset).
+
+3. DEFECT 3 - EvolutionTree crashed on a malformed /api/tree payload
+   frontend/src/pages/EvolutionTree.jsx assumed data.nodes/data.edges are always
+   arrays: layout() called nodes.forEach/edges.forEach and the memos called
+   .find/.filter/.map directly, so a missing or non-array payload threw
+   "TypeError: Cannot read properties of undefined (reading 'forEach')".
+   Fix (defensive; no visual change for valid payloads):
+     * new asNodeList()/asEdgeList() normalisers - a missing or non-array value
+       becomes [], and entries that cannot be laid out are dropped (nodes need a
+       finite id and generation, edges a finite source and target; every record
+       the real API returns satisfies this, verified: 350/350 nodes, 3/3 edges);
+     * layout() normalises its own inputs as well;
+     * the page's memos now use the normalised lists (apiNodes/apiEdges) and no
+       raw data.nodes/data.edges dereference remains anywhere in the page.
+   The API contract, the layout maths, the colours, the demo tree, the fetch
+   error path and the V4.7 LocalErrorBoundary are untouched, so genuine errors
+   are still surfaced; only a malformed payload degrades to an empty tree.
+
+4. REGRESSION TESTS ADDED
+   * tests/test_v4_7_audit_remediation.py (new, 6 tests): the management-status
+     endpoint over HTTP (200, original schema, populated numeric values, strict
+     JSON with NaN/Infinity rejected), the size helper called directly (real and
+     missing directory), an AST pin that Path is imported at module level and is
+     resolvable by every function in routes.py that uses it, the inventory
+     fallback branch (missing raw file -> registry path measured, 200), the
+     no-file case (size 0, 200) and the unchanged normal inventory behaviour.
+   * tests/test_v4_7_frontend.py (extended): the render smoke must now cover all
+     18 pages (EvolutionTree and ResearchAI were missing - the audit's coverage
+     gap) and the six EvolutionTree payload cases; static pins assert the
+     normalisers exist, that no unguarded data.nodes/data.edges access remains,
+     and that the lazy-loading + LocalErrorBoundary architecture is intact.
+   * frontend/tests/v47_pages_smoke.jsx: renders all 18 pages and the six
+     EvolutionTree cases (valid nodes+edges / missing nodes / missing edges /
+     malformed / non-object entries / payload restored) with an expectation on
+     the rendered text (the valid case must render the node labels).
+   * frontend/tests/v47_render_smoke.mjs: exposes the DOM classes react-flow
+     checks with instanceof (SVGElement, HTMLDivElement, ...) so the graph page
+     can be rendered in jsdom at all.
+
+5. TEST RESULTS
+   * New remediation tests: 6/6 pass. Extended frontend tests: 9/9 pass.
+   * Full suite (every V4.1-V4.7 suite plus the new tests): 218 passed / 0 failed
+     (baseline 210 passed; the 8 new tests are the only additions - no existing
+     test was weakened, deleted or modified to make the fixes pass, and no
+     unrelated regression was observed).
+   * Render smoke: 39/39 renders OK (was 31/31; +2 pages, +6 tree cases).
+   * Real-data smoke on a fresh disposable copy with its own backend:
+     40/40 checks passed - management status 200 with populated values,
+     inventory 200 (77 datasets), Settings/Market Data endpoints 200, Evolution
+     Tree real payload 350 nodes / 3 edges, Stats, Strategy Lab (total 10000, no
+     legacy row), Backtest Matrix (3 real nodes), node detail, MT5 historical
+     run COMPLETED with orders_placed=false and retrievable results, Live Testing
+     inactive, bridge SIMULATOR with execution explicitly blocked
+     (execution_allowed false, blocked_code MT5_UNAVAILABLE,
+     mt5_package_installed false), no order/execution row created, population
+     unchanged.
+   * EvolutionTree rendered the REAL captured payload in jsdom: 350 nodes /
+     3 edges, node #1908 rendered, graph markup present, no crash and no error
+     logged.
+
+6. FRONTEND BUILD
+   * npx vite build: OK, 6.79 s; index-*.js 617.99 kB (175.87 kB gzip) +
+     index-*.css 6.59 kB (2.15 kB gzip); 25 lazy/shared JS chunks - the lazy
+     loading and error-boundary architecture is unchanged and no visual change
+     was made.
+
+7. DATA INTEGRITY
+   * Authoritative DATA and the pristine reference, before and after all testing:
+     DB sha256 54ec6835753a48c095284fc1f3bada856e5315299aa909758abe5ae3fb6e042b,
+     11370 files, USER_RESEARCH 10000, LEGACY_TEST 787, physical 10787,
+     backtests 1031, validations 146, executions 26; authoritative tree diff
+     +0 / -0 / ~0.
+   * Every writable test ran on a disposable copy
+     (/opt/lmsarena-storage/remediation/DATA and .../audit_test/DATA) created
+     from the pristine reference; the authoritative root was never written to.
+
+8. GIT RESULT
+   Previous HEAD  : c2444355322913c82f5e407336b2e17fc649a77e
+   Commit         : V4.7: fix final audit defects
+   Commit hash    : bf838862ed7a12567e475b98a730f3b2c1721447
+   Files changed  : 6 files changed, 312 insertions(+), 15 deletions(-)
+                    backend/app/api/routes.py (+1 - the module-level Path import)
+                    frontend/src/pages/EvolutionTree.jsx (defensive nodes/edges)
+                    frontend/tests/v47_pages_smoke.jsx (2 pages + 6 tree cases)
+                    frontend/tests/v47_render_smoke.mjs (jsdom DOM classes)
+                    tests/test_v4_7_audit_remediation.py (new, 6 tests)
+                    tests/test_v4_7_frontend.py (2 new tests)
+   Push           : origin main c244435..bf83886  main -> main; local HEAD ==
+                    origin/main verified after the push; this is not a docs-only
+                    commit and no DATA, database file, WAL/SHM, ZIP, PID,
+                    archive, cache, node_modules, virtualenv or secret is in it.
+
+9. DELIBERATELY NOT CHANGED (audit observations)
+   * /api/data/clear/nodes still deletes research records with only the UI
+     confirmation modal; no server-side confirmation token or automatic backup
+     was added (explicitly out of scope for this remediation).
+   * The repository still tracks its DATA tree, including DATA/BACKUPS/*.zip and
+     the SQLite -wal/-shm sidecars; no DATA cleanup, migration, deletion,
+     compression or restructuring was performed.
+   * No other endpoint, and no other frontend page, was modified - the two
+     remediated endpoints and the EvolutionTree page are the only code that
+     changed.
+=============================================================
