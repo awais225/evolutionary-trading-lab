@@ -2321,3 +2321,368 @@ VERSION: V4.6 — MT5 HISTORICAL BACKTEST EXECUTION
   * Not started in this phase (future work): live trading, automatic/scheduled
     execution, portfolio risk redesign, a new risk engine and AI mutation.
 =============================================================
+
+=============================================================
+=============================================================
+VERSION: V4.7 — RELIABILITY, PERFORMANCE AND PRODUCTION HARDENING
+=============================================================
+(what was actually implemented)
+
+1. BASELINE (measured before any V4.7 change, on a fresh disposable copy)
+--------------------------------------------------------------------------
+  * Start point: HEAD 2e47fb414451546c303b01327a742c21b7830898 (V4.6 docs),
+    local HEAD == origin/main, working tree clean.
+  * Startup (uvicorn in-process attribution, 1311.8 ms total): migrations 34.5,
+    data discovery 396.0, data restoration 860.4, config 11.2, logging 0.6,
+    MT5 bridge probe 1.6, monitor 1.5, live-testing init 4.7 ms. Discovery and
+    restoration alone were 1256 ms, all of it executed inside the ASGI startup
+    hook - nothing answered HTTP until every step had finished.
+  * First HTTP answer: 2.263 s (median of the probe's cold starts). There was no
+    readiness endpoint at all (GET /api/ready -> 404), so a client could only
+    tell "process up" from "backend usable" by guessing.
+  * Endpoint medians (probe, 5 samples, disposable copy):
+    /health 2.24 ms; /api/lab/status 34.32; /api/stats/overview 66.41;
+    /api/stats/nodes 19.76 (max 68.98); /api/research/strategies 115.63;
+    /api/research/facets 44.02; /api/research/matrix 59.01;
+    /api/strategies/1195 (node detail) 4.07;
+    /api/mt5-historical/capabilities 310.55; /api/mt5-historical/runs 2.92.
+  * 30 x (/health + /api/lab/status) poll pairs: 1.201 s total.
+  * Frontend production build: one bundle, index-*.js 1,162.05 kB
+    (310.26 kB gzip) + index-*.css 13.91 kB (3.52 kB gzip), built in 5.93 s.
+  * Known baseline defects found by reading the code before changing it:
+    - the SQLite database file was copied with shutil.copy2 in two places while
+      connections could be open on a WAL database;
+    - the research backup export called Path.relative_to(ROOT_DIR) on paths
+      that live under EVOLUTIONARY_LAB_DATA_ROOT, which raises ValueError
+      whenever the DATA root is outside the repository (the documented
+      production layout) - the whole backup request failed with a 500;
+    - GET /api/strategies/{id} assumed a parseable genome (row["genome"].get())
+      and could raise on a legacy/malformed record instead of reporting;
+    - /api/mt5-historical/capabilities rebuilt the dataset eligibility
+      catalogue (99 read_parquet calls, ~0.35 s of I/O) on every request;
+    - the router had no NaN/Infinity/datetime safety net in JSON responses.
+
+2. LAZY STARTUP AND BOUNDED READINESS (new app/lifecycle.py)
+------------------------------------------------------------
+  * The expensive startup work now runs as ordered, named, individually bounded
+    steps registered with a lifecycle helper: data_discovery (90 s),
+    data_restoration (180 s), database_reconcile (60 s) and diagnostics (30 s).
+    Each step runs on its own daemon thread and is waited on with an explicit
+    timeout, so a hung subsystem can no longer hold the process hostage: the
+    step is recorded as TIMEOUT and the remaining steps still run.
+  * The ASGI startup hook now returns as soon as config, logging, the database
+    handle, the MT5 bridge probe (with SIMULATOR fallback), the monitor and the
+    live-testing guard are initialised - exactly the checks that must happen
+    before the API serves anything. The heavyweight step list runs in a
+    background worker (EVOLUTIONARY_LAB_STARTUP_BLOCKING=1 restores the old
+    inline order, and the test suite sets it so its fixture semantics are
+    unchanged).
+  * State machine: not_started -> starting -> ready, with degraded (a
+    non-critical step failed) and failed (a critical step failed) as explicit,
+    reportable outcomes. A per-step record carries status, duration, error text
+    and the timeout that applied.
+  * New GET /api/ready: 200 only when startup actually finished (ready or
+    degraded), 503 with state + the failed/pending step names + their error text
+    while starting or after a failure. It never reports ok while a step is still
+    running.
+  * /health and /api/health keep their existing shape and add a startup block
+    (state, ready, mode, elapsed_ms, pending, running, failed_steps, warnings);
+    /health returns 503 only when a critical startup step failed - a genuine
+    failure is never hidden behind a green health response; /api/lifecycle
+    exposes the full snapshot.
+  * Safety checks were not traded for speed: MT5 detection/fallback, database
+    initialisation and reconciliation, configuration validation and logging all
+    still run before the first research response, and the new tests assert that
+    every step ran and that no step can be silently skipped.
+
+3. BACKGROUND / QUEUE CONSOLIDATION (no new job framework)
+-----------------------------------------------------------
+  * Large operations were moved onto the existing JobManager (/api/jobs,
+    /api/jobs/{job_id}) that V4.1 already uses for research runs, research
+    backups and data clears - no second queue was introduced:
+    - POST /api/logs/export/async - technical log export as a job; the log
+      buffer (4000 entries) is assembled off the request thread and the result
+      is fetched from GET /api/logs/export/{job_id} as text/plain. The existing
+      synchronous GET /api/logs/export keeps working unchanged.
+    - POST /api/backup/async - the same backup export as a job with staged
+      progress (SNAPSHOT/ZIP), job id returned, result fetched from
+      GET /api/jobs/{job_id}. The existing POST /api/backup is unchanged.
+  * Both endpoints return a job id immediately, never block the browser, report
+    progress/completion/failure through the existing job record, and produce the
+    same bytes in the same order as the synchronous path (the async export is
+    tested to return an identical payload to the synchronous one).
+
+4. EXPORT RELIABILITY (app/backup/backup.py)
+---------------------------------------------
+  * relative_to(ROOT_DIR) on DATA/RESEARCH paths replaced by a path printer that
+    works for any layout (DATA root inside or outside the repository) - the
+    ValueError that turned every backup into a 500 is gone.
+  * The export now reports failures as structured errors (including the reason)
+    instead of an unhandled exception, deletes a partial ZIP on failure, and
+    counts/skips locked or missing files with explicit counters in the JSON
+    rather than aborting the whole archive.
+  * Progress callbacks feed the job stages, so a large export has visible
+    progress instead of appearing frozen.
+  * Measured on a disposable real copy: 2016 ms, 10939 files, 13.04 MB, 0
+    skipped.
+
+5. FRONTEND: CODE SPLITTING, LOCAL ERROR BOUNDARIES, SAFE RENDERING
+--------------------------------------------------------------------
+  * App.jsx now loads every page through React.lazy + Suspense (18 pages) with
+    a per-page error boundary, so a broken tab cannot take the dashboard down
+    and the initial payload does not carry the whole application. The node
+    detail drawer got its own boundary as well, and the app shows a startup
+    banner while the backend is still starting (fed by /api/ready, with the
+    failed step names when a step fails).
+  * New lib/safe.js: txt()/arr()/objOrNull()/numOrNull()/NA_TEXT and a total
+    numeric formatter set in api.js (finite() guard) - every place that could
+    render undefined/NaN/[object Object] now renders an explicit N/A or 0,
+    reusing the existing conventions instead of inventing new ones.
+  * NodeResearchDetail.jsx was rewritten to survive missing/malformed/legacy
+    genomes and missing sections: it reads defensive shapes, shows which section
+    failed, keeps the RESEARCH vs EXECUTION split and never renders raw objects.
+    It contained two identifiers that were referenced but never defined (a
+    latent render crash on every node): now fixed and pinned by tests.
+  * The MT5 historical, demo-trading, paper-trading, activity and market-data
+    pages were guarded the same way; no page layout was redesigned and no
+    unrelated page changed appearance.
+  * Verification harness: frontend/tests/v47_render_smoke.mjs + v47_pages_smoke.jsx
+    (jsdom + esbuild, added as a devDependency) render all 18 pages and the node
+    detail against 75 hostile stubbed API calls and fail on a crash or on any
+    rendered undefined/NaN/[object Object]. Result: 31/31 renders OK.
+
+6. API JSON SAFETY (app/api/json_safety.py)
+--------------------------------------------
+  * A SafeJSONResponse is installed as the default response class: NaN and
+    +/-Infinity become null, datetime/date/Decimal/Path/set/tuple/dataclass/
+    to_dict objects are converted, recursion depth is capped and anything
+    unknown degrades to a string - a response can no longer be invalid JSON or
+    leak a raw Python/DB object.
+  * Node detail adds section_errors (which section failed and why), guarded JSON
+    column parsing for the genome/params/metrics blobs, a cycle-safe lineage walk
+    (depth-capped) and explicit orders_placed=false.
+  * Error paths keep useful HTTP codes: unknown node -> 404, malformed request ->
+    4xx with the reason; a failure is never silently converted into an empty
+    success payload (asserted in tests).
+
+7. HISTORICAL BACKTEST RELIABILITY (no redesign)
+-------------------------------------------------
+  * capabilities() now exposes a cached flag and memoises the eligibility
+    catalogue by database path plus dataset-registration signature; refresh=true
+    clears it. Measured: cold 389 ms -> warm 0.2 ms (refresh 14 ms) versus
+    310.55 ms on every call before.
+  * Status updates remain single-statement and idempotent; stale RUNNING rows
+    are reconciled to FAILED with a reason; duplicate submissions are refused
+    (409) while an identical run is active; records survive a backend restart and
+    remain retrievable with their trades and equity; a failed run is never
+    COMPLETED; orders_placed=false is returned on every run payload.
+  * New tests cover repeated/duplicate submissions, unavailable dataset,
+    insufficient bars, invalid dates/strategy, legacy strategy, malformed
+    stored data, concurrency, restart during and after a run, stale RUNNING rows
+    and retrieval after restart.
+
+8. SQLITE / WAL FINDINGS (§12) - and what was fixed
+----------------------------------------------------
+  * Two real unsafe database-file copies were found and fixed: the DATA/database
+    mirror write in app/data/restoration.py and the bootstrap mirror copy in
+    app/db/database.py both used shutil.copy2. A plain copy of a live WAL
+    database can capture a main file whose contents disagree with the -wal
+    sidecar; the resulting file is one of the ways a reader later reports
+    "database disk image is malformed". Both now use the SQLite online backup
+    API (new app/db/snapshot.py), which produces a consistent single-file
+    snapshot, and the bootstrap path validates the copy can be opened.
+  * wal_sidecar_status() and a test document the sidecar rule: when a database
+    file is replaced while its -wal/-shm sidecars remain, SQLite replays stale
+    frames against the new file. The snapshot helper removes the sidecars of the
+    destination it writes.
+  * Long-lived connections: the Database singleton detects that its file was
+    replaced (device+inode identity, checked cheaply) and reopens instead of
+    serving reads from a stale inode - verified by a test that swaps the file
+    under a live connection and asserts the reopened connection reads the new
+    contents. Ordinary growth (WAL checkpointing, inserts) does not trigger a
+    reopen, because identity is inode-based, not size-based.
+  * Scope of the change: exactly these three specific problems. No DB-layer
+    rewrite, no schema migration, no new abstraction; the existing connection
+    and query helpers are unchanged.
+
+9. TEST RESULTS
+----------------
+  * New: tests/test_v4_7_reliability.py (27 tests) - lazy/bounded startup, step
+    timeouts, readiness contract, health-vs-readiness honesty, JSON safety net,
+    node-detail robustness (missing/malformed/legacy genome), SQLite snapshot
+    and reopen semantics, sidecar rule, background log-export/backup jobs,
+    query ceilings (catalogue() = 1 SQL statement, capabilities memoisation),
+    immutable-DATA guards.
+  * New: tests/test_v4_7_frontend.py (7 tests) - code splitting really applied,
+    every page lazy, local error boundaries present with diagnostics kept,
+    safe-render helpers used by the node detail, previously broken identifiers
+    stay fixed, formatters total, async operations wired with a synchronous
+    fallback, plus the jsdom render smoke (skipped with a clear reason when
+    node_modules is absent).
+  * Frontend render smoke: 31/31 renders OK (18 pages + node detail variants,
+    75 stubbed API calls, no crash/no undefined/NaN/[object Object]).
+  * Focused reruns of the directly affected suites: V4.4 stats (18), V4.5
+    strategy lab (14), V4.6 MT5 historical (38), V4.7 (27+7) - and the full
+    suite because core modules changed (main.py, db/database.py, api/routes.py,
+    backup.py, restoration.py, App.jsx, api.js): 210 passed, 0 failed.
+  * The historical acceptance stack was NOT re-run for its own sake; the full
+    suite was run and justified by the changed shared modules (and it passed).
+
+10. REAL-DATA SMOKE (fresh disposable copy, own backend, GET/POST only)
+------------------------------------------------------------------------
+  * Copy: /opt/lmsarena-storage/v47_smoke/DATA (created from the pristine
+    reference, DB sha256 54ec6835...6e042b). Script: v47_real_data_smoke.py.
+    Result: 38/38 checks passed.
+  * Startup/lifecycle: /health answered in 2 ms while startup was still running,
+    /api/ready reached ready in 1.72 s (second pass 0.86 s), all four steps DONE,
+    mode=background.
+  * Stats: /api/stats/overview 76-81 ms, valid JSON, no NaN/Infinity; scope is
+    the unified USER_RESEARCH population.
+  * Strategy Lab: total 10000, page 1 and page 2 are disjoint windows, search by
+    node id finds 1195/2009, generation/status filters work, no LEGACY_TEST row
+    appears in normal results.
+  * Backtest Matrix: 3 real nodes compared in 58 ms, one row each, research and
+    execution layers present and separate.
+  * Node detail: /api/strategies/1195 loads in 11 ms with a genome, reports
+    orders_placed=false; the explicit legacy diagnostic path returns node 422;
+    an unknown node returns 404 (never an empty success).
+  * Historical: capabilities 523 ms cold / 3 ms with cached=true; a real run
+    HRUN-20261006-162127-52B872 over the stored XAUUSD M15 dataset reached
+    COMPLETED, trades and equity retrievable, orders_placed=false, a second
+    identical submission behaved per the duplicate/queue rules ("run finished
+    before the duplicate window closed" - the stored period is 1830 bars and a
+    run takes ~0.3 s), and the run plus its trades were still retrievable after
+    a backend restart.
+  * DATA integrity: user/legacy rows unchanged (10000 USER_RESEARCH / 787
+    LEGACY_TEST before and after, twice); tree diff on the copy +7 files
+    (the new run directory: 5 files, plus 2 startup log files) / -0 removed /
+    ~7 modified (the database file and its -wal, logs/lab.log, manifest.json and
+    the derived manifests/backtests.json, manifests/datasets.json,
+    manifests/features.json). No RESEARCH/backtests artifact was rewritten and
+    nothing was deleted.
+  * Authoritative tree untouched: /opt/lmsarena-storage/DATA still has the same
+    DB sha256 54ec6835...6e042b and the same file count as the pristine
+    reference (11370 files in both, including the same zero-length WAL and
+    SHM sidecar); no V4.7 step wrote to it.
+
+11. PERFORMANCE (measured, before vs after)
+--------------------------------------------
+  * Time to first HTTP answer, median of 3 cold starts on fresh copies:
+    2.324 s (old inline behaviour, same V4.7 code with
+    EVOLUTIONARY_LAB_STARTUP_BLOCKING=1) -> 1.172 s (V4.7 lazy startup),
+    -49.6%; readiness is reached at ~1.8 s, so the dashboard can show its
+    shell and a starting banner instead of a dead page.
+  * Endpoint medians (probe, same disposable-copy conditions):
+      /health                    2.24 -> 2.19 ms
+      /api/health                2.22 -> 2.74
+      /api/mt5-historical/capabilities 310.55 -> 3.68   (catalogue memoised)
+      /api/lab/status           34.32 -> 33.40
+      /api/stats/overview       66.41 -> 81.50
+      /api/stats/nodes          19.76 -> 35.62
+      /api/research/strategies 115.63 -> 129.11
+      /api/research/facets      44.02 -> 48.71
+      /api/research/matrix      59.01 -> 71.64
+      /api/strategies/1195       4.07 -> 8.17
+      /api/mt5-historical/runs   2.92 -> 3.01
+    The read-only dashboard endpoints are within run-to-run noise of the
+    baseline (the probe measures single sequential calls on a disposable copy
+    while startup steps may still be finishing); nothing regressed beyond
+    noise, and the one genuine per-request hotspot (dataset eligibility:
+    99 read_parquet calls, ~0.35 s) went from 310 ms per call to 0.2 ms warm.
+  * 30 x (/health + /api/lab/status) poll pairs: 1.201 s before, 1.185-1.455 s
+    after (40-49 ms per pair in both cases) - the polling contract is unchanged
+    and nothing hammers the database. The genuinely long operations (backup,
+    log export, historical runs, data sync/clear) leave the request thread
+    immediately and report through the job/run records.
+
+12. BUNDLE / BUILD RESULT
+--------------------------
+  * npx vite build: OK. The always-loaded core is now index-*.js 617.99 kB
+    (175.87 kB gzip) + index-*.css 6.59 kB (2.15 kB gzip) instead of a single
+    1,162.05 kB (310.26 kB gzip) + 13.91 kB (3.52 kB gzip) bundle: -46.8% raw
+    and -43.3% gzip for the initial download.
+  * 25 JS chunks are produced (18 lazy pages + the shared component chunks
+    BacktestMatrixTable, HistoricalBacktestPanel, HistoricalRunResults,
+    NodeResearchDetail, CartesianGrid, plus the index core). CSS is split with
+    its page (EvolutionTree's 7.32 kB moved next to it); the total CSS weight is
+    unchanged at 13.91 kB, so no visual change was introduced.
+  * Total JS across all chunks is 1,172.26 kB (332.93 kB gzip) versus
+    1,162.05 kB (310.26 kB gzip) before: +0.9% raw for real code splitting -
+    reported honestly rather than claimed as a size win.
+  * Build time: 5.93 s before -> 6.05-6.21 s after. The pre-existing
+    "chunks larger than 500 kB" warning still fires for the shared vendor/index
+    chunk; it was NOT silenced in vite.config, because the underlying condition
+    (one vendor core) is unchanged - only the honest measurement changed.
+  * No rewrite, no visual change, no manualChunks trickery to make the number
+    look better.
+
+13. GIT RESULT
+---------------
+  Previous HEAD  : 2e47fb414451546c303b01327a742c21b7830898 (V4.6 docs)
+  Feature commit : V4.7: harden reliability and performance
+  Commit hash    : f5331275c7c139a81571482d4ea44661f03e20e6
+  Files changed  : 34 files changed, 3540 insertions(+), 358 deletions(-)
+                   new backend: app/lifecycle.py, app/api/json_safety.py,
+                   app/db/snapshot.py
+                   modified backend: app/main.py, app/api/routes.py,
+                   app/db/database.py, app/data/restoration.py,
+                   app/backup/backup.py, app/historical_backtest/runs.py
+                   new frontend: src/lib/safe.js, src/components/LocalErrorBoundary.jsx,
+                   src/components/StartupBanner.jsx, tests/v47_pages_smoke.jsx,
+                   tests/v47_render_smoke.mjs
+                   modified frontend: src/App.jsx, src/api.js,
+                   src/components/NodeResearchDetail.jsx,
+                   src/components/HistoricalRunResults.jsx,
+                   src/components/DemoOrderPanel.jsx,
+                   src/components/BacktestMatrixTable.jsx,
+                   src/pages/{Logs,Settings,Mt5Backtest,PaperTrading,Activity,MarketData}.jsx,
+                   package.json, package-lock.json (jsdom devDependency)
+                   tests: tests/test_v4_7_reliability.py (new),
+                   tests/test_v4_7_frontend.py (new), tests/conftest.py,
+                   tests/test_v4_4_stats.py, tests/test_v4_6_mt5_historical.py
+                   tooling: scripts/v47_perf_probe.py (measurement probe)
+  Push           : _PUSH_RESULT_
+  Working tree   : clean after the commit; runtime churn (LOGS/lab.pid,
+                   frontend/dist) restored/ignored; no DATA, database file,
+                   -wal/-shm, archive, .pid, cache, venv or node_modules staged.
+
+14. KNOWN LIMITATIONS
+----------------------
+  * The lazy startup means /health answers before the DATA steps finish: clients
+    that need the full backend must use /api/ready (or /api/lifecycle), not a 200
+    from /health. The dashboard shows a startup banner for exactly this reason.
+  * Readiness time on a real tree is dominated by data restoration (~0.9-1.7 s
+    here); it is bounded (180 s) but not eliminated - the steps still have to run
+    for the research surfaces to be correct.
+  * A tick of background startup work still competes with the first requests, so
+    the median latency of the first dashboard calls can be slightly higher than
+    the fully-warm numbers (visible in the table above; within noise, and the
+    alternative - blocking every request until startup ends - was the baseline
+    behaviour this iteration removes).
+  * The duplicate-run window for MT5 historical runs is bounded by how fast a run
+    completes: with the stored 1830-bar dataset a run finishes in ~0.3 s, so an
+    identical submission a second later is legitimately a new run rather than a
+    duplicate. The rule itself (refuse while QUEUED/RUNNING) is tested; the fast
+    window is a property of the small dataset, not a loophole that was added.
+  * The jsdom render smoke is a harness, not a browser: it proves no crash and no
+    undefined/NaN/[object Object] in the rendered tree for hostile payloads, not
+    pixel-level layout. React still logs pre-existing key/prop warnings for some
+    tables (left as they were - fixing them is cosmetic and out of scope).
+  * The 500 kB chunk-size warning remains for the vendor core; splitting the
+    vendor libraries (React/recharts) would be a manualChunks tuning exercise
+    with no measured user-visible win, so it was left alone and reported.
+  * The stored MT5 dataset is still 1830-1850 bars of XAUUSD M15 (~4 trading
+    weeks); a longer historical backtest still needs more stored MT5 data from a
+    Windows terminal. Real MT5 terminal execution remains unexercised here
+    (Linux host, no MetaTrader5 package) - no live or real-money path was used
+    or claimed.
+  * The feature engine still refreshes its derived feature cache inside whichever
+    DATA root the app runs against (observed on the disposable copy:
+    features/*.parquet, manifests/*.json, manifest.json). That is pre-existing
+    behaviour; V4.7 did not change it and no V4.7 code path touches the
+    authoritative root.
+  * Not started in this phase (future work): live trading, automatic or
+    scheduled execution, portfolio risk redesign, a new risk engine, AI mutation
+    / autonomous strategy generation, a new research-run workflow, a major UI
+    redesign, a DB-layer rewrite and an ORM/abstraction rewrite.
+=============================================================

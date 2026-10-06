@@ -2795,3 +2795,108 @@ STATUS:
 V4.6 requested. What was asked for is recorded here; what LMSArena actually
 implemented, tested and committed is recorded in lmsarena.txt.
 =============================================================
+
+=============================================================
+=============================================================
+VERSION: V4.7 — RELIABILITY, PERFORMANCE AND PRODUCTION HARDENING
+(what was requested)
+=============================================================
+The request for this phase was to harden what already exists - reliability,
+performance and production readiness - without adding new product features.
+
+* verify the real current state from the tracked implementation files, not from
+  the documentation
+* baseline first: startup, health, lab status, stats overview, Strategy Lab /
+  Backtest Matrix / Stats load, node detail, historical capability and result
+  lookup - measured before any change
+* lazy startup: expensive structures loaded on demand or in the background, the
+  backend answering first; validation, MT5 detection, database initialisation,
+  configuration and readiness still run; safety checks must not be dropped for
+  speed
+* bounded health/readiness: startup, health and readiness must have timeouts; a
+  hung subsystem must not block startup; MT5 being unavailable must not disable
+  unrelated research; simulator vs real MT5 must stay explicit; a real failure
+  must never hide behind a green health response
+* move API-thread blockers (historical execution, exports, large reports, data
+  operations) onto the existing background/queue architecture - no new job
+  framework - returning a job/run id and never blocking the browser
+* large exports must not freeze the dashboard; background status/progress/
+  completion/error; deterministic output; unchanged contents; Copy Log / Save Log
+  must keep working
+* inspect the Vite production bundle and introduce realistic lazy loading /
+  code splitting - no rewrite, no unnecessary visual change, measured before and
+  after
+* node detail must survive missing, malformed or legacy genome data and missing
+  sections: never crash, never render undefined / null / NaN / [object Object],
+  reuse the existing N/A conventions
+* API JSON safety across Stats, Strategy Lab, Backtest Matrix, MT5 historical
+  and node detail: valid JSON, stable types, useful HTTP errors, no raw Python or
+  database objects, and errors must never be silently turned into an empty
+  success
+* MT5 historical hardening without a redesign: repeated, failed and cancelled
+  runs, unavailable dataset, insufficient bars, invalid dates/strategy, legacy
+  strategy, malformed data, concurrency, duplicates, restart during and after a
+  run, stale RUNNING records, retrieval after restart; a failed run is never
+  COMPLETED; real stored MT5 data stays distinct from the lab engine, from the
+  MT5 Strategy Tester and from live MT5 execution
+* mt5_historical_runs reliability: indexes actually used, sane polling, safe
+  status updates, no corruption under concurrency, records preserved after a
+  reopen, research rows untouched - no redesign, no migration
+* SQLite/WAL stability: find unsafe database-file replacement, WAL/SHM handling
+  and long-lived connections across replacement; prove it is test-harness-only
+  or fix that specific problem - no database-layer rewrite
+* authoritative DATA stays immutable: no delete/rewrite, no USER_RESEARCH
+  regeneration, no LEGACY_TEST modification, no strategy record or count change;
+  10000 USER_RESEARCH excluding the 787 LEGACY_TEST; writable tests only on a
+  fresh disposable copy
+* legacy isolation regression across Stats, Strategy Lab, Backtest Matrix,
+  historical selection, node detail and population summaries - only an explicit
+  diagnostic path may expose the 787
+* MT5 safety regression: V4.2/V4.3 behaviour unchanged, historical backtesting
+  can never place or close an order, Live Testing inactive by default, and
+  historical clearly separated from DEMO/PAPER/LIVE TEST/LIVE TRADING
+* frontend error boundaries localised to Stats, Strategy Lab, Backtest Matrix,
+  MT5 Historical Backtest and Node Detail - one malformed node must not take the
+  dashboard down; errors stay visible with their diagnostics
+* measured performance targets: fast initial dashboard load, no full-table
+  scans, no N+1, no repeated expensive aggregates, bounded API response times,
+  historical backtests asynchronous, large exports not blocking dashboard
+  requests, and no micro-optimisation that hurts maintainability
+* do NOT re-run the whole V4.0-V4.6 acceptance stack: focused V4.7 tests, the
+  directly affected V4.4/V4.5/V4.6 tests and a lightweight smoke (Stats,
+  Strategy Lab, Backtest Matrix, V4.2 MT5 demo, V4.3 Live Testing, V4.6
+  historical); the full historical suite only with a stated reason
+* real-data smoke on a fresh disposable copy: 10000/787, Stats, Strategy Lab,
+  Backtest Matrix, node detail, historical capability and a historical run
+  lifecycle - with no research/legacy row and no DATA file changed, and never
+  writable tests against the authoritative DATA
+* npx vite build must succeed; record size, chunks and warnings; only "fix" the
+  chunk-size warning if the strategy genuinely improved
+* MANDATORY: the feature commit must contain the real implementation files (not
+  only lmsarena.txt/chatgpt.txt); inspect git status, git diff --stat and the
+  changed-file list before committing; never commit DATA, database runtime files,
+  WAL/SHM, ZIP backups, PID files, caches, node_modules, virtualenvs or secrets
+* documentation: lmsarena.txt records the baseline, the implementation, the files
+  changed, performance before/after, tests, the real-data smoke, the SQLite
+  findings, the MT5 safety findings, DATA integrity, limitations and the exact
+  commit hashes and push result; chatgpt.txt receives only this requested-change
+  block
+* git: exact feature commit "V4.7: harden reliability and performance", a docs
+  commit "V4.7: record commit and push result in lmsarena.txt" if needed, pushed
+  to main with HEAD == origin/main, a clean tree, the implementation files
+  actually on origin, and no DATA, runtime artifacts or secrets anywhere
+* final report: HEAD before, feature hash, docs hash, HEAD after, push result,
+  backend/frontend/test files changed, startup before/after, API before/after,
+  bundle before/after, historical reliability results, SQLite findings,
+  USER_RESEARCH/LEGACY_TEST counts, DATA integrity, tests passed/failed, known
+  limitations and confirmation that V4.8 was NOT started
+
+Out of scope, explicitly: live trading, automatic or scheduled strategy
+execution, autonomous re-testing or AI mutation, portfolio risk redesign, a new
+risk engine, a new research-run workflow, a database-layer or ORM rewrite, a
+major UI redesign, and new MT5 live execution.
+
+STATUS:
+V4.7 requested. What was asked for is recorded here; what LMSArena actually
+implemented, tested and committed is recorded in lmsarena.txt.
+=============================================================
