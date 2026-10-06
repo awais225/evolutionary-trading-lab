@@ -1623,8 +1623,8 @@ VERSION: V4.4 — RESEARCH STATISTICS & NODE ECONOMICS
 14. GIT RESULT
 ---------------
   Commit message : V4.4: add research statistics and node economics
-  Commit hash    : recorded in the documentation commit that follows (this
-                   report is written by the feature commit itself)
+  Commit hash    : c520dd190cf966dc11dc55ad2f05c3e753add21c (feature commit; this report is completed by the
+                   documentation commit that follows it)
   Push           : origin main (verified local HEAD == remote main afterwards)
   Working tree   : clean after the commit (runtime churn such as LOGS/lab.pid
                    restored to HEAD; nothing unrelated staged)
