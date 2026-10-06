@@ -3420,6 +3420,81 @@ def research_matrix(ids: Optional[str] = None, limit: int = 50, offset: int = 0,
         min_robustness=min_robustness, min_oos_return=min_oos_return)
 
 
+# ---------------- V4.6 MT5 Historical Backtest Execution ----------------
+# A user-triggered historical backtest of one USER_RESEARCH strategy over stored
+# MT5 market data, executed by the research backtest engine. It NEVER places an
+# order: no MT5 demo order, no live-test order, no live trade. Results are their
+# own immutable run (mt5_historical_runs + RESEARCH/mt5_historical/runs/<id>/).
+@router.get("/mt5-historical/capabilities")
+def mt5_historical_capabilities() -> Dict[str, Any]:
+    """What can be backtested now: eligible datasets (real MT5 first), cost
+    defaults, period limits and the (order-free) execution guarantee."""
+    from ..historical_backtest import runs as hb
+    return hb.capabilities()
+
+
+@router.post("/mt5-historical/runs")
+def mt5_historical_start_run(payload: Dict = Body(default_factory=dict)) -> Dict[str, Any]:
+    """Validate -> queue -> execute in the background. Returns the run id."""
+    from ..historical_backtest import runs as hb
+    result = hb.start_run(payload or {})
+    if not result.get("started"):
+        if result.get("duplicate"):
+            raise HTTPException(409, result)
+        raise HTTPException(422, result)
+    return result
+
+
+@router.get("/mt5-historical/runs")
+def mt5_historical_list_runs(strategy_id: Optional[int] = None, status: Optional[str] = None,
+                             limit: int = 50, offset: int = 0,
+                             include_diagnostic: bool = True) -> Dict[str, Any]:
+    """Historical backtest runs (newest first), optionally for one node."""
+    from ..historical_backtest import runs as hb
+    return hb.list_runs(strategy_id=strategy_id, status=status, limit=limit, offset=offset,
+                        include_diagnostic=include_diagnostic)
+
+
+@router.get("/mt5-historical/runs/{run_id}")
+def mt5_historical_get_run(run_id: str) -> Dict[str, Any]:
+    """Run status + result summary + provenance (no trade/equity arrays)."""
+    from ..historical_backtest import runs as hb
+    run = hb.get_run(run_id)
+    if not run:
+        raise HTTPException(404, f"historical backtest run {run_id} not found")
+    return run
+
+
+@router.get("/mt5-historical/runs/{run_id}/trades")
+def mt5_historical_run_trades(run_id: str, limit: int = 50, offset: int = 0) -> Dict[str, Any]:
+    """Paginated trade history of a run (complete list is the run artifact)."""
+    from ..historical_backtest import runs as hb
+    res = hb.run_trades(run_id, limit=limit, offset=offset)
+    if not res.get("ok"):
+        raise HTTPException(404, res.get("error") or f"run {run_id} not found")
+    return res
+
+
+@router.get("/mt5-historical/runs/{run_id}/equity")
+def mt5_historical_run_equity(run_id: str, max_points: int = 500) -> Dict[str, Any]:
+    """Equity curve of a run (bounded point count; full curve stays in the artifact)."""
+    from ..historical_backtest import runs as hb
+    res = hb.run_equity(run_id, max_points=max_points)
+    if not res.get("ok"):
+        raise HTTPException(404, res.get("error") or f"run {run_id} not found")
+    return res
+
+
+@router.post("/mt5-historical/runs/{run_id}/cancel")
+def mt5_historical_cancel_run(run_id: str) -> Dict[str, Any]:
+    """Cooperative cancel of a queued or running historical backtest."""
+    from ..historical_backtest import runs as hb
+    res = hb.cancel_run(run_id)
+    if not res.get("ok") and not res.get("run"):
+        raise HTTPException(404, res.get("error") or f"run {run_id} not found")
+    return res
+
+
 @router.get("/research/compare")
 def research_compare(ids: str) -> Dict[str, Any]:
     """Side-by-side comparison (<= 8 nodes) reusing the V4.4 per-node builder."""

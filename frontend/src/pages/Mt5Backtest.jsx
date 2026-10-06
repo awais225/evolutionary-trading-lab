@@ -2,6 +2,8 @@ import React, { useState, useEffect, useCallback } from "react";
 import { api, fmt } from "../api.js";
 import { useLab } from "../App.jsx";
 import StructuredError from "../components/StructuredError.jsx";
+import HistoricalBacktestPanel from "../components/HistoricalBacktestPanel.jsx";
+import HistoricalRunResults from "../components/HistoricalRunResults.jsx";
 
 export default function Mt5Backtest() {
   const { selectedStrategyId, setSelectedStrategyId, shortlist, navigateTab } = useLab() || {};
@@ -9,9 +11,12 @@ export default function Mt5Backtest() {
   const [activeStrategy, setActiveStrategy] = useState(null);
   const [historyResults, setHistoryResults] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [executing, setExecuting] = useState(false);
   const [error, setError] = useState(null);
   const [successMsg, setSuccessMsg] = useState(null);
+  // V4.6 — MT5 historical backtest runs (the honest path)
+  const [histRunId, setHistRunId] = useState(null);
+  const [histRuns, setHistRuns] = useState([]);
+  const [histVersion, setHistVersion] = useState(0);
 
   // Configuration state
   const [deposit, setDeposit] = useState("10000");
@@ -46,12 +51,25 @@ export default function Mt5Backtest() {
     }
   }, []);
 
+  const loadHistoricalRuns = useCallback(async (sid) => {
+    if (!sid) return;
+    try {
+      const res = await api.mt5HistoricalRuns({ strategy_id: sid, limit: 25 });
+      const runs = res.runs || [];
+      setHistRuns(runs);
+      setHistRunId((prev) => (prev && runs.some((r) => r.run_id === prev) ? prev : (runs[0]?.run_id || null)));
+    } catch (err) {
+      setHistRuns([]);
+    }
+  }, []);
+
   useEffect(() => {
     const sid = selectedStrategyId || 240;
     setNodeIdInput(String(sid));
     loadStrategy(sid);
     loadHistory(sid);
-  }, [selectedStrategyId, loadStrategy, loadHistory]);
+    loadHistoricalRuns(sid);
+  }, [selectedStrategyId, loadStrategy, loadHistory, loadHistoricalRuns, histVersion]);
 
   const handleLookup = (e) => {
     e?.preventDefault();
@@ -59,34 +77,6 @@ export default function Mt5Backtest() {
     if (!cleanId) return;
     loadStrategy(cleanId);
     loadHistory(cleanId);
-  };
-
-  const handleRunTest = async () => {
-    if (!activeStrategy?.id) return;
-    setExecuting(true);
-    setError(null);
-    setSuccessMsg(null);
-    try {
-      const payload = {
-        symbol: activeStrategy.symbol,
-        timeframe: activeStrategy.timeframe,
-        initial_deposit: parseFloat(deposit) || 10000.0,
-        leverage: parseInt(leverage, 10) || 100,
-        spread: parseFloat(spread) || 20.0,
-        commission: parseFloat(commission) || 7.0,
-        slippage: parseFloat(slippage) || 1.0,
-        start_date: startDate,
-        end_date: endDate,
-      };
-      const res = await api.mt5BacktestRun(activeStrategy.id, payload);
-      setSuccessMsg(`✓ MT5 Strategy Tester execution completed! Status: ${res.mt5_backtest.status} | Net Profit: ${fmt.currency(res.mt5_backtest.net_profit)}`);
-      loadStrategy(activeStrategy.id);
-      loadHistory(activeStrategy.id);
-    } catch (err) {
-      setError(err);
-    } finally {
-      setExecuting(false);
-    }
   };
 
   return (
@@ -97,11 +87,13 @@ export default function Mt5Backtest() {
           <h2 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
             <span>⚙️ MT5 STRATEGY TESTER & BACKTEST ENGINE</span>
             <span className="text-xs px-2 py-0.5 rounded font-mono bg-indigo-950 text-indigo-400 border border-indigo-800">
-              STAGE 3 PROMOTION
+              V4.0 LEGACY RECORDS
             </span>
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Standardized MT5 Strategy Tester execution with realistic commissions, bid/ask spreads, execution slippage, and persistent SQLite storage.
+            The section below lists <b>V4.0 stored records</b> (read-only). New historical backtests are executed by the
+            V4.6 engine above, which stores real engine results, equity, trades and provenance — the V4.0 record table
+            predates that engine and its rows were not produced by it.
           </p>
         </div>
 
@@ -123,6 +115,37 @@ export default function Mt5Backtest() {
             {loading ? "Loading..." : "Select"}
           </button>
         </form>
+      </div>
+
+      {/* ======================= V4.6 — HISTORICAL MT5 BACKTEST ======================= */}
+      <div className="space-y-4">
+        <HistoricalBacktestPanel
+          strategyId={activeStrategy?.id || selectedStrategyId || 240}
+          strategyLabel={activeStrategy ? `Node_${activeStrategy.id} (${activeStrategy.symbol} ${activeStrategy.timeframe})` : ""}
+          compact
+          onStarted={() => setHistVersion((v) => v + 1)}
+        />
+        {histRuns.length > 0 && (
+          <div className="bg-slate-900/80 p-4 rounded-xl border border-slate-800">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs uppercase font-bold tracking-wider text-slate-300">
+                Saved historical runs for this node
+              </span>
+              <select value={histRunId || ""} onChange={(e) => setHistRunId(e.target.value)}
+                      className="px-2 py-1 bg-slate-950 border border-slate-700 rounded-lg text-xs font-mono text-cyan-300">
+                {histRuns.map((r) => (
+                  <option key={r.run_id} value={r.run_id}>
+                    {r.run_id} — {r.status} — {String(r.period?.start || "").slice(0, 10)}→{String(r.period?.end || "").slice(0, 10)}
+                  </option>
+                ))}
+              </select>
+              <span className="text-[11px] text-slate-400 font-mono">
+                {histRuns.length} run(s) — each one is stored separately and never overwrites another
+              </span>
+            </div>
+          </div>
+        )}
+        {histRunId && <HistoricalRunResults runId={histRunId} onClose={() => setHistRunId(null)} />}
       </div>
 
       {error && <StructuredError error={error} onDismiss={() => setError(null)} />}
@@ -231,15 +254,19 @@ export default function Mt5Backtest() {
             </div>
           </div>
 
-          {/* Action Button */}
+          {/* Action Button — the V4.0 fabricated-result path is disabled.
+              V4.6 deliberately does not re-enable it: it produced numbers that were
+              not the output of a backtest engine. The endpoint itself is untouched,
+              and historical backtests now run through the V4.6 panel above. */}
           <div className="pt-3 border-t border-slate-800 flex items-center justify-between">
             <div className="text-xs text-slate-400 font-mono">
-              Results are permanently persisted into <code className="text-cyan-400">DATA/DATABASE/lab_state.db</code>
+              V4.0 record creation is disabled — use the <b>HISTORICAL MT5 BACKTEST</b> panel above, which stores
+              real engine results, equity, trades and provenance.
             </div>
             <button
               type="button"
-              disabled={executing || !activeStrategy}
-              onClick={handleRunTest}
+              disabled
+              title="disabled in V4.6: this legacy path built its numbers from stored research metrics rather than from a backtest engine"
               className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl shadow-md transition-all disabled:opacity-50 flex items-center gap-2"
             >
               {executing ? (

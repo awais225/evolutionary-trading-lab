@@ -4,6 +4,8 @@ import { useLab } from "../App.jsx";
 import { MatrixTable, ErrorNote, Spinner, SignedNum, Pill } from "../components/common.jsx";
 import StructuredError from "../components/StructuredError.jsx";
 import BacktestMatrixTable from "../components/BacktestMatrixTable.jsx";
+import HistoricalRunResults from "../components/HistoricalRunResults.jsx";
+import { StatusPill } from "../components/HistoricalBacktestPanel.jsx";
 
 /* V4.5 — Backtest Matrix (research comparison).
  *
@@ -33,6 +35,18 @@ export default function BacktestMatrix() {
   const [mData, setMData] = useState(null);
   const [mBusy, setMBusy] = useState(false);
   const [mErr, setMErr] = useState(null);
+
+  // ---- V4.6: MT5 historical runs for the node in focus ----
+  const [histRuns, setHistRuns] = useState([]);
+  const [histRunId, setHistRunId] = useState(null);
+
+  useEffect(() => {
+    const sid = selectedStrategyId || null;
+    if (!sid) { setHistRuns([]); setHistRunId(null); return; }
+    api.mt5HistoricalRuns({ strategy_id: sid, limit: 25 })
+      .then((r) => { setHistRuns(r.runs || []); setHistRunId((r.runs && r.runs[0] && r.runs[0].run_id) || null); })
+      .catch(() => setHistRuns([]));
+  }, [selectedStrategyId]);
 
   const loadMatrix = (params = {}) => {
     setMBusy(true);
@@ -123,10 +137,11 @@ export default function BacktestMatrix() {
         (TIMEFRAME, SESSION, DAY, REGIME, DIRECTION), verified against real persisted trade and
         backtest evaluations.
       </div>
+      {/* -------- RESEARCH BACKTEST RESULTS (stored research layer, V4.5) -------- */}
       {/* ---------------- V4.5 research comparison matrix ---------------- */}
       <div className="panel" style={{ marginBottom: 14 }}>
         <h3 style={{ marginBottom: 6 }}>
-          Research comparison matrix
+          RESEARCH BACKTEST RESULTS — comparison matrix
           <span className="pill" style={{ marginLeft: 8 }}>USER_RESEARCH</span>
           <span className="pill" style={{ marginLeft: 6, fontSize: 9 }}>BACKTEST / VALIDATION</span>
         </h3>
@@ -173,6 +188,61 @@ export default function BacktestMatrix() {
         <BacktestMatrixTable data={mData} loading={mBusy} error={null} maxHeight={340}
                              onSelectNode={(id) => setSid(String(id))}
                              emptyHint="No node matched — clear the filter or select different ids." />
+      </div>
+
+      {/* -------- MT5 HISTORICAL RUNS (V4.6, user-triggered historical execution) -------- */}
+      <div className="panel" style={{ marginBottom: 14 }}>
+        <h3 style={{ marginBottom: 6 }}>
+          MT5 HISTORICAL RUNS
+          <span className="pill" style={{ marginLeft: 8 }}>separate from research backtests</span>
+        </h3>
+        <div className="muted" style={{ fontSize: 11.5, marginBottom: 8 }}>
+          User-triggered historical backtests of a node over stored MT5 market data. These runs never overwrite the
+          stored research result above and never place an order; if several runs exist you can inspect each one
+          individually.
+        </div>
+        {!selectedStrategyId && (
+          <div className="muted" style={{ fontSize: 11.5 }}>
+            Pick a node in the workspace (or open one from the Strategy Lab) to list its MT5 historical runs.
+          </div>
+        )}
+        {selectedStrategyId && histRuns.length === 0 && (
+          <div className="muted" style={{ fontSize: 11.5 }}>
+            no MT5 historical run for Node_{selectedStrategyId} yet — start one from the Strategy Lab
+          </div>
+        )}
+        {histRuns.length > 0 && (
+          <>
+            <div className="scroll-x" style={{ marginBottom: 8 }}>
+              <table className="tbl">
+                <thead>
+                  <tr>
+                    <th>run</th><th>status</th><th>period</th><th>data</th>
+                    <th style={{ textAlign: "right" }}>trades</th>
+                    <th style={{ textAlign: "right" }}>net P&amp;L</th>
+                    <th style={{ textAlign: "right" }}>PF</th>
+                    <th>compare</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {histRuns.map((r) => (
+                    <tr key={r.run_id} style={r.run_id === histRunId ? { background: "#152238" } : undefined}>
+                      <td className="mono">{r.run_id}</td>
+                      <td><StatusPill status={r.status} /></td>
+                      <td className="mono">{String(r.period?.start || "").slice(0, 10)} → {String(r.period?.end || "").slice(0, 10)}</td>
+                      <td className="mono">{r.data?.source}{r.is_mt5_data ? "" : " (non-MT5)"}</td>
+                      <td className="mono" style={{ textAlign: "right" }}>{r.trade_count == null ? "N/A" : fmt.num(r.trade_count, 0)}</td>
+                      <td className="mono" style={{ textAlign: "right" }}>{r.results?.metrics?.net_profit == null ? "N/A" : fmt.pnl(r.results.metrics.net_profit)}</td>
+                      <td className="mono" style={{ textAlign: "right" }}>{r.results?.metrics?.profit_factor == null ? "N/A" : fmt.ratio(r.results.metrics.profit_factor, 3)}</td>
+                      <td><button className="btn" style={{ padding: "1px 6px" }} onClick={() => setHistRunId(r.run_id)}>open</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {histRunId && <HistoricalRunResults runId={histRunId} onClose={() => setHistRunId(null)} />}
+          </>
+        )}
       </div>
 
       {err && <StructuredError error={err} onDismiss={() => setErr(null)} />}

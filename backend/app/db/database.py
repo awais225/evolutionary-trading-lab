@@ -164,6 +164,52 @@ CREATE TABLE IF NOT EXISTS research_runs (
 );
 CREATE INDEX IF NOT EXISTS idx_runs_created ON research_runs(created_at);
 
+-- V4.6 — MT5 historical backtest runs (additive; one row per user-triggered run).
+-- A historical backtest is a RESEARCH execution: it is stored here, never in
+-- mt5_backtests (legacy V4 record), never in executions / paper_trades /
+-- mt5_demo_trades / live_test_trades (order execution audit layers).
+CREATE TABLE IF NOT EXISTS mt5_historical_runs (
+    run_id TEXT PRIMARY KEY,
+    strategy_id INTEGER NOT NULL,
+    label TEXT NOT NULL DEFAULT 'HISTORICAL MT5 BACKTEST',
+    status TEXT NOT NULL,
+    data_scope TEXT NOT NULL DEFAULT 'MT5',
+    data_source TEXT,
+    dataset_id TEXT,
+    dataset_path TEXT,
+    dataset_fingerprint TEXT,
+    symbol TEXT NOT NULL,
+    timeframe TEXT NOT NULL,
+    start_ts REAL,
+    end_ts REAL,
+    start_date TEXT,
+    end_date TEXT,
+    bars INTEGER,
+    initial_balance REAL,
+    risk_per_trade REAL,
+    config TEXT,
+    request_key TEXT,
+    genome_hash TEXT,
+    strategy_identity TEXT,
+    provenance TEXT,
+    engine_versions TEXT,
+    metrics TEXT,
+    trade_count INTEGER,
+    equity_points INTEGER,
+    artifacts TEXT,
+    runtime_ms REAL,
+    error TEXT,
+    notes TEXT,
+    diagnostic_legacy INTEGER DEFAULT 0,
+    research_eligible INTEGER DEFAULT 1,
+    created_at REAL NOT NULL,
+    started_at REAL,
+    finished_at REAL
+);
+CREATE INDEX IF NOT EXISTS idx_mt5_hr_strategy ON mt5_historical_runs(strategy_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_mt5_hr_status ON mt5_historical_runs(status);
+CREATE INDEX IF NOT EXISTS idx_mt5_hr_key ON mt5_historical_runs(request_key, status);
+
 CREATE TABLE IF NOT EXISTS mt5_backtests (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     strategy_id INTEGER NOT NULL,

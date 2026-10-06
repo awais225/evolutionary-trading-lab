@@ -4,6 +4,7 @@ import { useLab } from "../App.jsx";
 import { Card, ErrorNote, Metric, Pill, Spinner } from "../components/common.jsx";
 import NodeResearchDetail from "../components/NodeResearchDetail.jsx";
 import BacktestMatrixTable from "../components/BacktestMatrixTable.jsx";
+import HistoricalBacktestPanel from "../components/HistoricalBacktestPanel.jsx";
 
 /* V4.5 — Strategy Lab (research selection, filtering, comparison).
  *
@@ -80,6 +81,7 @@ export default function StrategyLab() {
   const [listBusy, setListBusy] = useState(false);
 
   const [selectedIds, setSelectedIds] = useState([]);
+  const [detailRefreshKey, setDetailRefreshKey] = useState(0);
   const [compare, setCompare] = useState(null);
   const [matrix, setMatrix] = useState(null);
   const [busyAction, setBusyAction] = useState("");
@@ -161,7 +163,10 @@ export default function StrategyLab() {
       .finally(() => setBusyAction(""));
   };
 
-  const clearSelection = () => { setSelectedIds([]); setCompare(null); setMatrix(null); };
+    // the node a historical backtest would run for: the opened detail, or a single checkbox
+  const labNode = detail?.node?.id || (selectedIds.length === 1 ? selectedIds[0] : null);
+
+const clearSelection = () => { setSelectedIds([]); setCompare(null); setMatrix(null); };
   const selectPage = () => setSelectedIds((cur) => Array.from(new Set([...cur, ...pageIds])));
   const openInWorkspace = (id) => {
     if (setSelectedStrategyId) setSelectedStrategyId(id);
@@ -501,6 +506,32 @@ export default function StrategyLab() {
           )}
         </Card>
       )}
+
+      {/* ---------------- V4.6: historical MT5 backtest for one node ---------------- */}
+      <Card style={{ marginBottom: 14 }}>
+        <h3 style={{ marginBottom: 4 }}>
+          Historical MT5 backtest
+          <span className="muted" style={{ fontSize: 11, marginLeft: 8 }}>
+            user-triggered research execution — never places an order
+          </span>
+        </h3>
+        <div className="muted" style={{ fontSize: 11.5, marginBottom: 8 }}>
+          Runs the existing backtest engine over stored historical MT5 market data for <b>one</b> research node and
+          stores the result as its own immutable run (run id, status, metrics, equity, trades, provenance). Stored
+          research backtests stay untouched — a new MT5 historical run never overwrites them.
+        </div>
+        {labNode ? (
+          <HistoricalBacktestPanel strategyId={labNode}
+                                   strategyLabel={`Node_${labNode}`}
+                                   runsRefreshKey={detailRefreshKey}
+                                   onStarted={() => setDetailRefreshKey((k) => k + 1)} />
+        ) : (
+          <div className="muted" style={{ fontSize: 11.5 }}>
+            Select exactly one node (checkbox in the table, or open its detail) to configure a historical backtest.
+            {selectedIds.length > 1 ? " Multi-node selections are for comparison only." : ""}
+          </div>
+        )}
+      </Card>
 
       {/* ---------------- strategy detail (V4.4 component, reused) ---------------- */}
       <h3 style={{ fontSize: 13, marginBottom: 6 }}>

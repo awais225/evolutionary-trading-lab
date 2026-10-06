@@ -186,6 +186,18 @@ export const api = {
   mt5BacktestResults: (sid = null) => req(`/api/mt5-backtest/results${sid ? `?strategy_id=${sid}` : ""}`),
   mt5StrategyBacktests: (sid) => req(`/api/mt5-backtest/strategies/${sid}`),
 
+  // V4.6 — MT5 historical backtest execution (research; never places an order)
+  mt5HistoricalCapabilities: () => req("/api/mt5-historical/capabilities"),
+  mt5HistoricalStartRun: (body) => req("/api/mt5-historical/runs", { method: "POST", body }),
+  mt5HistoricalRuns: (params = {}) => {
+    const q = qs(params);
+    return req(`/api/mt5-historical/runs${q ? `?${q}` : ""}`);
+  },
+  mt5HistoricalRun: (runId) => req(`/api/mt5-historical/runs/${runId}`),
+  mt5HistoricalTrades: (runId, params = {}) => req(`/api/mt5-historical/runs/${runId}/trades?${qs(params)}`),
+  mt5HistoricalEquity: (runId, params = {}) => req(`/api/mt5-historical/runs/${runId}/equity?${qs(params)}`),
+  mt5HistoricalCancel: (runId) => req(`/api/mt5-historical/runs/${runId}/cancel`, { method: "POST" }),
+
   // Live Testing & Schedule Controls (V4)
   liveTestStatus: () => req("/api/live-test/status"),
   liveTestConfig: (sid) => req(`/api/live-test/strategies/${sid}/config`),
