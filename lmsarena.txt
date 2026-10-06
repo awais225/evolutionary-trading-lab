@@ -456,3 +456,275 @@ OBJECTIVE
   Suite: 212 passed / 20 failed (13 pre-existing + 7 legacy-visibility tests)
   V4.1 (New Research Run lifecycle) : NOT started (per instruction)
 =============================================================
+
+
+=============================================================
+V4.1 - NEW RESEARCH RUN WORKFLOW (what was actually implemented)
+=============================================================
+1. SCOPE
+--------
+Implemented only the new research-run workflow on top of the existing data
+model. No MT5/live-trading/risk-per-node/live-market work, no Strategy Lab or
+Stats redesign, nothing else from the V4 roadmap. V4.0 behaviour was kept: the
+LEGACY_TEST records stay hidden from the user-facing views, the dashboard
+statistics stay scoped to the user research population, and the status /
+generation / engine-gate / classification logic is unchanged. The new control
+sits exactly where the old "START NEW RESEARCH RUN" button was (Overview page
+top action bar); the button now opens a modal with the three options instead of
+silently starting a bare new run id.
+
+LEGACY_TEST is defined by the project's own data_source classification
+(verified: 0 rows disagree with the id/run_id rule) and is never part of the
+research-run workflow.
+
+2. V4.1 BASELINE (captured before coding, real DATA)
+----------------------------------------------------
+  user research population : 10000 nodes (target 10000, remaining 0)
+  LEGACY_TEST              : 787 nodes (FAILED 483, RETIRED 131, QUALIFIED 124,
+                             SURVIVED 31, KILLED 11, PAPER 7)
+  database                 : 10787 strategies, max id 10814,
+                             sqlite_sequence.strategies = 10814
+  user research_node_num   : 1..10000  (next user-facing node = Node_010001)
+  next strategy id         : 10815
+  generation (global)      : 39   |  active run: RUN-20261005-055251
+  dashboard (V4.0 scope)   : TOTAL 10000, ALIVE 33, DEAD 9967, QUALIFIED 5,
+                             SURVIVED 28, FAILED 9967, TARGET 10000,
+                             REMAINING 0, POPULATION ACTIVE 28, GENERATION 39
+  user dependents          : backtests 488, validations 9, matrices 5
+  research_memory          : 47 rows | generation_stats: 7 rows
+
+3. IMPLEMENTATION
+-----------------
+backend/app/research_run/lifecycle.py (+ __init__.py re-exports) - the workflow
+  * counts(): user / legacy / total / max id / next strategy id
+  * state(): everything the dialog needs (counts, run identity, target,
+    remaining, next sequence, configured fresh target, legacy notice, backups)
+  * create_research_backup(note) -> DATA/BACKUPS/research_backup_YYYYMMDD_HHMMSS.zip
+    containing a legacy-stripped DATABASE/lab_state.db plus
+    research_run_manifest.json (counts, run id, sha256, conceptual backup_ id)
+  * verify_research_backup(path, expected_user_nodes): archive readable, sqlite
+    integrity check, manifest match, user node count, ZERO legacy rows,
+    sha256 check - the gate that runs BEFORE any destructive step
+  * reset_user_research(): one transaction - deletes only USER_RESEARCH rows and
+    their dependent rows (backtests, validations, matrices, executions,
+    paper_trades, mt5_backtests, live_test_configs, mt5_demo_configs,
+    research_shortlist, strategy_pipeline_states, hypotheses, research_memory by
+    parent/child within the user set, activity by strategy_id); every DELETE
+    carries the legacy guard; returns legacy_untouched check
+  * start_fresh_run(mode, confirm, target, start, note): Option A
+    (backup_and_reset) / Option C (reset_only) in the fixed order
+    BACKUP -> VERIFY -> RESET -> INITIALIZE; verification failure aborts before
+    deleting anything and reports stage=BACKUP_VERIFY / deleted_anything=false
+  * resume_add_nodes(additional, start): Option B - raises the existing target
+    (current run nodes + N), never creates/regenerates nodes, reuses
+    psm.resume_run + lab.recheck + evo.set_total_node_target
+  * restore_research_backup(path, confirm): recovery path - atomic restore of
+    the archived study (INSERT OR REPLACE inside one transaction) so a failed
+    A/C run can be undone
+  * operation_status(): stage/progress/message for the modal
+  * _op_gate (mutual exclusion -> HTTP 409 on duplicate submit) + _op_lock
+    (reentrant state updates)
+backend/app/db/database.py
+  * Database.transaction(statements): BEGIN IMMEDIATE + commit/rollback, accepts
+    execute or executemany batches -> a reset/restore can never leave a
+    half-reset database
+backend/app/api/routes.py - 7 endpoints:
+  GET  /api/research-run/state | /status | /backups
+  POST /api/research-run/backup | /start-fresh | /resume-add | /restore
+  (409 CONFIRM for a wrong/missing confirmation token, 409 lock for a duplicate
+   submission, 400 VALIDATE for bad input)
+backend/app/evolution/engine.py
+  * node ceiling: try_insert now stops on the configured target only
+    (if cur_nodes >= target) - the hard-coded 10,000 boundary that blocked any
+    target above 10,000 was removed; reproduce()/seed_population() already
+    clamped to the target, so the target is the single authoritative ceiling
+  * LEGACY_POPULATION_SQL: the legacy infrastructure population is never
+    retired by enforce_population_cap, never deleted by clear_failed and never
+    swept by reset_generation; active_count(exclude_legacy=True) counts the
+    research population only
+  * get_node_generation_state() keeps the V4.0 default (user-research scope for
+    every dashboard/watchdog consumer) with a separate cache slot for the raw
+    database-wide view, so the two scopes can never leak into each other
+backend/app/paths.py + backend/app/config.py
+  * DATA_ROOT_EXPLICIT + re-rooting of persisted absolute DATA paths when
+    EVOLUTIONARY_LAB_DATA_ROOT is set (safety fix, see 8b)
+frontend/src/components/NewResearchRunModal.jsx (new)
+  * three option cards (backup+reset / resume+add / reset without backup),
+    live user + legacy counts and the legacy-untouched statement, "START
+    IMMEDIATELY" opt-in, Option A acknowledgement checkbox, Option C requires
+    typing RESET, busy state + progress polling + result panel
+frontend/src/api.js - researchRunState/Status/Backups/Backup/StartFresh/ResumeAdd
+frontend/src/pages/Overview.jsx - existing button opens the modal (same place,
+  same style), modal rendered in the page
+
+4. SAFETY BEHAVIOUR (as verified)
+---------------------------------
+  * destructive options require the exact confirmation token over HTTP as well
+    as in the UI; a wrong/missing token returns 409 and deletes nothing
+  * duplicate submissions are rejected while an operation runs (409)
+  * backup is created and verified BEFORE the reset; a backup that cannot be
+    verified aborts with nothing deleted (covered by a focused test)
+  * every destructive statement is scoped to USER_RESEARCH and the legacy
+    count is re-checked afterwards
+  * the operation reports its stage (BACKUP / VERIFY / RESET / INIT / DONE /
+    ERROR) and the modal shows progress, success and failure
+
+5. VERIFICATION - DISPOSABLE COPY ACCEPTANCE (real DATA, copy of the
+   authoritative dataset; the live DATA was never the target)
+--------------------------------------------------------------------------
+Result: ALL PASS (55 checks) - acceptance_results_v2.json
+  [0] baseline             user 10000 / legacy 787 / seq 10814 / numbering 1..10000
+                           app startup changed neither the legacy fingerprint nor
+                           the user study
+  [1] Option B             previous_target 10000 -> new_target 11000,
+                           nodes_to_generate 1000, same run RUN-20261005-055251,
+                           nothing created/regenerated, sqlite_sequence unchanged,
+                           dashboard TOTAL 10000 / TARGET 11000 / REMAINING 1000
+  [2] engine loop (120 s)  88 new nodes, ids 10815..10902, all with the current
+                           run id, user-facing numbering 10001..10100+, the
+                           existing 10000 nodes unchanged (ids/genomes/hashes/
+                           numbering/run - only status/updated_at evolve through
+                           the live pipeline by design), legacy fingerprint
+                           identical, population grew only by the new nodes
+  [3] Option A             research_backup_20261006_130037.zip created and
+                           verified before the reset (manifest: 10088 user nodes,
+                           legacy excluded 787, sha256 matched), user reset to 0,
+                           legacy rows + fingerprint unchanged, user dependents
+                           removed, legacy dependents untouched, AUTOINCREMENT
+                           not rewound, new run RUN-20261006-130038, fresh target
+                           = configured target, dashboard TOTAL 0 / TARGET 11000
+  [4] recovery             restore of the same backup -> study byte-identical to
+                           the pre-reset study (10088 rows, ids/statuses/hashes),
+                           legacy untouched, all 488 backtests back
+  [5] Option C             reset without backup -> user 0, no archive created,
+                           legacy fingerprint unchanged, new run issued
+  [6] guards               6 rejection cases (wrong token, missing confirmation,
+                           unknown mode, additional_nodes=0, resume on an empty
+                           study, duplicate submit) -> nothing deleted
+  The legacy fingerprint was re-checked after every single step and stayed
+  identical from before startup to the end of the run.
+
+  Documented end-to-end case (spec §13) - verified on an isolated copy:
+  10000 + 1000 -> target 11000; 1000 additional nodes only (ids strictly above
+  the previous maximum, numbering 10001..11000, current run id); the original
+  10000 nodes were not regenerated; LEGACY_TEST stayed at 787 and untouched.
+  Generation above the old 10,000 boundary works (88 nodes in the 120 s window;
+  the engine continues in batches while the pipeline drains).
+
+6. TESTS
+--------
+  Focused V4.1 suite: tests/test_v4_1_research_run_workflow.py - 23 tests, all
+  pass (23 passed). Covered: backup contains USER_RESEARCH only; defensive
+  confirmation for A/C; invalid mode; an unverifiable backup aborts BEFORE any
+  deletion; backup verification rejects a non-backup zip; resume-add validation;
+  resume-add raises the target and preserves existing nodes; duplicate op -> 409;
+  state exposes run identity/counts; /status shape; state vs /api/lab/status
+  agree; HTTP confirmation guard; endpoint documentation; population cap never
+  retires legacy nodes; clear_failed never deletes legacy nodes; the node-state
+  default scope stays user-research; a stale absolute CONFIG path follows the
+  DATA-root override.
+  tests/conftest.py in the repo provides the client fixture; pytest.ini
+  testpaths = DATA/tests tests.
+
+  Existing suite (real DATA, clean CONFIG):
+      232 passed / 23 failed (255 collected) in 36 s
+  Failure classification (nothing was fixed blindly):
+    * 20 pre-existing V4.0 failures - 13 environment/layout/state dependent
+      (lowercase start.bat launchers, in-repo database path expectations,
+      DATA_ROOT != ROOT/DATA, backup path portability, order dependent dataset
+      eligibility + resource limits, sampled tree window) plus the 7
+      "old-behaviour" tests that expect the legacy nodes to be returned by the
+      V4.0 user-facing endpoints (tree lineage x3, search/filter APIs, dashboard
+      synchronization, V4 metrics/shortlist harmony).
+    * 1 order/state-dependent failure - test_v3_2::test_test_f_restart_persistence
+      asserts whole-table counts and passes in isolation (the module also needs
+      the 'backend' package importable, which only the earlier test provides);
+      test_data_discovery::test7 occupies the same slot in the alternate
+      ordering (ModuleNotFoundError: 'backend' - Pre-existing environmental).
+    * 2 tests encode the pre-V4.1 behaviour that V4.1 deliberately changes:
+      test_evolution::test_population_cap_retires_worst and
+      test_node_generation_diagnostic_and_fix::test_population_cap_leaves_
+      permanent_and_in_flight_untouched create nodes with no active run bound,
+      which the project classifies as LEGACY_TEST, and then expect the
+      population cap to retire them. V4.1 forbids exactly that: legacy
+      infrastructure rows must never have their status changed. Classified,
+      not modified - focused V4.1 tests now assert the new contract.
+  Frontend build: PASS (vite build, 991 modules, dist/ regenerated).
+
+7. DATA INTEGRITY
+-----------------
+  DATA never entered the workspace or the commit. All destructive verification
+  ran against a disposable copy (/opt/lmsarena-storage/v4_1_testdata/DATA,
+  created with cp -a from the byte-exact pristine reference) and the real DATA
+  was checked byte-for-byte (sha256) during those runs.
+  The project's own test suite writes to the authoritative DATA (documented in
+  the V4.0 record), so DATA was restored from DATA_PRISTINE_20261006 after the
+  suite and verified with sha256sum -c DATA_IMPORT_MANIFEST.sha256 --quiet
+  (byte-exact, 11370/11370 files OK). App startup additionally refreshes
+  DATA/manifests, DATA/logs and the database mirror by design.
+
+8. FINDINGS AND KNOWN ISSUES (recorded, not silently fixed)
+-----------------------------------------------------------
+  a) Engine vs legacy (fixed in V4.1): the population cap used a database-wide
+     active count, so a routine engine run retired legacy SURVIVED nodes
+     (42 rows) and would keep doing so. The cap/clear_failed/reset_generation
+     are now scoped away from the legacy population and the acceptance run
+     proves the legacy fingerprint is identical from startup to the end of a
+     full A/B/C cycle.
+  b) DATA-root override hazard (fixed in V4.1): when a run persists absolute
+     /.../DATA/... paths into CONFIG/lab_config.yaml, an app started later with
+     EVOLUTIONARY_LAB_DATA_ROOT set to a different tree silently opened the
+     production database - the absolute path was not under <root>/DATA so the
+     resolver returned it untouched. The override is now authoritative for
+     persisted DATA-tree paths (and only when it is set explicitly). This was
+     found because two verification attempts initially hit the real DATA; the
+     data was restored from the pristine copy each time and verified with the
+     manifest, no research data was lost.
+  c) Still unscoped (pre-existing, unchanged): POST /api/tasks/reconcile and
+     restoration.py bulk-update statuses without a legacy filter. The shipped
+     DATA has no legacy rows in the affected states (BORN/BACKTESTING/
+     VALIDATING), so nothing is damaged today; do not run reconcile against a
+     database where legacy rows sit in those states.
+  d) try_insert falls back to run_id "RUN-20260927-CLEAN-MT5" and the
+     LEGACY_TEST label when no active run is bound. The app binds the run at
+     startup, so this only shows up in out-of-band engine processes (it was
+     observed while building the verification harness and is why the harness
+     binds the run through lab.resume()).
+  e) Option B raises the target relative to the ACTIVE run's node count
+     (existing machinery). In a clean single-run study that equals the
+     population (10000+1000 -> 11000 as verified); after a fresh run has just
+     been created the active run is the new one, which is the intended
+     "resume the current study" semantic.
+  f) Restore replaces rows by id (INSERT OR REPLACE) inside one transaction;
+     the legacy strategy rows are never in the restore source, so they are
+     never replaced.
+  g) App startup touches updated_at on some legacy rows (pre-existing, benign;
+     status/generation/hash/fitness are untouched - verified row by row).
+
+9. FILES CHANGED
+----------------
+  backend/app/research_run/__init__.py          (new)
+  backend/app/research_run/lifecycle.py         (new)
+  backend/app/db/database.py                    (transaction())
+  backend/app/api/routes.py                     (7 research-run endpoints)
+  backend/app/evolution/engine.py               (target ceiling, legacy guards,
+                                                 display-scope cache split)
+  backend/app/config.py                         (DATA-tree re-rooting)
+  backend/app/paths.py                          (DATA_ROOT_EXPLICIT)
+  frontend/src/api.js                           (research-run API calls)
+  frontend/src/components/NewResearchRunModal.jsx (new)
+  frontend/src/pages/Overview.jsx               (button opens the modal)
+  tests/test_v4_1_research_run_workflow.py      (new, 23 tests)
+  tests/conftest.py                             (new, client fixture)
+  pytest.ini                                    (testpaths = DATA/tests tests)
+  chatgpt.txt / lmsarena.txt                    (documentation)
+  No DATA, backup, database, secret, virtualenv or node_modules content is
+  staged or committed.
+
+10. GIT RESULT
+--------------
+  Commit message : V4.1: finalize current research run workflow
+  Push           : origin main (verified local HEAD == remote main)
+  Working tree   : clean after the commit (CONFIG/LOGS runtime churn reverted,
+                   no DATA, no temp files, no credentials)
+=============================================================

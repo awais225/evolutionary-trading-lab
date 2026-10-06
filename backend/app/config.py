@@ -280,6 +280,15 @@ def _relativize(p: str) -> str:
         return p
 
 
+def _data_tree_suffix(ap: Path) -> Path | None:
+    """Path below the last ``DATA`` component of `ap`, else None (V4.1)."""
+    parts = ap.parts
+    for i in range(len(parts) - 1, -1, -1):
+        if parts[i].upper() == "DATA":
+            return Path(*parts[i + 1:])
+    return None
+
+
 def _resolve_data_tree(p: str) -> str:
     """Resolve a DATA-tree path (data_root / cache_dir / database_path).
 
@@ -292,6 +301,15 @@ def _resolve_data_tree(p: str) -> str:
     Paths that do NOT live inside the DATA tree keep the previous behaviour
     (relative -> app root), so an existing local installation resolves exactly
     as before and nothing is ever silently moved.
+
+    V4.1 safety fix: when the DATA root is selected explicitly through
+    ``EVOLUTIONARY_LAB_DATA_ROOT`` (P.DATA_ROOT_EXPLICIT), a persisted absolute
+    path that still points into *some* DATA tree is re-rooted onto that override
+    as well. Without this, a stale absolute path written into CONFIG by an
+    earlier run silently redirected research writes - including the destructive
+    START NEW RESEARCH RUN operations - to the production DATA tree while every
+    diagnostic reported the overridden root. When the environment override is
+    not used, the previous behaviour is untouched.
     """
     pp = Path(p)
     root_data = (ROOT_DIR / "DATA")
@@ -300,7 +318,9 @@ def _resolve_data_tree(p: str) -> str:
         try:
             rel = ap.relative_to(root_data.resolve())
         except (ValueError, OSError):
-            return str(pp)                      # outside DATA: untouched
+            rel = _data_tree_suffix(ap) if P.DATA_ROOT_EXPLICIT else None
+            if rel is None:
+                return str(pp)                  # outside DATA: untouched
         return str((P.DATA_ROOT / rel).resolve())
     parts = pp.parts
     if parts and parts[0] == "DATA":            # e.g. "DATA/DATABASE/lab_state.db"

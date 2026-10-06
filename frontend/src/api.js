@@ -124,6 +124,13 @@ export const api = {
   labRuns: () => req("/api/lab/runs"),
   labRunDetail: (runId) => req(`/api/lab/runs/${runId}`),
   labSetActiveRun: (runId) => req("/api/lab/runs/active", { method: "POST", body: { run_id: runId } }),
+  // V4.1 research-run lifecycle (START NEW RESEARCH RUN)
+  researchRunState: () => req("/api/research-run/state"),
+  researchRunStatus: () => req("/api/research-run/status"),
+  researchRunBackups: () => req("/api/research-run/backups"),
+  researchRunBackup: (note = "") => req("/api/research-run/backup", { method: "POST", body: { note } }),
+  researchRunStartFresh: (payload) => req("/api/research-run/start-fresh", { method: "POST", body: payload }),
+  researchRunResumeAdd: (payload) => req("/api/research-run/resume-add", { method: "POST", body: payload }),
 
   // Population & Strategy Research
   population: (p = {}) => req(`/api/population?${new URLSearchParams(p)}`),

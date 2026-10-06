@@ -2371,3 +2371,73 @@ STATUS:
 V4.0 requested. What was asked for is recorded here; what LMSArena actually
 implemented, tested and committed is recorded in lmsarena.txt.
 =============================================================
+
+
+=============================================================
+V4.1 - NEW RESEARCH RUN WORKFLOW (requested)
+=============================================================
+REQUESTED CHANGES:
+- Add a "START NEW RESEARCH RUN" control to the dashboard with exactly three
+  explicit choices, operating only on the existing USER_RESEARCH population
+  (reuse the existing data_source classification; no second legacy system):
+    * Option A - BACKUP + START FROM ZERO: create a unique USER_RESEARCH-only
+      backup (conceptual backup_YYYYMMDD_HHMMSS, following the existing backup
+      architecture; nodes, generations, ancestry/relationships, backtests,
+      validations, research metadata and run metadata; never legacy-as-user),
+      verify the backup is readable/exists BEFORE any destructive step (on
+      failure STOP, delete nothing, show a clear error), reset only the
+      USER_RESEARCH study (never LEGACY_TEST, app config, infrastructure/test
+      data or static config), then start a fresh run through the existing
+      generation/target machinery with the configured target (no hard-coded
+      node count).
+    * Option B - RESUME CURRENT STUDY + ADD NODES: input "ADDITIONAL NODES"
+      (e.g. 1000); 10000 + 1000 -> target 11000; preserve all existing nodes,
+      statuses, metrics and ancestry; raise the target; continue from the next
+      sequence (numbering Node_010001 -> Node_011000, no regeneration of
+      1..10000); reuse the existing non-destructive target logic; the legacy
+      nodes must not contribute to the new target.
+    * Option C - START NEW WITHOUT BACKUP: strong destructive confirmation
+      (e.g. "This will permanently reset the current USER_RESEARCH study
+      without creating a backup. LEGACY_TEST infrastructure data will not be
+      affected."), explicit confirmation, must never be a single accidental
+      click; then reset USER_RESEARCH without a backup, leave LEGACY_TEST and
+      infrastructure untouched, and start fresh via the existing machinery.
+- LEGACY_TEST (~787) is completely outside this workflow: never deleted,
+  reset, backed up as USER_RESEARCH, included in the target, status-changed,
+  generation-changed or metrics-changed; it stays physically in DATA and
+  remains usable for infrastructure/testing.
+- Do not break V4.0 (legacy hidden from user views, user-scoped dashboard
+  statistics, unchanged status/generation/engine-gate/MT5/classification
+  logic); do not replace the V4.0 filtering architecture.
+- Safety behaviour: show the user and legacy counts plus a legacy-untouched
+  statement, require explicit confirmation, prevent duplicate submissions,
+  show progress and success/failure, and keep the conceptual order
+  BACKUP -> VERIFY -> RESET -> INITIALIZE transactional.
+- Run identification: reuse the existing run IDs/metadata/tables (no parallel
+  run-management system). A: the old run stays recoverable from the backup.
+  B: the same study is expanded. C: the old study is discarded by choice.
+- Node numbering: do not reset the SQLite AUTOINCREMENT primary key; reuse the
+  existing research_node_num / fresh-run numbering architecture.
+- After each operation force/reconstruct the state through the existing
+  architecture (totals, target, alive/dead/qualified/failed/retired/killed,
+  generation, remaining, next sequence) and refresh the dashboard; no separate
+  statistics implementation.
+- Test only against real DATA: use a disposable copy for the destructive
+  workflows, verify A (user reset + backup holds the previous state + legacy
+  unchanged), B (existing intact, target +1000, no regeneration), C (user reset
+  without backup + legacy unchanged); the documented test case is
+  10000 + 1000 -> 11000 with only 1000 new nodes and legacy 787.
+- Failure safety: no silent continue, no half-reset database, report the exact
+  failed stage, preserve/recover the previous USER_RESEARCH state and verify
+  legacy integrity.
+- Also required: run the existing test suite (classify failures; do not blindly
+  modify tests), add focused V4.1 tests, keep the frontend build passing,
+  record the requested change here only and the implementation in lmsarena.txt,
+  commit with the V4.1 message and push, then stop (no V4.2 / no other roadmap
+  items: MT5 trading, live trading, risk-per-node, live market panels and the
+  Strategy Lab / Stats redesigns remain out of scope).
+
+STATUS:
+V4.1 requested. What was asked for is recorded here; what LMSArena actually
+implemented, tested and committed is recorded in lmsarena.txt.
+=============================================================

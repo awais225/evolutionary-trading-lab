@@ -35,6 +35,17 @@ from ..versions import APP_VERSION
 
 log = logging.getLogger("evolution.engine")
 
+# V4.1: the LEGACY_TEST *infrastructure population* - the rows the project's own
+# classification marks as legacy (``data_source``) that also belong to the
+# historical/test runs (verified: 0 rows disagree on the shipped DATA). These rows
+# must never be retired, deleted or re-scored by the research engine. Rows that
+# merely carry the LEGACY_TEST label because the engine had no active run bound
+# when they were created are research candidates and keep the pre-existing rules.
+LEGACY_POPULATION_SQL = (
+    "COALESCE(data_source, 'USER_RESEARCH') = 'LEGACY_TEST' "
+    "AND (id <= 787 OR run_id IS NULL OR run_id LIKE '%TEST%' OR run_id = 'RUN-HISTORICAL-PRESERVED')"
+)
+
 ACTIVE_STATES = (
     "BORN", "GENERATED", "QUEUED",
     "BACKTESTING", "TESTING",
@@ -92,6 +103,9 @@ class EvolutionEngine:
         self.duplicates_blocked = 0
         self._cached_node_state: Optional[Dict[str, Any]] = None
         self._cached_node_state_time: float = 0.0
+        # V4.0: separate cache slot for the legacy-excluded display snapshot
+        self._cached_node_state_user: Optional[Dict[str, Any]] = None
+        self._cached_node_state_user_time: float = 0.0
         self._entropy_counter: int = 0
 
     # ---------- total node target & bookkeeping (spec §V2.1 D-H) ----------
@@ -181,20 +195,24 @@ class EvolutionEngine:
     def get_node_generation_state(self, force: bool = False, exclude_legacy: bool = True) -> Dict[str, Any]:
         """Authoritative single source of truth for node generation metrics (User Spec §3, §9).
 
-        The snapshot describes the USER RESEARCH population: the ~787
-        LEGACY_TEST infrastructure records are excluded by default, because every
-        consumer of this snapshot is a research/dashboard surface (Overview, Live
-        Activity, pipeline state, milestones). Pass exclude_legacy=False for the
-        raw database-wide view.
+        The snapshot describes the USER RESEARCH population: the ~787 LEGACY_TEST
+        infrastructure records are excluded by default (V4.0 display scope), because
+        every consumer of this snapshot is a research/dashboard surface (Overview,
+        Live Activity, watchdog, pipeline state, milestones). Pass
+        exclude_legacy=False for the raw database-wide view.
 
-        The metric formulas, status classification and the engine's decision
-        gates (is_target_reached()/total_nodes()/remaining_nodes()) are unchanged:
-        this only controls the population scope of the reported statistics.
+        The metric formulas, status classification and the engine's own decision
+        gates (is_target_reached() / total_nodes() / remaining_nodes(), which use the
+        run-scoped node counts) are unchanged: this only controls the population
+        scope of the reported statistics. The two scopes are cached in separate
+        slots, so a legacy-excluded display call can never leak into a
+        database-wide reader (and vice versa) through the shared snapshot cache.
         """
         now = time.time()
-        if (not force and exclude_legacy and self._cached_node_state is not None
-                and (now - self._cached_node_state_time < 1.0)):
-            return dict(self._cached_node_state)
+        cached = self._cached_node_state_user if exclude_legacy else self._cached_node_state
+        cached_at = self._cached_node_state_user_time if exclude_legacy else self._cached_node_state_time
+        if not force and cached is not None and (now - cached_at < 1.0):
+            return dict(cached)
 
         counts = self.db.count_by_status(exclude_legacy=exclude_legacy)
         total_nodes = self.total_nodes(exclude_legacy=exclude_legacy)
@@ -217,14 +235,16 @@ class EvolutionEngine:
         except Exception:
             current_stage = "EVOLUTION"
 
-        last_row = self.db.one("SELECT MAX(created_at) t FROM strategies")
+        legacy_sql = " AND COALESCE(data_source, 'USER_RESEARCH') <> 'LEGACY_TEST'" if exclude_legacy else ""
+        last_row = self.db.one("SELECT MAX(created_at) t FROM strategies WHERE 1=1" + legacy_sql)
         last_node_created_at = float(last_row["t"]) if (last_row and last_row["t"]) else 0.0
 
         gen_stat_row = self.db.one("SELECT MAX(ts) t FROM generation_stats")
         last_gen_at = float(gen_stat_row["t"]) if (gen_stat_row and gen_stat_row["t"]) else last_node_created_at
 
         # Nodes per minute (calculated from recent 5 minute window)
-        recent_row = self.db.one("SELECT COUNT(*) c FROM strategies WHERE created_at > ?", (now - 300,))
+        recent_row = self.db.one(
+            "SELECT COUNT(*) c FROM strategies WHERE created_at > ?" + legacy_sql, (now - 300,))
         recent_count = int(recent_row["c"]) if recent_row else 0
         nodes_per_minute = round(recent_count / 5.0, 1)
 
@@ -324,6 +344,9 @@ class EvolutionEngine:
             **detailed_diagnostics,
         }
         if exclude_legacy:
+            self._cached_node_state_user = res
+            self._cached_node_state_user_time = now
+        else:
             self._cached_node_state = res
             self._cached_node_state_time = now
         return res
@@ -402,16 +425,12 @@ class EvolutionEngine:
     # ---------- population bookkeeping ----------
     def active_count(self, exclude_legacy: bool = False) -> int:
         """Count in-flight (active) nodes. exclude_legacy (V4.0) omits the
-        LEGACY_TEST infrastructure records for user-facing displays."""
+        LEGACY_TEST infrastructure records (user-facing displays and the V4.1
+        population cap, which must not touch legacy nodes)."""
+        where = f"status IN ({','.join('?' * len(ACTIVE_STATES))})"
         if exclude_legacy:
-            row = self.db.one(
-                f"SELECT COUNT(*) c FROM strategies WHERE status IN ({','.join('?' * len(ACTIVE_STATES))}) "
-                f"AND COALESCE(data_source, 'USER_RESEARCH') <> 'LEGACY_TEST'",
-                ACTIVE_STATES)
-        else:
-            row = self.db.one(
-                f"SELECT COUNT(*) c FROM strategies WHERE status IN ({','.join('?' * len(ACTIVE_STATES))})",
-                ACTIVE_STATES)
+            where += " AND NOT (" + LEGACY_POPULATION_SQL + ")"
+        row = self.db.one(f"SELECT COUNT(*) c FROM strategies WHERE {where}", ACTIVE_STATES)
         return row["c"] if row else 0
 
     def generation(self) -> int:
@@ -456,10 +475,12 @@ class EvolutionEngine:
                    hypothesis_id: Optional[int] = None,
                    mutation_params: Optional[Dict] = None) -> Optional[int]:
         """Validate, dedupe, insert. Returns strategy id or None (duplicate/invalid)."""
-        # Global Total Node Target ceiling check (V3.6: hard boundary at target or 10,000)
+        # Global Total Node Target ceiling check (V4.1: the configured target is
+        # the authoritative node ceiling. The earlier hard-coded 10,000 boundary
+        # made an approved "resume + add nodes" target above 10,000 impossible.)
         target = self.get_total_node_target()
         cur_nodes = self.total_nodes()
-        if cur_nodes >= target or cur_nodes >= 10000:
+        if cur_nodes >= target:
             self._emit_target_reached(cur_nodes, target)
             log.info("[CEILING REACHED] Node ceiling reached (%d / %d). Node creation halted.", cur_nodes, target)
             return None
@@ -502,6 +523,8 @@ class EvolutionEngine:
         # Invalidate cached node state so next poll gets fresh state
         self._cached_node_state = None
         self._cached_node_state_time = 0.0
+        self._cached_node_state_user = None
+        self._cached_node_state_user_time = 0.0
 
         # Mirror to RESEARCH/strategies/ (spec §10)
         try:
@@ -761,15 +784,19 @@ class EvolutionEngine:
         Only unvalidated active survivor candidates ('SURVIVED') in the generation pool
         are capped. BORN candidates, candidates in evaluation ('BACKTESTING', 'VALIDATING'),
         and permanent research achievements ('QUALIFIED', 'PAPER') must NEVER be retired by population cap.
+
+        V4.1: the LEGACY_TEST infrastructure nodes are not research candidates and
+        are never retired/status-changed by the cap (same classification as V4.0).
         """
         cfg = get_config().evolution
-        active_cnt = self.active_count()
+        active_cnt = self.active_count(exclude_legacy=True)
         excess = active_cnt - cfg.population_size
         if excess <= 0:
             return 0
         survivors = self.db.q(
             """SELECT id, fitness, status, species_key FROM strategies
-               WHERE status='SURVIVED' AND fitness IS NOT NULL"""
+               WHERE status='SURVIVED' AND fitness IS NOT NULL
+                 AND NOT (" + LEGACY_POPULATION_SQL + ")"""
         )
         if not survivors:
             return 0
@@ -785,10 +812,13 @@ class EvolutionEngine:
 
         Only deletes leaf nodes with no children. Ancestors of surviving or
         historical strategies are permanently preserved.
+
+        V4.1: LEGACY_TEST infrastructure rows are never deleted by this control.
         """
         rows = self.db.q(
             """SELECT id FROM strategies
                WHERE status IN ('FAILED','KILLED')
+                 AND NOT (""" + LEGACY_POPULATION_SQL + """)
                  AND id NOT IN (SELECT DISTINCT parent_id FROM strategies WHERE parent_id IS NOT NULL)"""
         )
         for r in rows:
@@ -798,7 +828,12 @@ class EvolutionEngine:
         return len(rows)
 
     def reset_generation(self, symbol: str) -> Dict[str, int]:
-        """Retire everything and reseed generation 0 (research reset)."""
-        self.db.x("UPDATE strategies SET status='RETIRED' WHERE status NOT IN ('RETIRED')")
+        """Retire everything and reseed generation 0 (research reset).
+
+        V4.1: the retirement sweep applies to the user research population; the
+        LEGACY_TEST infrastructure nodes keep their status untouched.
+        """
+        self.db.x("UPDATE strategies SET status='RETIRED' WHERE status NOT IN ('RETIRED') "
+                  "AND NOT (" + LEGACY_POPULATION_SQL + ")")
         n = self.seed_population(min(200, get_config().evolution.population_size), symbol)
         return {"retired_all": True, "new_seeds": n}

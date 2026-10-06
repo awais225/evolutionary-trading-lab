@@ -2,6 +2,7 @@ import React, { useEffect, useState, useMemo } from "react";
 import { api, fmt } from "../api.js";
 import { useLab } from "../App.jsx";
 import { Metric, Pill, EventFeed, SignedNum, ErrorNote } from "../components/common.jsx";
+import NewResearchRunModal from "../components/NewResearchRunModal.jsx";
 
 export default function Overview() {
   const { status, events, connected, refreshStatus, openStrategy } = useLab();
@@ -9,6 +10,7 @@ export default function Overview() {
   const [resources, setResources] = useState(null);
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState("");
+  const [newRunOpen, setNewRunOpen] = useState(false);   // V4.1 START NEW RESEARCH RUN dialog
   const [sortCol, setSortCol] = useState("fitness");
   const [sortDir, setSortDir] = useState("desc");
 
@@ -352,21 +354,9 @@ export default function Overview() {
     }
   };
 
-  // V3 START NEW RESEARCH RUN (spec §8)
-  const handleStartNewRun = async () => {
-    const num = parseInt(targetInput, 10);
-    const targetVal = (num && num > 0) ? num : 500;
-    setBusy("new_run");
-    setErr(null);
-    try {
-      await api.labStart(lab?.mode || "continuous", targetVal, "new");
-      setTimeout(() => { refreshStatus(); fetchRuns(); }, 400);
-    } catch (e) {
-      setErr(e.message);
-    } finally {
-      setBusy("");
-    }
-  };
+  // V4.1 START NEW RESEARCH RUN (spec §7): the button now opens the three-option
+  // NewResearchRunModal (backup+reset / resume+add / reset without backup) instead
+  // of silently starting a bare new run id.
 
   // Raw numeric sorting (spec §38)
   const handleSort = (col) => {
@@ -418,6 +408,12 @@ export default function Overview() {
 
   return (
     <div>
+      {newRunOpen && (
+        <NewResearchRunModal
+          onClose={() => setNewRunOpen(false)}
+          onDone={() => { refreshStatus(); fetchRuns?.(); }}
+        />
+      )}
       <div className="flex justify-between items-center" style={{ marginBottom: "0.5rem" }}>
         <div>
           <h2 className="page-title">Overview</h2>
@@ -544,7 +540,7 @@ export default function Overview() {
                 background: "var(--blue)",
               }}
               disabled={busy === "new_run"}
-              onClick={handleStartNewRun}
+              onClick={() => setNewRunOpen(true)}
             >
               🚀 START NEW RESEARCH RUN
             </button>

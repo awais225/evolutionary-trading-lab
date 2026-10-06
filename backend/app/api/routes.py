@@ -1841,6 +1841,99 @@ def get_backups_list() -> List[Dict]:
     return list_backups()
 
 
+# ---------------- V4.1 research-run lifecycle (START NEW RESEARCH RUN) ----------------
+@router.get("/research-run/state")
+def research_run_state() -> Dict[str, Any]:
+    """Current USER_RESEARCH / LEGACY_TEST inventory + active run for the dialog."""
+    from ..research_run import state as _state
+    return _state()
+
+
+@router.get("/research-run/status")
+def research_run_operation_status() -> Dict[str, Any]:
+    """Progress of the currently running (or last) research-run operation."""
+    from ..research_run import operation_status
+    return operation_status()
+
+
+@router.get("/research-run/backups")
+def research_run_backups() -> List[Dict[str, Any]]:
+    from ..research_run import list_research_backups
+    return list_research_backups()
+
+
+@router.post("/research-run/backup")
+def research_run_backup(payload: Dict[str, Any] = Body(default_factory=dict)) -> Dict[str, Any]:
+    """Create (and verify) a USER_RESEARCH-only research backup. Non-destructive."""
+    from ..research_run import create_research_backup, verify_research_backup
+    note = str(payload.get("note") or "")
+    res = create_research_backup(note=note)
+    if not res.get("ok"):
+        raise HTTPException(status_code=500, detail=res.get("error", "backup failed"))
+    res["verification"] = verify_research_backup(res["path"], expected_user_nodes=res["user_research_nodes"])
+    return res
+
+
+@router.post("/research-run/start-fresh")
+def research_run_start_fresh(payload: Dict[str, Any] = Body(default_factory=dict)) -> Dict[str, Any]:
+    """Option A (backup_and_reset) / Option C (reset_only): reset USER_RESEARCH, start a new run."""
+    from ..research_run import start_fresh_run
+    mode = str(payload.get("mode") or "")
+    confirm = str(payload.get("confirm") or "")
+    target = payload.get("target")
+    if target is not None:
+        try:
+            target = int(target)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="target must be a positive integer")
+    if mode not in ("backup_and_reset", "reset_only"):
+        raise HTTPException(status_code=400,
+                            detail="mode must be 'backup_and_reset' or 'reset_only'")
+    try:
+        res = start_fresh_run(mode=mode, confirm=confirm, target=target,
+                              start=bool(payload.get("start", False)),
+                              note=str(payload.get("note") or ""))
+    except RuntimeError as e:                      # concurrent operation
+        raise HTTPException(status_code=409, detail=str(e))
+    if not res.get("ok"):
+        status = 409 if res.get("stage") == "CONFIRM" else 400
+        raise HTTPException(status_code=status, detail=res)
+    return res
+
+
+@router.post("/research-run/restore")
+def research_run_restore(payload: Dict[str, Any] = Body(default_factory=dict)) -> Dict[str, Any]:
+    """Recovery path (spec §14): restore a research backup over the current USER_RESEARCH state."""
+    from ..research_run import list_research_backups, restore_research_backup
+    path = str(payload.get("path") or "")
+    if not path:
+        backups = list_research_backups(limit=1)
+        path = backups[0]["path"] if backups else ""
+    if not path:
+        raise HTTPException(status_code=400, detail="no research backup available to restore")
+    try:
+        res = restore_research_backup(path, confirm=str(payload.get("confirm") or ""))
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    if not res.get("ok"):
+        raise HTTPException(status_code=409 if res.get("stage") == "CONFIRM" else 400, detail=res)
+    return res
+
+
+@router.post("/research-run/resume-add")
+def research_run_resume_add(payload: Dict[str, Any] = Body(default_factory=dict)) -> Dict[str, Any]:
+    """Option B: keep the current study and raise its target by N additional nodes."""
+    from ..research_run import resume_add_nodes
+    additional = payload.get("additional_nodes")
+    try:
+        res = resume_add_nodes(additional, start=bool(payload.get("start", False)))
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    if not res.get("ok"):
+        raise HTTPException(status_code=400, detail=res)
+    return res
+
+
 # ---------------- data master (spec §4) ----------------
 @router.get("/data/master")
 def list_master_datasets() -> List[Dict]:

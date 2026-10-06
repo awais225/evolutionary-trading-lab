@@ -382,6 +382,31 @@ class Database:
             self._conn.executemany(sql, seq)
             self._conn.commit()
 
+    def transaction(self, statements: List[tuple]) -> List[int]:
+        """Execute (sql, args) statements atomically.
+
+        V4.1: used by the research-run reset/restore so a study reset or recovery
+        is all-or-nothing. `args` may be a tuple (single statement) or a list of
+        tuples (executemany). Returns the affected rowcount of each statement;
+        rolls back everything and re-raises on error.
+        """
+        with self._lock:
+            counts: List[int] = []
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+                for sql, args in statements:
+                    if isinstance(args, list):
+                        cur = self._conn.executemany(sql, args)
+                        counts.append(int(cur.rowcount if cur.rowcount is not None else len(args)))
+                    else:
+                        cur = self._conn.execute(sql, args)
+                        counts.append(int(cur.rowcount if cur.rowcount is not None else 0))
+                self._conn.commit()
+                return counts
+            except Exception:
+                self._conn.rollback()
+                raise
+
     # ---------- strategies ----------
     def insert_strategy(self, s: Dict[str, Any]) -> Optional[int]:
         now = time.time()

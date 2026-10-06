@@ -44,6 +44,13 @@ if _env_data_root:
 else:
     DATA_ROOT = (ROOT_DIR / "DATA").resolve()
 
+# True when the DATA root was selected explicitly through the environment
+# (V4.1 safety): in that case persisted absolute paths that still point into a
+# DATA tree must follow the override instead of silently redirecting research
+# writes - including the destructive START NEW RESEARCH RUN operations - to a
+# different (e.g. production) DATA tree.
+DATA_ROOT_EXPLICIT = bool(_env_data_root)
+
 DATA_DIR = DATA_ROOT
 
 # All persistent application & research directories derive strictly from DATA_ROOT
