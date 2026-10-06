@@ -2650,6 +2650,10 @@ VERSION: V4.7 — RELIABILITY, PERFORMANCE AND PRODUCTION HARDENING
                    tests/test_v4_7_reliability.py, tests/test_v4_7_frontend.py,
                    frontend/tests/v47_render_smoke.mjs, scripts/v47_perf_probe.py)
                    were confirmed present in origin/main's tree.
+                   The follow-up push d269ebf..39545c9 carried the
+                   documentation commit 39545c9d1b9485822f75fa40f4450e65407f91ca
+                   ("V4.7: record push result in lmsarena.txt"); HEAD ==
+                   origin/main was verified again after it, with a clean tree.
                    The push result itself is recorded in this follow-up
                    documentation commit, because a commit cannot contain the
                    result of the push that carries it.
