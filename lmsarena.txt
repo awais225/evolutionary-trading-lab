@@ -1921,3 +1921,399 @@ VERSION: V4.5 — STRATEGY LAB & BACKTEST MATRIX
     execution, automatic strategy execution, portfolio risk redesign and a
     new risk engine.
 =============================================================
+
+=============================================================
+=============================================================
+VERSION: V4.6 — MT5 HISTORICAL BACKTEST EXECUTION
+=============================================================
+(what was actually implemented)
+
+0. ENVIRONMENT EVENT AT THE START OF THIS PHASE (recorded for reproducibility)
+--------------------------------------------------------------------------------
+  * The sandbox was reset between V4.5 and V4.6: the external storage root
+    (/opt/lmsarena-storage, which held the provisioned DATA, the Python venv and
+    the acceptance harnesses) and /tmp were gone, and the repository's
+    .git/config had been wiped (no remote configured, no committer identity).
+    The repository clone itself survived intact at HEAD 97cbc06 with a clean
+    tree.
+  * Recovery, in order: re-added the origin remote (no credential is ever
+    written into .git/config) and restored the committer identity from the
+    existing history; installed git-lfs (3.5.1) outside the workspace; cloned
+    the repository's own DATA tree with LFS objects resolved into
+    /opt/lmsarena-storage/.provision/repo and copied it to
+    /opt/lmsarena-storage/DATA (the mechanism scripts/lmsarena_provision_data.sh
+    already implements) + a pristine reference copy
+    /opt/lmsarena-storage/DATA_PRISTINE_20261006; rebuilt the Python venv from
+    backend/requirements.txt; reinstalled frontend node_modules.
+  * Verification that the restored DATA is the authoritative tree, not a new
+    one: DATABASE/lab_state.db sha256
+    54ec6835753a48c095284fc1f3bada856e5315299aa909758abe5ae3fb6e042b (identical
+    to the hash recorded in the V4.4/V4.5 reports), 10787 strategies with
+    exactly 10000 USER_RESEARCH / 787 LEGACY_TEST, backtests 1031,
+    validations 146, mt5_backtests 8, executions 26, datasets 77, and the
+    real-MT5 asset DATA/MT5/{raw,normalized,XAUUSD}/XAUUSD_M15.parquet
+    (1850 bars). Four independent copies (authoritative root, pristine
+    reference, disposable test copy, LFS clone) hash to the same DB value.
+
+1. BASELINE
+------------
+  * Start point: HEAD 97cbc06 (V4.5), local HEAD == origin/main, working tree
+    clean (a mode-only diff on scripts/lmsarena_provision_data.sh was restored
+    to HEAD before any work).
+  * Verified before changing anything: V4.5 Strategy Lab sources
+    (backend/app/stats/strategy_lab.py, frontend/src/pages/StrategyLab.jsx,
+    components/BacktestMatrixTable.jsx, components/NodeResearchDetail.jsx),
+    V4.5 Backtest Matrix page (frontend/src/pages/BacktestMatrix.jsx), V4.4
+    statistics (backend/app/stats/research_stats.py), V4.2 MT5 execution
+    foundation (backend/app/mt5/*, paper/*), V4.3 live-testing layer
+    (backend/app/live_testing/*) — all tracked in git, not just documented.
+  * Authoritative market data used by this phase: the stored real MT5 dataset
+    XAUUSD M15 — 1850 bars, 2026-09-07T01:00:00Z .. 2026-10-05T05:45:00Z,
+    broker "Raw Trading Ltd", server "ICMarketsSC-Demo", profile
+    MT5|Raw Trading Ltd|ICMarketsSC-Demo, dataset_version 1, dataset
+    fingerprint 8d4d0cb6d3a5f465dec5b43da4048bd2, registered as
+    DATA/datasets row id "XAUUSD_M15_MT5_Raw Trading Ltd_ICMarketsSC-Demo_v1"
+    and recorded in DATA/manifests/datasets.json + master_datasets (id 231).
+
+2. ARCHITECTURE REUSED (nothing re-implemented)
+-----------------------------------------------
+  * app/backtest/engine.py + app/backtest/execution.py — the SAME engine the
+    research pipeline runs (BacktestRequest / run_backtest, seeded slippage
+    model, commission/swap/spread model, lot sizing, exit rules). V4.6 adds no
+    strategy definition, no risk formula and no statistics system.
+  * app/data/engine.py — dataset resolution and the app's own eligibility
+    contract (is_dataset_eligible_for_research / find_dataset_artifact_path /
+    latest_dataset); V4.6 downloads nothing and copies nothing.
+  * app/backtest/fingerprint.py compute_experiment_fingerprint + app/versions
+    manifest() — experiment fingerprint and engine versions inside provenance.
+  * app/genome/schema.genome_hash for strategy identity.
+  * app/research/export.py storage convention (parquet, atomic tmp->replace) —
+    V4.6 runs persist trades.parquet / equity.parquet with the same schema
+    (ts,equity and the engine's 14 trade fields) but under their own run
+    directory so no stored research artifact is touched.
+  * app/db/database.Database (q/one/x) — no ORM, no abstraction rewrite.
+  * app/jsonutil.jd — JSON safety for stored payloads.
+
+3. FILES CHANGED / ADDED
+-------------------------
+  New (backend):
+    * backend/app/historical_backtest/__init__.py   (safety contract, package doc)
+    * backend/app/historical_backtest/runs.py       (V4.6 core, 1136 lines)
+  New (frontend):
+    * frontend/src/components/HistoricalBacktestPanel.jsx  (config + run control)
+    * frontend/src/components/HistoricalRunResults.jsx      (result view)
+  New (tooling / tests):
+    * scripts/verify_mt5_historical_windows.py      (real-MT5 verification, read-only)
+    * tests/test_v4_6_mt5_historical.py             (38 tests)
+  Changed:
+    * backend/app/db/database.py        (+ additive mt5_historical_runs table, 3 indexes)
+    * backend/app/api/routes.py         (+ 6 read/queue endpoints under /api/mt5-historical)
+    * frontend/src/api.js               (+ 7 API helpers)
+    * frontend/src/pages/StrategyLab.jsx    (+ historical MT5 backtest section per node)
+    * frontend/src/pages/BacktestMatrix.jsx (+ RESEARCH BACKTEST RESULTS vs
+                                              MT5 HISTORICAL RUNS sections, run selector)
+    * frontend/src/pages/Mt5Backtest.jsx    (+ V4.6 panel/results; legacy V4.0
+                                              section relabelled and its run button disabled)
+  Not touched: research engine, evolution, fitness, qualification, validation,
+  the research population, app/stats/* (V4.4/V4.5 logic unchanged), V4.1
+  research-run workflow, V4.2 MT5 execution path, V4.3 live testing, styles.css.
+
+4. STORAGE / SCHEMA (additive, migration-safe)
+-----------------------------------------------
+  * One new table `mt5_historical_runs` (run_id PK, strategy_id, label, status,
+    data_scope, data_source, dataset_id/path/fingerprint, symbol, timeframe,
+    start/end ts + dates, bars, initial_balance, risk_per_trade, config,
+    request_key, genome_hash, strategy_identity, provenance, engine_versions,
+    metrics, trade_count, equity_points, artifacts, runtime_ms, error, notes,
+    diagnostic_legacy, research_eligible, created_at/started_at/finished_at)
+    plus indexes on (strategy_id, created_at), (status) and (request_key, status).
+  * Declared with CREATE TABLE IF NOT EXISTS inside the existing schema script,
+    which the Database constructor executes on every open — so it is applied
+    idempotently to an existing DATABASE, no user_version bump, no rebuild, no
+    row rewritten. `backtests`, `validations`, `mt5_backtests`, `executions`,
+    `paper_trades`, `mt5_demo_trades`, `live_test_trades` are neither altered
+    nor written by V4.6.
+  * Migration test: tests/test_v4_6_mt5_historical.py::
+    test_schema_addition_preserves_existing_rows — builds a database, inserts
+    rows into strategies/executions, closes it, reopens it, and asserts the rows
+    are intact and the new table (with its columns) exists.
+
+5. NEW ENDPOINTS (all under /api/mt5-historical)
+-------------------------------------------------
+  * GET  /api/mt5-historical/capabilities — eligible datasets (real MT5 first,
+    grouped per source/symbol/timeframe), rejected candidates with reasons,
+    cost/execution defaults from the engine config, cost-multiplier range,
+    period/queue limits, bridge identity and the explicit order-free guarantee.
+  * POST /api/mt5-historical/runs — validate -> duplicate check -> queue ->
+    background execution; returns run id, status, executor state and
+    orders_placed=false. 422 with structured per-field errors on invalid input,
+    409 with the existing run id on an identical active request, 429 when the
+    queue is full.
+  * GET  /api/mt5-historical/runs — newest-first run list (filter by
+    strategy_id/status, paginated, diagnostic runs excludable).
+  * GET  /api/mt5-historical/runs/{run_id} — status, run information,
+    performance summary, derived metrics, unavailable metrics with reasons and
+    full provenance (no trade/equity arrays).
+  * GET  /api/mt5-historical/runs/{run_id}/trades — paginated trade history.
+  * GET  /api/mt5-historical/runs/{run_id}/equity — equity curve, bounded point
+    count with explicit downsampling flag; the complete curve stays in the run's
+    equity.parquet.
+  * POST /api/mt5-historical/runs/{run_id}/cancel — cooperative cancel.
+  Application now serves 156 paths (verified through app.openapi()).
+
+6. EXECUTION MODEL
+-------------------
+  * One run at a time (single-worker executor, queue capped at 5); POST returns
+    immediately with the run id (QUEUED) and the caller polls GET run status —
+    the API is never blocked for the length of a backtest. No automatic retry,
+    no scheduling, no autonomous re-testing.
+  * Lifecycle QUEUED -> RUNNING -> COMPLETED, with FAILED and CANCELLED. A run
+    records created/started/finished timestamps, runtime_ms and — on failure —
+    the verbatim reason. Runs left RUNNING by a stopped backend are reconciled
+    to FAILED on the next request ("orphaned RUNNING record").
+  * Duplicate protection by request key (strategy id + genome hash + dataset id
+    + period + balance + risk + cost multipliers): an identical request while a
+    run is QUEUED/RUNNING is refused with the existing run id; a different
+    period or different settings is queued as a separate run and never merged.
+  * Repeat runs get their own run id and never overwrite an earlier result; the
+    engine is deterministic (seeded slippage), so two identical requests produce
+    identical metrics (asserted in tests) while remaining separate runs.
+
+7. DATA PROVENANCE (per run)
+------------------------------
+  * dataset id + source (MT5 / SIMULATOR), broker, server, profile,
+    dataset_version, dataset fingerprint, total dataset bars, dataset range,
+    resolved file path + size + sha256, executed window (row range), bar count,
+    timezone note (UTC bar open time), strategy identity (node id, research node
+    number, generation, status at run, strategy run id, genome hash), engine
+    versions manifest (app version, backtester, cost/slippage model, feature
+    engine, git hash when available), experiment fingerprint, the cost
+    multipliers used and the request key needed to reproduce the run.
+  * A request for a calendar period wider than the stored bars is clipped to the
+    stored range and the run says so explicitly (period_adjusted=true with the
+    requested dates kept alongside); it is never silently re-scoped and never
+    silently refused.
+
+8. RESULT METRICS
+------------------
+  * Persisted from the engine verbatim: trades, win/loss counts derivable from
+    trades, win rate, gross profit/loss, net profit, return, max drawdown,
+    profit factor (and raw), expectancy, Sharpe, Sortino, average trade, final
+    equity, consistency, monthly P&L, average hold, exit reasons, slippage and
+    spread cost, plus the engine's stress/window/genome-hash metadata.
+  * Values the engine does not emit but the persisted trade list directly
+    supports (largest win/loss, average win/loss, consecutive wins/losses,
+    gross profit/loss derived) are reported in a separate `derived` block whose
+    source string says exactly that, and the UI footnotes them with "*".
+  * Metrics that cannot be produced are listed in `unavailable` with a reason
+    (risk amount, risk-normalised position size, absolute drawdown,
+    recovery factor, the complete equity series) and render as N/A — never 0,
+    never undefined/null/NaN/[object Object].
+  * R:R is the strategy's stored genome parameter (V4.4
+    reward_risk_from_genome), not a result of the run, and is labelled as such.
+
+9. SAFETY: NO ORDER CAN BE PLACED BY A HISTORICAL BACKTEST
+-----------------------------------------------------------
+  * app/historical_backtest imports no order path. Tests install tripwires on
+    app.mt5.execution.place_demo_order, app.mt5.execution.close_demo_position,
+    MarketBridge.send_market_order, MarketBridge.close_position and
+    LiveTestingEngine._attempt, run a historical backtest to completion and
+    assert none of them was called; they also assert that the row counts of
+    executions, paper_trades, mt5_demo_trades, live_test_trades and
+    mt5_backtests are unchanged by the run, and that the module source contains
+    no import of the order path.
+  * Every run payload and the capabilities response state orders_placed=false
+    and explain the separation (HISTORICAL BACKTEST != MT5 DEMO ORDER !=
+    LIVE TESTING != LIVE TRADING).
+  * The V4.0 legacy endpoint /api/mt5-backtest/strategies/{sid}/run (which built
+    its numbers from stored research metrics with fixed multipliers instead of
+    running a backtest) is left untouched for compatibility but its UI button is
+    disabled and the page now points to the V4.6 path — V4.6 does not extend and
+    does not use a fabricated-result path.
+
+10. STRATEGY LAB / BACKTEST MATRIX / MT5 BACKTEST INTEGRATION
+--------------------------------------------------------------
+  * Strategy Lab: a "Historical MT5 backtest" section for exactly one node
+    (the opened detail or a single checked row) with the configuration panel
+    (symbol, timeframe, data scope, start/end, balance, risk, spread/slippage/
+    commission multipliers, max trades), the resolved dataset identity, start /
+    refresh / cancel controls, the run's id/status/trades/runtime, the node's
+    historical run list and inline validation errors (per field, with the
+    available datasets listed when a symbol/timeframe has no data).
+  * Backtest Matrix page: the stored layer is now labelled RESEARCH BACKTEST
+    RESULTS (the V4.5 comparison matrix and the V3.6 diagnostic matrix), and a
+    separate MT5 HISTORICAL RUNS section lists the selected node's runs with a
+    status pill and lets the user open any specific run — a new run never
+    overwrites or is merged into the stored research result. V4.5's
+    strategy_lab.py and its numbers are untouched (the V4.5 test that pins
+    matrix() to a single statement still holds).
+  * MT5 Backtest page: the V4.6 panel and result view sit at the top; the legacy
+    V4.0 record table stays visible but is relabelled read-only and its
+    fabricated run action is disabled.
+  * Result view contents: run information (run id, node, symbol/timeframe,
+    period, bars, data source, runtime, timestamps), performance grid, equity
+    chart (inline SVG, no external library), paginated trade table (25/page,
+    prev/next, total shown), N/A metrics with reasons, provenance block and a
+    collapsible raw provenance JSON — all labelled HISTORICAL MT5 BACKTEST and
+    never LIVE / DEMO / PAPER / FORWARD TEST.
+  * Polling policy: status is refreshed on demand; a 5 s poll runs only while
+    the panel is open and the run is still QUEUED/RUNNING, and stops by itself.
+
+11. TESTS
+----------
+  * tests/test_v4_6_mt5_historical.py — 38 tests, ALL PASS. Coverage: run
+    creation, 14 configuration-validation cases, USER_RESEARCH scope, legacy
+    exclusion (+ explicit diagnostic mode marked and excluded from default
+    listings), execution and artifact persistence, no-write guarantee for the
+    order/audit/research tables, repeat runs and determinism, duplicate
+    protection, queue limit, cancel (queued/again after completion), failure
+    handling with a useful reason and no fake success, orphaned-RUNNING
+    reconciliation, result retrieval, trade pagination, equity retrieval +
+    downsampling, missing-id handling, engine-vs-derived metric labelling,
+    unavailable metrics with reasons, provenance completeness, the order-path
+    tripwire suite, the simulator-scope honesty rule, HTTP surface end-to-end
+    with structured 422/404 errors, JSON safety (no NaN/Infinity/[object
+    Object]), the frontend wiring check and the additive-schema migration test.
+  * Focused regressions on the changed components: tests/test_v4_4_stats.py
+    (18) and tests/test_v4_5_strategy_lab.py (14) — all pass, unchanged.
+  * Full repository suite on a disposable copy: 176 passed, 0 failed (138
+    pre-existing + 38 new).
+  * npx vite build — OK (index-*.js 1,162.05 kB / 310.26 kB gzip, CSS
+    13.91 kB); only the pre-existing chunk-size warning.
+  * Lightweight smoke (requirement §17): /api/mt5-demo/status unchanged
+    (DEMO_ACCOUNT_READY, SIMULATOR_BRIDGE), Live Testing inactive by default
+    (demo_verified=false, MT5_UNAVAILABLE), /api/status, /api/population (no
+    legacy row), Stats (V4.4), Strategy Lab facets, Backtest Matrix and the V4.1
+    research-run status all still answer 200 — ALL PASS.
+
+12. REAL-DATA SMOKE (fresh disposable copy, own backend on port 8791, GET/POST only)
+------------------------------------------------------------------------------------
+  * Copy /opt/lmsarena-storage/v46_smoke/DATA provisioned from the pristine
+    reference; DB hash identical to the authoritative value before the run.
+  * Capabilities: exactly one eligible real MT5 dataset for XAUUSD M15 —
+    XAUUSD_M15_MT5_Raw Trading Ltd_ICMarketsSC-Demo_v1, 1850 bars,
+    2026-09-07T01:00Z .. 2026-10-05T05:45Z.
+  * Real strategy: node 1195 (USER_RESEARCH, return 0.4519, PF 1.609) selected
+    from the actual research population.
+  * Configuration validation on real data: a valid request was accepted (run id
+    HRUN-20261006-155824-5E2756), a LEGACY_TEST node was refused with the legacy
+    explanation, and XAUUSD M5 was refused with "no eligible MT5 dataset ...
+    (SIMULATOR): Feature artifact missing on disk" — the real reason, not a
+    silent fallback.
+  * Execution: COMPLETED in 358 ms over 1830 real MT5 bars, 163 trades,
+    net_profit -751.07, profit_factor 0.794, win_rate 0.3436; provenance records
+    dataset_source=MT5, broker Raw Trading Ltd / ICMarketsSC-Demo and the data
+    file sha256; orders_placed=false.
+  * Retrieval: trade pagination (163 trades, pages distinct), equity curve
+    (163 points, downsampled to the requested 50) and run listing all correct.
+  * Repeat run over a shifted period: separate run id
+    (HRUN-20261006-155825-B5E06C), both listed independently, the first run's
+    metrics unchanged by the second run.
+  * Isolation/integrity: USER_RESEARCH 10000 and LEGACY_TEST 787 unchanged;
+    executions 26->26, mt5_backtests 8->8, backtests 1031->1031,
+    validations 146->146, paper_trades/mt5_demo_trades/live_test_trades
+    unchanged; only mt5_historical_runs gained the two rows; V4.4 overview and
+    V4.5 facets still report 10000.
+  * Tree-level comparison of the smoke copy against the pristine reference: 0
+    files removed; the only additions are the two runs' artifacts under
+    RESEARCH/mt5_historical/runs/<run_id>/ plus the database journal files; the
+    only changed files are the existing feature cache for the executed dataset
+    (refreshed by the pre-existing feature engine — the same behaviour a
+    research backtest has always had), the app's log file and its manifest
+    bookkeeping. No research artifact, no market-data file and no database row
+    outside mt5_historical_runs was modified.
+
+13. MT5 AVAILABILITY / REAL-MT5 vs SIMULATOR (explicit statement)
+------------------------------------------------------------------
+  * This environment is Linux with no MetaTrader5 package: the active bridge is
+    the labelled SIMULATOR for live data, and no real MT5 terminal was available
+    to exercise. THE REAL MT5 TERMINAL PATH WAS NOT EXERCISED IN THIS PHASE.
+  * What IS real in every run: the market data itself is the stored MT5 dataset
+    (source MT5, broker Raw Trading Ltd / ICMarketsSC-Demo, 1850 bars) and the
+    execution is the lab's own backtest engine over those bars — but it is a
+    backtest over stored MT5 bars, NOT a MetaTrader Strategy Tester session and
+    NOT a terminal run, and the reports never describe it as one.
+  * scripts/verify_mt5_historical_windows.py was added for the real path: on a
+    Windows host with the MetaTrader5 package it verifies the terminal, the
+    symbol, the real bar range per timeframe, the coverage of a requested period
+    and the locally stored datasets a V4.6 run would use; it is read-only and
+    never places an order. On this Linux host it reports result=UNAVAILABLE with
+    the reason ("No module named 'MetaTrader5'") and exit code 2 — which is what
+    was observed here.
+
+14. PERFORMANCE OBSERVATIONS (real data)
+-----------------------------------------
+  * One historical run over 1830 real M15 bars: ~27-358 ms of engine time
+    (observed range; the same request is deterministic in its results, only
+    runtime_ms varies). The API returns the run id immediately and never blocks.
+  * Result retrieval: run summary is a single row read; trades come from the
+    run's parquet with a bounded page (<= 500); equity is bounded (<= 2000
+    points, default 500, downsampled explicitly) so no response can ship the
+    full trade/equity arrays; a small in-process cache (4 runs) avoids re-reading
+    the same parquet on page navigation.
+  * Capabilities performs one dataset query plus the app's own eligibility
+    checks; no market data is downloaded or duplicated for a run.
+
+15. BUILD RESULT
+-----------------
+  * npx vite build — OK, 5.09 s.
+
+16. GIT RESULT
+---------------
+  Previous HEAD  : 97cbc062cead2356f9c93dbc991d1d6c36fedea9 (V4.5)
+  Feature commit : V4.6: add MT5 historical backtest execution
+  Commit hash    : 8d3748a4ac8fcb04fcc07e2cc1e2c875c644b793
+  Files changed  : 12 files changed, 2886 insertions(+), 38 deletions(-)
+                   backend/app/historical_backtest/__init__.py (new, 42)
+                   backend/app/historical_backtest/runs.py (new, 1135)
+                   backend/app/db/database.py (+46)
+                   backend/app/api/routes.py (+75)
+                   frontend/src/api.js (+12)
+                   frontend/src/components/HistoricalBacktestPanel.jsx (new, 331)
+                   frontend/src/components/HistoricalRunResults.jsx (new, 317)
+                   frontend/src/pages/StrategyLab.jsx (+33/-2)
+                   frontend/src/pages/BacktestMatrix.jsx (+57/-15)
+                   frontend/src/pages/Mt5Backtest.jsx (+84/-15)
+                   scripts/verify_mt5_historical_windows.py (new, 171)
+                   tests/test_v4_6_mt5_historical.py (new, 591)
+  Push           : see the push result recorded below
+  Working tree   : clean after the commit; runtime churn (LOGS/lab.pid,
+                   frontend/dist) restored/ignored, no DATA, database artifact,
+                   archive, .pid, cache, venv or node_modules staged.
+
+17. KNOWN LIMITATIONS
+----------------------
+  * The real MT5 terminal path could not be exercised here (no Windows host);
+    the Windows verification script is provided and was observed reporting
+    UNAVAILABLE on Linux. A real terminal run remains to be performed on a
+    Windows host.
+  * Only one symbol/timeframe has real MT5 data in this dataset (XAUUSD M15,
+    1850 bars) — the stored range is ~4 trading weeks, so a historical backtest
+    cannot be longer than that until more MT5 history is fetched (which requires
+    a terminal). Simulator datasets exist but are only usable when the caller
+    explicitly selects the SIMULATOR scope, and then every field of the run says
+    SIMULATOR.
+  * The V4.0 legacy record table (mt5_backtests, 8 rows) still exists with its
+    historical rows; V4.6 neither reads it for results nor adds to it, and its
+    run action is disabled in the UI. It is kept only for compatibility with the
+    V4.0 surface.
+  * Metrics that the engine genuinely does not produce (risk amount,
+    risk-normalised size, absolute drawdown, recovery factor) remain N/A — this
+    is a property of the stored research parameters, not a missing integration.
+  * One run is executed at a time by design (single-worker executor, queue <= 5);
+    heavier concurrency/multi-period batch scheduling is intentionally not part
+    of V4.6.
+  * A run over a very wide period is bounded by the engine's own max_trades
+    (default 3000) and by the available bars; the run records the window it
+    actually executed.
+  * The existing feature engine refreshes its feature cache for the executed
+    dataset inside the DATA root it runs against (observed on the disposable
+    copy). That is pre-existing behaviour; V4.6 adds no cache writes, and the
+    authoritative root is never opened by any V4.6 code path.
+  * The intermittent SQLite "database disk image is malformed" pattern (seen in
+    earlier phases when a database file and its WAL sidecars are replaced or
+    shared while connections are open) remains an environment/operational issue;
+    every V4.6 test and smoke run passed on freshly provisioned copies.
+  * Not started in this phase (future work): live trading, automatic/scheduled
+    execution, portfolio risk redesign, a new risk engine and AI mutation.
+=============================================================

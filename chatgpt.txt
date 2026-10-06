@@ -2672,3 +2672,126 @@ STATUS:
 V4.5 requested. What was asked for is recorded here; what LMSArena actually
 implemented, tested and committed is recorded in lmsarena.txt.
 =============================================================
+
+=============================================================
+=============================================================
+VERSION: V4.6
+=============================================================
+REQUESTED CHANGE:
+
+Build the MT5 historical backtest execution layer, so the flow becomes:
+USER_RESEARCH strategy -> select strategy -> configure historical backtest ->
+execute through MT5 historical market data / the existing MT5-compatible engine
+-> persist the run -> store the results -> expose them in the dashboard ->
+keep research / backtest results clearly separated from MT5 execution and audit
+records. This is a historical research execution feature; it is NOT live
+trading.
+
+* verify the actual repository state first (HEAD, origin/main, clean tree,
+  V4.5 Strategy Lab and Backtest Matrix sources present, V4.4 statistics present,
+  V4.2 MT5 execution foundation present, V4.3 live-testing layer present) and
+  never assume that a recorded implementation means it is committed
+* historical backtesting only: strategy/node, symbol, timeframe, historical
+  start and end, initial balance if the engine needs it, risk configuration and
+  execution/cost assumptions where they already exist - reusing the existing
+  genome, backtest engine and risk/statistics systems (no second strategy
+  definition, no second risk formula system, no second statistics system)
+* MT5 safety: a historical backtest must never place a broker order and must be
+  clearly distinguished from MT5 DEMO orders, LIVE TESTING and LIVE TRADING,
+  with explicit tests proving the path cannot invoke send_market_order,
+  close_position, the live-testing order placement or the demo order placement
+* data source: inspect and reuse the existing MT5 bridge/data infrastructure;
+  do not download or duplicate the market dataset if an authoritative source
+  already exists; determine supported symbols/timeframes/range/source identity/
+  timezone/data completeness, and record enough provenance (symbol, timeframe,
+  start, end, data source, broker identity, strategy/node id, genome identity,
+  engine version/hash, configuration) to reproduce a run
+* if historical MT5 data is unavailable (e.g. on Linux), use the existing
+  simulator/test-double architecture for automated tests and provide a
+  Windows/MT5-host verification script for the real MT5 historical-data path -
+  never claim a real MT5 backtest when only the simulator was available
+* run model: a persistent backtest-run record with a unique id and a lifecycle
+  (QUEUED -> RUNNING -> COMPLETED plus FAILED / CANCELLED), retaining run id,
+  strategy id, configuration, status, timestamps, data provenance, result
+  summary, failure information and reproducibility information; re-running a
+  strategy must never overwrite the previous result and multiple runs of the
+  same strategy must stay independently identifiable
+* engine: reuse the existing backtest engine, do not rewrite the evolutionary
+  engine, do not alter mutation / crossover / generation / qualification /
+  population logic, do not change the existing research population, and create
+  no new research node merely because a backtest was run
+* results: persist only metrics the authoritative engine actually produces
+  (trades, wins, losses, win rate, net P&L, return, drawdown, profit factor,
+  expectancy, Sharpe, Sortino, average trade, largest win/loss, average win/loss,
+  R:R, equity curve, trade history); anything the engine cannot produce is N/A
+  with a clear reason - never invented, never silently turned into zero
+* equity and trades: persist using the existing research storage architecture,
+  never ship huge trade/equity arrays in normal dashboard responses, use summary
+  endpoints for overview, paginated endpoints for trade history and a dedicated
+  endpoint for the equity curve
+* Strategy Lab integration: a "Run Historical Backtest" action that opens a
+  configuration panel, then shows run id, status, progress when reliable,
+  manual refresh and the completion/failure state; no automatic scheduling, no
+  autonomous execution, no automatic re-testing of thousands of strategies
+* results UI: run information, performance, equity curve when available,
+  paginated trade history and provenance, clearly labelled HISTORICAL MT5
+  BACKTEST and never labelled LIVE / DEMO / PAPER / FORWARD TEST
+* Backtest Matrix integration: existing research results must stay
+  distinguishable from newly executed MT5 historical runs (RESEARCH BACKTEST
+  RESULTS vs MT5 HISTORICAL RUNS); a new run must never overwrite the original
+  research result, and where several runs exist the user must be able to
+  identify and select the specific run
+* storage: do not modify authoritative DATA market files, do not rewrite the
+  10,787 research strategy records, do not delete legacy records, do not modify
+  LEGACY_TEST data; store results separately or through an existing dedicated
+  results model; any schema change must be additive, preserve existing data and
+  come with migration tests instead of a destructive rebuild
+* legacy isolation: the default user-facing historical backtest selection must
+  contain the 10,000 USER_RESEARCH nodes and exclude the 787 LEGACY_TEST rows; a
+  legacy node must not become eligible merely because it has a valid genome, and
+  if a legacy node is explicitly requested for diagnostics it must be visibly
+  marked and must not enter normal research statistics
+* API: only the endpoints needed for available configuration/capabilities,
+  starting a historical backtest, run status, run summary, run trades, run
+  equity and the list of runs for a strategy - stable JSON, no raw database
+  objects, no [object Object], no undefined/null/NaN presentation problems,
+  explicit error messages and a useful failure reason on a failed run
+* duplicate / concurrency protection: a double click must not create several
+  identical active executions, separate intentionally requested periods must not
+  be silently merged, and a run that is already running must be reported
+  clearly instead of blindly starting another identical run
+* failure handling: MT5 terminal unavailable, package unavailable, symbol
+  unavailable, timeframe unavailable, date range unavailable, insufficient
+  historical data, connection timeout, malformed market data and engine errors
+  must never become fake successful results; the dashboard must distinguish
+  NOT AVAILABLE / FAILED / RUNNING / COMPLETED
+* testing: focused V4.6 tests (run creation, configuration validation,
+  USER_RESEARCH scope, legacy exclusion, execution, result persistence, repeat
+  runs, failure handling, duplicate protection, retrieval, trade pagination,
+  equity retrieval, no-live-order safety, provenance, missing metrics, API JSON
+  safety, Strategy Lab and Backtest Matrix integration), the directly affected
+  V4.4/V4.5 tests, and a lightweight smoke that Stats, Strategy Lab and Backtest
+  Matrix still load, the MT5 demo endpoint is unchanged and Live Testing remains
+  inactive - without re-running the entire historical acceptance stack
+* real-data test on a fresh disposable copy: 10,000 USER_RESEARCH and 787
+  LEGACY_TEST, legacy exclusion, a real strategy selected, configuration
+  validated, a deterministic test result produced, retrieval working, research
+  node count and legacy count unchanged, repeated runs as separate ids, and no
+  live/demo order created; a real MT5 verification script if a Windows terminal
+  is available, and an explicit statement when it is not
+* performance: do not block the API while a historical backtest runs
+  (POST -> create run -> return run id, then GET -> poll status), no aggressive
+  polling
+* deliverable: the actual implementation files must be committed and pushed -
+  backend, API, storage changes, dashboard changes, tests and configuration -
+  not merely lmsarena.txt and chatgpt.txt
+
+Out of scope, explicitly: live trading, automatic or scheduled strategy
+execution, autonomous re-testing, new live-trading functionality, portfolio
+risk redesign, a new risk engine, AI mutation / autonomous strategy generation,
+a new research-run workflow and any major UI redesign.
+
+STATUS:
+V4.6 requested. What was asked for is recorded here; what LMSArena actually
+implemented, tested and committed is recorded in lmsarena.txt.
+=============================================================
