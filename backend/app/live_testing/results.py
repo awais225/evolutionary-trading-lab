@@ -44,6 +44,13 @@ def _closed(trades: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             and _f(t.get("pnl")) is not None]
 
 
+def _open(trades: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Trades the lab still considers live (not CLOSED, or closed without a P/L)."""
+    return [t for t in trades
+            if str(t.get("status") or "").upper() in ("OPEN", "SENT", "FILLED", "PARTIAL")
+            or (str(t.get("status") or "").upper() != "CLOSED" and _f(t.get("pnl")) is None)]
+
+
 def _ordered(trades: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return sorted(trades, key=lambda t: (_f(t.get("close_ts")) or _f(t.get("open_ts")) or 0.0))
 
@@ -321,6 +328,8 @@ def per_node_live_stats(db, strategy_ids: Optional[List[int]] = None) -> Dict[in
         total = round(sum(_f(t.get("pnl")) or 0.0 for t in closed), 2)
         day = today(trades)
         wins = [t for t in closed if (_f(t.get("pnl")) or 0.0) > 0]
+        open_now = _open(trades)
+        last = closed[-1] if closed else None
         out[sid] = {
             "today_pnl": day,
             "total_pnl": total,
@@ -328,5 +337,30 @@ def per_node_live_stats(db, strategy_ids: Optional[List[int]] = None) -> Dict[in
             "closed_trades": len(closed),
             "open_trades": len(trades) - len(closed),
             "win_rate": round(len(wins) / len(closed) * 100.0, 2) if closed else None,
+            # §7 — the latest live result and the position actually open right now,
+            # read from the recorded trades (null when there is nothing to report).
+            "last_trade": ({
+                "ticket": last.get("ticket"),
+                "side": last.get("side") or last.get("direction"),
+                "volume": _f(last.get("volume") or last.get("lots")),
+                "open_ts": _f(last.get("open_ts")),
+                "close_ts": _f(last.get("close_ts")),
+                "open_price": _f(last.get("open_price")),
+                "close_price": _f(last.get("close_price")),
+                "sl": _f(last.get("sl")), "tp": _f(last.get("tp")),
+                "pnl": _f(last.get("pnl")),
+                "result": "win" if (_f(last.get("pnl")) or 0.0) > 0 else "loss",
+                "retcode": last.get("retcode"),
+                "symbol": last.get("symbol"),
+            } if last else None),
+            "open_position": ({
+                "ticket": o.get("ticket"),
+                "side": o.get("side") or o.get("direction"),
+                "volume": _f(o.get("volume") or o.get("lots")),
+                "open_ts": _f(o.get("open_ts")),
+                "open_price": _f(o.get("open_price")),
+                "sl": _f(o.get("sl")), "tp": _f(o.get("tp")),
+                "symbol": o.get("symbol"),
+            } if open_now else None),
         }
     return out

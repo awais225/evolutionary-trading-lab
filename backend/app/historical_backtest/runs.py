@@ -663,6 +663,29 @@ def validate_request(payload: Dict[str, Any], db: Any = None) -> Tuple[Optional[
     if errors:
         return None, errors
 
+    # ---- V5.1a §21: the node's own schedule travels with the run ---------------
+    # The deep backtest applies exactly the schedule the operator saved for this
+    # node (same evaluator as live), so "Mon + London + H1" means the same thing
+    # in the backtest as it does on the order path. A timeframe the node is not
+    # allowed to trade is rejected here rather than silently tested.
+    from ..live_testing.schedule import describe as _describe_schedule
+    from ..live_testing.schedule import normalize_config as _normalize_schedule
+    try:
+        _lt_cfg = d.get_live_test_config(sid) or {}
+    except Exception:
+        _lt_cfg = {}
+    _schedule = _normalize_schedule(_lt_cfg)
+    _sched_timeframes = _schedule.get("timeframes") or []
+    if _sched_timeframes and str(timeframe).upper() not in {str(t).upper() for t in _sched_timeframes}:
+        return None, [{"field": "timeframe",
+                       "error": (f"node {sid} is scheduled for {'/'.join(_sched_timeframes)} only; "
+                                 f"running {timeframe} would ignore its saved schedule. "
+                                 f"Change the schedule or pick an allowed timeframe.")}]
+    _conditions = _schedule.get("conditions") or {}
+    _sched_configured = any([_schedule.get("days"), _schedule.get("sessions"),
+                             _schedule.get("regimes"), _schedule.get("timeframes"),
+                             _conditions, _schedule.get("windows")])
+
     cfg = {
         "strategy_id": sid,
         "strategy_status": strat.get("status"),
@@ -689,6 +712,13 @@ def validate_request(payload: Dict[str, Any], db: Any = None) -> Tuple[Optional[
         "start_date": str(payload.get("start_date") or payload.get("start")),
         "end_date": str(payload.get("end_date") or payload.get("end")),
         "scheduled_at": scheduled_at,
+        # V5.1a §21/§31 — the node schedule the run was executed under, recorded
+        # with the run so the result can always be traced back to it.
+        "schedule": _schedule if _sched_configured else None,
+        "schedule_configured": bool(_sched_configured),
+        "schedule_description": _describe_schedule(_lt_cfg) if _sched_configured else
+                                "no schedule configured (node trades its own genome definition)",
+        "conditions": _conditions,
         "period_adjusted": bool(adjusted),
         "requested_start_ts": requested["start_ts"],
         "requested_end_ts": requested["end_ts"],
@@ -1039,6 +1069,9 @@ def _execute(run_id: str, db: Any) -> None:
             "stage": STAGE,
             "window": (int(window[0]), int(window[1])),
             "max_trades": int(cfg.get("max_trades") or 3000),
+            # §21 — the node's saved schedule is enforced on the historical bars
+            "schedule": cfg.get("schedule"),
+            "conditions": cfg.get("conditions"),
         }
         for k, v in (cfg.get("cost_multipliers") or {}).items():
             req_kwargs[k] = float(v)
@@ -1198,17 +1231,40 @@ def _row_to_run(row: Dict[str, Any], db: Any, *, with_metrics: bool = True) -> D
         "artifacts": _jload(row.get("artifacts"), {}),
         "placeholder": None,
     }
+    metrics_all = stored.get("metrics") or {}
+    cfg_all = out["config"] or {}
+    sched = cfg_all.get("schedule") or None
+    sched_meta = metrics_all.get("schedule") or {}
+    out["schedule"] = {
+        "configured": bool(sched),
+        "source": "app.live_testing.schedule (the node's saved schedule)",
+        "description": cfg_all.get("schedule_description"),
+        "applied_to_bars": bool(sched_meta.get("applied")),
+        "bars_blocked": sched_meta.get("bars_blocked"),
+        "bars_allowed": sched_meta.get("bars_allowed"),
+        "conditions": cfg_all.get("conditions") or {},
+    }
+    # §32 — an honest verdict: zero trades under a strategy/schedule is a
+    # COMPLETED run, not an error, and it says so explicitly.
+    out["verdict"] = None
+    if row["status"] == "COMPLETED":
+        n_trades = metrics_all.get("trades")
+        if n_trades == 0:
+            out["verdict"] = ("Completed — no trades generated under this node's "
+                              "strategy/schedule for the selected period.")
+        elif isinstance(n_trades, int) and n_trades > 0:
+            out["verdict"] = f"Completed — {n_trades} trade(s) evaluated by the engine."
     if with_metrics:
-        out["results"] = {"metrics": stored.get("metrics") or {},
+        out["results"] = {"metrics": metrics_all,
                           "derived": stored.get("derived") or {},
                           "unavailable": stored.get("unavailable") or []}
     else:
-        out["results"] = {"metrics": {"trades": stored.get("metrics", {}).get("trades"),
-                                      "net_profit": stored.get("metrics", {}).get("net_profit"),
-                                      "total_return_pct": stored.get("metrics", {}).get("total_return_pct"),
-                                      "profit_factor": stored.get("metrics", {}).get("profit_factor"),
-                                      "win_rate": stored.get("metrics", {}).get("win_rate"),
-                                      "max_drawdown_pct": stored.get("metrics", {}).get("max_drawdown_pct")},
+        out["results"] = {"metrics": {"trades": metrics_all.get("trades"),
+                                      "net_profit": metrics_all.get("net_profit"),
+                                      "total_return_pct": metrics_all.get("total_return_pct"),
+                                      "profit_factor": metrics_all.get("profit_factor"),
+                                      "win_rate": metrics_all.get("win_rate"),
+                                      "max_drawdown_pct": metrics_all.get("max_drawdown_pct")},
                           "unavailable": [], "note": "summary view — see /runs/{run_id} for full metrics"}
     return out
 

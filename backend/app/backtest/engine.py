@@ -57,6 +57,12 @@ class BacktestRequest:
     seed_salt: str = ""
     max_trades: int = 3000
     mc_skip_prob: float = 0.0                # monte-carlo: randomly skip entries
+    # V5.1a §21 — the node's own schedule (app.live_testing.schedule) is applied
+    # to the historical bars with the *same* evaluator the live engine uses, and
+    # the signal-condition switches restrict which of the node's own entry/exit
+    # components may fire. None = the node has no schedule configured.
+    schedule: Optional[Dict[str, Any]] = None
+    conditions: Optional[Dict[str, Any]] = None
 
 
 @dataclass
@@ -270,7 +276,18 @@ class Backtester:
             sig_long &= keep
             sig_short &= keep
 
-        exit_cond = self._eval(ex["exit_condition"], ctx) if ex.get("exit_condition") else None
+        conds = req.conditions or {}
+        # §15 — a signal component the schedule switched off must not fire, even
+        # though the genome still defines it.
+        if conds.get("entry_long") is False:
+            sig_long = np.zeros(n, dtype=bool)
+        if conds.get("entry_short") is False:
+            sig_short = np.zeros(n, dtype=bool)
+        if conds.get("trailing_stop") is False:
+            trailing = None
+        exit_cond = (self._eval(ex["exit_condition"], ctx)
+                     if (ex.get("exit_condition") and conds.get("exit_condition") is not False)
+                     else None)
 
         # ---- execution model (V5 §5: driven by the symbol's broker specs) ----
         from .symbol_specs import execution_params_for
@@ -296,6 +313,29 @@ class Backtester:
         best_i = np.argmax(rmat, axis=0)
         has_any = rmat.max(axis=0) > 0.5
         regime_labels = np.where(has_any, np.array(REGIME_NAMES, dtype=object)[best_i], "")
+
+        # ---- V5.1a §21: the node's schedule restricts the historical bars too.
+        # Same evaluator as live (app.live_testing.schedule.bar_mask), so a node
+        # configured "Mon + Wed + London" cannot be silently backtested over the
+        # whole week. The mask is applied to the entry signals, never to exits.
+        schedule_meta: Dict[str, Any] = {"applied": False}
+        if req.schedule:
+            from ..live_testing.schedule import bar_mask, describe
+            allowed_bars = bar_mask(req.schedule, ts=ts, dow=dow_arr, session=sess_arr,
+                                    regime=regime_labels)
+            blocked = int((~allowed_bars).sum())
+            sig_long = sig_long & allowed_bars
+            sig_short = sig_short & allowed_bars
+            schedule_meta = {
+                "applied": True,
+                "description": describe(req.schedule),
+                "bars_in_window": int(n),
+                "bars_blocked": blocked,
+                "bars_allowed": int(allowed_bars.sum()),
+                "reason": ("no bar in the requested period satisfied the schedule"
+                           if not allowed_bars.any() else None),
+            }
+        metrics_schedule = schedule_meta
 
         balance = cfg.backtest.initial_balance
         equity = balance
@@ -417,7 +457,8 @@ class Backtester:
                 break
 
         metrics = self._metrics(trades, equity, balance, max_dd, req, ep, ghash, lo, hi,
-                                symbol_specs=symbol_specs, stops_level_skips=stops_level_skips)
+                                symbol_specs=symbol_specs, stops_level_skips=stops_level_skips,
+                                schedule_meta=metrics_schedule)
         runtime = (time.perf_counter() - t0) * 1000.0
         metrics["runtime_ms"] = round(runtime, 1)
         # Complete trade history and equity curve (spec §11)
@@ -439,7 +480,8 @@ class Backtester:
     def _metrics(self, trades: List[Trade], equity: float, balance: float,
                  max_dd: float, req: BacktestRequest, ep: ExecutionParams,
                  ghash: str, lo: int, hi: int, symbol_specs=None,
-                 stops_level_skips: int = 0) -> Dict:
+                 stops_level_skips: int = 0,
+                 schedule_meta: Optional[Dict[str, Any]] = None) -> Dict:
         nt = len(trades)
         pnls = np.array([t.pnl for t in trades], dtype=np.float64)
         wins = pnls[pnls > 0]; losses = pnls[pnls <= 0]
@@ -534,6 +576,10 @@ class Backtester:
                 "stops_level_skips": int(stops_level_skips),
             },
             "genome_hash": ghash,
+            # V5.1a §21/§31 — proof that the node's schedule was applied to the
+            # bars this result was produced from (and which conditions were on).
+            "schedule": dict(schedule_meta or {"applied": False}),
+            "conditions": {k: v for k, v in (req.conditions or {}).items()},
         }
 
 

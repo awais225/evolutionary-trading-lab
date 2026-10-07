@@ -55,6 +55,16 @@ INFRASTRUCTURE_STATUSES = (DATA_UNAVAILABLE, DATA_CORRUPT, BACKTEST_ERROR)
 LEGACY_ALIVE_STATUSES = ("SURVIVED", "QUALIFIED", "SHORTLISTED", "SCREENED",
                          "PAPER", "MT5_BACKTESTED", "LIVE_ELIGIBLE", "LIVE_TESTING")
 
+#: §7 — stored statuses that mean the node cleared the research bar. The
+#: authoritative DATA was written before V5, so the vocabulary is read as-is
+#: instead of re-labelling 10,000 rows.
+QUALIFIED_RAW_STATUSES = ("QUALIFIED", "SHORTLISTED", "MT5_BACKTESTED", "PAPER", "LIVE_ELIGIBLE")
+
+#: §7 — the operator-facing node filters, in the order the UI offers them. One
+#: definition, shared by the qualified-node flow, the live node table and the
+#: Deep Backtest node picker, so all three agree on what "qualified" means.
+NODE_FILTERS = ("qualified", "alive", "eligible", "all", "failed", "excluded", "blocked", "unknown")
+
 #: human labels for the UI
 STATUS_LABELS = {
     NOT_TESTED: "Not tested",
@@ -240,3 +250,80 @@ def status_payload(row: Dict[str, Any]) -> Dict[str, Any]:
         "failure_class": classify_failure(reason) if str(row.get("status") or "").upper() == "FAILED" else None,
         "failure_reason": reason,
     }
+
+
+# --------------------------------------------------------------------------- #
+# §7 — node buckets (qualified / alive / failed / excluded / blocked / unknown)
+# --------------------------------------------------------------------------- #
+#: statuses where a node passed the research gates and is worth live testing
+NODE_QUALIFIED_V5 = (VALID, LIVE_ELIGIBLE, LIVE_TESTING, LIVE_COMPLETED, MT5_DEMO)
+
+#: failed = the strategy was genuinely judged and did not make it
+NODE_FAILED_V5 = (STRATEGY_FAILED,)
+
+#: every stored status value the classifier understands. Anything else is
+#: reported as ``unknown`` instead of being guessed into a bucket.
+_KNOWN_RAW_STATUSES = tuple(set(V5_STATUSES) | set(LEGACY_ALIVE_STATUSES) | {
+    "FAILED", "KILLED", "RETIRED", "BORN", "PENDING", "BACKTESTING", "VALIDATING",
+    "TESTING", "SCREENED", "", "NOT_TESTED",
+})
+
+
+def node_bucket(row: Dict[str, Any], *, eligible: Optional[bool] = None,
+                data_source: Optional[str] = None) -> Dict[str, Any]:
+    """Place one node in exactly ONE operator-facing bucket (spec §7).
+
+    ``eligible`` is the live engine's own eligibility verdict when the caller
+    already computed it (never re-derived here, so the UI cannot disagree with
+    the enforcement path). ``data_source`` overrides the row's own value when the
+    caller read it from elsewhere.
+    """
+    row = row or {}
+    raw = str(row.get("status") or "").strip().upper()
+    src = str(data_source if data_source is not None else (row.get("data_source") or "")).strip().upper()
+    status = v5_status(row)
+    reason = row.get("failure_reason") or row.get("creation_reason") or row.get("survival_reason")
+
+    if src == "LEGACY_TEST":
+        return {"bucket": "excluded", "v5_status": status, "label": "Excluded",
+                "reason": "LEGACY_TEST node — outside the current research experiment and never a trading candidate."}
+
+    if status in INFRASTRUCTURE_STATUSES:
+        return {"bucket": "blocked", "v5_status": status,
+                "label": STATUS_LABELS.get(status, status),
+                "reason": (STATUS_HINTS.get(status) or "blocked before the strategy was judged")
+                          + (f" ({reason})" if reason else "")}
+
+    if status in NODE_FAILED_V5:
+        return {"bucket": "failed", "v5_status": status, "label": "Failed",
+                "reason": reason or "Tested against real data and did not meet the research gates."}
+
+    if status in NODE_QUALIFIED_V5 or raw in QUALIFIED_RAW_STATUSES:
+        if eligible is False:
+            return {"bucket": "qualified", "v5_status": status, "label": "Qualified (not currently eligible)",
+                    "reason": "Qualified by research, but the live engine does not currently accept it as a candidate."}
+        return {"bucket": "qualified", "v5_status": status, "label": "Qualified",
+                "reason": (row.get("survival_reason") or "Cleared the research gates against real data.")}
+
+    # An unrecognised stored value is reported as unknown -- never as failed and
+    # never as alive: the classifier's own fallback (NOT_TESTED) would otherwise
+    # silently promote it into the alive bucket.
+    if raw and raw not in _KNOWN_RAW_STATUSES:
+        return {"bucket": "unknown", "v5_status": status, "label": "Unknown",
+                "reason": f"stored status {raw!r} is not part of the known vocabulary — needs investigation."}
+
+    return {"bucket": "alive", "v5_status": status,
+            "label": STATUS_LABELS.get(status, status or "Not tested"),
+            "reason": "Alive but not yet qualified (still in research / not tested)."}
+
+
+def node_matches_filter(bucket: str, wanted: str) -> bool:
+    """Does a bucket satisfy the requested filter? (``all`` matches everything.)"""
+    w = str(wanted or "qualified").strip().lower()
+    if w in ("", "all"):
+        return True
+    if w == "alive":
+        return bucket in ("qualified", "alive")
+    if w == "eligible":
+        return bucket in ("qualified", "alive")
+    return bucket == w

@@ -1089,6 +1089,14 @@ class Database:
             "max_trades_per_day": row.get("max_trades_per_day"),
             "max_positions": row.get("max_positions"),
             "slippage_limit_points": row.get("slippage_limit_points"),
+            # V5.1a schedule (§11-§19). None = never configured for that group,
+            # which the schedule module reads as "no restriction from this group";
+            # `enabled` is a tri-state (None = legacy row, 1 = on, 0 = off).
+            "enabled": None if row.get("enabled") is None else bool(row.get("enabled")),
+            "regimes": json.loads(row["regimes"]) if row.get("regimes") else None,
+            "conditions": json.loads(row["conditions"]) if row.get("conditions") else None,
+            "windows": json.loads(row["windows"]) if row.get("windows") else None,
+            "schedule_version": row.get("schedule_version"),
             "created_at": row.get("created_at"),
             "updated_at": row.get("updated_at"),
         }
@@ -1101,8 +1109,9 @@ class Database:
                 strategy_id, timeframes, days, sessions, start_time, end_time,
                 timezone, lot_size, risk_pct, is_active, status, created_at, updated_at,
                 spread_limit_points, cooldown_minutes, max_trades_per_day, max_positions,
-                slippage_limit_points
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                slippage_limit_points, enabled, regimes, conditions, windows,
+                schedule_version
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(strategy_id) DO UPDATE SET
                 timeframes=excluded.timeframes,
                 days=excluded.days,
@@ -1114,7 +1123,17 @@ class Database:
                 risk_pct=excluded.risk_pct,
                 is_active=excluded.is_active,
                 status=excluded.status,
-                updated_at=excluded.updated_at
+                updated_at=excluded.updated_at,
+                spread_limit_points=excluded.spread_limit_points,
+                cooldown_minutes=excluded.cooldown_minutes,
+                max_trades_per_day=excluded.max_trades_per_day,
+                max_positions=excluded.max_positions,
+                slippage_limit_points=excluded.slippage_limit_points,
+                enabled=excluded.enabled,
+                regimes=excluded.regimes,
+                conditions=excluded.conditions,
+                windows=excluded.windows,
+                schedule_version=excluded.schedule_version
         """
         self.ensure_live_test_config_columns()
         self.x(sql, (
@@ -1136,6 +1155,11 @@ class Database:
             self._num_or_none(cfg.get("max_trades_per_day")),
             self._num_or_none(cfg.get("max_positions")),
             self._num_or_none(cfg.get("slippage_limit_points")),
+            None if cfg.get("enabled") is None else (1 if cfg.get("enabled") else 0),
+            jd(cfg["regimes"]) if cfg.get("regimes") is not None else None,
+            jd(cfg["conditions"]) if cfg.get("conditions") is not None else None,
+            jd(cfg["windows"]) if cfg.get("windows") is not None else None,
+            2 if cfg.get("schedule_version") is None else int(cfg["schedule_version"]),
         ))
 
     def record_live_test_trade(self, t: Dict[str, Any]) -> int:
@@ -1316,6 +1340,12 @@ class Database:
         ("spread_limit_points", "REAL"), ("cooldown_minutes", "REAL"),
         ("max_trades_per_day", "REAL"), ("max_positions", "REAL"),
         ("slippage_limit_points", "REAL"),
+        # V5.1a — the per-node schedule the operator edits in the Schedule dialog.
+        # ``enabled`` is an explicit switch (NULL = never configured, so a legacy
+        # row keeps its is_active meaning); the lists are JSON; windows is a JSON
+        # list of {start,end,enabled} objects so several windows can be stored.
+        ("enabled", "INTEGER"), ("regimes", "TEXT"), ("conditions", "TEXT"),
+        ("windows", "TEXT"), ("schedule_version", "INTEGER"),
     )
 
     def ensure_live_test_config_columns(self) -> None:

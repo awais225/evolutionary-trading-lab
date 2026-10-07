@@ -393,6 +393,47 @@ class LiveTestingEngine:
             return False
 
     # ------------------------------------------------------------------ market panel ---
+    def current_regime(self, node: Dict[str, Any]) -> Optional[str]:
+        """Dominant market regime on the node's last closed bar (§13).
+
+        Uses the *research engine's own* regime vocabulary and the lab's own
+        feature store (the same ``regime:*`` features the backtest engine
+        evaluates), so the live schedule gate and the historical backtest agree
+        on what "trending" means. Returns ``None`` when the features are not
+        available: the caller then reports "regime not evaluated" instead of
+        pretending the rule passed.
+        """
+        try:
+            from ..backtest.engine import REGIME_NAMES
+            from ..data.engine import get_data_engine
+            from ..features.engine import get_feature_engine
+        except Exception:
+            return None
+        g = node.get("genome") or {}
+        symbol = str(g.get("symbol") or "").upper()
+        timeframe = str(g.get("timeframe") or "")
+        if not symbol or not timeframe:
+            return None
+        try:
+            ds = get_data_engine().latest_dataset(symbol, timeframe)
+            if not ds:
+                return None
+            dataset_id = ds.get("dataset_id") if isinstance(ds, dict) else ds
+            feats = get_feature_engine()
+            scores: Dict[str, float] = {}
+            for name in REGIME_NAMES:
+                arr = feats.get(dataset_id, f"regime:{name}")
+                if arr is None or len(arr) == 0:
+                    continue
+                last = float(np.nan_to_num(arr[-1], nan=0.0))
+                scores[name] = last
+            if not scores:
+                return None
+            best = max(scores, key=scores.get)
+            return best if scores[best] > 0.5 else None
+        except Exception:
+            return None
+
     def market_panel(self, symbol: Optional[str] = None) -> Dict[str, Any]:
         """Compact MT5-authoritative market state (spec §11/§12)."""
         bridge = get_bridge()
@@ -550,7 +591,9 @@ class LiveTestingEngine:
     # ------------------------------------------------------------------ schedule ---
     def schedule_state(self, node: Dict[str, Any], *, spread_points: Optional[float] = None,
                        open_positions: int = 0,
-                       now: Optional[float] = None) -> Dict[str, Any]:
+                       now: Optional[float] = None,
+                       regime: Optional[str] = None,
+                       timeframe: Optional[str] = None) -> Dict[str, Any]:
         """V5 §11 — evaluate this node's live schedule against its real history.
 
         The inputs are all from the lab's own records: how many trades the node
@@ -577,12 +620,22 @@ class LiveTestingEngine:
                     last_entry_ts = float(ts)
         except Exception:
             pass
+        if timeframe is None:
+            timeframe = (node.get("genome") or {}).get("timeframe")
         state = _eval(cfg, now=now, spread_points=spread_points,
                       trades_today=trades_today, open_positions=open_positions,
-                      last_entry_ts=last_entry_ts)
+                      last_entry_ts=last_entry_ts, regime=regime, timeframe=timeframe)
         state["trades_today"] = trades_today
         state["last_entry_ts"] = last_entry_ts
         state["strategy_id"] = sid
+        state["timeframe"] = timeframe
+        state["regime"] = regime
+        # §15 — the node's own signal components, as permitted by the schedule
+        from .schedule import condition_enabled
+        state["conditions"] = {
+            name: condition_enabled(cfg, name)
+            for name in ("entry_long", "entry_short", "exit_condition", "trailing_stop")
+        }
         return state
 
     # ------------------------------------------------------------------ status ---
@@ -820,8 +873,13 @@ class LiveTestingEngine:
             if _panel.get("ask") is not None and _panel.get("bid") is not None:
                 _point = _panel.get("point") or 0.01
                 _spread_pts = (float(_panel["ask"]) - float(_panel["bid"])) / float(_point)
+            _regime = None
+            try:
+                _regime = self.current_regime(node)          # dominant label on the last closed bar
+            except Exception:                                # a missing label never blocks by itself
+                _regime = None
             _sched_eval = self.schedule_state(
-                node, spread_points=_spread_pts,
+                node, spread_points=_spread_pts, regime=_regime,
                 open_positions=(self.count_activity() or {}).get("active_total", 0))
         except Exception as e:                      # never trade on an unevaluable schedule
             self._block(node, symbol, side, STAGE_ORDER_VALIDATED, "SCHEDULE_UNEVALUABLE",
@@ -841,10 +899,26 @@ class LiveTestingEngine:
                          {"strategy_id": sid, "symbol": symbol, "side": side,
                           "reason": _sched_eval["reason"]})
             return
+        # §15 — the schedule's signal-condition switches are part of the schedule:
+        # a component switched off must never be traded on, whatever the genome says.
+        from .schedule import condition_enabled
+        _cond = {"long": condition_enabled(node.get("config"), "entry_long"),
+                 "short": condition_enabled(node.get("config"), "entry_short")}
+        if (side or "").upper() == "BUY" and not _cond["long"]:
+            self._block(node, symbol, side, STAGE_ORDER_VALIDATED, "CONDITION_DISABLED",
+                        "the schedule switched this node's long entry rule OFF")
+            return
+        if (side or "").upper() == "SELL" and not _cond["short"]:
+            self._block(node, symbol, side, STAGE_ORDER_VALIDATED, "CONDITION_DISABLED",
+                        "the schedule switched this node's short entry rule OFF")
+            return
         self._stage({"stage": STAGE_ORDER_VALIDATED, "node_id": sid, "symbol": symbol, "side": side,
                      "status": "SCHEDULE_OK",
                      "detail": {"local_time": _sched_eval["local_time"],
                                 "timezone": _sched_eval["timezone"],
+                                "regime": _sched_eval.get("regime"),
+                                "timeframe": _sched_eval.get("timeframe"),
+                                "conditions": _cond,
                                 "rules": _sched_eval["rules"]}})
 
         # ---- safety gates (spec §3, §4, §10, §20) ----

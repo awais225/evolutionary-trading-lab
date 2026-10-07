@@ -3863,6 +3863,60 @@ def mt5_historical_start_run(payload: Dict = Body(default_factory=dict)) -> Dict
     return result
 
 
+@router.post("/mt5-historical/runs/batch")
+def mt5_historical_start_batch(payload: Dict = Body(default_factory=dict)) -> Dict[str, Any]:
+    """§6 — Deep Backtest for several nodes at once (one / several / all).
+
+    Each selected node is queued through the *same* single-run path
+    (``hb.start_run``) with its own strategy id, so validation, duplicate
+    detection, scheduling, data loading and metrics are identical to a manual
+    single run — this endpoint only fans the request out and reports, per node,
+    what actually happened. A node that cannot be queued is reported with its
+    real reason; it is never silently dropped and never shows as completed.
+    """
+    _require_accepting_tasks("these MT5 historical runs")
+    from ..historical_backtest import runs as hb
+
+    ids = payload.get("strategy_ids") or payload.get("strategy_id")
+    if isinstance(ids, (int, str)):
+        ids = [ids]
+    if not isinstance(ids, list) or not ids:
+        raise HTTPException(422, {"ok": False, "errors": [
+            {"field": "strategy_ids", "error": "provide strategy_ids: [<one or more node ids>]"}]})
+    if len(ids) > 200:
+        raise HTTPException(422, {"ok": False, "errors": [
+            {"field": "strategy_ids", "error": f"too many nodes in one batch ({len(ids)}); "
+                                               "send at most 200 per request"}]})
+
+    shared = {k: v for k, v in (payload or {}).items()
+              if k not in ("strategy_ids", "strategy_id")}
+    results, started, failed = [], [], []
+    for raw_id in ids:
+        try:
+            sid = int(raw_id)
+        except (TypeError, ValueError):
+            failed.append({"strategy_id": raw_id, "ok": False, "errors": [
+                {"field": "strategy_id", "error": f"{raw_id!r} is not a node id"}]})
+            continue
+        res = hb.start_run({**shared, "strategy_id": sid})
+        entry = {"strategy_id": sid, "ok": bool(res.get("started")),
+                 "run_id": res.get("run_id"), "duplicate": bool(res.get("duplicate")),
+                 "existing_run_id": res.get("existing_run_id"),
+                 "errors": res.get("errors") or [], "status": (res.get("run") or {}).get("status")}
+        results.append(entry)
+        (started if entry["ok"] else failed).append(entry)
+    return {
+        "ok": bool(started),
+        "requested": len(ids),
+        "started": len(started),
+        "failed": len(failed),
+        "runs": results,
+        "run_ids": [e["run_id"] for e in started if e.get("run_id")],
+        "note": ("runs execute one at a time in the background; poll "
+                 "/api/mt5-historical/runs/{run_id} for status and results"),
+    }
+
+
 @router.get("/mt5-historical/runs")
 def mt5_historical_list_runs(strategy_id: Optional[int] = None, status: Optional[str] = None,
                              limit: int = 50, offset: int = 0,
@@ -4071,6 +4125,261 @@ def live_testing_market_header(symbol: Optional[str] = None,
     return out
 
 
+@router.get("/nodes")
+def nodes_index(
+    filter: str = "qualified",
+    search: Optional[str] = None,
+    run_id: Optional[str] = None,
+    symbol: Optional[str] = None,
+    timeframe: Optional[str] = None,
+    generation: Optional[int] = None,
+    starred_only: bool = False,
+    sort_by: str = "node_id",
+    sort_desc: bool = False,
+    limit: int = 100,
+    offset: int = 0,
+) -> Dict[str, Any]:
+    """§6/§7/§8/§25 — the qualified-node index.
+
+    One endpoint, one classification (§7 ``node_bucket``), used by the Live
+    Testing node picker and by Deep Backtest's "select one / several / all"
+    list. Every row carries the node's real research identity and metrics, and
+    the response states which experiment it belongs to — node numbering is
+    experiment-local, never a global running total (§25).
+
+    Filters: ``qualified`` (default) | ``alive`` | ``eligible`` | ``all`` |
+    ``failed`` | ``excluded`` | ``blocked`` | ``unknown``.
+    """
+    from ..status import NODE_FILTERS, node_bucket, node_matches_filter
+    from ..live_testing.results import per_node_live_stats
+    from ..live_testing.risk import risk_limits, resolve_risk_pct
+
+    wanted = str(filter or "qualified").strip().lower()
+    if wanted not in NODE_FILTERS:
+        return {"ok": False, "error": f"unknown filter {filter!r}",
+                "filters": list(NODE_FILTERS), "nodes": [], "total": 0}
+
+    db = get_db()
+    limits = risk_limits()
+    global_pct = limits.get("risk_pct_default")
+
+    # ---- which experiment does this index describe? -------------------------- #
+    exp = db.one("""SELECT run_id, COUNT(*) population, MIN(research_node_num) lo,
+                           MAX(research_node_num) hi, MAX(id) newest
+                    FROM strategies
+                    WHERE COALESCE(data_source,'USER_RESEARCH') <> 'LEGACY_TEST'
+                      AND run_id IS NOT NULL""") or {}
+    cur_run = run_id or exp.get("run_id")
+    other = [dict(r) for r in (db.q("""SELECT COALESCE(run_id,'(none)') run_id,
+                                             COALESCE(data_source,'(none)') data_source,
+                                             COUNT(*) nodes
+                                      FROM strategies
+                                      WHERE COALESCE(run_id,'') <> ?
+                                      GROUP BY run_id, data_source
+                                      ORDER BY nodes DESC""", (cur_run or "",)) or [])]
+    experiment = {
+        "run_id": cur_run,
+        "population": int(exp.get("population") or 0),
+        "node_numbering": "experiment-local (1..population, assigned when the node was created)",
+        "node_number_range": [int(exp.get("lo") or 0), int(exp.get("hi") or 0)],
+        "other_runs": other,
+        "note": ("node numbers are local to this experiment — a node is identified by "
+                 "(experiment, node number), and the global row id is internal only"),
+    }
+
+    # ---- rows ---------------------------------------------------------------- #
+    q = """SELECT id, status, symbol, timeframe, generation, fitness, run_id,
+                  research_node_num, data_source, failure_reason, survival_reason,
+                  creation_reason, parent_id, mutation_type, created_at
+           FROM strategies
+           WHERE COALESCE(data_source,'USER_RESEARCH') <> 'LEGACY_TEST'
+             AND (? IS NULL OR run_id = ?)
+           ORDER BY id"""
+    strategies = db.q(q, (cur_run, cur_run)) or []
+    if wanted in ("all", "excluded", "blocked", "failed", "unknown"):
+        legacy = db.q("""SELECT id, status, symbol, timeframe, generation, fitness, run_id,
+                                research_node_num, data_source, failure_reason, survival_reason,
+                                creation_reason, parent_id, mutation_type, created_at
+                         FROM strategies WHERE data_source='LEGACY_TEST'""") or []
+        strategies = list(strategies) + list(legacy)
+
+    try:
+        enrolled = {int(n["id"]): n for n in _live_engine().eligible_nodes()}
+    except Exception:
+        enrolled = {}
+    try:
+        excluded_notes = {int(n["id"]): n.get("reason") for n in _live_engine().excluded_nodes()}
+    except Exception:
+        excluded_notes = {}
+    live = per_node_live_stats(db)
+    shortlist = set(db.get_shortlist())
+    search_clean = (search or "").strip().lower()
+
+    rows: List[Dict[str, Any]] = []
+    counts: Dict[str, int] = {}
+    for st in strategies:
+        sid = int(st["id"])
+        try:
+            bucket = node_bucket(st, eligible=(sid in enrolled) if enrolled else None)
+        except Exception as e:  # never let one bad row hide the index
+            bucket = {"bucket": "unknown", "label": "Unknown", "reason": str(e)[:200],
+                      "v5_status": None}
+        b = bucket["bucket"]
+        counts[b] = counts.get(b, 0) + 1
+        if not node_matches_filter(b, wanted):
+            continue
+        cfg = db.one("SELECT * FROM live_test_configs WHERE strategy_id=?", (sid,)) or {}
+        strat = db.get_strategy(sid) or st
+        genome = _genome_of(strat)
+        override = cfg.get("risk_pct")
+        eff = resolve_risk_pct(global_pct, override)
+        bt = db.one("""SELECT metrics FROM backtests
+                       WHERE strategy_id=? AND stage IN ('detail','screen')
+                       ORDER BY CASE stage WHEN 'detail' THEN 0 ELSE 1 END, id DESC LIMIT 1""",
+                    (sid,))
+        m = {}
+        if bt and bt.get("metrics"):
+            try:
+                m = json.loads(bt["metrics"])
+            except Exception:
+                m = {}
+        val = db.one("SELECT robustness_score, passed FROM validations WHERE strategy_id=? LIMIT 1",
+                     (sid,)) or {}
+        # §7/§8 — the real coverage of the data the research backtest ran on:
+        # symbol + timeframe + the dataset's own recorded range and bar count.
+        ds_row = db.one("""SELECT id, symbol, timeframe, start_ts, end_ts, bars, source,
+                                  dataset_version, fingerprint
+                           FROM datasets
+                           WHERE UPPER(symbol)=UPPER(?) AND UPPER(timeframe)=UPPER(?)
+                           ORDER BY created_at DESC LIMIT 1""",
+                        (str(strat.get("symbol") or ""), str(strat.get("timeframe") or ""))) or {}
+        cov = {
+            "dataset_id": ds_row.get("id"),
+            "source": ds_row.get("source"),
+            "start": _iso_utc(ds_row.get("start_ts")),
+            "end": _iso_utc(ds_row.get("end_ts")),
+            "bars": ds_row.get("bars"),
+            "symbol": ds_row.get("symbol") or strat.get("symbol"),
+            "timeframe": ds_row.get("timeframe") or strat.get("timeframe"),
+            "dataset_version": ds_row.get("dataset_version"),
+            "fingerprint": ds_row.get("fingerprint"),
+            "available": bool(ds_row),
+            "research_backtest": {
+                "dataset_id": m.get("dataset_id"),
+                "bars_window": m.get("window"),
+                "trades": m.get("trades"),
+                "stage": m.get("stage"),
+            } if m else None,
+        }
+        from ..live_testing.schedule import describe as _describe_schedule
+        sched_desc = _describe_schedule(cfg) if cfg else None
+        ls = live.get(sid, {})
+        num = strat.get("research_node_num") or st.get("research_node_num")
+        rows.append({
+            "node_id": sid,                       # internal row id
+            "strategy_id": sid,
+            "research_node_num": num,             # experiment-local number (§25)
+            "node_label": f"Node_{num if num is not None else sid}",
+            "experiment": cur_run,
+            "run_id": strat.get("run_id") or st.get("run_id"),
+            "generation": strat.get("generation") if strat.get("generation") is not None else st.get("generation"),
+            "parent_id": strat.get("parent_id"),
+            "innovation": strat.get("mutation_type"),
+            "family": strat.get("species_key"),
+            "symbol": strat.get("symbol") or st.get("symbol") or genome.get("symbol"),
+            "timeframe": strat.get("timeframe") or st.get("timeframe") or genome.get("timeframe"),
+            "direction": genome.get("direction", "both"),
+            "fitness": strat.get("fitness"),
+            # signal logic as the node actually declares it (genome, not a paraphrase)
+            "signal_logic": {
+                "entry_long": genome.get("entry_long"),
+                "entry_short": genome.get("entry_short"),
+                "exit": genome.get("exit") or genome.get("exit_condition"),
+                "trailing": genome.get("trailing") or genome.get("trailing_stop"),
+                "regime_filters": genome.get("regime_filters"),
+                "atr": genome.get("atr_period"),
+                "sl_atr": genome.get("sl_atr"),
+                "tp_atr": genome.get("tp_atr"),
+                "hold_bars": genome.get("hold_bars") or genome.get("max_hold_bars"),
+            },
+            "bucket": b,
+            "bucket_label": bucket.get("label"),
+            "bucket_reason": bucket.get("reason"),
+            "v5_status": bucket.get("v5_status"),
+            "qualification": strat.get("status") or st.get("status"),
+            "survival_evidence": strat.get("survival_reason") or strat.get("creation_reason") or bucket.get("reason"),
+            "failure_reason": strat.get("failure_reason") or st.get("failure_reason"),
+            "metrics": {
+                "return_pct": m.get("total_return_pct"),
+                "profit_factor": m.get("profit_factor"),
+                "max_drawdown_pct": m.get("max_drawdown_pct"),
+                "win_rate": m.get("win_rate"),
+                "trades": m.get("trades"),
+                "net_profit": m.get("net_profit"),
+                "expectancy": m.get("expectancy"),
+                "avg_trade": m.get("avg_trade"),
+                "sharpe": m.get("sharpe"),
+            },
+            "robustness": {"score": val.get("robustness_score"), "passed": val.get("passed")},
+            "backtest_coverage": cov,
+            "risk": {"pct": eff.get("risk_pct"), "override_pct": override,
+                     "source": eff.get("source"), "limits": limits},
+            "schedule": {"description": sched_desc, "configured": bool(
+                             cfg.get("days") or cfg.get("sessions") or cfg.get("regimes")
+                             or cfg.get("conditions") or cfg.get("windows")),
+                         "enabled": cfg.get("enabled"), "is_active": bool(cfg.get("is_active"))},
+            "live": {"status": cfg.get("status") or "IDLE", "trades": ls.get("trades", 0),
+                     "closed": ls.get("closed_trades", 0), "total_pnl": ls.get("total_pnl"),
+                     "today_pnl": ls.get("today_pnl"), "win_rate": ls.get("win_rate"),
+                     "last_result": ls.get("last_trade")},
+            "position": ls.get("open_position"),
+            "position_open": bool(ls.get("open_position")),
+            "starred": sid in shortlist,
+            "eligibility_note": excluded_notes.get(sid),
+        })
+
+    if search_clean:
+        def _hit(r):
+            blob = " ".join(str(r.get(k) or "") for k in
+                            ("node_label", "node_id", "symbol", "timeframe", "qualification",
+                             "v5_status", "generation", "bucket")).lower()
+            return search_clean in blob
+        rows = [r for r in rows if _hit(r)]
+    if symbol:
+        rows = [r for r in rows if str(r.get("symbol") or "").upper() == symbol.upper()]
+    if timeframe:
+        rows = [r for r in rows if str(r.get("timeframe") or "").upper() == timeframe.upper()]
+    if generation is not None:
+        rows = [r for r in rows if int(r.get("generation") or -1) == int(generation)]
+    if starred_only:
+        rows = [r for r in rows if r["starred"]]
+
+    def _key(r):
+        v = r.get(sort_by)
+        if isinstance(v, dict):
+            v = r.get("metrics", {}).get(sort_by)
+        return (v is None, v) if isinstance(v, (int, float)) else (v is None, str(v))
+
+    rows.sort(key=_key, reverse=bool(sort_desc))
+    total = len(rows)
+    page = rows[max(0, offset):max(0, offset) + max(1, min(int(limit), 1000))]
+    return {
+        "ok": True,
+        "filter": wanted,
+        "filters": list(NODE_FILTERS),
+        "counts": counts,
+        "total": total,
+        "returned": len(page),
+        "limit": limit,
+        "offset": offset,
+        "experiment": experiment,
+        "nodes": page,
+        "risk": {"global_risk_pct": global_pct, "limits": limits},
+        "note": ("Metrics are the node's own recorded research/live results. "
+                 "A node with no recorded value shows null — never 0."),
+    }
+
+
 @router.get("/live-testing/nodes-table")
 def live_testing_nodes_table(
     search: Optional[str] = None,
@@ -4129,7 +4438,9 @@ def live_testing_nodes_table(
     stored_alive = tuple(ALIVE_STATUSES) + tuple(LEGACY_ALIVE_STATUSES)
     placeholders = ",".join("?" for _ in stored_alive)
     q = (f"""SELECT id, status, symbol, timeframe, genome, data_source, creation_reason,
-                    failure_reason, survival_reason FROM strategies
+                    failure_reason, survival_reason, run_id, research_node_num,
+                    generation, fitness, parent_id
+             FROM strategies
              WHERE COALESCE(data_source,'') <> 'LEGACY_TEST'
                AND UPPER(COALESCE(status,'')) IN ({placeholders})
              ORDER BY id DESC LIMIT 2000""")
@@ -4156,7 +4467,8 @@ def live_testing_nodes_table(
             cfg = dict(cfg)
         candidates[sid] = {"id": sid, "strategy_id": sid, "config": cfg, "genome": None,
                            "strategy_status": st.get("status"),
-                           "_effective_risk_pct": None, "_risk_source": None}
+                           "_effective_risk_pct": None, "_risk_source": None,
+                           "_research": st}
 
     rows: List[Dict[str, Any]] = []
     for sid, n in candidates.items():
@@ -4179,27 +4491,71 @@ def live_testing_nodes_table(
             except Exception:
                 m = {}
 
+        from ..live_testing.schedule import describe as _describe_schedule
+        from ..live_testing.schedule import normalize_config as _norm_schedule
+        sched_norm = _norm_schedule(cfg)
         schedule = {
             "days": cfg.get("days"),
             "sessions": cfg.get("sessions"),
+            "regimes": cfg.get("regimes"),
+            "timeframes": cfg.get("timeframes"),
+            "conditions": cfg.get("conditions"),
+            "windows": cfg.get("windows"),
+            "enabled": cfg.get("enabled"),
             "start_time": cfg.get("start_time"),
             "end_time": cfg.get("end_time"),
             "timezone": cfg.get("timezone"),
             "active": bool(cfg.get("is_active")),
+            "configured": bool(sched_norm.get("days") or sched_norm.get("sessions")
+                               or sched_norm.get("regimes") or sched_norm.get("conditions")
+                               or sched_norm.get("windows")),
+            "description": _describe_schedule(cfg),
         }
         ls = live.get(sid, {})
+        res = n.get("_research") or {}
+        node_num = strat.get("research_node_num") or res.get("research_node_num")
+        run_id = strat.get("run_id") or res.get("run_id")
         rows.append({
             "node_id": sid,
             "strategy_id": sid,
+            # §25 — the experiment-local node number is what the operator reads;
+            # the global row id stays available as the internal identifier.
+            "research_node_num": node_num,
+            "node_label": f"Node_{node_num if node_num is not None else sid}",
+            "run_id": run_id,
+            "generation": strat.get("generation") if strat.get("generation") is not None
+                          else res.get("generation"),
+            "parent_id": strat.get("parent_id"),
+            "fitness": strat.get("fitness"),
             "starred": sid in shortlist,
             "status": (cfg.get("strategy_status") or strat.get("status")) if strat else None,
             "v5_status": _v5_status(strat),
+            "v5_status_label": _status_payload(strat).get("v5_status_label"),
+            "v5_status_hint": _status_payload(strat).get("v5_status_hint"),
+            "is_infrastructure_failure": _status_payload(strat).get("is_infrastructure_failure"),
             "market": strat.get("symbol") or genome.get("symbol"),
             "timeframe": strat.get("timeframe") or genome.get("timeframe"),
             "direction": genome.get("direction", "both"),
+            # §7 — qualification/survival evidence, straight from the research record
+            "qualification_status": strat.get("status"),
+            "survival_reason": strat.get("survival_reason") or res.get("survival_reason"),
+            "failure_reason": strat.get("failure_reason") or res.get("failure_reason"),
+            "creation_reason": strat.get("creation_reason") or res.get("creation_reason"),
+            "innovation": strat.get("mutation_type"),
             "is_return_pct": m.get("total_return_pct"),
             "profit_factor": m.get("profit_factor"),
             "trades_is": m.get("trades"),
+            "is_win_rate": m.get("win_rate"),
+            "is_max_drawdown_pct": m.get("max_drawdown_pct"),
+            "is_net_profit": m.get("net_profit"),
+            "is_expectancy": m.get("expectancy"),
+            "is_avg_trade": m.get("avg_trade"),
+            "robustness_score": (strat.get("robustness_score")
+                                 if "robustness_score" in (strat or {}) else None),
+            "backtest_period": {"start": m.get("start_iso") or m.get("period_start"),
+                                "end": m.get("end_iso") or m.get("period_end"),
+                                "bars": m.get("dataset_bars") or m.get("bars"),
+                                "trades": m.get("trades")},
             "today_pnl": ls.get("today_pnl"),
             "total_live_pnl": ls.get("total_pnl"),
             "live_trades": ls.get("trades", 0),
@@ -4289,6 +4645,31 @@ def _v5_status(strategy: Optional[Dict[str, Any]]) -> Optional[str]:
         return str(strategy.get("status") or "") or None
 
 
+def _iso_utc(ts: Any) -> Optional[str]:
+    """Epoch seconds -> ISO-8601 UTC. Returns None for a missing/unusable value."""
+    try:
+        v = float(ts)
+    except (TypeError, ValueError):
+        return None
+    if v <= 0:
+        return None
+    import datetime as _dt
+    return _dt.datetime.fromtimestamp(v, _dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+
+def _status_payload(strategy: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """The node's V5 status payload (label/hint/infrastructure flag)."""
+    if not strategy:
+        return {}
+    try:
+        from ..status import status_payload
+        row = dict(strategy)
+        row.setdefault("pipeline_stage", strategy.get("pipeline_stage"))
+        return status_payload(row)
+    except Exception:
+        return {}
+
+
 def _genome_of(strategy: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """The node's genome as a dict, whether the driver handed back a str or a dict."""
     if not strategy:
@@ -4329,21 +4710,44 @@ def live_testing_schedule(sid: int) -> Dict[str, Any]:
         node = {"id": sid, "config": db.get_live_test_config(sid) or {},
                 "genome": _genome_of(strat)}
     state = eng.schedule_state(node)
-    from ..live_testing.schedule import describe, SESSION_HOURS_UTC
-    state["description"] = describe(node.get("config"))
+    from ..live_testing.schedule import (SESSION_HOURS_UTC, describe, supported_options,
+                                         conditions_for_genome)
+    cfg = node.get("config") or db.get_live_test_config(sid) or {}
+    state["description"] = describe(cfg)
+    # the raw stored config is what the dialog edits: returning the engine's
+    # normalised copy alone would make "never configured" indistinguishable from
+    # "explicitly set to the defaults", and the operator must see which is which.
+    state["config"] = cfg
     state["session_hours_utc"] = SESSION_HOURS_UTC
+    state["options"] = supported_options(_genome_of(strat))
+    state["node"] = {
+        "strategy_id": sid,
+        "research_node_num": strat.get("research_node_num"),
+        "run_id": strat.get("run_id"),
+        "symbol": strat.get("symbol"),
+        "timeframe": strat.get("timeframe"),
+        "status": strat.get("status"),
+        "conditions": conditions_for_genome(_genome_of(strat)),
+    }
     state["read_only"] = True
     return state
 
 
 @router.post("/live-testing/schedule/{sid}")
 def live_testing_schedule_save(sid: int, payload: Dict = Body(...)) -> Dict[str, Any]:
-    """§11 — save the functional schedule/execution attributes for a node.
+    """§11 §19 — save the functional schedule/execution attributes for a node.
 
-    Days and sessions are validated against the supported sets before they are
-    stored, so a schedule the engine cannot enforce can never be saved.
+    Every group is validated against what this node and this engine actually
+    support (days, sessions, regimes, timeframes, signal conditions, windows,
+    timezone) before anything is stored, and the stored form is canonical
+    (weekday numbers, lower-case names, JSON lists) so the engine, the deep
+    backtest and the UI all read the same thing. Saving also writes the
+    *evaluation* back, so the operator immediately sees whether the schedule they
+    just saved allows the node to trade right now.
     """
-    from ..live_testing.schedule import SESSION_HOURS_UTC, day_number
+    from ..live_testing.schedule import (SESSION_HOURS_UTC, day_number, describe,
+                                         normalize_config, supported_options,
+                                         validate_config)
 
     db = get_db()
     strat = db.get_strategy(sid)
@@ -4354,57 +4758,117 @@ def live_testing_schedule_save(sid: int, payload: Dict = Body(...)) -> Dict[str,
             "ok": False, "code": "LEGACY_NODE_NOT_TRADEABLE",
             "message": f"node {sid} is LEGACY_TEST infrastructure - it can never be a live trading candidate"})
 
+    genome = _genome_of(strat)
+
+    # ---- normalise the incoming groups -------------------------------------
+    def _list_field(name):
+        raw = payload.get(name)
+        if raw is None:
+            return None, None
+        if isinstance(raw, str):
+            try:
+                import json as _json
+                raw = _json.loads(raw)
+            except Exception:
+                raw = [raw]
+        if not isinstance(raw, (list, tuple)):
+            return None, {"field": name, "error": f"{name} must be a list"}
+        return list(raw), None
+
     errors: List[Dict[str, str]] = []
-    days = payload.get("days")
-    if days is not None:
-        nums = [day_number(d) for d in days]
-        if any(n is None for n in nums):
-            errors.append({"field": "days", "error": f"unsupported day value in {days}"})
+    clean: Dict[str, Any] = {}
+
+    for name in ("days", "sessions", "regimes", "timeframes"):
+        values, err = _list_field(name)
+        if err:
+            errors.append(err)
+            continue
+        if values is None:
+            continue
+        if name == "days":
+            nums = [day_number(d) for d in values]
+            bad = [v for v, n in zip(values, nums) if n is None]
+            if bad:
+                errors.append({"field": "days", "error": f"unsupported day value(s) {bad}"})
+            else:
+                clean["days"] = sorted({int(n) for n in nums})
+        elif name == "timeframes":
+            clean["timeframes"] = [str(v).strip().upper() for v in values if str(v).strip()]
         else:
-            days = nums
-    sessions = payload.get("sessions")
-    if sessions is not None:
-        allowed = set(SESSION_HOURS_UTC) | {"custom"}
-        bad = [s for s in sessions if str(s).strip().lower() not in allowed]
-        if bad:
-            errors.append({"field": "sessions",
-                           "error": f"unsupported session(s) {bad}; supported: "
-                                    f"{sorted(allowed)}"})
+            clean[name] = [str(v).strip().lower() for v in values if str(v).strip()]
+
+    if "conditions" in payload and payload.get("conditions") is not None:
+        conds = payload.get("conditions")
+        if not isinstance(conds, dict):
+            errors.append({"field": "conditions", "error": "conditions must be an object"})
         else:
-            sessions = [str(s).strip().lower() for s in sessions]
-    if errors:
-        raise HTTPException(status_code=422, detail={"ok": False, "errors": errors})
+            clean["conditions"] = {str(k): bool(v) for k, v in conds.items()}
+
+    if "windows" in payload and payload.get("windows") is not None:
+        wins = payload.get("windows")
+        if not isinstance(wins, list):
+            errors.append({"field": "windows", "error": "windows must be a list"})
+        else:
+            clean["windows"] = [w for w in wins if isinstance(w, dict)]
+            if not clean["windows"]:
+                # an explicitly cleared window list must not resurrect the legacy
+                # start_time/end_time pair on the next read (or on the backtest).
+                clean["start_time"] = None
+                clean["end_time"] = None
+
+    if "enabled" in payload:
+        clean["enabled"] = bool(payload.get("enabled"))
+    if payload.get("timezone") is not None:
+        clean["timezone"] = str(payload.get("timezone")).strip()
+    for field in ("start_time", "end_time"):
+        if payload.get(field) is not None:
+            clean[field] = str(payload.get(field)).strip()
+    for field in ("cooldown_minutes", "max_trades_per_day", "spread_limit_points",
+                  "max_positions", "slippage_limit_points"):
+        if field in payload:
+            clean[field] = payload.get(field)
+
+    # §19 — validate the *merged* result (what will actually be stored), not just
+    # the incoming fragment: a fragment can only be wrong in combination.
+    current = db.get_live_test_config(sid) or {}
+    merged = {**current, **clean}
+    errors.extend(validate_config({**clean, "windows": clean.get("windows",
+                                                                 merged.get("windows")),
+                                   "timezone": clean.get("timezone", merged.get("timezone"))},
+                                  genome=genome,
+                                  node_timeframe=strat.get("timeframe")))
 
     risk_check = validate_risk_settings(payload.get("risk_pct"), sid)
     if not risk_check["ok"]:
         raise HTTPException(status_code=422, detail=risk_check)
 
-    current = db.get_live_test_config(sid) or {}
-    fields = ("timeframes", "days", "sessions", "start_time", "end_time", "timezone",
-              "lot_size", "risk_pct", "is_active", "status",
-              "spread_limit_points", "cooldown_minutes", "max_trades_per_day",
-              "max_positions", "slippage_limit_points")
-    clean = {k: v for k, v in payload.items() if k in fields}
-    # store what was validated, not the raw payload: days become weekday numbers
-    # and sessions lower-case names, so every reader (engine, UI, exports) sees one
-    # canonical form regardless of how the request spelled it
-    if days is not None:
-        clean["days"] = days
-    if sessions is not None:
-        clean["sessions"] = sessions
-    merged = {**current, **clean}
+    if errors:
+        raise HTTPException(status_code=422, detail={
+            "ok": False, "code": "SCHEDULE_INVALID", "errors": errors,
+            "message": "; ".join(f"{e['field']}: {e['error']}" for e in errors)})
+
+    if "risk_pct" in payload:
+        clean["risk_pct"] = payload.get("risk_pct")
+    for field in ("is_active", "status", "lot_size"):
+        if field in payload:
+            clean[field] = payload.get(field)
+
     db.set_live_test_config(sid, merged)
 
+    stored = db.get_live_test_config(sid) or {}
     eng = _live_engine()
     try:
         node = next((n for n in eng.eligible_nodes() if n.get("id") == sid), None)
     except Exception:
         node = None
-    state = eng.schedule_state(node or {"id": sid, "config": merged})
-    from ..live_testing.schedule import describe
-    return {"ok": True, "strategy_id": sid, "config": db.get_live_test_config(sid),
-            "evaluation": state, "description": describe(merged),
-            "enforced_by": "app.live_testing.schedule.evaluate (called by the engine before every order)"}
+    state = eng.schedule_state(node or {"id": sid, "config": stored})
+    return {"ok": True, "strategy_id": sid, "config": stored,
+            "evaluation": state, "description": describe(stored),
+            "normalized": normalize_config(stored),
+            "options": supported_options(genome),
+            "persisted": True,
+            "enforced_by": "app.live_testing.schedule.evaluate (live) and "
+                           "app.live_testing.schedule.bar_mask (deep backtest)"}
 
 
 @router.post("/live-testing/nodes/{sid}/start")
