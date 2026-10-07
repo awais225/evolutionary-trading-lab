@@ -3679,3 +3679,31 @@ LAUNCHER FIX — PACKAGING PATH AND FULL V5 BUNDLE VALIDATION
                    embed a bundle that does not match frontend/src.
 
 =============================================================
+
+=============================================================
+LAUNCHER FIX — PACKAGING FOLLOW-UP: PUSH RESULT
+=============================================================
+  Pushed         : origin main ccd32ee..620cd42  main -> main
+                   (fix commit f3cf75118b388a7d22f63bb96b10c6b8fc0d7eef
+                   "fix: build current frontend in the launcher and packager"
+                   plus the documentation commit 620cd42).
+                   The earlier launcher fix (ab2c18f, pushed as aca89ba/b8db608/
+                   ccd32ee) is an ancestor of the current main.
+  Local/remote   : git ls-remote origin refs/heads/main ==
+                   620cd42d9995c06d610d558f32a370076c9a220d == local HEAD.
+  Note           : the first push attempt failed because the sandbox snapshot
+                   does not retain .git/config, so the `origin` remote was
+                   missing ("'origin' does not appear to be a git repository").
+                   It was NOT an authentication failure: after re-adding the
+                   remote the push went through with the workspace credential
+                   store (askpass); the token is never written into the
+                   repository, these logs or any commit.
+  Verified       : GitHub API returns f3cf75118b388a7d22f63bb96b10c6b8fc0d7eef
+                   with exactly two files changed (scripts/build_exe.bat,
+                   scripts/build_and_serve.bat); raw.githubusercontent.com main
+                   serves start.bat, backend/app/frontend_build.py,
+                   backend/tools/frontend_build_guard.py,
+                   tests/test_frontend_serving.py, scripts/build_exe.bat and
+                   LAUNCHER_FIX_REPORT.md with HTTP 200.
+
+=============================================================
