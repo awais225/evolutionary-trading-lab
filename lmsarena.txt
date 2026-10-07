@@ -4456,3 +4456,104 @@ VERIFICATION (all executed here)
     interpreter; 0 terminals; platform linux).
   · NOT verified (no such environment here): a real Windows MT5 order/fill, and
     browser-specific rendering - verification is jsdom + HTTP.
+
+================================================================================
+WINDOWS MT5 LAYER DIAGNOSTIC + MANUAL CALCULATOR FLOW (iteration log)
+================================================================================
+Commits: 42a43c8 (diagnostic + calculator fix)  06685cb (calculator on the
+         MT5 Demo Trading page)  Date: 2026-10-07 (Asia/Karachi ~18:00)
+Build:   src_hash=574bce1f65849509  index_sha256=15ec9e7d89b7867e
+         entry assets: index-CXsLzPa3.js / index-DF42zOr6.css
+         BUILT_AT=2026-10-07T12:52:08Z  dist status FRESH
+Runtime: token LAB-MT5DIAG-06685CB, serving the current build (guard exit 0)
+
+§1-§2 GIT / RUNTIME CONSISTENCY
+  · Before: HEAD == origin/main == 42b2821. The running token was LAB-V51A-866BD
+    (commit 866bd68) - i.e. a *code* commit while HEAD was the docs commit; the
+    runtime was rebuilt and restarted at the final commit of this iteration, so
+    nothing stale is left behind.
+  · After the work the runtime reports commit 06685cb / src 574bce1f65849509 /
+    dist FRESH, and frontend_build_guard --verify-served exits 0.
+
+§3-§6 NEW: CHECK_MT5_WINDOWS.bat (repo root, CRLF, read-only)
+  · Resolves the interpreter in the launcher's own order (root/.venv,
+    backend/.venv, venv, py launcher, PATH) and runs
+    backend\tools\mt5_windows_diagnostic.py --save LOGS\MT5_WINDOWS_DIAGNOSTIC_<stamp>.txt.
+    The full report is printed AND written to that file so it can be attached.
+  · Machine (Windows build/arch/user/cwd), Python (executable, version, bitness,
+    where python/py/pip, venv, pip, plus every other interpreter found and whether
+    MetaTrader5 imports in it), package (import/version/location), terminals
+    (discovery + running processes via tasklist - NOTHING is started or killed),
+    mt5.initialize() attempts in the production order with mt5.last_error(),
+    terminal_info, account_info (login/server/currency/balance/equity/leverage/
+    trade flags; the holder name is masked), XAUUSD symbol_info (digits, point,
+    tick size/value, contract size, volume min/max/step, stops/freeze level,
+    trade mode, filling modes), symbol_info_tick (bid/ask/spread/time),
+    trading permissions (terminal/account/symbol) and mt5.order_check on the
+    request built by app.mt5.execution.build_market_order_request - the same
+    function the manual panel uses. order_send is never called (the module
+    contains no order_send call at all; asserted by a test).
+  · Classification vocabulary (never "MT5 unavailable"): MT5 READY / MT5 PACKAGE
+    MISSING / MT5 TERMINAL NOT FOUND / MT5 TERMINAL NOT RUNNING / MT5
+    INITIALIZATION FAILED / MT5 ACCOUNT UNAVAILABLE / MT5 SYMBOL UNAVAILABLE /
+    MT5 MARKET DATA UNAVAILABLE / MT5 TRADING DISABLED / MT5 ORDER VALIDATION
+    FAILED. On a non-Windows host it says MT5 PLATFORM UNSUPPORTED explicitly.
+  · /api/mt5/runtime now also exposes environment_class + environment_reason
+    (verdict/reason unchanged for compatibility).
+  · Python 3.13 is not required (wheels cp36-cp314); the report states the range
+    and the interpreter it found. Exit codes: 0 READY, 3 not ready, 4 non-Windows.
+  · Run here (Linux, for honesty): CLASSIFICATION: MT5 PLATFORM UNSUPPORTED,
+    exit 4; the package is not importable and no terminal exists - as expected.
+
+§7-§11 MANUAL CALCULATOR (verified, not assumed)
+  · DEFECT FOUND AND FIXED (routes.py, mt5_execution_preview): the endpoint
+    resolved the entry from the live quote for the levels it displayed, but passed
+    the raw payload entry (None) into compute_volume/risk_for_volume -> a caller
+    that relied on the live quote got INVALID_ENTRY_PRICE although the panel showed
+    a price. It now sizes with levels["entry"] (operator price, else live ASK for
+    BUY / BID for SELL). No broker maths changed.
+  · $10 / 300 pips / BUY on XAUUSD is answered honestly: raw volume 0.0033 is
+    below the 0.01 minimum, so the panel reports VOLUME_BELOW_MINIMUM plus the
+    minimum risk a legal lot needs ($30) instead of rounding the risk up.
+  · Bidirectional: $300 -> 0.10 lot, $600 -> 0.20 lot (no button); 0.10 lot ->
+    $300, 0.20 -> $600; $300 at 500 pips -> 0.06 lot; the broker spec is the
+    source of truth (a spec with step 0.05 / tick value 2.5 changes every derived
+    number); no quote -> nothing is invented (entry null, INVALID_ENTRY_PRICE with
+    the bridge really queried); a typed entry is used when the market is silent.
+  · Recalculate now (option B): it repeats the identical valid calculation
+    (byte-identical response) and places nothing - proven in pytest and in the
+    smoke; the automatic 250 ms debounce still recalculates on every input change.
+  · §15 UI placement: the MT5 Demo Trading page now renders the same calculator
+    component ($10 / 300 pips / live entry / auto lot). Verified on this build's
+    rendered preview: Amount / risk = "10", Stop loss = "300", Entry placeholder
+    "live: 2944.98", Recalculate now present, and the honest block
+    "The broker symbol specification is not available yet, so no lot size can be
+    calculated" + "the active market bridge is 'SIMULATOR'" - no fabricated number.
+
+§14 TESTS (all executed here)
+  · tests/: 598 passed, 0 failed, 1 warning in 127.06 s (with the live stack up;
+    the two listener-dependent launcher tests fail without a listener by design
+    and pass with one).
+  · new: tests/test_v5_1a_windows_mt5_diagnostic.py (33) - every classification
+    layer, the deep probe driven by a fake MetaTrader5 package (initialize order,
+    terminal_info, account, symbol, tick, permissions, order_check, shutdown),
+    the .bat's CRLF/safety/interpreter-order contract, and the CLI end-to-end.
+    tests/test_v5_1a_manual_calculator_flow.py (17) - the exact user flow above.
+  · frontend smoke v48_ui_smoke.mjs: 53/53 (new ManualOrderPanel:exact-user-flow
+    drives the real component: defaults, $300->$600, lot->amount, stop 300->500,
+    BUY->ASK / SELL->BID, Recalculate repeats the same valid calculation; plus a
+    new page:Mt5DemoTrading-manual-calculator check).
+  · theme/regime/manual-order/runtime suites re-run: 138 passed.
+
+§15 LIVE DASHBOARD
+  · backend 8787 (token LAB-MT5DIAG-06685CB) + vite 5173 both live; guard exit 0;
+    served identity commit 06685cb / src 574bce1f65849509 / dist FRESH.
+  · workspace preview rebuilt from THIS commit: provenance commit 06685cb, src
+    574bce1f65849509, entries index-CXsLzPa3.js + index-DF42zOr6.css, snapshot
+    2026-10-07T12:54:41Z, 77 endpoints, 3,966,271 bytes. verify_preview: PASS
+    (18/18 nav, no console errors); mt5_pages_theme_test: four MT5 pages themed
+    (tables 2/2/1/1, headers uppercase).
+  · MT5 runtime truth in this sandbox (unchanged, honest): SIMULATOR_ONLY /
+    MT5 PLATFORM UNSUPPORTED (Linux, package not importable, 0 terminals).
+    NO real demo order was placed or verified here - that requires the operator's
+    Windows terminal and the diagnostic output.

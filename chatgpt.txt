@@ -3175,3 +3175,36 @@ DECISIONS TAKEN
  6. Honesty rules unchanged: the bridge is still reported as SIMULATOR here, the
     badge is derived from the backend payload (never assumed), and a real broker
     execution is never claimed from simulator output.
+
+================================================================================
+REQUEST (NEXT PHASE: WINDOWS MT5 EXECUTION + MANUAL TRADE CALCULATOR)
+================================================================================
+The operator reported that the real MT5 test can only happen on Windows, asked for
+a safe diagnostic .bat that prints the exact failure layer, and asked the manual
+trade calculator to be proven bidirectionally ($10 default / 300 pips / live entry
+/ automatic lot, amount<->lot both ways, stop distance driving the dependants).
+
+DECISIONS TAKEN
+ 1. Verify Git/runtime first: HEAD and origin/main were both 42b2821 before the
+    work; the previous token (LAB-V51A-866BD on commit 866bd68) was a *code*
+    commit, not the final HEAD, so the runtime was restarted at the final commit
+    of this iteration (LAB-MT5DIAG-06685CB) - no stale relationship is left.
+ 2. The Windows diagnostic is READ-ONLY by construction: it runs mt5.order_check
+    on the project's own request and never calls order_send, never starts or kills
+    a process, never prints credentials, and classifies the exact layer instead of
+    saying "MT5 unavailable". Python 3.13 is NOT imposed (wheels exist for
+    3.6-3.14); the tool reports the interpreter it found and its wheel range.
+ 3. No UI redesign: the risk->lot calculator already existed as one backend-driven
+    component. The only UI change is that the MT5 Demo Trading page - the page the
+    brief names - now renders that same component (reuse, no new classes), while
+    its V4.2 order panel keeps its own flow.
+ 4. One real defect was found and fixed instead of being papered over: the read
+    only preview endpoint displayed a quote-derived entry price but sized the lot
+    from the *unset* payload entry, so a caller relying on the live quote got
+    INVALID_ENTRY_PRICE. It now sizes with the price it resolved (operator price,
+    else live ASK/BID). Broker maths untouched.
+ 5. Honesty over convenience in this sandbox: with the SIMULATOR bridge there is
+    no broker volume/tick specification, so the calculator shows the live entry
+    and the exact reason no lot can be sized - it never invents a broker number.
+    Recalculate now stays as a manual refresh performing the same valid
+    calculation (it was never dead; it is not removed).
