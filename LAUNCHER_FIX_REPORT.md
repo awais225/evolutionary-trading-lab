@@ -77,11 +77,19 @@ Served-content proof from the running instance: `index.html` byte-identical to `
 ## 6. Git
 
 ```
-97cbf90..aca89ba  main -> main      (fix: ab2c18f, evidence: aca89ba)
-local HEAD == origin/main after the push — confirmed through the GitHub API
+ab2c18f  fix: serve current frontend from normal launcher    <- the fix
+then     two lmsarena.txt evidence/result entries, then this report
 ```
 
-Committed and pushed are **only** the files in §2 plus the log files (`lmsarena.txt`, `chatgpt.txt`). Never staged: `DATA/**`, database/WAL/SHM, `LOGS/*`, runtime `CONFIG` files, `frontend/dist` (generated; ignored), `node_modules`, virtualenvs, secrets or credentials.
+All of them are pushed to `origin/main`; `git rev-parse HEAD == git rev-parse origin/main`,
+and the commit `ab2c18f` was cross-checked through the GitHub API (it lists exactly the
+nine files of §2; `raw.githubusercontent.com` returns HTTP 200 for the three new files).
+
+Committed and pushed are **only** the files in §2 plus the log files (`lmsarena.txt`,
+`chatgpt.txt`) and this report. Never staged: `DATA/**`, database/WAL/SHM, `LOGS/*`,
+runtime `CONFIG` files, `frontend/dist` and `frontend/dist/build-info.json` (generated;
+`git check-ignore` → `.gitignore:5:dist/`), `node_modules`, virtualenvs, secrets or
+credentials.
 
 ## 7. What the user sees on the next normal launch
 
