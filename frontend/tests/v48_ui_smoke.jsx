@@ -28,8 +28,9 @@ import DatasetAvailability from "../src/components/DatasetAvailability.jsx";
 import PopulationSummary from "../src/components/PopulationSummary.jsx";
 import LiveTradeCounter from "../src/components/LiveTradeCounter.jsx";
 import DemoAccountSafety from "../src/components/DemoAccountSafety.jsx";
-import { RiskStrip, ManualOrderPanel, LiveMarketPanel, StageTimeline, LiveNodeTable,
+import { RiskStrip, ManualOrderPanel, LiveMarketPanel, StageTimeline,
          LiveMarketHeader, ScheduleDialog } from "../src/components/LiveTestingPanels.jsx";
+import { LiveNodeTable } from "../src/components/LiveNodeIndex.jsx";
 import PowerButton from "../src/components/PowerButton.jsx";
 import { TradingInfoTab } from "../src/components/StrategyDrawer.jsx";
 import Mt5Backtest from "../src/pages/Mt5Backtest.jsx";
@@ -43,6 +44,7 @@ import StartupBanner from "../src/components/StartupBanner.jsx";
 import { JsonView } from "../src/components/common.jsx";
 import FinalTesting from "../src/pages/FinalTesting.jsx";
 import DeepBacktest from "../src/pages/DeepBacktest.jsx";
+import { arr as safeArr, numOrNull, objOrNull } from "../src/lib/safe.js";
 
 const tabCalls = [];
 const LAB_VALUE = {
@@ -108,14 +110,14 @@ const PREVIEW_BLOCKED = {
   quote: null, orders_placed: false, read_only: true,
 };
 
-const MARKET = {
+let MARKET = {
   symbol: "XAUUSD", source: "SIMULATOR", bid: 2400.0, ask: 2400.3, spread: 0.3,
   session_status: "newyork", trading_available: false,
   reasons: ["simulator feed: no live ticks"], tick_age_s: 12.5, market_open: false,
   indicators: null, bar_close_in: null,
 };
 
-const MARKET_HEADER = {
+let MARKET_HEADER = {
     available: true, reasons: [], reason: null, symbol: "XAUUSD", timeframe: "M15",
     market: { symbol: "XAUUSD", bid: 2400.1, ask: 2400.3, spread: 0.2, price: 2400.2,
               time: "2026-10-07T05:42:00+00:00", tick_age_s: 1.2, session_status: "london",
@@ -256,6 +258,16 @@ let PLACE_OK = true;
 
 /** Drive the manual order panel's preview with a controlled backend answer. */
 export function setPreviewResponse(value) { PREVIEW_RESPONSE = value; }
+/* §3 — the panel's own market snapshot, so a "no quote" case can be rendered. */
+/** Save/restore the market stubs exactly, so a case that mutates them cannot
+ *  change what a later case renders. */
+export function snapshotMarket() { return { m: MARKET, h: MARKET_HEADER }; }
+export function restoreMarketSnapshot(snap) { MARKET = snap.m; MARKET_HEADER = snap.h; }
+export function setMarket(value) {
+  MARKET = value;
+  /* the manual order panel reads the *header* endpoint — drive both from one call */
+  MARKET_HEADER = { ...MARKET_HEADER, market: { ...(MARKET_HEADER.market || {}), ...value } };
+}
 let HEALTH_FAILS = false;
 export function setHealthFailure(value) { HEALTH_FAILS = value; }
 /** Drive the manual order panel's submit with a controlled backend answer. */
@@ -264,9 +276,15 @@ export function setPlaceResponse(value, ok = true) { PLACE_RESPONSE = value; PLA
 /** V5: every POST the UI sent (path + body), so the smoke can assert the real
  *  endpoints are called — a cosmetic button would fail here. */
 export const nodesTablePosts = [];
+/* §8 — every GET the client makes to the qualified-node index, so the smoke can
+ * prove which filter / sort the page actually requested. */
+export const nodeIndexCalls = [];
 /** V5.1a: every body sent to the per-node schedule endpoint. */
 export const schedulePosts = [];
 export const shutdownCalls = [];
+/** §3/§5 — every risk/lot preview request body, so "recalculate on any input
+ *  change, and never stale" is asserted against what was really sent. */
+export const previewPosts = [];
 export const dataSyncCalls = [];
 export const seenUrls = [];
 export const shortlistToggles = [];
@@ -278,7 +296,9 @@ export function payloadFor(path, method = "GET") {
   if (path === "/health" && HEALTH_FAILS) throw new Error("Failed to fetch");   // unreachable status endpoint
   if (path.includes("/api/live-testing/nodes/")) { nodesTablePosts.push(path); return { ok: true, is_active: true, status: "RUNNING" }; }
   if (path.includes("/api/power/shutdown")) { return { ok: true, dry_run: true, steps: [], backend_stopping: false }; }
-  if (path.includes("/api/mt5-execution/preview")) return PREVIEW_RESPONSE;
+  if (path.includes("/api/mt5-execution/preview")) {
+    return typeof PREVIEW_RESPONSE === "function" ? PREVIEW_RESPONSE() : PREVIEW_RESPONSE;
+  }
   if (path.includes("/api/mt5-execution/place")) {
     if (!PLACE_OK) {
       const err = new Error(JSON.stringify(PLACE_RESPONSE));
@@ -413,7 +433,8 @@ export function payloadFor(path, method = "GET") {
   if (path.includes("/api/research-run/state")) return RUN_STATE;
   if (path.includes("/api/research/strategies")) return { nodes: [], total: 0, population: { total: 10000 } };
   if (path.includes("/api/nodes")) {
-    const mk = (num, id, status, bucket) => ({
+    nodeIndexCalls.push(path);
+    const mk = (num, id, status, bucket, liveStatus) => ({
       node_id: id, strategy_id: id, research_node_num: num, node_label: `Node_${num}`,
       experiment: "RUN-20261005-055251", run_id: "RUN-20261005-055251", generation: 0,
       symbol: "XAUUSD", timeframe: "M15", direction: "both", fitness: 0.63,
@@ -428,17 +449,35 @@ export function payloadFor(path, method = "GET") {
                            end: "2026-09-25", bars: 24768, available: true },
       risk: { pct: 1.0, source: "global" },
       schedule: { description: "Mon/Wed, London, M15", configured: true, enabled: 1, is_active: false },
-      live: { status: "IDLE", trades: 0, total_pnl: null, today_pnl: null, win_rate: null, last_result: null },
+      live: { status: liveStatus || "IDLE", trades: 0, total_pnl: null, today_pnl: null,
+              win_rate: null, last_result: null },
       position: null, position_open: false, starred: false,
     });
+    const all = [
+      mk(23, 837, "SURVIVED", "qualified"),
+      mk(63, 877, "SURVIVED", "qualified", "ACTIVE"),
+      mk(99, 1499, "FAILED", "failed"),
+    ];
+    /* Filtering is server-side in the real API, so the stub filters too — a
+     * client-side-only smoke would never catch a broken filter parameter. */
+    const m = /[?&]filter=([^&]*)/.exec(path);
+    const wanted = m ? decodeURIComponent(m[1]) : "qualified";
+    const match = (b) => wanted === "all" || (wanted === "alive" || wanted === "eligible"
+      ? b === "qualified" || b === "alive" : b === wanted);
+    const rowsOut = all.filter((r) => match(r.bucket));
     return {
-      ok: true, filter: "qualified", filters: ["qualified", "alive", "eligible", "all", "failed", "excluded", "blocked", "unknown"],
-      counts: { qualified: 2, failed: 1 }, total: 2, returned: 2, limit: 100, offset: 0,
+      ok: true, filter: wanted,
+      filters: ["qualified", "alive", "eligible", "all", "failed", "excluded", "blocked", "unknown"],
+      sort_by: "fitness", sort_key: "fitness",
+      counts: { qualified: 2, failed: 1, alive: 0, eligible: 0, excluded: 0, blocked: 0, unknown: 0 },
+      filter_totals: { qualified: 2, alive: 2, eligible: 2, all: 3, failed: 1, excluded: 0, blocked: 0, unknown: 0 },
+      total: rowsOut.length, returned: rowsOut.length, limit: 100, offset: 0,
       experiment: { run_id: "RUN-20261005-055251", population: 10000,
                     node_number_range: [1, 10000], next_node_number: 10001, is_empty: false,
                     node_numbering: "experiment-local (1..population)" },
-      nodes: [mk(23, 837, "SURVIVED", "qualified"), mk(63, 877, "SURVIVED", "qualified")],
+      nodes: rowsOut,
       risk: { global_risk_pct: 1.0, limits: {} },
+      note: "Metrics are the node's own recorded research/live results.",
     };
   }
   if (path.includes("/api/mt5-demo/status")) return {
@@ -484,6 +523,28 @@ export function payloadFor(path, method = "GET") {
 /* ------------------------------------------------------------------- the run */
 export async function runSmoke() {
   const results = [];
+  /* §5 — value safety. A missing value must stay missing: `Number(null)` is 0,
+   * which is how "no quote" became an entry price of 0.00 and how an unset risk
+   * became $0. These helpers are the ones every panel renders through. */
+  {
+    try {
+      const asZero = [null, undefined, "", " ", "abc", false, [], {}].filter((v) => numOrNull(v) === 0);
+      if (asZero.length) {
+        throw new Error(`these missing values were coerced to 0: ${JSON.stringify(asZero)}`);
+      }
+      if (numOrNull(0) !== 0 || numOrNull("2400.5") !== 2400.5 || numOrNull(12) !== 12) {
+        throw new Error("real numbers must still pass through numOrNull");
+      }
+      // SQLite JSON text must be decoded, or a stored schedule renders as empty
+      if (JSON.stringify(safeArr("[0, 2]")) !== "[0,2]") throw new Error("arr() did not decode JSON text");
+      if ((objOrNull('{"entry_long":true}') || {}).entry_long !== true) {
+        throw new Error("objOrNull() did not decode JSON text");
+      }
+      results.push({ label: "safe-values:missing-stays-missing", ok: true });
+    } catch (e) {
+      results.push({ label: "safe-values:missing-stays-missing", ok: false, error: e.message || String(e) });
+    }
+  }
   // capture the real requests the V5 controls send (the harness installs its own
   // fetch stub before this runs, so the wrapper has to go here)
   const _origFetch = globalThis.fetch;
@@ -494,6 +555,11 @@ export async function runSmoke() {
       let body = {};
       try { body = JSON.parse(opts.body || "{}"); } catch { body = {}; }
       shutdownCalls.push(body);
+    }
+    if (urlStr.includes("/api/mt5-execution/preview")) {
+      let body = {};
+      try { body = JSON.parse(opts.body || "{}"); } catch { body = {}; }
+      previewPosts.push({ url: urlStr, body });
     }
     if (urlStr.includes("/api/live-testing/schedule/") && String(opts.method || "GET").toUpperCase() === "POST") {
       let body = {};
@@ -732,6 +798,73 @@ export async function runSmoke() {
       const after = container.textContent || "";
       if (!after.includes("5512345")) throw new Error(`the broker result was not shown … "${after.slice(0, 200)}"`);
       results.push({ label: "ManualOrderPanel:preview+confirm+result", ok: true });
+
+  {
+    /* (c) V5.1a §3/§5 — recalculation is unconditional and never silently zero.
+     *
+     * The reported defect was that with no live quote the panel stopped
+     * recalculating (the preview effect returned early while `entry === null`),
+     * so input changes produced stale numbers and a zero lot size. Here the
+     * market snapshot carries no bid/ask at all, and the panel must still ask
+     * the backend, must show the backend's own reason, and must send the typed
+     * entry price on the next recalculation. */
+    const marketSnapshot = snapshotMarket();
+    setMarket({ symbol: "XAUUSD", source: "MT5", bid: null, ask: null, spread: null,
+                session_status: "london", trading_available: true, reasons: [],
+                tick_age_s: 1.0, market_open: true, indicators: null, bar_close_in: null });
+    setPreviewResponse(() => ({ ...PREVIEW_BLOCKED,
+      blocked: { code: "INVALID_ENTRY_PRICE",
+                 message: "Entry price unavailable for XAUUSD: cannot size the trade",
+                 detail: {} },
+      symbol_info: { symbol: "XAUUSD", digits: 2, point: 0.01, tick_size: null,
+                     tick_value: null, volume_min: null, volume_max: null,
+                     volume_step: null, source: "SIMULATOR" } }));
+    previewPosts.length = 0;
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    try {
+      await act(async () => { root.render(wrap(<ManualOrderPanel />)); });
+      await act(async () => { await new Promise((r) => setTimeout(r, 400)); });
+      if (!previewPosts.length) {
+        throw new Error("no quote: the panel did not ask the backend for a preview (the stale-value defect)");
+      }
+      const text = container.textContent || "";
+      if (!text.includes("INVALID_ENTRY_PRICE")) {
+        throw new Error(`the backend's refusal is not shown … "${text.slice(0, 220)}"`);
+      }
+      const entryInput = Array.from(container.querySelectorAll("input"))
+        .find((i) => /no quote/.test(i.placeholder || ""));
+      if (!entryInput) {
+        throw new Error("the entry field does not say that a price has to be supplied");
+      }
+      // typing an entry price must immediately trigger a new calculation that carries it
+      await setValue("Entry", "2400.5");
+      await act(async () => { await new Promise((r) => setTimeout(r, 400)); });
+      const last = previewPosts[previewPosts.length - 1];
+      if (!last || Number(last.body.entry) !== 2400.5) {
+        throw new Error(`the typed entry price was not sent (last preview: ${JSON.stringify(last)})`);
+      }
+      // changing the stop-loss distance must recalculate too (no cached answer)
+      const before = previewPosts.length;
+      await setValue("Stop loss (pips — required)", "150");
+      await act(async () => { await new Promise((r) => setTimeout(r, 400)); });
+      if (previewPosts.length <= before) {
+        throw new Error("changing the stop-loss distance did not trigger a recalculation");
+      }
+      if (Number(previewPosts[previewPosts.length - 1].body.sl_pips) !== 150) {
+        throw new Error("the new stop-loss distance was not sent to the backend");
+      }
+      results.push({ label: "ManualOrderPanel:recomputes-without-quote", ok: true });
+    } catch (e) {
+      results.push({ label: "ManualOrderPanel:recomputes-without-quote", ok: false, error: e.message || String(e) });
+    } finally {
+      try { await act(async () => { root.unmount(); }); } catch {}
+      restoreMarketSnapshot(marketSnapshot);
+      setPreviewResponse(PREVIEW_OK);
+    }
+  }
+
     } catch (e) {
       results.push({ label: "ManualOrderPanel:preview+confirm+result", ok: false, error: e.message || String(e) });
     } finally {
@@ -776,17 +909,50 @@ export async function runSmoke() {
     try {
       await act(async () => { root.render(wrap(<LiveNodeTable />)); await Promise.resolve(); await Promise.resolve(); });
       let text = container.textContent || "";
-      if (!text.includes("Node_1195")) throw new Error(`the live node table did not list the node … "${text.slice(0, 200)}"`);
-      if (!/1 \.\. /.test(text) && !text.includes("1 %")) throw new Error("the effective risk is not shown");
-      if (!text.includes("(global)") && !text.includes("(node override)")) {
-        throw new Error("the table must show whether risk is global or a node override");
+      /* §8 §9 — the table is fed by the qualified-node index and shows the
+       * experiment the node numbers belong to, not a bare row id. */
+      if (!text.includes("Node_23")) throw new Error(`the live node table did not list the qualified node … "${text.slice(0, 200)}"`);
+      if (!text.includes("RUN-20261005-055251")) {
+        throw new Error("the table must state which experiment the node numbers belong to");
+      }
+      if (!text.includes("0.67 %")) throw new Error("the node's recorded research return is not shown");
+      if (!text.includes("(global)")) throw new Error("the table must show whether risk is global or a node override");
+      // the default filter is Qualified/Alive/Eligible — a FAILED node must not be in it
+      const filterSel = Array.from(container.querySelectorAll("select"))
+        .find((x) => Array.from(x.options).some((o) => /Qualified \/ Alive/.test(o.textContent || "")));
+      if (!filterSel) throw new Error("no node filter control with the Qualified/Alive/Eligible default");
+      if (filterSel.value !== "qualified") throw new Error(`the default filter is ${filterSel.value}, not qualified`);
+      const qualOpt = Array.from(filterSel.options).find((o) => /Qualified \/ Alive/.test(o.textContent || ""));
+      if (!/\(2\)/.test(qualOpt.textContent || "")) {
+        throw new Error(`the filter options must be labelled with the real counts ("${qualOpt.textContent}")`);
+      }
+      if (!/Failed \(1\)/.test(Array.from(filterSel.options).map((o) => o.textContent).join(" | "))) {
+        throw new Error("the Failed option is not labelled with its count");
+      }
+      if (text.includes("Node_99")) throw new Error("a FAILED node is in the default Qualified/Alive/Eligible view");
+      if (!nodeIndexCalls.some((u) => /[?&]filter=qualified/.test(u))) {
+        throw new Error(`the index was not asked for the qualified filter (${JSON.stringify(nodeIndexCalls)})`);
+      }
+
+      // switching to the Failed filter must actually re-query the index
+      await act(async () => {
+        filterSel.value = "failed";
+        filterSel.dispatchEvent(new Event("change", { bubbles: true }));
+        await Promise.resolve(); await Promise.resolve();
+      });
+      if (!nodeIndexCalls.some((u) => /[?&]filter=failed/.test(u))) {
+        throw new Error("changing the filter did not request the failed bucket");
+      }
+      if (!((container.textContent || "").includes("Node_99"))) {
+        throw new Error("the Failed filter did not reveal the failed node");
       }
 
       // START goes through the real endpoint (POST .../start) and reports back
+      await act(async () => { filterSel.value = "qualified"; filterSel.dispatchEvent(new Event("change", { bubbles: true })); await Promise.resolve(); await Promise.resolve(); });
       const start = Array.from(container.querySelectorAll("button")).find((b) => (b.textContent || "").trim() === "START");
-      if (!start) throw new Error("no START action in the node table");
+      if (!start) throw new Error("no START action for the node that is not enrolled yet");
       await act(async () => { start.dispatchEvent(new MouseEvent("click", { bubbles: true })); await Promise.resolve(); await Promise.resolve(); });
-      if (!(nodesTablePosts || []).some((u) => /\/live-testing\/nodes\/1195\/start$/.test(u))) {
+      if (!(nodesTablePosts || []).some((u) => /\/live-testing\/nodes\/837\/start$/.test(u))) {
         throw new Error(`START did not call the node start endpoint (posts: ${JSON.stringify(nodesTablePosts)})`);
       }
 

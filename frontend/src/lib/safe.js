@@ -12,6 +12,21 @@
 
 export const NA_TEXT = "N/A";
 
+/** Parse a JSON-encoded container that arrived as text ("[0, 2]" / '{"a":1}').
+ *  Some endpoints return a SQLite JSON column verbatim; an array rendered from
+ *  such a string would silently look empty, so decode it here instead. */
+function fromJsonText(v) {
+  if (typeof v !== "string") return v;
+  const t = v.trim();
+  if (!t || (t[0] !== "[" && t[0] !== "{")) return v;
+  try {
+    const parsed = JSON.parse(t);
+    return parsed === null || parsed === undefined ? v : parsed;
+  } catch {
+    return v;
+  }
+}
+
 export function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
 }
@@ -46,21 +61,35 @@ export function txt(v, fallback = NA_TEXT) {
 /** Always an array: arrays pass through (copied), null becomes [], a scalar
  *  becomes a single-element array, an object becomes its entries list. */
 export function arr(v) {
-  if (Array.isArray(v)) return v;
-  if (v === null || v === undefined) return [];
-  if (isPlainObject(v)) return Object.entries(v).map(([k, val]) => ({ key: k, value: val }));
-  return [v];
+  const value = fromJsonText(v);
+  if (Array.isArray(value)) return value;
+  if (value === null || value === undefined) return [];
+  if (isPlainObject(value)) return Object.entries(value).map(([k, val]) => ({ key: k, value: val }));
+  return [value];
 }
 
-/** A finite number or null (never NaN). */
+/** A finite number or null (never NaN, and never a silent zero).
+ *
+ *  `Number(null)`, `Number("")`, `Number(" ")` and `Number(false)` are all 0,
+ *  which turned *missing* values into the very concrete number zero: a node with
+ *  no quote showed an entry price of 0.00, an unspecified risk became $0, and a
+ *  panel could "calculate" a lot size from nothing. Missing means missing here —
+ *  only real numbers and numeric strings pass through. */
 export function numOrNull(v) {
-  const n = typeof v === "number" ? v : Number(v);
-  return Number.isFinite(n) ? n : null;
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  if (typeof v === "string") {
+    const t = v.trim();
+    if (t === "") return null;
+    const n = Number(t);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;                       // null, undefined, boolean, object, array
 }
 
 /** Object or null - for nested payloads that may be missing entirely. */
 export function objOrNull(v) {
-  return isPlainObject(v) ? v : null;
+  const value = fromJsonText(v);
+  return isPlainObject(value) ? value : null;
 }
 
 /** An array of usable objects: drops null/undefined/scalar entries.

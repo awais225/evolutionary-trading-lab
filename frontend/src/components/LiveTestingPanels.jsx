@@ -177,7 +177,7 @@ export function ManualOrderPanel({ defaultSymbol = "XAUUSD" }) {
    */
   const [form, setForm] = useState({
     symbol: defaultSymbol, side: "BUY", risk: "10", lots: "",
-    sl_pips: "300", tp_pips: "600", sl: "", tp: "",
+    sl_pips: "300", tp_pips: "600", sl: "", tp: "", entry: "",
   });
   const [preview, setPreview] = useState(null);
   const [market, setMarket] = useState(null);
@@ -189,9 +189,16 @@ export function ManualOrderPanel({ defaultSymbol = "XAUUSD" }) {
   const [sizeMode, setSizeMode] = useState("risk");     // "risk" | "lots"
   const up = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
-  const entry = numOrNull(market?.bid) !== null && numOrNull(market?.ask) !== null
+  /* §3 — the entry reference is the operator's when they type one, otherwise the
+   * live quote for the side (BUY fills at the ask, SELL at the bid). It is never
+   * silently 0: when neither exists the preview says why. */
+  const quotedEntry = numOrNull(market?.bid) !== null && numOrNull(market?.ask) !== null
     ? (form.side === "BUY" ? numOrNull(market.ask) : numOrNull(market.bid))
     : numOrNull(market?.ask ?? market?.bid);
+  const typedEntry = numOrNull(form.entry);
+  const entry = typedEntry !== null ? typedEntry : quotedEntry;
+  const entrySource = typedEntry !== null ? "entered by the operator"
+    : (quotedEntry !== null ? `live ${form.side === "BUY" ? "ask" : "bid"}` : null);
   const levels = objOrNull(preview?.levels);
   const sizing = objOrNull(preview?.sizing);
   const estimate = objOrNull(preview?.estimate);
@@ -229,10 +236,14 @@ export function ManualOrderPanel({ defaultSymbol = "XAUUSD" }) {
       }
       const res = await api.mt5ExecutionPreview(payload);
       setPreview(res);
-      if (res?.sizing?.volume !== undefined && res?.sizing?.volume !== null) {
-        up("lots", String(res.sizing.volume));
-      }
-      if (res?.sizing?.actual_risk !== undefined && res?.sizing?.actual_risk !== null) {
+      /* Only the *dependent* field is filled in. Writing the result back into
+       * the field the operator is editing would make the value drift away from
+       * what they typed (10 -> 9.94 -> 9.88 …) — the input stays theirs. */
+      if (sizeMode === "risk") {
+        if (res?.sizing?.volume !== undefined && res?.sizing?.volume !== null) {
+          up("lots", String(res.sizing.volume));
+        }
+      } else if (res?.sizing?.actual_risk !== undefined && res?.sizing?.actual_risk !== null) {
         up("risk", String(res.sizing.actual_risk));
       }
     } catch (e) {
@@ -241,11 +252,14 @@ export function ManualOrderPanel({ defaultSymbol = "XAUUSD" }) {
   }, [form.symbol, form.side, form.sl_pips, form.tp_pips, form.sl, form.tp, form.risk,
       form.lots, sizeMode, entry]);
 
+  /* §3 — any input change recalculates, immediately (250 ms debounce). The
+   * request is sent even when the entry price is not resolvable: the backend then
+   * answers with the precise reason (INVALID_ENTRY_PRICE, MT5_…), which is far
+   * more useful than an empty panel. */
   useEffect(() => {
-    if (entry === null) return undefined;
     const t = setTimeout(() => { runPreview(); }, 250);
     return () => clearTimeout(t);
-  }, [runPreview, entry]);
+  }, [runPreview]);
 
   const place = async (side) => {
     const useSide = side || form.side;
@@ -337,6 +351,10 @@ export function ManualOrderPanel({ defaultSymbol = "XAUUSD" }) {
           <label className="fld">Stop loss <span className="muted">(price, overrides pips)</span>
             <input value={form.sl} onChange={(e) => up("sl", e.target.value)} className="mono" placeholder="optional" />
           </label>
+          <label className="fld">Entry <span className="muted">(price, overrides the quote)</span>
+            <input value={form.entry} onChange={(e) => up("entry", e.target.value)} className="mono"
+                   placeholder={quotedEntry !== null ? `live: ${quotedEntry}` : "no quote — type one"} />
+          </label>
         </div>
         <div style={{ flex: "1 1 220px" }}>
           <label className="fld">Lot size
@@ -359,8 +377,33 @@ export function ManualOrderPanel({ defaultSymbol = "XAUUSD" }) {
           <div className="kit-kv"><span className="k">Est. loss / profit</span>
             <span className="mono">{txt(estimate?.loss_at_sl, NA_TEXT)} / {txt(estimate?.profit_at_tp, NA_TEXT)}</span></div>
           <div className="kit-kv"><span className="k">Reward : risk</span><span className="mono">{txt(estimate?.reward_risk, NA_TEXT)}</span></div>
+          <div className="kit-kv"><span className="k">Entry used</span>
+            <span className="mono">{entry === null ? NA_TEXT : fmt.num(entry, 2)}
+              {entrySource ? <span className="muted"> ({entrySource})</span> : null}</span></div>
         </div>
       </div>
+
+      {/* §3 — the broker's own specification, always visible: these are the numbers
+       *  the sizing maths uses, so the operator can check them rather than trust us. */}
+      <div className="kit-strip" style={{ border: "none", padding: 0, marginTop: 6, flexWrap: "wrap" }}>
+        <div className="item"><span className="k">Symbol</span><span className="v mono">{txt(symbolInfo?.symbol, form.symbol)}</span></div>
+        <div className="item"><span className="k">Digits</span><span className="v mono">{txt(symbolInfo?.digits, NA_TEXT)}</span></div>
+        <div className="item"><span className="k">Point</span><span className="v mono">{txt(symbolInfo?.point, NA_TEXT)}</span></div>
+        <div className="item"><span className="k">Tick size</span><span className="v mono">{txt(symbolInfo?.tick_size, NA_TEXT)}</span></div>
+        <div className="item"><span className="k">Tick value</span><span className="v mono">{txt(symbolInfo?.tick_value, NA_TEXT)}</span></div>
+        <div className="item"><span className="k">Volume min / step / max</span>
+          <span className="v mono">{txt(symbolInfo?.volume_min, NA_TEXT)} / {txt(symbolInfo?.volume_step, NA_TEXT)} / {txt(symbolInfo?.volume_max, NA_TEXT)}</span></div>
+        <div className="item"><span className="k">Spec source</span>
+          <span className="v mono">{txt(symbolInfo?.source, NA_TEXT)}</span></div>
+        <div className="item"><span className="k">Margin (per lot)</span>
+          <span className="v mono">{txt(symbolInfo?.margin_per_lot ?? symbolInfo?.margin_initial, "not reported by this bridge")}</span></div>
+      </div>
+      {!symbolInfo && (
+        <div className="kit-inline-err" style={{ marginTop: 6, fontSize: 11.5 }}>
+          The broker symbol specification is not available yet, so no lot size can be calculated.
+          {state?.blocked_reason ? ` (${txt(state.blocked_code, "MT5_UNAVAILABLE")}: ${state.blocked_reason})` : ""}
+        </div>
+      )}
 
       <div className="btn-row">
         <button className="btn" disabled={busy === "preview"} onClick={() => runPreview()}>
@@ -414,9 +457,13 @@ export function ManualOrderPanel({ defaultSymbol = "XAUUSD" }) {
               <div className="item"><span className="k">Lot size (rounded down)</span><span className="v mono">{fmt.num(sizing.volume, 4)}</span></div>
               <div className="item"><span className="k">Raw lots</span><span className="v mono">{fmt.num(sizing.raw_volume, 6)}</span></div>
               <div className="item"><span className="k">Risk per lot</span><span className="v mono">{fmt.num(sizing.risk_per_lot, 2)}</span></div>
-              <div className="item"><span className="k">{sizing.actual_risk !== undefined ? "Actual risk" : "Cash risk"}</span>
+              <div className="item"><span className="k">{sizing.actual_risk !== undefined ? "Monetary risk (actual)" : "Monetary risk"}</span>
                 <span className="v mono">{txt(sizing.actual_risk ?? sizing.risk_amount, NA_TEXT)}</span></div>
-              <div className="item"><span className="k">Stop distance</span><span className="v mono">{fmt.num(sizing.stop_distance, 2)}</span></div>
+              <div className="item"><span className="k">Risk distance (SL)</span><span className="v mono">{fmt.num(sizing.stop_distance, 2)}</span></div>
+              <div className="item"><span className="k">Reward distance (TP)</span>
+                <span className="v mono">{numOrNull(levels?.tp) === null || numOrNull(levels?.entry) === null
+                  ? NA_TEXT
+                  : fmt.num(Math.abs((numOrNull(levels.tp) ?? 0) - (numOrNull(levels.entry) ?? 0)), 2)}</span></div>
               <div className="item"><span className="k">SL / TP price</span>
                 <span className="v mono">{txt(levels?.sl, NA_TEXT)} / {txt(levels?.tp, NA_TEXT)}</span></div>
               <div className="item"><span className="k">SL / TP pips</span>
@@ -867,215 +914,6 @@ export function LiveMarketHeader({ symbol, nodeId, onSymbolChange, onNodeChange,
 }
 
 /* ------------------------------------------- V5 §11/§12 node table + schedule */
-export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChanged }) {
-  /* One combined table: research metrics (IS return, PF) + live state (status,
-   * today's and total live P/L, trades, effective risk and where it comes from)
-   * + schedule + the START/STOP action that really enrols/un-enrols the node.
-   *
-   * Search, status/timeframe filters, sorting and paging are server-side; the
-   * row is exactly what the backend reports, including "null" for a metric that
-   * does not exist yet (never a fabricated 0). */
-  const [rows, setRows] = useState([]);
-  const [meta, setMeta] = useState(null);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState(null);
-  const [msg, setMsg] = useState(null);
-  const [search, setSearch] = useState("");
-  const [status, setStatus] = useState("");
-  const [timeframe, setTimeframe] = useState("");
-  const [starredOnly, setStarredOnly] = useState(false);
-  const [sortBy, setSortBy] = useState("node_id");
-  const [sortDesc, setSortDesc] = useState(true);
-  const [limit, setLimit] = useState(25);
-  const [offset, setOffset] = useState(0);
-  const [busyId, setBusyId] = useState(null);
-  const [scheduleFor, setScheduleFor] = useState(null);
-  const [riskDraft, setRiskDraft] = useState("");
-
-  const load = useCallback(async () => {
-    setLoading(true); setErr(null);
-    try {
-      const res = await api.liveTestingNodesTable({
-        search, status, timeframe, starred_only: starredOnly || undefined,
-        sort_by: sortBy, sort_desc: sortDesc, limit, offset,
-      });
-      setRows(safeRows(res?.nodes));
-      setTotal(res?.total ?? 0);
-      setMeta(res);
-    } catch (e) { setErr(e); } finally { setLoading(false); }
-  }, [search, status, timeframe, starredOnly, sortBy, sortDesc, limit, offset]);
-
-  useEffect(() => { load(); }, [load]);
-  useInterval(load, 15000);
-  useEffect(() => { setRiskDraft(globalRisk === undefined || globalRisk === null ? "" : String(globalRisk)); }, [globalRisk]);
-
-  const act = async (row, action) => {
-    setBusyId(row.node_id); setMsg(null); setErr(null);
-    try {
-      const res = action === "start"
-        ? await api.liveTestingStartNode(row.node_id)
-        : await api.liveTestingStopNode(row.node_id);
-      setMsg(`Node_${row.node_id}: ${action === "start" ? "STARTED" : "STOPPED"} — ${txt(res?.note, "")}`);
-      await load();
-      if (onRiskChanged) onRiskChanged();
-    } catch (e) {
-      setErr(e);
-    } finally { setBusyId(null); }
-  };
-
-  const saveGlobalRisk = async () => {
-    setErr(null);
-    try {
-      await api.liveTestingSetRisk(Number(riskDraft));
-      setMsg(`Global default risk set to ${riskDraft} %`);
-      await load();
-      if (onRiskChanged) onRiskChanged();
-    } catch (e) { setErr(e); }
-  };
-
-  const sortBtn = (key, label) => (
-    <button className="btn ghost" style={{ padding: "2px 6px", fontSize: 11 }}
-            onClick={() => { setSortBy(key); setSortDesc(sortBy === key ? !sortDesc : true); }}>
-      {label}{sortBy === key ? (sortDesc ? " ▼" : " ▲") : ""}
-    </button>
-  );
-
-  return (
-    <Card
-      title="Live test nodes"
-      right={<Badge tone="mute">{total} node(s) · page {Math.floor(offset / limit) + 1}</Badge>}
-    >
-      <div className="btn-row" style={{ marginBottom: 8, flexWrap: "wrap" }}>
-        <input className="input" style={{ width: 160 }} placeholder="search id / market / tf"
-               value={search} onChange={(e) => { setOffset(0); setSearch(e.target.value); }} />
-        <select className="input" value={status} onChange={(e) => { setOffset(0); setStatus(e.target.value); }}>
-          <option value="">any status</option>
-          <option value="VALID">Valid</option>
-          <option value="LIVE_ELIGIBLE">Live eligible</option>
-          <option value="LIVE_TESTING">Live testing</option>
-          <option value="LIVE_COMPLETED">Live completed</option>
-          <option value="MT5_DEMO">MT5 demo</option>
-        </select>
-        <select className="input" value={timeframe} onChange={(e) => { setOffset(0); setTimeframe(e.target.value); }}>
-          <option value="">any timeframe</option>
-          {["M1", "M5", "M15", "M30", "H1"].map((t) => <option key={t} value={t}>{t}</option>)}
-        </select>
-        <label className="muted" style={{ fontSize: 12 }}>
-          <input type="checkbox" checked={starredOnly}
-                 onChange={(e) => { setOffset(0); setStarredOnly(e.target.checked); }} /> starred only
-        </label>
-        <span className="muted" style={{ fontSize: 12 }}>
-          Global default risk:&nbsp;
-          <input className="input mono" style={{ width: 62 }} value={riskDraft}
-                 onChange={(e) => setRiskDraft(e.target.value)} /> %
-          <button className="btn ghost" style={{ marginLeft: 4 }}
-                  onClick={saveGlobalRisk} disabled={riskDraft === ""}>set</button>
-        </span>
-        <button className="btn ghost" onClick={load} disabled={loading}>
-          {loading ? "loading…" : "Reload"}
-        </button>
-      </div>
-
-      {err && <div className="kit-inline-err">{err.message || String(err)}</div>}
-      {msg && <div className="kit-ok" style={{ marginBottom: 6 }}>{msg}</div>}
-
-      <div style={{ overflowX: "auto" }}>
-        <table className="table compact">
-          <thead>
-            <tr>
-              <th>★</th>
-              <th>{sortBtn("node_id", "ID")}</th>
-              <th>Status</th>
-              <th>Market</th>
-              <th>TF</th>
-              <th>{sortBtn("is_return_pct", "IS return")}</th>
-              <th>{sortBtn("profit_factor", "PF")}</th>
-              <th>{sortBtn("today_pnl", "Today P/L")}</th>
-              <th>{sortBtn("total_live_pnl", "Total live P/L")}</th>
-              <th>{sortBtn("live_trades", "Trades")}</th>
-              <th>Risk</th>
-              <th>Schedule</th>
-              <th>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.node_id}>
-                <td>
-                  <Star on={r.starred} title={r.starred ? "On the shortlist" : "Add to shortlist"}
-                        onClick={() => onToggleStar && onToggleStar(r.node_id)} />
-                </td>
-                <td className="mono">
-                  <a href="#" onClick={(e) => { e.preventDefault(); onOpenNode && onOpenNode(r.node_id); }}>
-                    Node_{r.node_id}
-                  </a>
-                </td>
-                <td><Badge tone={r.is_active ? "ok" : "mute"}>{txt(r.v5_status || r.status, "—")}</Badge></td>
-                <td className="mono">{txt(r.market, NA_TEXT)}</td>
-                <td className="mono">{txt(r.timeframe, NA_TEXT)}</td>
-                <td className="mono">{r.is_return_pct === null || r.is_return_pct === undefined ? NA_TEXT : `${fmt.num(r.is_return_pct, 2)} %`}</td>
-                <td className="mono">{txt(r.profit_factor, NA_TEXT)}</td>
-                <td className="mono">{r.today_pnl === null || r.today_pnl === undefined ? NA_TEXT : fmt.num(r.today_pnl, 2)}</td>
-                <td className="mono">{r.total_live_pnl === null || r.total_live_pnl === undefined ? NA_TEXT : fmt.num(r.total_live_pnl, 2)}</td>
-                <td className="mono">{txt(r.live_closed, "0")} / {txt(r.live_trades, "0")}</td>
-                <td className="mono">
-                  {txt(r.risk_pct, NA_TEXT)} %{" "}
-                  <span className="muted" style={{ fontSize: 10.5 }}>
-                    {r.risk_source === "CUSTOM" ? "(node override)" : "(global)"}
-                  </span>
-                </td>
-                <td style={{ fontSize: 11 }}>
-                  <button className="btn ghost" style={{ padding: "2px 6px" }}
-                          onClick={() => setScheduleFor(r.node_id)}>
-                    {r.schedule?.active ? "active" : "edit"}
-                  </button>
-                </td>
-                <td>
-                  {r.is_active
-                    ? <button className="btn danger" disabled={busyId === r.node_id}
-                              onClick={() => act(r, "stop")}>
-                        {busyId === r.node_id ? "…" : "STOP"}
-                      </button>
-                    : <button className="btn success" disabled={busyId === r.node_id}
-                              onClick={() => act(r, "start")}>
-                        {busyId === r.node_id ? "…" : "START"}
-                      </button>}
-                </td>
-              </tr>
-            ))}
-            {rows.length === 0 && !loading && (
-              <tr><td colSpan={13} className="muted">No node matches the current filters.</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="btn-row" style={{ marginTop: 8 }}>
-        <button className="btn ghost" disabled={offset === 0}
-                onClick={() => setOffset(Math.max(0, offset - limit))}>« prev</button>
-        <button className="btn ghost" disabled={offset + limit >= total}
-                onClick={() => setOffset(offset + limit)}>next »</button>
-        <select className="input" value={limit}
-                onChange={(e) => { setOffset(0); setLimit(Number(e.target.value)); }}>
-          {[10, 25, 50, 100].map((n) => <option key={n} value={n}>{n} / page</option>)}
-        </select>
-        <span className="muted" style={{ fontSize: 11.5 }}>
-          {txt(meta?.note, "")}
-        </span>
-      </div>
-
-      {scheduleFor && (
-        <ScheduleDialog
-          nodeId={scheduleFor}
-          onClose={() => setScheduleFor(null)}
-          onSaved={async () => { setMsg(`Node_${scheduleFor}: schedule saved and enforced by the engine`); await load(); }}
-        />
-      )}
-    </Card>
-  );
-}
-
 export function ScheduleDialog({ nodeId, onClose, onSaved }) {
   /* §11 §12 §13 §17 — the fully editable per-node schedule.
 

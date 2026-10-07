@@ -5,8 +5,10 @@ import StructuredError from "../components/StructuredError.jsx";
 import LiveTestingControl from "../components/LiveTestingControl.jsx";
 import LiveTradeCounter from "../components/LiveTradeCounter.jsx";
 import {
-  LiveMarketHeader, LiveMarketPanel, LiveNodeTable, ManualOrderPanel, RiskStrip, StageTimeline,
+  LiveMarketHeader, LiveMarketPanel, ManualOrderPanel, RiskStrip, StageTimeline,
 } from "../components/LiveTestingPanels.jsx";
+// §8 — the node table is the qualified-node index (the same payload Deep Backtest reads).
+import { LiveNodeTable } from "../components/LiveNodeIndex.jsx";
 import { arr, NA_TEXT, objOrNull, rows as safeRows, txt } from "../lib/safe.js";
 import { Badge, Kpi, SectionTitle, StateBlock, useInterval } from "../components/ui.jsx";
 

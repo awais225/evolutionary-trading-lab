@@ -4254,8 +4254,22 @@ def nodes_index(
     shortlist = set(db.get_shortlist())
     search_clean = (search or "").strip().lower()
 
-    rows: List[Dict[str, Any]] = []
+    # §7/§10 — the bucket counts describe the WHOLE index (including the
+    # excluded/legacy rows), so the filter dropdown can never under-report how
+    # many nodes exist. Counting only the rows fetched for the current filter
+    # made "Excluded" read 0 and "All" read 10,008 instead of the real 10,787.
     counts: Dict[str, int] = {}
+    try:
+        for _r in (db.q("""SELECT id, status, data_source, failure_reason, creation_reason,
+                                  survival_reason
+                           FROM strategies""") or []):
+            _b = node_bucket(dict(_r))["bucket"]
+            counts[_b] = counts.get(_b, 0) + 1
+    except Exception as e:            # never let the counting pass break the index
+        counts = {}
+        log.warning("node bucket counting failed: %s", e)
+
+    rows: List[Dict[str, Any]] = []
     for st in strategies:
         sid = int(st["id"])
         try:
@@ -4264,7 +4278,6 @@ def nodes_index(
             bucket = {"bucket": "unknown", "label": "Unknown", "reason": str(e)[:200],
                       "v5_status": None}
         b = bucket["bucket"]
-        counts[b] = counts.get(b, 0) + 1
         if not node_matches_filter(b, wanted):
             continue
         cfg = db.one("SELECT * FROM live_test_configs WHERE strategy_id=?", (sid,)) or {}
@@ -4311,7 +4324,9 @@ def nodes_index(
             } if m else None,
         }
         from ..live_testing.schedule import describe as _describe_schedule
-        sched_desc = _describe_schedule(cfg) if cfg else None
+        from ..live_testing.schedule import normalize_config as _norm_cfg
+        sched_norm = _norm_cfg(db.get_live_test_config(sid) or cfg) if (cfg or {}) else {}
+        sched_desc = _describe_schedule(sched_norm) if sched_norm else None
         ls = live.get(sid, {})
         num = strat.get("research_node_num") or st.get("research_node_num")
         rows.append({
@@ -4363,10 +4378,20 @@ def nodes_index(
             "backtest_coverage": cov,
             "risk": {"pct": eff.get("risk_pct"), "override_pct": override,
                      "source": eff.get("source"), "limits": limits},
-            "schedule": {"description": sched_desc, "configured": bool(
-                             cfg.get("days") or cfg.get("sessions") or cfg.get("regimes")
-                             or cfg.get("conditions") or cfg.get("windows")),
-                         "enabled": cfg.get("enabled"), "is_active": bool(cfg.get("is_active"))},
+            "schedule": {"description": sched_desc,
+                         "days": sched_norm.get("days"), "sessions": sched_norm.get("sessions"),
+                         "regimes": sched_norm.get("regimes"),
+                         "timeframes": sched_norm.get("timeframes"),
+                         "conditions": sched_norm.get("conditions"),
+                         "windows": sched_norm.get("windows"),
+                         "timezone": sched_norm.get("timezone") or "UTC",
+                         "enabled": sched_norm.get("enabled"),
+                         "enabled_explicit": bool(sched_norm.get("enabled_explicit")),
+                         "configured": bool(
+                             sched_norm.get("days") or sched_norm.get("sessions")
+                             or sched_norm.get("regimes") or sched_norm.get("conditions")
+                             or sched_norm.get("windows")),
+                         "is_active": bool(cfg.get("is_active"))},
             "live": {"status": cfg.get("status") or "IDLE", "trades": ls.get("trades", 0),
                      "closed": ls.get("closed_trades", 0), "total_pnl": ls.get("total_pnl"),
                      "today_pnl": ls.get("today_pnl"), "win_rate": ls.get("win_rate"),
@@ -4393,20 +4418,66 @@ def nodes_index(
     if starred_only:
         rows = [r for r in rows if r["starred"]]
 
-    def _key(r):
-        v = r.get(sort_by)
-        if isinstance(v, dict):
-            v = r.get("metrics", {}).get(sort_by)
-        return (v is None, v) if isinstance(v, (int, float)) else (v is None, str(v))
+    # §10 — sorting by return / PF / drawdown / win rate / trades / robustness must
+    # actually sort, not fall back to "everything is None". Those values live inside
+    # `metrics`/`robustness`, so both are searched before a key is declared missing.
+    _SORT_ALIASES = {
+        "return": "return_pct", "return_pct": "return_pct", "pf": "profit_factor",
+        "profit_factor": "profit_factor", "dd": "max_drawdown_pct",
+        "drawdown": "max_drawdown_pct", "max_drawdown_pct": "max_drawdown_pct",
+        "win_rate": "win_rate", "trades": "trades", "robustness": "score",
+        "score": "score", "generation": "generation", "fitness": "fitness",
+        "node_id": "node_id", "node_label": "node_label", "net_profit": "net_profit",
+        "expectancy": "expectancy",
+    }
+    sort_key_name = _SORT_ALIASES.get(str(sort_by), str(sort_by))
 
-    rows.sort(key=_key, reverse=bool(sort_desc))
+    def _sort_value(r):
+        if sort_key_name in r:
+            return r.get(sort_key_name)
+        for group in ("metrics", "robustness", "live", "risk"):
+            g = r.get(group)
+            if isinstance(g, dict) and sort_key_name in g:
+                return g.get(sort_key_name)
+        return None
+
+    def _key(r):
+        v = _sort_value(r)
+        return v if isinstance(v, (int, float)) else str(v)
+
+    # Nodes with no recorded value for the requested key are listed AFTER the ones
+    # that have one — in both directions. Folding "missing" into the comparison
+    # tuple inverted the order for descending sorts (the default for metrics), so
+    # sorting by return showed ten thousand value-less nodes first and looked as if
+    # the sort had not happened at all.
+    _present = [r for r in rows if _sort_value(r) is not None]
+    _missing = [r for r in rows if _sort_value(r) is None]
+    try:
+        _present.sort(key=_key, reverse=bool(sort_desc))
+    except TypeError:                      # mixed str/number payloads: compare as text
+        _present.sort(key=lambda r: str(_sort_value(r)), reverse=bool(sort_desc))
+    rows = _present + _missing
     total = len(rows)
     page = rows[max(0, offset):max(0, offset) + max(1, min(int(limit), 1000))]
     return {
         "ok": True,
         "filter": wanted,
         "filters": list(NODE_FILTERS),
+        "sort_by": sort_by,
+        "sort_key": sort_key_name,
         "counts": counts,
+        # the count each *filter* would show, so the filter dropdown can label
+        # itself with a real number instead of leaving the composite filters blank
+        "filter_totals": {
+            "qualified": counts.get("qualified", 0),
+            "alive": counts.get("qualified", 0) + counts.get("alive", 0),
+            "eligible": counts.get("qualified", 0) + counts.get("alive", 0),
+            "all": sum(counts.values()),
+            "failed": counts.get("failed", 0),
+            "excluded": counts.get("excluded", 0),
+            "blocked": counts.get("blocked", 0),
+            "unknown": counts.get("unknown", 0),
+        },
         "total": total,
         "returned": len(page),
         "limit": limit,
@@ -4533,14 +4604,17 @@ def live_testing_nodes_table(
         from ..live_testing.schedule import describe as _describe_schedule
         from ..live_testing.schedule import normalize_config as _norm_schedule
         sched_norm = _norm_schedule(cfg)
+        # The stored columns are JSON text: sending them raw would give the browser
+        # `"days": "[0, 2]"` (a string) instead of [0, 2], which is exactly how a
+        # schedule group can silently render empty. Emit the canonical, decoded form.
         schedule = {
-            "days": cfg.get("days"),
-            "sessions": cfg.get("sessions"),
-            "regimes": cfg.get("regimes"),
-            "timeframes": cfg.get("timeframes"),
-            "conditions": cfg.get("conditions"),
-            "windows": cfg.get("windows"),
-            "enabled": cfg.get("enabled"),
+            "days": sched_norm.get("days"),
+            "sessions": sched_norm.get("sessions"),
+            "regimes": sched_norm.get("regimes"),
+            "timeframes": sched_norm.get("timeframes"),
+            "conditions": sched_norm.get("conditions"),
+            "windows": sched_norm.get("windows"),
+            "enabled": sched_norm.get("enabled"),
             "start_time": cfg.get("start_time"),
             "end_time": cfg.get("end_time"),
             "timezone": cfg.get("timezone"),
@@ -4549,6 +4623,11 @@ def live_testing_nodes_table(
                                or sched_norm.get("regimes") or sched_norm.get("conditions")
                                or sched_norm.get("windows")),
             "description": _describe_schedule(cfg),
+            "enabled_explicit": bool(sched_norm.get("enabled_explicit")),
+            "cooldown_minutes": sched_norm.get("cooldown_minutes"),
+            "max_trades_per_day": sched_norm.get("max_trades_per_day"),
+            "spread_limit_points": sched_norm.get("spread_limit_points"),
+            "max_positions": sched_norm.get("max_positions"),
         }
         ls = live.get(sid, {})
         res = n.get("_research") or {}
@@ -4626,9 +4705,16 @@ def live_testing_nodes_table(
 
     def _key(r):
         v = r.get(sort_by)
-        return (v is None, v) if isinstance(v, (int, float)) else (v is None, str(v))
+        return v if isinstance(v, (int, float)) else str(v)
 
-    rows.sort(key=_key, reverse=bool(sort_desc))
+    # missing values last, in both directions (see the node index above)
+    _present = [r for r in rows if r.get(sort_by) is not None]
+    _missing = [r for r in rows if r.get(sort_by) is None]
+    try:
+        _present.sort(key=_key, reverse=bool(sort_desc))
+    except TypeError:
+        _present.sort(key=lambda r: str(r.get(sort_by)), reverse=bool(sort_desc))
+    rows = _present + _missing
     total = len(rows)
     page = rows[max(0, offset):max(0, offset) + max(1, min(int(limit), 500))]
 
@@ -4637,6 +4723,7 @@ def live_testing_nodes_table(
         "total": total,
         "limit": limit,
         "offset": offset,
+        "sort_by": sort_by,
         "risk": {"global_risk_pct": global_pct, "limits": limits},
         "excluded": excluded,
         "note": ("IS return / profit factor come from the node's evaluated research backtest; "
