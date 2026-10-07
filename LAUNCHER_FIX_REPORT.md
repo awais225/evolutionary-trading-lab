@@ -1,6 +1,7 @@
 # Launcher Fix — “the normal launcher must serve the current frontend”
 
-**Commit:** `ab2c18f2df06d7083006d24ec5e590511c97b98a` — `fix: serve current frontend from normal launcher`
+**Commits:** `ab2c18f2df06d7083006d24ec5e590511c97b98a` — `fix: serve current frontend from normal launcher`
+and `f3cf751` — `fix: build current frontend in the launcher and packager` (packaging scripts)
 **Previous HEAD:** `97cbf90` · **Branch:** `main` · **Pushed to:** `origin` (github.com/awais225/evolutionary-trading-lab)
 **Reported symptom:** `npm run dev` on `:5173` showed the V5 interface, the normal launcher showed the old interface, while the backend itself was healthy (`/health` V3.6, bridge `mt5_real`, MT5 CONNECTED, data_feed LIVE).
 
@@ -31,8 +32,10 @@ So in the reported case the source tree was V5, but the folder being served cont
 | `backend/app/doctor.py` | +22/−5 — reports bundle identity instead of only file size |
 | `Prerequisite.bat`, `pre-requisite.bat` | +1 each — stamp the bundle after building it |
 | `repair.bat` | +9/−1 — stamp after rebuild; fail loudly when npm is missing and the bundle is not verifiable |
+| `scripts/build_exe.bat` | +83/−12 — verify/rebuild/stamp the bundle **before** PyInstaller embeds it in `EvolutionaryTradingLab.exe` |
+| `scripts/build_and_serve.bat` | +22/−… — same gate before serving; skip the rebuild when the bundle already matches |
 
-9 files changed, **1,185 insertions(+), 50 deletions(-)**. No trading, research, evolution, backtest, DATA, DB, MT5 or UI source was touched; `frontend/src` stays the source of truth and the production build still lands in `frontend/dist`.
+Launcher fix: 9 files, **1,185 insertions(+), 50 deletions(-)**; packaging follow-up: 2 files, **93 insertions(+), 12 deletions(-)**. No trading, research, evolution, backtest, DATA, DB, MT5 or UI source was touched; `frontend/src` stays the source of truth and the production build still lands in `frontend/dist`.
 
 ## 3. The fix
 
@@ -41,6 +44,7 @@ So in the reported case the source tree was V5, but the folder being served cont
 3. **A running instance must prove itself.** `GET /system/build` (new) publishes the repository root, the source hash and the bundle status the instance actually serves. STAGE 5 now runs `--verify-served` before reusing an occupied port: same root **and** current source hash → reuse; another repository (exit 11), older build (12) or a pre-`/system/build` instance (13) → replace through the lab’s own graceful shutdown; unrelated software on the port is never touched (STAGE 5 aborts, `--stop` exits 3).
 4. **No browser cache can mask a rebuild.** `index.html` is served `Cache-Control: no-store, must-revalidate`; content-hashed `/assets/*` files stay `immutable`.
 5. **Everything else follows suit:** `Prerequisite.bat` / `pre-requisite.bat` / `repair.bat` stamp the bundle they build, and `doctor.py` reports the build identity.
+6. **Packaging cannot bake a stale bundle any more.** `EvolutionaryTradingLab.spec` / `EvolutionaryTradingResearchLab.spec` embed `frontend/dist` verbatim, so `scripts/build_exe.bat` now runs the same gate before PyInstaller: `--check` → (only if needed) `npm install`/`npm run build` → `--stamp` → `--check` → prints the bundle identity it is about to embed, and aborts with exit 1 when npm is missing, the stamp fails, or the bundle still does not match. `scripts/build_and_serve.bat` behaves the same way before serving. No executable is rebuilt or committed here — packaging is an operator step, and it is now impossible to produce a stale one silently.
 
 Nothing machine-specific is hardcoded — every path resolves from `%ROOT%` / the script’s own location.
 
@@ -55,6 +59,7 @@ Nothing machine-specific is hardcoded — every path resolves from `%ROOT%` / th
 | guard after editing `frontend/src/pages/DeepBacktest.jsx` | `GUARD_STATUS=STALE`, exit **10** (`SRC_HASH ebb1c6cb47bc48ca → bb254a5873bc4e94`) |
 | rebuild + `--stamp` | `FRESH` again |
 | fresh clone (no `frontend/dist`) | `MISSING` → `npm install` → `npm run build` (4.86 s) → `--stamp` → `FRESH` |
+| packaging stage (`scripts/build_exe.bat` sequence, stale dist) | `--check` → `STALE` → rebuild (5.55 s) → `--stamp` → `--check` → `FRESH`, `src_hash 2b391dfad2454ac2`, 55 files — the identity PyInstaller would embed |
 
 ## 5. Launcher test result
 
@@ -72,7 +77,7 @@ Nothing machine-specific is hardcoded — every path resolves from `%ROOT%` / th
 
 Served-content proof from the running instance: `index.html` byte-identical to `frontend/dist/index.html` and served `no-store`; 24 lazy chunks (643 kB) fetched over HTTP; markers `Deep Backtest`, `Show Failed`, `Are you sure you want to close the dashboard?`, `SHUTDOWN DASHBOARD`, `Prop-firm monitor`, `DEMO ACCOUNT ONLY`, `IDLE ON ENTRY` all present. `/system/build` returned `serving=static`, `dist_status=FRESH`, `dist_matches_src=true`, `src_file_count=55`, `entry_assets=[assets/index-Dn4Yw0Ji.js, assets/index-DY0FUd-S.css]`, `reasons=[]`.
 
-**Regression tests:** full suite **391 passed / 1 warning in 59.36 s** (`EVOLUTIONARY_LAB_DATA_ROOT=/opt/lmsarena-storage/v5_testdata`; DATA provisioned verbatim: 10,787 strategies, 10,000 USER_RESEARCH + 787 LEGACY_TEST); render smoke `frontend/tests/v48_ui_smoke.mjs` **47/47**; the 15 new tests are in `tests/test_frontend_serving.py`.
+**Regression tests:** `node frontend/tests/v48_ui_smoke.mjs` **47/47**; full suite **391 passed / 1 warning in 59.36 s** (`EVOLUTIONARY_LAB_DATA_ROOT=/opt/lmsarena-storage/v5_testdata`; DATA provisioned verbatim: 10,787 strategies, 10,000 USER_RESEARCH + 787 LEGACY_TEST); render smoke `frontend/tests/v48_ui_smoke.mjs` **47/47**; the 15 new tests are in `tests/test_frontend_serving.py`.
 
 ## 6. Git
 
@@ -83,7 +88,10 @@ then     two lmsarena.txt evidence/result entries, then this report
 
 All of them are pushed to `origin/main`; `git rev-parse HEAD == git rev-parse origin/main`,
 and the commit `ab2c18f` was cross-checked through the GitHub API (it lists exactly the
-nine files of §2; `raw.githubusercontent.com` returns HTTP 200 for the three new files).
+nine files of the launcher fix; `raw.githubusercontent.com` returns HTTP 200 for the three
+new files). The packaging follow-up `f3cf751` touches only
+`scripts/build_exe.bat` and `scripts/build_and_serve.bat`; the exact push range and final
+HEAD are recorded in `lmsarena.txt` ("PUSH RESULT" entries).
 
 Committed and pushed are **only** the files in §2 plus the log files (`lmsarena.txt`,
 `chatgpt.txt`) and this report. Never staged: `DATA/**`, database/WAL/SHM, `LOGS/*`,

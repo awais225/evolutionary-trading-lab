@@ -3606,3 +3606,76 @@ LAUNCHER FIX — PUSH RESULT AND FINAL HASHES
                    required, and the same flow works from a fresh clone.
 
 =============================================================
+
+
+=============================================================
+LAUNCHER FIX — PACKAGING PATH AND FULL V5 BUNDLE VALIDATION
+=============================================================
+  Commit         : f3cf751 "fix: build current frontend in the launcher and
+                   packager" (scripts/build_exe.bat +83/-12,
+                   scripts/build_and_serve.bat +22/-; nothing else changed)
+  Why            : EvolutionaryTradingLab.spec and
+                   EvolutionaryTradingResearchLab.spec embed frontend/dist
+                   verbatim, so the packager was the last place where a stale
+                   bundle could still be baked into a shipped executable
+                   silently. scripts/build_exe.bat only tested that
+                   frontend\dist\index.html existed.
+  Fix            : both packaging/serving scripts now run the same gate as
+                   START.bat (backend/tools/frontend_build_guard.py --check ->
+                   npm install only when node_modules is absent -> npm run build
+                   -> --stamp -> --check -> print the bundle identity) and abort
+                   with exit 1 when npm is missing, the stamp fails, or the
+                   bundle still does not match frontend/src. Repository root is
+                   resolved from the script location; no path is hardcoded; no
+                   frontend, trading, MT5, database or research logic changed.
+  Validation     : packaging-stage emulation with a stale dist: --check -> STALE,
+                   rebuild 5.55 s -> --stamp -> --check -> FRESH
+                   (src_hash 2b391dfad2454ac2, 55 source files, stamp written to
+                   frontend/dist/build-info.json, the exact folder the .spec
+                   datas list copies into the executable).
+                   Production build: `npm run build` -> vite v5.4.21, 1012
+                   modules, built in 5.17 s, output frontend/dist.
+                   Normal-launcher path (uvicorn app.main:app from backend/,
+                   EVOLUTIONARY_LAB_DATA_ROOT=/opt/lmsarena-storage/tmpdata):
+                   /health -> status ok, V3.6, internet CONNECTED, mt5 CONNECTED,
+                   data_feed LIVE, ready true; /system/build -> serving static,
+                   dist_status FRESH, dist_matches_src true, src_file_count 55,
+                   entry assets index-Dn4Yw0Ji.js + index-DY0FUd-S.css, reasons
+                   []; guard --verify-served -> exit 0.
+                   Served bundle over HTTP (index.html byte-identical to
+                   frontend/dist/index.html, no-store): 34/35 section markers of
+                   the V5 brief present across the entry bundle and 24 lazy
+                   chunks (1252 kB decoded) - PowerButton/SHUTDOWN DASHBOARD +
+                   confirmation, Deep Backtest, custom preset (from/to date
+                   inputs found twice in the DeepBacktest chunk), Show Failed,
+                   rows per page, Bid/Ask/Spread, live market header, active
+                   indicators, entry conditions, risk, schedule, START/STOP,
+                   "may trade now"/BLOCKED, IDLE ON ENTRY, manual order panel,
+                   Trading Info, choose a node to backtest, fetch / extend stored
+                   data, Prop-firm monitor, starred, DEMO ACCOUNT ONLY, search,
+                   sort, filter, details. The single "MISSING" marker was my own
+                   guessed label ("Start date"); the actual UI renders unlabelled
+                   from/to <input type="date"> elements, both verified present.
+                   Stale-bundle protection (the original bug): source changed
+                   while an instance was running -> --check exit 10 (STALE),
+                   --verify-served exit 12 ("serves an older/different frontend
+                   build"), STAGE-4 rebuild -> FRESH, --verify-served exit 0;
+                   source restored, `git status frontend/src` clean.
+                   Fresh clone of the pushed repository (no dist, no
+                   node_modules): guard exit 10 -> npm install -> npm run build
+                   5.22 s -> --stamp -> FRESH, free port, /health OK,
+                   --verify-served exit 0 against the clone path, and 19/19 V5
+                   build markers present in the bundle served over HTTP.
+                   Full suite: 391 passed, 1 warning in 60.86 s
+                   (EVOLUTIONARY_LAB_DATA_ROOT=/opt/lmsarena-storage/v5_testdata,
+                   DATA re-provisioned verbatim: 10,787 strategies / 10,000
+                   USER_RESEARCH / 787 LEGACY_TEST). Render smoke 47/47.
+  Git status     : `git status` shows only the two packaging scripts modified
+                   before the commit; DATA runtime files, LOGS, frontend/dist
+                   (ignored) and node_modules were never staged.
+  Not packaged   : no .exe was built or committed - packaging requires Windows
+                   and PyInstaller, and the repository's workflow is that the
+                   operator runs scripts/build_exe.bat, which now refuses to
+                   embed a bundle that does not match frontend/src.
+
+=============================================================
