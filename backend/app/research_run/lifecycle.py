@@ -60,6 +60,11 @@ STRATEGY_DEPENDENT_TABLES: Tuple[str, ...] = (
     "research_shortlist", "strategy_pipeline_states", "validations",
 )
 
+#: Run-scoped state that carries no run_id of its own and therefore cannot be
+#: filtered per run: it has to be cleared as a whole, otherwise the *new* run
+#: would display the previous run's generation and fitness history (spec §4).
+UNSCOPED_RUN_TABLES: Tuple[str, ...] = ("generation_stats",)
+
 # Exact confirmation phrases required by the destructive options (spec §8).
 CONFIRM_BACKUP_AND_RESET = "BACKUP_AND_RESET"
 CONFIRM_RESET_ONLY = "RESET_USER_RESEARCH"
@@ -399,6 +404,8 @@ def _reset_statements() -> List[Tuple[str, tuple]]:
     stmts.append(("DELETE FROM research_memory WHERE parent_id IN "
                   "(SELECT id FROM strategies WHERE %s) OR child_id IN "
                   "(SELECT id FROM strategies WHERE %s)" % (USER_ROWS, USER_ROWS), ()))
+    for tbl in UNSCOPED_RUN_TABLES:
+        stmts.append(("DELETE FROM %s" % tbl, ()))
     stmts.append(("DELETE FROM strategies WHERE " + USER_ROWS, ()))
     return stmts
 
@@ -409,7 +416,10 @@ def reset_user_research() -> Dict[str, Any]:
     before = counts()
     stmts = _reset_statements()
     rowcounts = db.transaction(stmts)
-    deleted_dependents = {t: c for (sql, _), c, t in zip(stmts, rowcounts, list(STRATEGY_DEPENDENT_TABLES) + ["research_memory", "strategies"])}
+    deleted_dependents = {t: c for (sql, _), c, t in zip(
+        stmts, rowcounts,
+        list(STRATEGY_DEPENDENT_TABLES) + ["research_memory"] + list(UNSCOPED_RUN_TABLES)
+        + ["strategies"])}
     after = counts()
     result = {
         "ok": True,
@@ -427,6 +437,93 @@ def reset_user_research() -> Dict[str, Any]:
     return result
 
 
+def fresh_preview(mode: str = "backup_and_reset", target: Optional[int] = None) -> Dict[str, Any]:
+    """§4 — exactly what a FROM SCRATCH reset will delete and what it will keep.
+
+    Every number is read from the live state (no estimates), so the operator can
+    compare the preview with what actually happened afterwards. Nothing is
+    deleted or modified by this call.
+    """
+    db = get_db()
+    c = counts()
+    ctx = _run_context()
+    next_number = (ctx["run_nodes"] + 1) if ctx["run_nodes"] else 1
+    fresh_target = int(target) if target else configured_fresh_target()
+
+    def _count(sql, args=()):
+        try:
+            row = db.one(sql, args) if args else db.one(sql)
+            return int(row["c"]) if row else 0
+        except Exception:
+            return None
+
+    scoped = {tbl: _count("SELECT COUNT(*) c FROM %s WHERE strategy_id IN "
+                          "(SELECT id FROM strategies WHERE %s)" % (tbl, USER_ROWS))
+              for tbl in STRATEGY_DEPENDENT_TABLES}
+    unscoped = {tbl: _count("SELECT COUNT(*) c FROM %s" % tbl)
+                for tbl in UNSCOPED_RUN_TABLES}
+    keep = {tbl: _count("SELECT COUNT(*) c FROM %s" % tbl)
+            for tbl in ("datasets", "master_datasets", "feature_meta", "research_runs", "events")}
+    keep["legacy_test_nodes"] = c["legacy_test_nodes"]
+    # market-data files (never touched by the research reset) — counted, not listed
+    market_files = None
+    try:
+        market_files = sum(len(files) for _, _, files in os.walk(str(P.DATA_DIR)))
+    except Exception:
+        market_files = None
+    keep["market_data_and_artifact_files"] = market_files
+
+    return {
+        "ok": True,
+        "mode": mode,
+        "confirmation_required": (CONFIRM_BACKUP_AND_RESET if mode == "backup_and_reset"
+                                  else CONFIRM_RESET_ONLY),
+        "mode_notes": {
+            "backup_and_reset": ("archive the current USER_RESEARCH study, verify the archive, "
+                                 "then reset and initialise the fresh run"),
+            "reset_only": "delete the current USER_RESEARCH study without archiving it",
+        }.get(mode, ""),
+        "will_delete": {
+            "strategies": c["user_research_nodes"],
+            "max_generation_removed": c["max_user_generation"],
+            "scoped": scoped,
+            "unscoped_run_state": unscoped,
+            "note": ("only rows belonging to the USER_RESEARCH experiment are removed; LEGACY_TEST "
+                     "nodes are never touched and the reset aborts if their count changes"),
+        },
+        "will_keep": {
+            **keep,
+            "mt5_configuration": "CONFIG/* (connection, broker settings, symbol specs) is untouched",
+            "audit_trail": "the research_runs registry and the events log are retained",
+            "note": ("market data, master datasets, symbol metadata, MT5 configuration and the "
+                     "LEGACY_TEST infrastructure survive a reset unchanged"),
+        },
+        "after_reset": {
+            "run_id": "a new RUN-YYYYMMDD-HHMMSS id is allocated by the existing run machinery",
+            "population": fresh_target,
+            "first_node_number": 1,
+            "node_numbering": ("experiment-local: the first node of the fresh run is Node_1 and the "
+                               "previous run's numbers are never continued"),
+            "generation": 0,
+            "target_is_the_fresh_runs_own_limit": True,
+        },
+        "current": {
+            "run_id": ctx["run_id"],
+            "population": ctx["run_nodes"],
+            "target": ctx["target"],
+            "next_node_number_now": next_number,
+            "max_generation": c["max_user_generation"],
+            "max_strategy_id": c["max_strategy_id"],
+        },
+        "id_policy": ("stored row ids keep advancing (the SQLite primary key is never renumbered) "
+                      "while the experiment-local node number restarts at 1 — no offset tricks are "
+                      "applied to make a count look right"),
+        "backups": list_research_backups(limit=5),
+        "operation": operation_status(),
+        "read_only": True,
+    }
+
+
 def _init_fresh_run(target: int, start: bool) -> Dict[str, Any]:
     """Initialise the new run through the existing run/target/reconstruction machinery."""
     from ..evolution.engine import get_evo_engine
@@ -441,7 +538,8 @@ def _init_fresh_run(target: int, start: bool) -> Dict[str, Any]:
     new_run_id = psm.new_run(target=int(target))    # existing new-run machinery (RUN-YYYYMMDD-HHMMSS)
     evo.active_run_id = new_run_id                  # engine frontier follows the new run
     state_rebuilt = lab.recheck()                   # existing reconstruction + publish
-    evo.get_node_generation_state(force=True)       # refresh the node-state snapshot cache
+    scoped = evo.get_node_generation_state(force=True, exclude_legacy=True)
+    evo.get_node_generation_state(force=True)       # refresh the database-wide snapshot too
     started = False
     if start:
         res = lab.start(mode="continuous", run_type="resume")
@@ -451,7 +549,11 @@ def _init_fresh_run(target: int, start: bool) -> Dict[str, Any]:
         "target": int(target),
         "started": started,
         "reconstructed_total_nodes": int(state_rebuilt.get("total_nodes", 0)),
-        "generation": int(state_rebuilt.get("current_generation", 0)),
+        # §4/§25 — the fresh run's generation is the *experiment-scoped* one. Reading
+        # the database-wide maximum would report the retired population's counter
+        # (the legacy rows keep theirs), which is exactly what a reset must not do.
+        "generation": int(scoped.get("generation_number", 0)),
+        "generation_source": "current experiment only (LEGACY_TEST excluded)",
     }
 
 

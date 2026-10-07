@@ -2056,6 +2056,21 @@ def research_run_backup(payload: Dict[str, Any] = Body(default_factory=dict)) ->
     return res
 
 
+@router.get("/research-run/fresh/preview")
+def research_run_fresh_preview(mode: str = "backup_and_reset",
+                               target: Optional[int] = None) -> Dict[str, Any]:
+    """§4 — what a FROM SCRATCH reset would delete, keep and produce.
+
+    Read-only: this call changes nothing. It exists so the operator (and the
+    acceptance test) can compare the preview against the real result.
+    """
+    from ..research_run import fresh_preview
+    if mode not in ("backup_and_reset", "reset_only"):
+        raise HTTPException(status_code=422, detail={
+            "ok": False, "error": "mode must be 'backup_and_reset' or 'reset_only'"})
+    return fresh_preview(mode=mode, target=target)
+
+
 @router.post("/research-run/start-fresh")
 def research_run_start_fresh(payload: Dict[str, Any] = Body(default_factory=dict)) -> Dict[str, Any]:
     """Option A (backup_and_reset) / Option C (reset_only): reset USER_RESEARCH, start a new run."""
@@ -3895,8 +3910,12 @@ def mt5_historical_start_batch(payload: Dict = Body(default_factory=dict)) -> Di
         try:
             sid = int(raw_id)
         except (TypeError, ValueError):
-            failed.append({"strategy_id": raw_id, "ok": False, "errors": [
-                {"field": "strategy_id", "error": f"{raw_id!r} is not a node id"}]})
+            # reported in BOTH lists: `runs` is what the UI renders, so a bad id
+            # must appear there with its reason instead of silently disappearing.
+            entry = {"strategy_id": raw_id, "ok": False, "run_id": None,
+                     "errors": [{"field": "strategy_id", "error": f"{raw_id!r} is not a node id"}]}
+            results.append(entry)
+            failed.append(entry)
             continue
         res = hb.start_run({**shared, "strategy_id": sid})
         entry = {"strategy_id": sid, "ok": bool(res.get("started")),
@@ -4164,12 +4183,27 @@ def nodes_index(
     global_pct = limits.get("risk_pct_default")
 
     # ---- which experiment does this index describe? -------------------------- #
-    exp = db.one("""SELECT run_id, COUNT(*) population, MIN(research_node_num) lo,
-                           MAX(research_node_num) hi, MAX(id) newest
+    exp = db.one("""SELECT COUNT(*) population, MIN(research_node_num) lo,
+                           MAX(research_node_num) hi, MAX(id) newest,
+                           (SELECT run_id FROM strategies
+                             WHERE COALESCE(data_source,'USER_RESEARCH') <> 'LEGACY_TEST'
+                               AND run_id IS NOT NULL
+                             ORDER BY id DESC LIMIT 1) run_id
                     FROM strategies
-                    WHERE COALESCE(data_source,'USER_RESEARCH') <> 'LEGACY_TEST'
-                      AND run_id IS NOT NULL""") or {}
+                    WHERE COALESCE(data_source,'USER_RESEARCH') <> 'LEGACY_TEST'""") or {}
     cur_run = run_id or exp.get("run_id")
+    if not cur_run:
+        # An experiment that has been reset (or has not produced a node yet) has no
+        # rows to read a run id from — the current run still exists, so ask the run
+        # machinery. Otherwise the index would claim there is no experiment at all.
+        try:
+            from ..orchestrator.pipeline_state import get_pipeline_state_manager
+            from ..evolution.engine import get_evo_engine
+            cur_run = (get_pipeline_state_manager().run_id
+                       or get_evo_engine().active_run_id or None)
+        except Exception:
+            cur_run = None
+        exp = {**(exp or {}), "lo": exp.get("lo") or 0, "hi": exp.get("hi") or 0}
     other = [dict(r) for r in (db.q("""SELECT COALESCE(run_id,'(none)') run_id,
                                              COALESCE(data_source,'(none)') data_source,
                                              COUNT(*) nodes
@@ -4182,6 +4216,8 @@ def nodes_index(
         "population": int(exp.get("population") or 0),
         "node_numbering": "experiment-local (1..population, assigned when the node was created)",
         "node_number_range": [int(exp.get("lo") or 0), int(exp.get("hi") or 0)],
+        "next_node_number": (int(exp.get("hi") or 0) + 1),
+        "is_empty": int(exp.get("population") or 0) == 0,
         "other_runs": other,
         "note": ("node numbers are local to this experiment — a node is identified by "
                  "(experiment, node number), and the global row id is internal only"),
@@ -4193,8 +4229,11 @@ def nodes_index(
                   creation_reason, parent_id, mutation_type, created_at
            FROM strategies
            WHERE COALESCE(data_source,'USER_RESEARCH') <> 'LEGACY_TEST'
-             AND (? IS NULL OR run_id = ?)
+             AND (? IS NULL OR run_id = ? OR run_id IS NULL)
            ORDER BY id"""
+    # a non-legacy row with no run id belongs to no other experiment, so it is
+    # part of the current one (this is what a freshly reset experiment looks like
+    # before its first node is stamped with the new run id).
     strategies = db.q(q, (cur_run, cur_run)) or []
     if wanted in ("all", "excluded", "blocked", "failed", "unknown"):
         legacy = db.q("""SELECT id, status, symbol, timeframe, generation, fitness, run_id,

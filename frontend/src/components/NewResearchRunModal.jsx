@@ -83,6 +83,8 @@ export default function NewResearchRunModal({ onClose, onDone }) {
   const [progress, setProgress] = useState(0);
   const [result, setResult] = useState(null);
   const [opError, setOpError] = useState(null);
+  const [preview, setPreview] = useState(null);
+  const [previewErr, setPreviewErr] = useState(null);
   const pollRef = useRef(null);
 
   const load = async () => {
@@ -101,6 +103,19 @@ export default function NewResearchRunModal({ onClose, onDone }) {
     }
   };
   useEffect(() => { load(); return () => clearInterval(pollRef.current); }, []);
+
+  /* §4 — when a reset option is chosen, read the backend's own impact report so
+   * the operator sees exactly which tables and rows go, which are kept, and what
+   * the fresh run will look like (population, first node number). Read-only. */
+  useEffect(() => {
+    if (option !== "archive" && option !== "delete") { setPreview(null); return; }
+    let live = true;
+    setPreview(null); setPreviewErr(null);
+    api.researchRunFreshPreview(option === "archive" ? "backup_and_reset" : "reset_only")
+      .then((res) => { if (live) setPreview(res); })
+      .catch((e) => { if (live) setPreviewErr(e.message || String(e)); });
+    return () => { live = false; };
+  }, [option]);
 
   const userCount = Number(state?.user_research_nodes ?? 0);
   const legacyCount = Number(state?.legacy_test_nodes ?? 0);
@@ -287,6 +302,47 @@ export default function NewResearchRunModal({ onClose, onDone }) {
                       ? "This permanently deletes the research population. There is no undo."
                       : "The current study is archived first; the archive is verified before anything is reset."}
                   </div>
+                  {previewErr && <div className="kit-inline-err">Impact preview unavailable: {previewErr}</div>}
+                  {preview && (
+                    <div className="panel" style={{ marginTop: 8, padding: "8px 10px" }}>
+                      <div style={{ fontWeight: 650, fontSize: 12.5, marginBottom: 4 }}>
+                        Impact report (read-only, read from the live database)
+                      </div>
+                      <div className="muted" style={{ fontSize: 11.5 }}>
+                        <b>This reset deletes</b>{" "}
+                        {fmtNum(preview.will_delete?.strategies)} research node(s)
+                        {preview.will_delete?.max_generation_removed
+                          ? <> and their generation history (up to generation {fmtNum(preview.will_delete.max_generation_removed)})</> : null}
+                        {" "}— with every node-scoped record:{" "}
+                        {Object.entries(preview.will_delete?.scoped || {})
+                          .filter(([, v]) => v)
+                          .map(([k, v]) => `${k} ${v}`).join(", ") || "no node-scoped rows"}
+                        {Object.entries(preview.will_delete?.unscoped_run_state || {})
+                          .filter(([, v]) => v)
+                          .map(([k, v]) => `, ${k} ${v}`).join("")}.
+                      </div>
+                      <div className="muted" style={{ fontSize: 11.5, marginTop: 4 }}>
+                        <b>Kept unchanged:</b> {Object.entries(preview.will_keep || {})
+                          .filter(([k, v]) => typeof v === "number" && v > 0)
+                          .map(([k, v]) => `${k} ${v}`).join(", ") || "—"}
+                        {" "}· {txt(preview.will_keep?.mt5_configuration, "")}
+                        {" "}· {txt(preview.will_keep?.audit_trail, "")}
+                      </div>
+                      <div className="muted" style={{ fontSize: 11.5, marginTop: 4 }}>
+                        <b>After the reset:</b> population {fmtNum(preview.after_reset?.population)}
+                        {", "}first node <span className="mono">Node_{preview.after_reset?.first_node_number}</span>,
+                        generation {fmtNum(preview.after_reset?.generation)} —
+                        {" "}{txt(preview.after_reset?.node_numbering, "")}
+                      </div>
+                      <div className="muted" style={{ fontSize: 11.5, marginTop: 4 }}>
+                        {txt(preview.id_policy, "")}
+                      </div>
+                      <div className="muted" style={{ fontSize: 11.5, marginTop: 4 }}>
+                        Confirmation token the backend requires:{" "}
+                        <span className="mono">{txt(preview.confirmation_required, "—")}</span>
+                      </div>
+                    </div>
+                  )}
                   <label className="fld" style={{ maxWidth: 320 }}>
                     Type the exact current node count to confirm: <b className="mono">{userCount}</b>
                     <input value={typed} onChange={(e) => setTyped(e.target.value)} disabled={busy}
@@ -331,12 +387,36 @@ export default function NewResearchRunModal({ onClose, onDone }) {
           {result && (
             <div className="kit-ok" style={{ marginTop: 10 }}>
               <b>Completed.</b>
+              {/* §4 — the after-the-fact evidence, from the backend's own result */}
+              <div className="kit-kv" style={{ marginTop: 4 }}>
+                <span className="k">New run id</span><span className="mono">{txt(result.run_id, "—")}</span>
+              </div>
+              {result.before && result.after && (
+                <div className="kit-kv"><span className="k">Population</span>
+                  <span className="mono">{fmtNum(result.before.user_research_nodes)} → {fmtNum(result.after.user_research_nodes)}
+                    {result.mode ? ` (target ${fmtNum(result.target)})` : ""}</span></div>
+              )}
+              {result.before && result.after && (
+                <div className="kit-kv"><span className="k">Legacy nodes</span>
+                  <span className="mono">{fmtNum(result.before.legacy_test_nodes)} → {fmtNum(result.after.legacy_test_nodes)}
+                    {" "}{result.legacy_untouched ? "(untouched)" : "(CHANGED — investigate)"}</span></div>
+              )}
+              {result.generation != null && (
+                <div className="kit-kv"><span className="k">Generation after init</span><span className="mono">{fmtNum(result.generation)}</span></div>
+              )}
+              {result.backup?.filename && (
+                <div className="kit-kv"><span className="k">Backup</span><span className="mono">{result.backup.filename}
+                  {result.verification ? " (verified)" : ""}</span></div>
+              )}
+              {result.reset?.deleted_strategies != null && (
+                <div className="kit-kv"><span className="k">Nodes deleted</span>
+                  <span className="mono">{fmtNum(result.reset.deleted_strategies)}</span></div>
+              )}
               <div className="mono" style={{ marginTop: 4, fontSize: 11.5, whiteSpace: "pre-wrap" }}>
                 {JSON.stringify({
-                  ok: result.ok, mode: result.mode, run_id: result.run_id,
-                  backup: result.backup?.filename || result.backup_file || undefined,
+                  ok: result.ok, mode: result.mode, stage: result.stage,
                   reset: result.reset || result.reset_result || undefined,
-                  new_target: result.target ?? result.new_target,
+                  target: result.target ?? result.new_target,
                   started: result.started,
                 }, null, 1)}
               </div>

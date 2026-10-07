@@ -170,6 +170,9 @@ export const api = {
   researchRunBackups: () => req("/api/research-run/backups"),
   researchRunBackup: (note = "") => req("/api/research-run/backup", { method: "POST", body: { note } }),
   researchRunStartFresh: (payload) => req("/api/research-run/start-fresh", { method: "POST", body: payload }),
+  // §4 — read-only impact preview for a from-scratch reset (nothing is changed)
+  researchRunFreshPreview: (mode = "backup_and_reset", target = null) =>
+    req(`/api/research-run/fresh/preview?${qs({ mode, ...(target ? { target } : {}) })}`),
   researchRunResumeAdd: (payload) => req("/api/research-run/resume-add", { method: "POST", body: payload }),
 
   // Population & Strategy Research
@@ -206,6 +209,10 @@ export const api = {
   // V4.6 — MT5 historical backtest execution (research; never places an order)
   mt5HistoricalCapabilities: (refresh = false) => req(`/api/mt5-historical/capabilities${refresh ? "?refresh=1" : ""}`),
   mt5HistoricalStartRun: (body) => req("/api/mt5-historical/runs", { method: "POST", body }),
+  // §6 — several nodes in one action (a single run path per node, fanned out)
+  mt5HistoricalStartBatch: (body) => req("/api/mt5-historical/runs/batch", { method: "POST", body }),
+  // §6/§7 — the qualified-node index (filter: qualified|alive|eligible|all|failed|excluded|blocked|unknown)
+  nodes: (params = {}) => req(`/api/nodes?${new URLSearchParams(params)}`),
   mt5HistoricalRuns: (params = {}) => {
     const q = qs(params);
     return req(`/api/mt5-historical/runs${q ? `?${q}` : ""}`);

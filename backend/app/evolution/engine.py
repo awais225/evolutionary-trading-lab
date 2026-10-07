@@ -46,6 +46,10 @@ LEGACY_POPULATION_SQL = (
     "AND (id <= 787 OR run_id IS NULL OR run_id LIKE '%TEST%' OR run_id = 'RUN-HISTORICAL-PRESERVED')"
 )
 
+#: the complement of the protected legacy population: the rows that belong to the
+#: current research experiment. Used to scope display counters after a reset.
+USER_RESEARCH_SCOPE_SQL = "NOT (" + LEGACY_POPULATION_SQL + ")"
+
 ACTIVE_STATES = (
     "BORN", "GENERATED", "QUEUED",
     "BACKTESTING", "TESTING",
@@ -174,6 +178,19 @@ class EvolutionEngine:
         total_eval = int(eval_row["e"]) if eval_row else 0
         total_bt = int(bt_row["b"]) if bt_row else 0
         total_val = int(val_row["v"]) if val_row else 0
+        if exclude_legacy:
+            # scope the artifact counters the same way the node counters are scoped,
+            # otherwise a reset experiment still shows the retired run's totals
+            scope = (" WHERE strategy_id IN (SELECT id FROM strategies WHERE "
+                     + USER_RESEARCH_SCOPE_SQL + ")")
+            eval_row = self.db.one("SELECT COUNT(DISTINCT strategy_id) e FROM backtests" + scope)
+            bt_row = self.db.one("SELECT COUNT(*) b FROM backtests WHERE stage IN "
+                                 "('screen', 'detail') AND strategy_id IN "
+                                 "(SELECT id FROM strategies WHERE " + USER_RESEARCH_SCOPE_SQL + ")")
+            val_row = self.db.one("SELECT COUNT(*) v FROM validations" + scope)
+            total_eval = int(eval_row["e"]) if eval_row else 0
+            total_bt = int(bt_row["b"]) if bt_row else 0
+            total_val = int(val_row["v"]) if val_row else 0
         total_qual = sum(counts.get(s, 0) for s in QUALIFIED_STATES)
         total_rej = sum(counts.get(s, 0) for s in ("FAILED", "KILLED", "PAPER_FAILED"))
         total_dead = total_rej + counts.get("RETIRED", 0)
@@ -218,7 +235,7 @@ class EvolutionEngine:
         total_nodes = self.total_nodes(exclude_legacy=exclude_legacy)
         target = self.get_total_node_target()
         remaining = max(0, target - total_nodes)
-        gen = self.generation()
+        gen = self.generation(exclude_legacy=exclude_legacy)
 
         # Alive: In-flight or permanent qualified / paper trading nodes
         alive = sum(counts.get(s, 0) for s in (IN_FLIGHT_STATES + QUALIFIED_STATES))
@@ -433,8 +450,21 @@ class EvolutionEngine:
         row = self.db.one(f"SELECT COUNT(*) c FROM strategies WHERE {where}", ACTIVE_STATES)
         return row["c"] if row else 0
 
-    def generation(self) -> int:
-        row = self.db.one("SELECT MAX(generation) g FROM strategies")
+    def generation(self, exclude_legacy: bool = False) -> int:
+        """Highest generation number.
+
+        ``exclude_legacy=True`` scopes the answer to the current research
+        experiment. The default keeps the database-wide historical view that the
+        research loop has always used (a legacy row is never a parent, so the two
+        agree while a run is generating; they only differ after a
+        from-scratch reset, where the new run must report generation 0 instead of
+        inheriting the retired population's counter).
+        """
+        if exclude_legacy:
+            row = self.db.one("SELECT MAX(generation) g FROM strategies "
+                              "WHERE " + USER_RESEARCH_SCOPE_SQL)
+        else:
+            row = self.db.one("SELECT MAX(generation) g FROM strategies")
         return int(row["g"] or 0)
 
     def _apply_timeframe_scope(self, symbol: str) -> List[str]:

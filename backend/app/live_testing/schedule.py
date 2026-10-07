@@ -186,6 +186,11 @@ def _norm_days(raw: Any) -> Optional[List[int]]:
             continue
         if d not in out:
             out.append(d)
+    if days and not out:
+        # every value was unrecognised: report the group as unusable (None) rather
+        # than as an empty selection, so nobody can confuse "Caturday" with "no
+        # days" — validate_config rejects the raw values and the API refuses them.
+        return None
     # an explicitly empty selection is *not* "no restriction" — the validator
     # rejects it before it can be stored, and callers treat [] as "nothing allowed"
     return sorted(out)
@@ -499,7 +504,7 @@ def evaluate(schedule: Dict[str, Any], *, now: Optional[float] = None,
             inside = (start <= now_t < end) if start <= end else (now_t >= start or now_t < end)
             hits.append((inside, w))
         ok = any(hit for hit, _ in hits)
-        detail = ", ".join(f"{w['start']}–{w['end']}" for _, w in hits) or "invalid windows"
+        detail = ", ".join(window_label(w) for _, w in hits) or "invalid windows"
         rule("window", ok, f"{now_t.strftime('%H:%M')} {s['timezone']} against {detail}")
     else:
         rule("window", True, "no start/end window configured")
@@ -638,6 +643,15 @@ def _day_name(d: int) -> str:
         return str(d)
 
 
+def window_label(w: Dict[str, Any]) -> str:
+    """``17:00–08:00 (overnight)`` — never let a midnight-crossing window look plain."""
+    start, end = _parse_clock(w.get("start")), _parse_clock(w.get("end"))
+    text = f"{w.get('start')}–{w.get('end')}"
+    if start is not None and end is not None and start > end:
+        return text + " (overnight)"
+    return text
+
+
 def describe(schedule: Optional[Dict[str, Any]]) -> str:
     """One human line describing a schedule (used by the node table and dialog)."""
     s = normalize_config(schedule)
@@ -669,7 +683,7 @@ def describe(schedule: Optional[Dict[str, Any]]) -> str:
         parts.append("conditions " + "+".join(on) if not off else
                      f"conditions {', '.join(on) or 'none'} (off: {', '.join(off)})")
     if s["windows"]:
-        parts.append(" ".join(f"{w['start']}–{w['end']}{'' if w.get('enabled', True) else ' (off)'}"
+        parts.append(" ".join(f"{window_label(w)}{'' if w.get('enabled', True) else ' (off)'}"
                               for w in s["windows"]) + f" {s['timezone']}")
     if s["cooldown_minutes"]:
         parts.append(f"cooldown {s['cooldown_minutes']:g}m")
@@ -677,6 +691,8 @@ def describe(schedule: Optional[Dict[str, Any]]) -> str:
         parts.append(f"spread<={s['spread_limit_points']:g}pt")
     if s["max_trades_per_day"]:
         parts.append(f"max {s['max_trades_per_day']:g}/day")
+    if s["max_positions"]:
+        parts.append(f"max {s['max_positions']:g} open")
     return ", ".join(parts)
 
 
@@ -689,12 +705,17 @@ def supported_options(genome: Optional[Dict[str, Any]] = None) -> Dict[str, Any]
                       "label": name.replace("_", " ").title(),
                       "hours_utc": SESSION_HOURS_UTC.get(name)}
                      for name in SUPPORTED_SESSIONS],
-        "regimes": supported_regimes(),
-        "timeframes": supported_timeframes(),
+        "regimes": [{"value": name, "label": name.replace("_", " ").title()}
+                    for name in supported_regimes()],
+        "timeframes": [{"value": name, "label": name} for name in supported_timeframes()],
         "conditions": [{"value": name, "label": CONDITION_LABELS.get(name, name)}
                        for name in conditions_for_genome(genome)],
+        "node_timeframe": (genome or {}).get("timeframe"),
         "timezones": ["UTC", "Pakistan", "EST", "EDT", "CET", "CEST", "BST",
                       "New York", "London", "Tokyo", "Dubai"],
         "empty_list_means": "no restriction from that group; the validator rejects an "
                            "empty list that was produced by deselection (Select All instead)",
+        "window_semantics": ("start < end = a window inside one day; start > end = an overnight "
+                             "window that crosses midnight (e.g. 17:00–08:00); start == end is "
+                             "rejected as impossible"),
     }

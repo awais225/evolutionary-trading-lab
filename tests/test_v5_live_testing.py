@@ -91,7 +91,11 @@ def test_04_time_window_and_the_schedule_timezone():
            "timezone": "Asia/Karachi"}
     assert sched.evaluate(cfg, now=ts(2, 4, 30))["allowed"] is True      # 09:30 local
     assert sched.evaluate(cfg, now=ts(2, 10))["allowed"] is False        # 15:00 local
-    assert "Asia/Karachi" in sched.evaluate(cfg, now=ts(2, 10))["rules"][2]["detail"]
+    # look the rule up by name: the trace gained regimes/timeframes rules and an
+    # index-based assertion would silently check the wrong rule after any addition
+    rules = {r["rule"]: r for r in sched.evaluate(cfg, now=ts(2, 10))["rules"]}
+    assert "Asia/Karachi" in rules["window"]["detail"]
+    assert rules["window"]["ok"] is False
 
 
 def test_05_a_window_that_crosses_midnight_is_still_a_window():

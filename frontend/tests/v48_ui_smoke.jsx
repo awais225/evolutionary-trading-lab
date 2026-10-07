@@ -42,6 +42,7 @@ import NodeEconomics from "../src/pages/NodeEconomics.jsx";
 import StartupBanner from "../src/components/StartupBanner.jsx";
 import { JsonView } from "../src/components/common.jsx";
 import FinalTesting from "../src/pages/FinalTesting.jsx";
+import DeepBacktest from "../src/pages/DeepBacktest.jsx";
 
 const tabCalls = [];
 const LAB_VALUE = {
@@ -263,6 +264,8 @@ export function setPlaceResponse(value, ok = true) { PLACE_RESPONSE = value; PLA
 /** V5: every POST the UI sent (path + body), so the smoke can assert the real
  *  endpoints are called — a cosmetic button would fail here. */
 export const nodesTablePosts = [];
+/** V5.1a: every body sent to the per-node schedule endpoint. */
+export const schedulePosts = [];
 export const shutdownCalls = [];
 export const dataSyncCalls = [];
 export const seenUrls = [];
@@ -270,7 +273,8 @@ export const shortlistToggles = [];
 
 
 
-export function payloadFor(path) {
+export function payloadFor(path, method = "GET") {
+  const isPost = String(method || "GET").toUpperCase() === "POST";
   if (path === "/health" && HEALTH_FAILS) throw new Error("Failed to fetch");   // unreachable status endpoint
   if (path.includes("/api/live-testing/nodes/")) { nodesTablePosts.push(path); return { ok: true, is_active: true, status: "RUNNING" }; }
   if (path.includes("/api/power/shutdown")) { return { ok: true, dry_run: true, steps: [], backend_stopping: false }; }
@@ -326,17 +330,42 @@ export function payloadFor(path) {
     risk: { global_risk_pct: 1.0, limits: { risk_pct_default: 1.0, risk_pct_max: 2.0, max_active_trades: 1 } },
     excluded: [], note: "IS metrics from the research backtest; live P/L from recorded live trades.",
   };
-  if (path.includes("/api/live-testing/schedule/")) return {
-    allowed: false, reason: "sessions: 05:42 UTC against london 07:00–16:00 UTC",
-    local_time: "2026-10-07T05:42:00+00:00", utc_time: "2026-10-07T05:42:00+00:00", timezone: "UTC",
-    weekday: "Wednesday", trades_today: 0, last_entry_ts: null, strategy_id: 1195,
-    description: "Mon/Tue/Wed/Thu/Fri, London, 00:00–23:59 UTC",
-    rules: [{ rule: "days", ok: true, detail: "Wednesday is an active trading day" },
-            { rule: "sessions", ok: false, detail: "05:42 UTC against london 07:00–16:00 UTC" }],
-    schedule: { days: [0, 1, 2, 3, 4], sessions: ["london"], start_time: "00:00", end_time: "23:59",
-                timezone: "UTC", cooldown_minutes: 30, max_trades_per_day: 3, spread_limit_points: 25,
-                max_positions: 1 },
-  };
+  if (path.includes("/api/live-testing/schedule/")) {
+    // the dialog edits the *stored* config and offers every group the engine
+    // enforces; the stub mirrors the real GET payload (config + options + node)
+    const cfg = {
+      days: [0, 1, 2, 3, 4], sessions: ["london"], regimes: ["trending"],
+      timeframes: ["M15"], conditions: { entry_long: true, entry_short: false },
+      windows: [{ start: "07:00", end: "16:00" }], enabled: true, timezone: "UTC",
+      cooldown_minutes: 30, max_trades_per_day: 3, spread_limit_points: 25, max_positions: 1,
+    };
+    return {
+      allowed: false, reason: "sessions: 05:42 UTC against london 07:00–16:00 UTC",
+      local_time: "2026-10-07T05:42:00+00:00", utc_time: "2026-10-07T05:42:00+00:00", timezone: "UTC",
+      weekday: "Wednesday", trades_today: 0, last_entry_ts: null, strategy_id: 1195,
+      description: "Mon/Tue/Wed/Thu/Fri, London, trending, M15, 07:00–16:00 UTC",
+      rules: [{ rule: "days", ok: true, detail: "Wednesday is an active trading day" },
+              { rule: "sessions", ok: false, detail: "05:42 UTC against london 07:00–16:00 UTC" }],
+      config: cfg, schedule: cfg,
+      node: { strategy_id: 1195, research_node_num: 42, run_id: "RUN-20261005-055251",
+              symbol: "XAUUSD", timeframe: "M15", status: "QUALIFIED",
+              conditions: ["entry_long", "entry_short"] },
+      options: {
+        days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+          .map((label, value) => ({ value, label })),
+        sessions: ["asia", "london", "newyork", "london_ny_overlap", "custom"]
+          .map((value) => ({ value, label: value, hours_utc: [0, 8] })),
+        regimes: [{ value: "trending", label: "Trending" }, { value: "ranging", label: "Ranging" }],
+        timeframes: ["M1", "M5", "M15", "M30", "H1", "H4", "D1"].map((v) => ({ value: v, label: v })),
+        conditions: [{ value: "entry_long", label: "long entry rule" },
+                     { value: "entry_short", label: "short entry rule" }],
+        timezones: ["UTC", "Pakistan", "London"],
+        node_timeframe: "M15",
+        window_semantics: "start > end = an overnight window",
+      },
+      ...(isPost ? { ok: true, persisted: true, normalized: cfg } : {}),
+    };
+  }
   if (path.includes("/api/live-testing/risk")) return {
     limits: { risk_pct_default: 1.0, risk_pct_max: 2.0, max_active_trades: 1 },
     global_risk_pct: 1.0, overrides: [{ strategy_id: 1908, risk_pct: 0.5, is_active: false }],
@@ -383,6 +412,35 @@ export function payloadFor(path) {
   if (path.includes("/api/research/filter")) return { total_evaluated: 415, total_matching: 9967, strategies: [], filters_applied: {} };
   if (path.includes("/api/research-run/state")) return RUN_STATE;
   if (path.includes("/api/research/strategies")) return { nodes: [], total: 0, population: { total: 10000 } };
+  if (path.includes("/api/nodes")) {
+    const mk = (num, id, status, bucket) => ({
+      node_id: id, strategy_id: id, research_node_num: num, node_label: `Node_${num}`,
+      experiment: "RUN-20261005-055251", run_id: "RUN-20261005-055251", generation: 0,
+      symbol: "XAUUSD", timeframe: "M15", direction: "both", fitness: 0.63,
+      bucket, bucket_label: bucket === "qualified" ? "Qualified" : "Failed",
+      bucket_reason: "Cleared the research gates against real data.", qualification: status,
+      v5_status: bucket === "qualified" ? "VALID" : "STRATEGY_FAILED",
+      survival_evidence: "Passed backtest criteria (PF=1.77)",
+      metrics: { return_pct: 0.0067, profit_factor: 1.769, max_drawdown_pct: 0.0048,
+                 win_rate: 0.8182, trades: 11, net_profit: 66.73, sharpe: 5.4 },
+      robustness: { score: null, passed: null },
+      backtest_coverage: { dataset_id: "XAUUSD_M15", source: "MT5", start: "2025-09-30",
+                           end: "2026-09-25", bars: 24768, available: true },
+      risk: { pct: 1.0, source: "global" },
+      schedule: { description: "Mon/Wed, London, M15", configured: true, enabled: 1, is_active: false },
+      live: { status: "IDLE", trades: 0, total_pnl: null, today_pnl: null, win_rate: null, last_result: null },
+      position: null, position_open: false, starred: false,
+    });
+    return {
+      ok: true, filter: "qualified", filters: ["qualified", "alive", "eligible", "all", "failed", "excluded", "blocked", "unknown"],
+      counts: { qualified: 2, failed: 1 }, total: 2, returned: 2, limit: 100, offset: 0,
+      experiment: { run_id: "RUN-20261005-055251", population: 10000,
+                    node_number_range: [1, 10000], next_node_number: 10001, is_empty: false,
+                    node_numbering: "experiment-local (1..population)" },
+      nodes: [mk(23, 837, "SURVIVED", "qualified"), mk(63, 877, "SURVIVED", "qualified")],
+      risk: { global_risk_pct: 1.0, limits: {} },
+    };
+  }
   if (path.includes("/api/mt5-demo/status")) return {
     status: "DEMO_ACCOUNT_READY", demo_banner: "DEMO ACCOUNT ONLY — NO REAL MONEY AT RISK",
     bridge_type: "SIMULATOR_BRIDGE", is_connected: true, account_id: "0", broker: "LAB_SIMULATOR",
@@ -392,8 +450,30 @@ export function payloadFor(path) {
   if (path.includes("/api/strategies/") && path.includes("/authoritative")) return AUTHORITATIVE;
   if (path.includes("/api/strategies/")) return DRAWER_NODE;
   if (path.includes("/api/lab/status")) return { current_nodes: 10000, alive: 33, dead: 9967, qualified: 5, generation_number: 39, running: false };
-  if (path.includes("/api/mt5-historical/runs/")) return { run_id: "HRUN-1", status: "COMPLETED", results: { metrics: {} }, orders_placed: false, is_mt5_data: true, data: { source: "MT5" } };
-  if (path.includes("/api/mt5-historical/runs")) return { runs: [], total: 0 };
+  if (path.includes("/api/mt5-historical/runs/")) {
+    return {
+      run_id: "HRUN-1", status: "COMPLETED", strategy_id: 837, symbol: "XAUUSD", timeframe: "M15",
+      orders_placed: false, is_mt5_data: true,
+      data: { scope: "MT5", source: "MT5", dataset_id: "XAUUSD_M15_MT5_v1" },
+      schedule: { configured: true, applied_to_bars: true, bars_allowed: 288, bars_blocked: 1562,
+                  description: "Mon/Wed, London, M15" },
+      verdict: "Completed — 2 trade(s) evaluated by the engine.",
+      results: { metrics: { trades: 2, total_return_pct: -0.0008, profit_factor: 0.687,
+                            max_drawdown_pct: 0.0025, win_rate: 0.5, net_profit: -0.83,
+                            avg_trade: -0.41, expectancy: -0.0001 } },
+    };
+  }
+  if (path.includes("/api/mt5-historical/runs")) return {
+    runs: [{
+      run_id: "HRUN-1", status: "COMPLETED", strategy_id: 837, symbol: "XAUUSD", timeframe: "M15",
+      period: { start: "2026-09-07", end: "2026-10-05" },
+      verdict: "Completed — 2 trade(s) evaluated by the engine.",
+      schedule: { configured: true, applied_to_bars: true, bars_allowed: 288, bars_blocked: 1562,
+                  description: "Mon/Wed, London, M15" },
+      results: { metrics: { trades: 2, total_return_pct: -0.0008, profit_factor: 0.687 } },
+    }],
+    total: 1,
+  };
   if (path.includes("/api/tree")) return { nodes: [], edges: [], total_strategies: 10000 };
   if (path.includes("/api/shortlist")) return { shortlist: [] };
   if (path.includes("/api/logs")) return { logs: [], log_text: "" };
@@ -414,6 +494,11 @@ export async function runSmoke() {
       let body = {};
       try { body = JSON.parse(opts.body || "{}"); } catch { body = {}; }
       shutdownCalls.push(body);
+    }
+    if (urlStr.includes("/api/live-testing/schedule/") && String(opts.method || "GET").toUpperCase() === "POST") {
+      let body = {};
+      try { body = JSON.parse(opts.body || "{}"); } catch { body = {}; }
+      schedulePosts.push({ url: urlStr, body });
     }
     if (urlStr.includes("/api/research/shortlist/toggle")) {
       let body = {};
@@ -516,6 +601,49 @@ export async function runSmoke() {
     t.includes("DEMO ACCOUNT ONLY"));
   await render("page:Mt5Backtest-simulator", wrap(<Mt5Backtest />), (t) =>
     t.includes("REAL MT5 TRADING UNAVAILABLE") && t.includes("SIMULATOR MODE ACTIVE"));
+  // 5c. V5.1a §6/§7/§32 — Deep Backtest lists qualified nodes with real metrics,
+  // multi-selects them, and shows what a completed run actually produced.
+  {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    try {
+      await act(async () => {
+        root.render(wrap(<DeepBacktest />));
+        await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+      });
+      const text = container.textContent || "";
+      if (!text.includes("Node_23")) throw new Error(`the qualified node list is missing Node_23 … "${text.slice(0, 200)}"`);
+      if (!text.includes("Qualified")) throw new Error("the node filter does not default to Qualified");
+      if (!text.includes("RUN-20261005-055251")) throw new Error("the experiment the list describes is not shown");
+      if (!text.toLowerCase().includes("deep backtest all qualified")) {
+        throw new Error("no 'deep backtest all' action for the selected filter");
+      }
+      const rowBoxes = Array.from(container.querySelectorAll('input[type="checkbox"]'));
+      if (rowBoxes.length < 2) throw new Error("the node rows have no selection checkboxes");
+      // selecting a node must arm the batch action with that node
+      await act(async () => {
+        rowBoxes[rowBoxes.length - 1].dispatchEvent(new MouseEvent("click", { bubbles: true }));
+        await Promise.resolve();
+      });
+      if (!/Deep backtest selected \(1\)/.test(container.textContent || "")) {
+        throw new Error("selecting a node did not update the batch action");
+      }
+      // the runs table must show the verdict + the schedule that was applied
+      if (!text.includes("Completed — 2 trade(s) evaluated by the engine.")) {
+        throw new Error("a completed run must state its verdict in the table");
+      }
+      if (!/applied · 288/.test(text)) {
+        throw new Error(`the applied schedule is not reported … "${text.slice(0, 400)}"`);
+      }
+      results.push({ label: "page:DeepBacktest-qualified", ok: true });
+    } catch (e) {
+      results.push({ label: "page:DeepBacktest-qualified", ok: false, error: e.message || String(e) });
+    } finally {
+      try { await act(async () => { root.unmount(); }); } catch {}
+    }
+  }
+
   await render("page:NodeEconomics", wrap(<NodeEconomics />));
   await render("page:FinalTesting", wrap(<FinalTesting />));
 
@@ -674,6 +802,54 @@ export async function runSmoke() {
       if (!text.includes("sessions") || !text.includes("london 07:00")) {
         throw new Error(`the schedule dialog does not show the blocking rule … "${text.slice(0, 240)}"`);
       }
+
+      /* V5.1a §11 — the dialog is fully editable and every control is real:
+       * groups for days, sessions, regimes, timeframes and the node's own signal
+       * conditions; a window editor; a working Enabled switch; Select all /
+       * Clear all; and a summary line that reflects the edit. */
+      const boxes = Array.from(container.querySelectorAll('input[type="checkbox"]'));
+      if (boxes.length < 12) {
+        throw new Error(`expected the schedule groups to render real checkboxes, found ${boxes.length}`);
+      }
+      if (!/Regimes|Market regimes/.test(text) || !/Timeframes/.test(text) || !/Signal conditions/.test(text)) {
+        throw new Error("the dialog must offer regimes, timeframes and the node's signal conditions");
+      }
+      const labelOfBox = (b) => (b.parentElement?.textContent || "").toLowerCase();
+      if (!boxes.some((b) => labelOfBox(b).includes("trending"))) {
+        throw new Error("the regimes group has no checkbox");
+      }
+      if (!boxes.some((b) => labelOfBox(b).includes("m15"))) {
+        throw new Error("the timeframes group has no checkbox");
+      }
+      if (!boxes.some((b) => labelOfBox(b).includes("long entry rule"))) {
+        throw new Error("the signal-condition group has no checkbox");
+      }
+      // a day checkbox must actually toggle (controlled input, not a decoration)
+      const monBox = boxes.find((b) => labelOfBox(b).trim().startsWith("monday"));
+      if (!monBox || !monBox.checked) throw new Error("Monday should start checked (it is in the stored schedule)");
+      await act(async () => { monBox.dispatchEvent(new MouseEvent("click", { bubbles: true })); await Promise.resolve(); });
+      if (monBox.checked) throw new Error("clicking a day checkbox did not change the state");
+      if (!/unsaved changes/.test(container.textContent || "")) {
+        throw new Error("the summary must say the changes are unsaved");
+      }
+      // Select all must restore the whole group
+      const selectAll = Array.from(container.querySelectorAll("button")).find((b) => (b.textContent || "").trim() === "Select all");
+      if (!selectAll) throw new Error("no Select all control for the day group");
+      await act(async () => { selectAll.dispatchEvent(new MouseEvent("click", { bubbles: true })); await Promise.resolve(); });
+      if (!monBox.checked) throw new Error("Select all did not re-check Monday");
+
+      // saving must send every group, not only the legacy fields
+      const save = Array.from(container.querySelectorAll("button")).find((b) => (b.textContent || "").includes("Save & enforce"));
+      if (!save) throw new Error("no Save & enforce action");
+      await act(async () => { save.dispatchEvent(new MouseEvent("click", { bubbles: true })); await Promise.resolve(); await Promise.resolve(); });
+      const sent = schedulePosts[schedulePosts.length - 1];
+      if (!sent) throw new Error("Save did not call the schedule endpoint");
+      for (const key of ["days", "sessions", "regimes", "timeframes", "conditions", "windows", "enabled", "timezone"]) {
+        if (!(key in sent.body)) throw new Error(`the saved payload is missing "${key}": ${JSON.stringify(sent.body)}`);
+      }
+      if (sent.body.enabled !== true) throw new Error("the Enabled switch was not sent");
+      if (!(sent.body.regimes || []).includes("trending")) throw new Error("the regimes selection was not sent");
+
       results.push({ label: "LiveNodeTable:start+schedule", ok: true });
     } catch (e) {
       results.push({ label: "LiveNodeTable:start+schedule", ok: false, error: e.message || String(e) });

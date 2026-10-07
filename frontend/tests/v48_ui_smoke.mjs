@@ -72,7 +72,7 @@ let payloadFactory = () => ({});
 function installFetch() {
   globalThis.fetch = async (url, opts = {}) => {
     fetchCalls.push(String(url));
-    const body = payloadFactory(String(url));
+    const body = payloadFactory(String(url), (opts && opts.method) || "GET");
     return {
       ok: true,
       status: 200,

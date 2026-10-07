@@ -1077,138 +1077,304 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
 }
 
 export function ScheduleDialog({ nodeId, onClose, onSaved }) {
-  /* §11 — the functional schedule popup. Saving writes the values the engine
-   * reads before every order; the dialog then shows the engine's own evaluation
-   * (allowed / blocked, with the reason and the full rule trace). */
-  const [cfg, setCfg] = useState(null);
-  const [state, setState] = useState(null);
+  /* §11 §12 §13 §17 — the fully editable per-node schedule.
+
+   * Every group the engine actually enforces is editable here (days, sessions,
+   * regimes, timeframes, the node's own signal conditions, trading windows with
+   * an explicit timezone, and the Enabled switch), and every control is a real
+   * control: the checkboxes are native checkboxes, "Select all"/"Clear all" act
+   * on the whole group, and nothing is a cosmetic label.
+   *
+   * The values are validated by the SAME backend function the execution engine
+   * uses (app.live_testing.schedule), so what this dialog shows is what the
+   * engine will do. An invalid combination comes back per field and is shown
+   * next to the group that caused it — it is never saved silently.
+   */
+  const [draft, setDraft] = useState(null);
+  const [saved, setSaved] = useState(null);     // last saved config (for Reset)
+  const [state, setState] = useState(null);     // engine evaluation + options
   const [err, setErr] = useState(null);
+  const [fieldErrs, setFieldErrs] = useState({});
   const [busy, setBusy] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [msg, setMsg] = useState(null);
+
+  const optionsOr = (v) => arr(v).map((o) => (o && typeof o === "object"
+    ? { value: o.value, label: o.label ?? String(o.value) }
+    : { value: o, label: String(o) }));
+
+  const fromServer = useCallback((res) => {
+    const c = objOrNull(res?.config) || {};
+    const n = objOrNull(c.schedule) || c;      // /nodes rows nest it, the API does not
+    const conds = objOrNull(n.conditions) || {};
+    const cfgs = n.enabled;
+    return {
+      days: arr(n.days).length ? arr(n.days).map((d) => Number(d)) : [],
+      sessions: arr(n.sessions).map((x) => String(x).toLowerCase()),
+      regimes: arr(n.regimes).map((x) => String(x).toLowerCase()),
+      timeframes: arr(n.timeframes).map((x) => String(x).toUpperCase()),
+      conditions: Object.keys(conds).length ? conds
+        : Object.fromEntries(optionsOr(res?.options?.conditions).map((o) => [o.value, true])),
+      windows: arr(n.windows).map((w) => ({ start: txt(objOrNull(w)?.start, "00:00"),
+                                            end: txt(objOrNull(w)?.end, "23:59") })),
+      enabled: cfgs === null || cfgs === undefined ? true : !!cfgs,
+      enabled_explicit: cfgs !== null && cfgs !== undefined,
+      timezone: txt(n.timezone, "UTC"),
+      cooldown_minutes: n.cooldown_minutes ?? "",
+      max_trades_per_day: n.max_trades_per_day ?? "",
+      spread_limit_points: n.spread_limit_points ?? "",
+      max_positions: n.max_positions ?? "",
+    };
+  }, []);
 
   const load = useCallback(async () => {
     setErr(null);
     try {
       const res = await api.liveTestingSchedule(nodeId);
       setState(res);
-      const s = objOrNull(res?.schedule) || {};
-      setCfg({
-        days: arr(s.days).map((d) => Number(d)),
-        sessions: arr(s.sessions),
-        start_time: txt(s.start_time, "00:00"),
-        end_time: txt(s.end_time, "23:59"),
-        timezone: txt(s.timezone, "UTC"),
-        cooldown_minutes: s.cooldown_minutes ?? "",
-        max_trades_per_day: s.max_trades_per_day ?? "",
-        spread_limit_points: s.spread_limit_points ?? "",
-        max_positions: s.max_positions ?? "",
-      });
+      const d = fromServer(res);
+      setDraft(d);
+      setSaved(d);
+      setDirty(false);
     } catch (e) { setErr(e); }
-  }, [nodeId]);
+  }, [nodeId, fromServer]);
 
   useEffect(() => { load(); }, [load]);
-  useInterval(load, 20000);
 
-  const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-  const sessions = ["asia", "london", "newyork", "london_ny_overlap", "custom"];
-  const toggle = (list, value) => (list.includes(value)
-    ? list.filter((x) => x !== value) : [...list, value]);
+  const upd = (patch) => { setDraft((d) => ({ ...d, ...patch })); setDirty(true); setMsg(null); };
+  const toggleIn = (key, value) => upd({
+    [key]: arr(draft[key]).includes(value)
+      ? arr(draft[key]).filter((x) => x !== value)
+      : [...arr(draft[key]), value],
+  });
 
   const save = async () => {
-    setBusy(true); setErr(null);
+    setBusy(true); setErr(null); setFieldErrs({});
     try {
-      await api.saveLiveTestingSchedule(nodeId, {
-        days: cfg.days, sessions: cfg.sessions, start_time: cfg.start_time,
-        end_time: cfg.end_time, timezone: cfg.timezone,
-        cooldown_minutes: cfg.cooldown_minutes === "" ? null : Number(cfg.cooldown_minutes),
-        max_trades_per_day: cfg.max_trades_per_day === "" ? null : Number(cfg.max_trades_per_day),
-        spread_limit_points: cfg.spread_limit_points === "" ? null : Number(cfg.spread_limit_points),
-        max_positions: cfg.max_positions === "" ? null : Number(cfg.max_positions),
-      });
-      await load();
+      const body = {
+        days: draft.days, sessions: draft.sessions, regimes: draft.regimes,
+        timeframes: draft.timeframes, conditions: draft.conditions,
+        windows: draft.windows, enabled: !!draft.enabled,
+        timezone: draft.timezone,
+        cooldown_minutes: draft.cooldown_minutes === "" ? null : Number(draft.cooldown_minutes),
+        max_trades_per_day: draft.max_trades_per_day === "" ? null : Number(draft.max_trades_per_day),
+        spread_limit_points: draft.spread_limit_points === "" ? null : Number(draft.spread_limit_points),
+        max_positions: draft.max_positions === "" ? null : Number(draft.max_positions),
+      };
+      const res = await api.saveLiveTestingSchedule(nodeId, body);
+      const d = fromServer(res);
+      setDraft(d); setSaved(d); setDirty(false);
+      setState({ ...(state || {}), ...objOrNull(res?.evaluation), config: res?.config,
+                 options: res?.options || state?.options, description: res?.description });
+      setMsg(`Saved — the engine now enforces: ${txt(res?.description, "saved")}`);
       if (onSaved) onSaved();
-    } catch (e) { setErr(e); } finally { setBusy(false); }
+    } catch (e) {
+      const det = objOrNull(e?.detail) || objOrNull(e?.body) || {};
+      const errs = arr(det.errors);
+      if (errs.length) {
+        const map = {};
+        errs.forEach((x) => { map[txt(objOrNull(x)?.field, "?")] = txt(objOrNull(x)?.error, ""); });
+        setFieldErrs(map);
+      }
+      setErr(e);
+    } finally { setBusy(false); }
   };
 
-  const rules = arr(state?.rules);
+  const reset = () => {
+    if (!saved) return;
+    setDraft({ ...saved }); setFieldErrs({}); setMsg("Changes discarded — the stored schedule is unchanged.");
+    setDirty(false);
+  };
+
+  const dayNames = optionsOr(state?.options?.days).length
+    ? optionsOr(state?.options?.days)
+    : [0, 1, 2, 3, 4, 5, 6].map((i) => ({ value: i, label: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"][i] }));
+  const sessionOpts = optionsOr(state?.options?.sessions);
+  const regimeOpts = optionsOr(state?.options?.regimes);
+  const tfOpts = optionsOr(state?.options?.timeframes);
+  const condOpts = optionsOr(state?.options?.conditions);
+  const tzOpts = arr(state?.options?.timezones).map(String);
+  const nodeTf = txt(state?.options?.node_timeframe, "");
+
+  const group = (label, key, opts, valueOf = (o) => o.value, labelOf = (o) => o.label) => (
+    <div className="kit-col" style={{ marginBottom: 10 }}>
+      <div className="row-bar">
+        <div className="muted" style={{ fontSize: 11.5, fontWeight: 600 }}>{label}</div>
+        <div className="spacer" />
+        <button type="button" className="btn ghost" style={{ padding: "1px 6px", fontSize: 11 }}
+                onClick={() => upd({ [key]: arr(draft?.[key]).length === arr(opts).length ? [] : arr(opts).map(valueOf) })}>
+          {arr(draft?.[key]).length === arr(opts).length && arr(opts).length ? "Clear all" : "Select all"}
+        </button>
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+        {arr(opts).map((o) => {
+          const v = valueOf(o);
+          const on = arr(draft?.[key]).includes(v);
+          return (
+            <label key={String(v)} className="chk" style={{ display: "inline-flex", gap: 5, alignItems: "center", fontSize: 12 }}>
+              <input type="checkbox" checked={on} onChange={() => toggleIn(key, v)} />
+              <span>{labelOf(o)}{key === "timeframes" && v === nodeTf ? " (node)" : ""}</span>
+            </label>
+          );
+        })}
+      </div>
+      {fieldErrs[key] && <div className="kit-inline-err" style={{ fontSize: 11.5 }}>{fieldErrs[key]}</div>}
+    </div>
+  );
+
+  // the engine returns the rule trace as a list of {rule, ok, detail}
+  // `state` can legitimately be null (first paint, or a failed GET) — read the
+  // node block through one guarded accessor so no render path dereferences null.
+  const nodeMeta = objOrNull(state?.node) || {};
+  const nodeTitle = nodeMeta.research_node_num != null
+    ? `Node_${nodeMeta.research_node_num}` : `node ${nodeId}`;
+
+  const ruleRows = Array.isArray(state?.rules)
+    ? state.rules
+    : arr(state?.rules && typeof state.rules === "object"
+        ? Object.entries(state.rules).map(([k, v]) => ({ rule: k, ok: !!objOrNull(v)?.ok, detail: objOrNull(v)?.detail ?? v }))
+        : []);
+  const overallAllowed = state?.allowed;
 
   return (
-    <ConfirmModal open title={`Schedule — Node_${nodeId}`} confirmLabel="Save & enforce"
+    <ConfirmModal open title={`Schedule — ${nodeTitle}`}
+                  confirmLabel={busy ? "Saving…" : (dirty ? "Save & enforce *" : "Save & enforce")}
                   busy={busy} onCancel={onClose} onConfirm={save}
                   result={err ? { ok: false, error: err.message || String(err) } : null}>
-      {err && <div className="kit-inline-err">{err.message || String(err)}</div>}
+      {err && (
+        <div className="kit-inline-err">
+          {txt(objOrNull(err)?.message, "") || err.message || String(err)}
+          {Object.keys(fieldErrs).length > 0 && (
+            <ul style={{ margin: "4px 0 0 16px" }}>
+              {Object.entries(fieldErrs).map(([f, e]) => <li key={f}><b>{f}</b>: {e}</li>)}
+            </ul>
+          )}
+        </div>
+      )}
+      {msg && <div className="kit-inline-ok" style={{ marginBottom: 8 }}>{msg}</div>}
+
       {state && (
-        <div className="kit-strip" style={{ border: "none", padding: 0, marginBottom: 8 }}>
-          <div className="item"><span className="k">Now (engine clock)</span>
-            <span className="v mono">{txt(state.local_time, NA_TEXT)}</span></div>
-          <div className="item"><span className="k">Timezone</span>
-            <span className="v mono">{txt(state.timezone, NA_TEXT)}</span></div>
-          <div className="item"><span className="k">Trades today</span>
-            <span className="v mono">{txt(state.trades_today, "0")}</span></div>
+        <div className="kit-strip" style={{ border: "none", padding: 0, marginBottom: 8, flexWrap: "wrap" }}>
+          <div className="item"><span className="k">Node</span>
+            <span className="v mono">{nodeTitle}{nodeMeta.run_id ? ` · ${nodeMeta.run_id}` : ""}</span></div>
+          <div className="item"><span className="k">Symbol / TF</span>
+            <span className="v mono">{txt(nodeMeta.symbol, NA_TEXT)} {txt(nodeMeta.timeframe, "")}</span></div>
+          <div className="item"><span className="k">Node status</span>
+            <span className="v mono">{txt(nodeMeta.status, NA_TEXT)}</span></div>
+          <div className="item"><span className="k">Engine clock</span>
+            <span className="v mono">{txt(state?.local_time, NA_TEXT)} {txt(state?.timezone, "")}</span></div>
           <div className="item"><span className="k">Engine verdict</span>
             <span className="v">
-              <Badge tone={state.allowed ? "ok" : "warn"}>
-                {state.allowed ? "may trade now" : "BLOCKED"}
-              </Badge>
+              <Badge tone={overallAllowed ? "ok" : "warn"}>{overallAllowed ? "may trade now" : "BLOCKED"}</Badge>
             </span></div>
         </div>
       )}
       {state?.reason && <div className="kit-inline-err" style={{ marginBottom: 8 }}>{state.reason}</div>}
 
-      {cfg && (
-        <div className="kit-cols">
-          <div style={{ flex: "1 1 200px" }}>
-            <div className="muted" style={{ fontSize: 11.5 }}>Active days</div>
-            <div className="btn-row" style={{ flexWrap: "wrap" }}>
-              {dayNames.map((d, i) => (
-                <button key={d} className={cfg.days.includes(i) ? "btn" : "btn ghost"}
-                        style={{ padding: "2px 8px" }}
-                        onClick={() => setCfg({ ...cfg, days: toggle(cfg.days, i) })}>{d}</button>
-              ))}
+      {draft && (
+        <>
+          <label className="fld" style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10 }}>
+            <input type="checkbox" checked={!!draft.enabled} onChange={(e) => upd({ enabled: e.target.checked })} />
+            <span><b>Schedule enabled</b> — when off, the engine blocks every order from this node with
+              {" "}<span className="mono">SCHEDULE_BLOCKED</span> (it is not the same as removing the restrictions).</span>
+          </label>
+          {fieldErrs.enabled && <div className="kit-inline-err" style={{ fontSize: 11.5 }}>{fieldErrs.enabled}</div>}
+
+          {group("Active days", "days", dayNames)}
+          {group("Sessions", "sessions", sessionOpts)}
+          {group("Market regimes", "regimes", regimeOpts)}
+          {group("Timeframes", "timeframes", tfOpts)}
+          {group("Signal conditions (from this node's own genome)", "conditions", condOpts,
+                 (o) => o.value, (o) => `${o.label}`)}
+
+          <div className="kit-col" style={{ marginBottom: 10 }}>
+            <div className="row-bar">
+              <div className="muted" style={{ fontSize: 11.5, fontWeight: 600 }}>Trading windows</div>
+              <div className="spacer" />
+              <button type="button" className="btn ghost" style={{ padding: "1px 6px", fontSize: 11 }}
+                      onClick={() => upd({ windows: [...arr(draft.windows), { start: "00:00", end: "23:59" }] })}>
+                Add window
+              </button>
+              <button type="button" className="btn ghost" style={{ padding: "1px 6px", fontSize: 11 }}
+                      disabled={!arr(draft.windows).length}
+                      onClick={() => upd({ windows: [] })}>Clear all</button>
             </div>
-            <div className="muted" style={{ fontSize: 11.5, marginTop: 8 }}>Sessions (UTC)</div>
-            <div className="btn-row" style={{ flexWrap: "wrap" }}>
-              {sessions.map((sName) => (
-                <button key={sName} className={cfg.sessions.includes(sName) ? "btn" : "btn ghost"}
-                        style={{ padding: "2px 8px" }}
-                        onClick={() => setCfg({ ...cfg, sessions: toggle(cfg.sessions, sName) })}>
-                  {sName.replace(/_/g, " ")}
-                </button>
-              ))}
+            {arr(draft.windows).length === 0 && (
+              <div className="muted" style={{ fontSize: 11.5 }}>
+                No window restriction — the days/sessions above still apply.
+              </div>
+            )}
+            {arr(draft.windows).map((w, i) => (
+              <div key={`w${i}`} style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 4 }}>
+                <input className="input mono" style={{ width: 80 }} value={w.start}
+                       onChange={(e) => upd({ windows: arr(draft.windows).map((x, j) => j === i ? { ...x, start: e.target.value } : x) })} />
+                <span className="muted">→</span>
+                <input className="input mono" style={{ width: 80 }} value={w.end}
+                       onChange={(e) => upd({ windows: arr(draft.windows).map((x, j) => j === i ? { ...x, end: e.target.value } : x) })} />
+                <span className="muted" style={{ fontSize: 11 }}>{txt(draft.timezone, "UTC")}</span>
+                <button type="button" className="btn ghost" style={{ padding: "1px 6px", fontSize: 11 }}
+                        onClick={() => upd({ windows: arr(draft.windows).filter((_, j) => j !== i) })}>remove</button>
+              </div>
+            ))}
+            <div className="muted" style={{ fontSize: 11 }}>
+              start &lt; end = a window inside one day · start &gt; end = an overnight window that crosses
+              midnight (17:00 → 08:00, labelled "(overnight)") · identical times are rejected as impossible.
+            </div>
+            {fieldErrs.windows && <div className="kit-inline-err" style={{ fontSize: 11.5 }}>{fieldErrs.windows}</div>}
+          </div>
+
+          <div className="kit-cols">
+            <div style={{ flex: "1 1 160px" }}>
+              <label className="fld">Timezone (windows + days)
+                <select className="input" value={draft.timezone}
+                        onChange={(e) => upd({ timezone: e.target.value })}>
+                  {(tzOpts.includes(draft.timezone) ? tzOpts : [draft.timezone, ...tzOpts]).map((t) => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select></label>
+              {fieldErrs.timezone && <div className="kit-inline-err" style={{ fontSize: 11.5 }}>{fieldErrs.timezone}</div>}
+            </div>
+            <div style={{ flex: "1 1 160px" }}>
+              <label className="fld">Cooldown (minutes)
+                <input className="input mono" value={draft.cooldown_minutes}
+                       onChange={(e) => upd({ cooldown_minutes: e.target.value })} /></label>
+              <label className="fld">Max trades / day
+                <input className="input mono" value={draft.max_trades_per_day}
+                       onChange={(e) => upd({ max_trades_per_day: e.target.value })} /></label>
+            </div>
+            <div style={{ flex: "1 1 160px" }}>
+              <label className="fld">Spread limit (points)
+                <input className="input mono" value={draft.spread_limit_points}
+                       onChange={(e) => upd({ spread_limit_points: e.target.value })} /></label>
+              <label className="fld">Max open positions
+                <input className="input mono" value={draft.max_positions}
+                       onChange={(e) => upd({ max_positions: e.target.value })} /></label>
             </div>
           </div>
-          <div style={{ flex: "1 1 200px" }}>
-            <label className="fld">Start time
-              <input className="input mono" value={cfg.start_time}
-                     onChange={(e) => setCfg({ ...cfg, start_time: e.target.value })} placeholder="00:00" /></label>
-            <label className="fld">End time
-              <input className="input mono" value={cfg.end_time}
-                     onChange={(e) => setCfg({ ...cfg, end_time: e.target.value })} placeholder="23:59" /></label>
-            <label className="fld">Timezone
-              <input className="input mono" value={cfg.timezone}
-                     onChange={(e) => setCfg({ ...cfg, timezone: e.target.value })} /></label>
+
+          <div className="kit-summary" style={{ marginTop: 8, padding: "6px 8px", background: "rgba(148,163,184,0.08)", borderRadius: 6 }}>
+            <div className="muted" style={{ fontSize: 11 }}>Summary{dirty ? " (unsaved changes)" : " (stored)"}</div>
+            <div style={{ fontSize: 12.5 }}>
+              {txt(state?.description, "—")}
+            </div>
+            <div className="muted" style={{ fontSize: 11 }}>
+              days: {arr(draft.days).length ? arr(draft.days).map((d) => dayNames.find((x) => Number(x.value) === Number(d))?.label?.slice(0, 3) || d).join("/") : "no restriction"}
+              {" · "}sessions: {arr(draft.sessions).length ? arr(draft.sessions).join("+") : "no restriction"}
+              {" · "}regimes: {arr(draft.regimes).length ? arr(draft.regimes).join("+") : "no restriction"}
+              {" · "}timeframes: {arr(draft.timeframes).length ? arr(draft.timeframes).join("+") : "no restriction"}
+              {" · "}conditions: {Object.entries(objOrNull(draft.conditions) || {}).filter(([, v]) => v).map(([k]) => k).join("+") || "none"}
+              {" · "}windows: {arr(draft.windows).length ? arr(draft.windows).map((w) => `${w.start}–${w.end}`).join(", ") : "none"}
+              {" · "}enabled: {draft.enabled ? "yes" : "NO"}
+            </div>
           </div>
-          <div style={{ flex: "1 1 200px" }}>
-            <label className="fld">Cooldown (minutes)
-              <input className="input mono" value={cfg.cooldown_minutes}
-                     onChange={(e) => setCfg({ ...cfg, cooldown_minutes: e.target.value })} /></label>
-            <label className="fld">Max trades / day
-              <input className="input mono" value={cfg.max_trades_per_day}
-                     onChange={(e) => setCfg({ ...cfg, max_trades_per_day: e.target.value })} /></label>
-            <label className="fld">Spread limit (points)
-              <input className="input mono" value={cfg.spread_limit_points}
-                     onChange={(e) => setCfg({ ...cfg, spread_limit_points: e.target.value })} /></label>
-            <label className="fld">Max open positions
-              <input className="input mono" value={cfg.max_positions}
-                     onChange={(e) => setCfg({ ...cfg, max_positions: e.target.value })} /></label>
-          </div>
-        </div>
+        </>
       )}
 
-      {rules.length > 0 && (
+      {ruleRows.length > 0 && (
         <table className="table compact" style={{ marginTop: 8 }}>
           <thead><tr><th>Rule</th><th>State</th><th>Detail</th></tr></thead>
           <tbody>
-            {rules.map((r) => (
+            {ruleRows.map((r) => (
               <tr key={r.rule}>
                 <td className="mono">{r.rule}</td>
                 <td><Badge tone={r.ok ? "ok" : "warn"}>{r.ok ? "ok" : "blocking"}</Badge></td>
@@ -1218,8 +1384,13 @@ export function ScheduleDialog({ nodeId, onClose, onSaved }) {
           </tbody>
         </table>
       )}
-      <div className="muted" style={{ fontSize: 11.5, marginTop: 6 }}>
-        {txt(state?.description, "")} — the live engine evaluates exactly these rules before every order.
+      <div className="row-bar" style={{ marginTop: 8 }}>
+        <div className="muted" style={{ fontSize: 11.5 }}>
+          {txt(state?.description, "")} — the live engine and the deep backtest evaluate exactly these rules
+          (one evaluator: app.live_testing.schedule).
+        </div>
+        <div className="spacer" />
+        <button type="button" className="btn ghost" disabled={!draft || !dirty} onClick={reset}>Reset changes</button>
       </div>
     </ConfirmModal>
   );
