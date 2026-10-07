@@ -30,18 +30,79 @@ if "%VENV_PYTHON%"=="" (
     if exist "%ROOT_DIR%\.venv\Scripts\python.exe" set "VENV_PYTHON=%ROOT_DIR%\.venv\Scripts\python.exe"
 )
 
-REM 2. Verify Frontend Dist
-if not exist "%ROOT_DIR%\frontend\dist\index.html" (
-    echo [ACTION] Compiling frontend production bundle...
-    pushd "%ROOT_DIR%\frontend"
-    call npm run build
-    popd
-    if not exist "%ROOT_DIR%\frontend\dist\index.html" (
-        echo [ERROR] Failed to compile frontend\dist\index.html.
-        pause
-        exit /b 1
-    )
+REM 2. Verify Frontend Dist - it must be built from the CURRENT frontend\src.
+REM    The executable embeds frontend\dist verbatim (EvolutionaryTradingLab.spec),
+REM    so packaging a stale bundle would ship the old interface again. Presence
+REM    of index.html is not enough: the bundle identity is verified against the
+REM    source fingerprint and rebuilt when it does not match.
+if "%VENV_PYTHON%"=="" set "VENV_PYTHON=python"
+set "GUARD=%ROOT_DIR%\backend\tools\frontend_build_guard.py"
+
+"%VENV_PYTHON%" "%GUARD%" --root "%ROOT_DIR%" --check
+if not errorlevel 1 (
+    echo [OK] frontend\dist is already built from the current frontend\src.
+    goto :FE_READY
 )
+
+echo [ACTION] frontend\dist does not match frontend\src. Rebuilding it before packaging.
+where npm >nul 2>nul
+if errorlevel 1 goto :FE_NO_NPM
+
+pushd "%ROOT_DIR%\frontend"
+if exist "node_modules" goto :FE_BUILD
+
+echo [..] Installing frontend dependencies (npm install)...
+call npm install --no-audit --no-fund
+if errorlevel 1 goto :FE_INSTALL_FAILED
+
+:FE_BUILD
+echo [..] Compiling frontend\src into frontend\dist (npm run build)...
+call npm run build
+if errorlevel 1 goto :FE_BUILD_FAILED
+popd
+
+"%VENV_PYTHON%" "%GUARD%" --root "%ROOT_DIR%" --stamp
+if errorlevel 1 goto :FE_STAMP_FAILED
+
+"%VENV_PYTHON%" "%GUARD%" --root "%ROOT_DIR%" --check
+if errorlevel 1 goto :FE_UNVERIFIED
+
+:FE_READY
+echo [OK] frontend\dist is built from the current frontend\src - this is the bundle the executable will embed.
+"%VENV_PYTHON%" "%GUARD%" --root "%ROOT_DIR%" --summary
+goto :FE_VERIFIED
+
+:FE_NO_NPM
+echo [ERROR] npm was not found on PATH, so frontend\dist cannot be rebuilt.
+echo         Install Node.js 18+ and run this script again.
+pause
+exit /b 1
+
+:FE_INSTALL_FAILED
+popd
+echo [ERROR] npm install failed in frontend\. See LOGS\build_exe.log.
+pause
+exit /b 1
+
+:FE_BUILD_FAILED
+popd
+echo [ERROR] npm run build failed in frontend\. See LOGS\build_exe.log.
+pause
+exit /b 1
+
+:FE_STAMP_FAILED
+echo [ERROR] The freshly built bundle could not be stamped (frontend\dist\build-info.json).
+echo         Refusing to package a bundle whose origin cannot be proven.
+pause
+exit /b 1
+
+:FE_UNVERIFIED
+echo [ERROR] frontend\dist still does not match frontend\src after a successful build.
+echo         Refusing to package a stale frontend. Run REPAIR.bat, then try again.
+pause
+exit /b 1
+
+:FE_VERIFIED
 
 REM 3. Ensure PyInstaller is installed
 echo [..] Checking PyInstaller...

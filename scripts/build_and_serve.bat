@@ -19,7 +19,16 @@ if "%VENV_PYTHON%"=="" (
     if errorlevel 1 exit /b 1
 )
 
-echo [2/3] Installing frontend dependencies and compiling production bundle...
+echo [2/3] Ensuring the production bundle is built from the current frontend\src...
+if "%VENV_PYTHON%"=="" set "VENV_PYTHON=python"
+set "GUARD=%ROOT_DIR%\backend\tools\frontend_build_guard.py"
+
+"%VENV_PYTHON%" "%GUARD%" --root "%ROOT_DIR%" --check
+if not errorlevel 1 (
+    echo [OK] frontend\dist already matches frontend\src - rebuilding is not required.
+    goto :FE_READY
+)
+
 pushd "%ROOT_DIR%\frontend"
 if not exist "node_modules" call npm install --no-audit --no-fund
 call npm run build
@@ -29,6 +38,17 @@ if not exist "%ROOT_DIR%\frontend\dist\index.html" (
     echo [ERROR] Frontend build failed to produce frontend\dist\index.html.
     pause & exit /b 1
 )
+
+"%VENV_PYTHON%" "%GUARD%" --root "%ROOT_DIR%" --stamp
+"%VENV_PYTHON%" "%GUARD%" --root "%ROOT_DIR%" --check
+if errorlevel 1 (
+    echo [ERROR] frontend\dist does not match frontend\src after the build.
+    echo         Refusing to serve a dashboard that is not the current interface.
+    pause & exit /b 1
+)
+
+:FE_READY
+echo [OK] Serving frontend\dist built from the current frontend\src.
 
 echo [3/3] Starting backend server and opening dashboard at http://localhost:8787...
 start http://localhost:8787/
