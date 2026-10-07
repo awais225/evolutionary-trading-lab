@@ -3777,3 +3777,156 @@ V5.1a — LIVE TESTING NODE INDEX + BROKER-AWARE RISK RECALC (COMMIT 21f7ae9)
                    call the place path validates against.
 
 =============================================================
+
+=============================================================
+V5.1a §32/§33 — HISTORICAL DATA COVERAGE REPORT + RUN BALANCES
+=============================================================
+  Commit         : 69e7d94fc11754946437199494371fbd693436ce
+                   "feat: report historical data coverage and run balances in
+                    deep backtests"
+                   previous HEAD 97ad03b8d1042559ffdc3e3d14516c485274bab3
+  Requirement    : §32 - a deep backtest must state the historical data it
+                   actually loaded (symbol, timeframe, requested vs actual
+                   range, bars, local/MT5/mixed source, completeness, missing
+                   periods, quality) so a subset can never be presented as the
+                   whole period. §33 - the result must state the starting and
+                   ending account balance.
+
+  Backend        : backend/app/historical_backtest/runs.py
+                   * TF_SECONDS - seconds per bar for M1..D1 (the run's own
+                     timeframe drives the completeness grid).
+                   * _coverage_report(cfg, metrics) - reads the dataset's own
+                     bar timestamps through get_data_engine().get_frame(),
+                     slices them to the window the run actually used, and
+                     reports: requested {start,end,window} vs actual
+                     {first,last,bars}, dataset identity (id/source/broker/
+                     server/bars/version/fingerprint), source_label
+                     ("MT5 (the terminal's own historical bars)" vs the lab
+                     simulator label), expected_bars and completeness_pct
+                     against a continuous grid, complete flag, quality
+                     {gaps, missing_bars_total, monotonic_increasing,
+                     duplicate_timestamps, first/last bar}, missing_periods
+                     (capped at MAX_LISTED_GAPS=12) and an interpretation note
+                     that names the grid baseline and the gap list.
+                   * stored with the run in stored_metrics and surfaced both
+                     top-level ("coverage") and under results.coverage, so the
+                     existing readers keep working.
+                   * _apply_balances(cfg, metrics) - start_balance from the
+                     run's own configured initial_balance, end_balance from the
+                     engine's final_equity (else start + net_profit), plus a
+                     balance_source note. Nothing is invented when the run has
+                     no money figures (a pre-patch run reports null, not 0).
+                   * verdict/interpretation text added to the run payload.
+  Frontend       : frontend/src/pages/DeepBacktest.jsx
+                   * RunMetrics({metrics, derived, schedule, coverage, verdict,
+                     error, status}) - avg win/avg loss fall back to the
+                     backend's results.derived block instead of rendering '-'.
+                   * coverage strip in the run details: bars used, dataset
+                     source label, completeness %, gaps, plus a
+                     requested-vs-actual line and a collapsible list of the
+                     missing periods. Absent coverage renders nothing (never a
+                     synthetic 100%).
+                   * imports fmt from ../api and arr/txt from ../lib/safe.js.
+  Tests          : tests/test_v5_1a_coverage_and_balances.py (new, 8 tests) -
+                   the report is checked against the real provisioned MT5
+                   dataset (bars/first/last/source/gaps read-only), requested
+                   vs actual bounds, completeness + named gaps, the empty
+                   window (no coverage is claimed), the simulator label,
+                   balance derivation (equity, start+net, and the no-balance
+                   case) and the run-payload builder for both a run with and
+                   without a coverage blob. No order is placed; DATA is never
+                   written.
+                   frontend/tests/v48_ui_smoke.jsx - the DeepBacktest case now
+                   opens a run's Details (the runs table action, last on the
+                   page) and asserts the rendered coverage strip: bars used
+                   1850, completeness 68.32 %, requested vs used range, the
+                   missing-periods list, the MT5 source label, avg win 12.5
+                   from the derived block and the 10000 start balance. The runs
+                   stub carries the real payload shape (coverage + derived).
+  Tests run      : EVOLUTIONARY_LAB_DATA_ROOT=/opt/lmsarena-storage/DATA
+                   python -m pytest -q -p no:cacheprovider
+                     -> 437 passed, 1 warning (StarletteDeprecationWarning),
+                        0 failed (was 429 before this slice).
+                   node tests/v48_ui_smoke.mjs (from frontend/)
+                     -> 50/50 renders OK, 114 stubbed API calls, no
+                        undefined/NaN/[object Object].
+                   npm run build -> vite build OK (5.74s), entry assets
+                     assets/index-SotJQRVQ.js + assets/index-DY0FUd-S.css.
+                   python backend/tools/frontend_build_guard.py --root . --stamp
+                     --summary -> GUARD_STAMPED=True, SRC_HASH=9431c59e85c85065,
+                        INDEX_SHA256=33162ab102f5598f.
+                   python backend/tools/frontend_build_guard.py
+                     --verify-served http://127.0.0.1:8787
+                     -> SERVED_STATUS=FRESH, SERVED_MATCHES_LOCAL_SRC=True,
+                        SERVED_DIST_MATCHES_SRC=True, SERVED_REASONS=[].
+
+  Live check     : backend restarted on 127.0.0.1:8787 with the patched source
+                   (EVOLUTIONARY_LAB_DATA_ROOT=/opt/lmsarena-storage/DATA,
+                    uvicorn app.main:app --host 0.0.0.0 --port 8787);
+                   GET /api/mt5-historical/runs -> the post-patch run
+                     HRUN-20261007-095614-4225E1 (node 877, XAUUSD M15,
+                     2026-09-07 -> 2026-10-05, MT5 data) reports
+                     start_balance 10000.0, end_balance 10097.35 and a full
+                     coverage block: bars_used 1850, expected_bars 2708,
+                     completeness_pct 68.316, complete false, quality.gaps 20,
+                     missing_bars_total 858, monotonic_increasing true,
+                     duplicate_timestamps 0, source_label "MT5 (the terminal's
+                     own historical bars)", first missing period
+                     2026-09-07T21:15Z -> 2026-09-08T01:00Z (14 bars).
+                     The pre-patch twin HRUN-20261007-095431-C4567C correctly
+                     reports null balances and no coverage - nothing is
+                     back-filled or invented.
+                   GET / -> index.html served with content-length 418, ETag,
+                     cache-control "no-store, must-revalidate" and the current
+                     entry assets.
+                   GET /system/build -> dist_status/registration matches the
+                     freshly stamped bundle (entry assets above).
+  Not claimed    : no Windows terminal in this environment, so no MT5 order was
+                   placed and no live node was started in this slice; the
+                   coverage numbers quoted above are the real provisioned MT5
+                   bars (Raw Trading Ltd ICMarketsSC-Demo export), not a
+                   synthetic fixture.
+
+=============================================================
+V5.1a §9 / §40 / §42 / §46 — STATIC-BUILD CHECK, TEST INVENTORY, REPORT
+=============================================================
+  Report        : V5_1A_REPORT.md (new, root of the repository) — root causes,
+                  files changed, architecture (one schedule evaluator, one
+                  risk/volume calculation, qualified-node index, deep-backtest
+                  pipeline, experiment-scoped reset/numbering), the §9
+                  browser/static-build measurements, the §40 test inventory,
+                  the §42 43-step acceptance table and the git record.
+
+  §9 measured   : GET / -> text/html 418 bytes, ETag, cache-control
+                  "no-store, must-revalidate";
+                  GET /assets/index-SotJQRVQ.js -> text/javascript,
+                  cache-control "public, max-age=31536000, immutable", bytes
+                  identical to frontend/dist (sha256 b9badfc0...);
+                  the same headers on the CSS entry asset;
+                  no service worker, no PWA manifest, no frontend/public assets
+                  and no client-side router, so one browser cannot be served a
+                  different bundle than another;
+                  guard --stamp -> SRC_HASH 9431c59e85c85065; --verify-served ->
+                  SERVED_STATUS=FRESH; --identify -> "an Evolutionary Trading
+                  Research Lab backend"; a port with nothing on it ->
+                  SERVED_STATUS=UNREACHABLE with a clean exit;
+                  start.bat L140-L207 guards the bundle before start
+                  (rebuild + stamp, abort if npm is missing) and L211-L248
+                  resolves the port, verifies the served bundle and stops a
+                  stale/foreign LAB instance by exact PID only.
+
+  §40 inventory : tests/test_v5_1a_live_index_and_risk.py (13),
+                  tests/test_v5_manual_order.py (13), tests/test_v5_live_testing.py
+                  (25), tests/test_v5_1a_qualified_nodes.py (25),
+                  tests/test_v5_1a_coverage_and_balances.py (8),
+                  tests/test_frontend_serving.py (15) — run together: 99 passed.
+                  Full suite: 437 passed (see the entry above).
+
+  §42 status    : 40 of the 43 reconstructed acceptance steps carry executed
+                  evidence; step 40 (a real MT5 DEMO order) and the
+                  market-session half of step 41 need the operator's Windows
+                  machine with the terminal and are explicitly NOT claimed.
+
+  Not claimed   : no MT5 terminal in this environment (the bridge reports
+                  platform_mode SIMULATOR), therefore no real DEMO order, no
+                  real fill and no live session are reported anywhere.
