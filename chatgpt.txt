@@ -3285,3 +3285,34 @@ DECISIONS:
     the fix is in the order path, not in the interpreter.
   * The operator was running 5642b1d. The order-check fix lives in 5cd8eba and is
     only visible after a `git pull` of main — 7d9cc7f is now on origin/main.
+
+
+================================================================================
+REQUEST / DECISION HISTORY — V5.2.2   2026-10-07 16:09 UTC
+================================================================================
+OPERATOR QUESTION (2026-10-07):
+  "why live eligible are 0 nodes? what's the logic here? Shouldn't all
+   active/qualified nodes be live eligible?"
+ANSWER GIVEN (with the measured evidence):
+  * The number counted ENROLMENT, not capability: an active live-test config, an
+    enabled MT5-demo config or LIVE_TESTING status.  On the real DATA that is 0
+    because (a) no current-experiment node has been STARTed yet and (b) the only 16
+    active config rows belong to LEGACY_TEST infrastructure nodes, which the engine
+    permanently refuses ("LEGACY_TEST node - never a live trading candidate").
+  * The DATA and the engine are healthy; the LABEL was wrong, and the Live Testing
+    page's own empty-state copy already described the correct rule.
+DECISIONS TAKEN:
+  * LIVE_TESTING_ELIGIBLE = CAPABILITY: qualified nodes the engine's own
+    tradeability predicate accepts — the nodes START can enrol.  This is what the
+    operator expected ("all active/qualified nodes"), so a fresh lab reports its real
+    candidate count (37 today) instead of 0.
+  * LIVE_TESTING_ACTIVE = ENROLMENT: enrolled AND accepted right now (the nodes the
+    engine would actually trade).  0 is the honest value until the operator presses
+    START, and the KPI on the Live Testing page is that same number.
+  * Enrolled-but-rejected rows stay visible: enrolled_total / enrolled_rejected plus
+    the raw active_configs_total (16 on this DATA) — nothing is hidden to make the
+    headline number look better, and nothing is inflated.
+  * One predicate (app/live_testing/eligibility.py) is used by the engine AND the
+    counters, so the dashboard number and the enforcement path cannot drift apart.
+  * The old enrolment meaning was NOT deleted — it became LIVE_TESTING_ACTIVE, and
+    the regression suite now pins both properties separately.

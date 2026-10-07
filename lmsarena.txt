@@ -4752,3 +4752,79 @@ Testing population)   2026-10-07 15:41 UTC   HEAD 7d9cc7f
   schedules / execution-event UI) and 9e9d25b (population strip on every page +
   shortlist schedule gate). The operator's failing run was on 5642b1d, i.e. before
   the order-check fix existed — pulling main is what removes the UNKNOWN panel.
+
+
+================================================================================
+LMSARENA IMPLEMENTATION LOG — V5.2.2 §10 (LIVE TESTING eligibility semantics)
+2026-10-07 16:09 UTC   HEAD da93126
+================================================================================
+§A  THE OPERATOR'S QUESTION
+    "why live eligible are 0 nodes? what's the logic here? Shouldn't all
+     active/qualified nodes be live eligible?"
+    He was right to ask: QUALIFIED read 33 while LIVE ELIGIBLE read 0, and the Live
+    Testing page listed every qualified node with a START button.  Nothing was
+    broken in the DATA or in the engine — the WORD was wrong.
+§B  WHAT THE OLD NUMBER ACTUALLY COUNTED
+    populations.py computed ``live`` = "nodes wired into a live layer": an ACTIVE
+    live_test_config, an enabled mt5_demo_config, or LIVE_TESTING status — i.e.
+    ENROLMENT, published under the name "eligible".  Measured on the real DATA
+    (re-provisioned verbatim this run: 11,370 files / 10,787 strategies /
+    10,000 USER_RESEARCH + 787 LEGACY_TEST):
+      * live_test_configs: 16 rows, all is_active=1 -> every one joins a
+        LEGACY_TEST node (15 status QUALIFIED, 1 PAPER), plus mt5_demo_configs: 1
+        enabled row (strategy 240, already in those 16);
+      * engine.eligible_nodes(): 0 accepted / 16 excluded, every reason
+        "LEGACY_TEST node - never a live trading candidate";
+      * detail.live_inputs: configured 0, live_testing_status 0;
+      * under the repaired rule the same DATA gives 33 live-eligible nodes
+        (all 33 qualified nodes pass the predicate; rejected = {}).
+    So 0 never meant "no node qualifies" — it meant "nothing has been STARTed, and
+    the only enrolments that exist belong to pre-experiment infrastructure".
+§C  THE REPAIR (capability vs enrolment, one predicate)
+    * NEW backend/app/live_testing/eligibility.py — the ONE tradeability predicate
+      (LEGACY_TEST / DEAD-KILLED-RETIRED-INVALID-FAILED-ARCHIVED / genome symbol /
+      entry rules) keeping the engine's exact operator-facing wording, with stable
+      codes and genome_of().
+    * engine.eligible_nodes() now calls that predicate (same messages, same order).
+    * populations.py: live_eligibility() = qualified AND tradeable -> the eligible
+      id list plus a per-reason histogram; counts.live = CAPABILITY (no config row
+      needed), counts.live_active = ENROLMENT accepted by the same predicate;
+      detail.live_inputs carries eligible/eligible_detail/active/active_ids/
+      enrolled_total/enrolled_rejected/active_configs_total/configured/
+      live_testing_status; POPULATION_STATE_KEYS + DEFINITIONS extended with
+      LIVE_TESTING_ACTIVE.
+    * routes.nodes_populations(): state_order now comes from POPULATION_STATE_KEYS
+      and the uppercase definitions are published (merged with the lowercase ones),
+      which also fixes the strip's empty tooltips.
+    * frontend: NodePopulationStrip shows LIVE ELIGIBLE and LIVE ACTIVE as two
+      chips; LiveNodeIndex's empty state lists both; Live Testing's "Enrolled nodes"
+      KPI is labelled "= LIVE TESTING ACTIVE".
+§D  EXECUTED / VERIFIED
+    Full suite: 762 passed, 0 failed, 1 warning in 132.47 s (753 -> +9 new tests in
+      tests/test_v5_2_2_live_eligibility_semantics.py; the three files that pinned
+      the old enrolment meaning updated: test_v5_1a_node_populations.py,
+      test_v5_2_deep_testing_data.py, test_v5_2_1_gate_identity_and_live_population.py).
+    Build: npx vite build -> assets/index-DlH9u2fD.js + assets/index-Bpzv1Dzq.css,
+      guard SRC e7680bfc2e436bfb / INDEX 92a8ff95cc8b0837, stamp git_head da93126,
+      dist FRESH.
+    Runtime: uvicorn pid 5372, token LAB-V522-DA93126, code hash c561ff1edebb72a7 ==
+      local, PROCESS_BUNDLE_IS_CURRENT True, PROCESS_BUNDLE_CHANGED_SINCE_START
+      False, --verify-served exit 0.
+    Live API: /api/nodes/populations -> TOTAL 10,811 / ALIVE 40 / QUALIFIED 37 /
+      FINAL 0 / DEEP 37 / LIVE_TESTING_ELIGIBLE 37 / LIVE_TESTING_ACTIVE 0 with
+      state_order of seven names.
+    Live preview rebuilt (81 endpoints, 3,996,625 bytes) and probed with jsdom:
+      verify_preview PASS (18/18 nav, 0 console errors), live_probe PASS,
+      eligibility_probe PASS 9/9 — the rendered strip reads "NODES TOTAL 10,811
+      ALIVE 40 QUALIFIED 37 FINAL ELIGIBLE 0 DEEP ELIGIBLE 37 LIVE ELIGIBLE 37
+      LIVE ACTIVE 0" and every chip equals the backend's own number.
+§E  NOTE
+    This sandbox was wiped again before the work (DATA, venv and node_modules all
+    gone).  DATA was re-provisioned verbatim from the private repo through
+    scripts/lmsarena_provision_data.sh on the first attempt this time (git-lfs
+    3.5.1 reinstalled; python3.13-venv installed for the venv; npm install for the
+    frontend).  Nothing was regenerated, filtered or fabricated.
+§GIT
+  commit da93126fccd6927c27daf8aeb2b2215e3e5addde "V5.2.2 §10: live-testing ELIGIBLE is capability ... ACTIVE is
+  enrolment" pushed to origin/main (81300bb..da93126) and verified with
+  git ls-remote origin refs/heads/main == da93126fccd6927c27daf8aeb2b2215e3e5addde.
