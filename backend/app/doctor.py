@@ -150,12 +150,29 @@ def run_diagnostics() -> int:
     else:
         record("Database & Lineage", "WARN", "DATABASE/lab_state.db does not exist yet (will be initialized on first run).")
 
-    # 7. Frontend Production Bundle
+    # 7. Frontend Production Bundle — presence is not enough: the bundle must be
+    #    the one built from the frontend/src currently on disk (V5 launcher fix).
     fe_index = ROOT_DIR / "frontend" / "dist" / "index.html"
-    if fe_index.exists() and fe_index.stat().st_size > 50:
-        record("Frontend Bundle", "PASS", f"frontend/dist/index.html verified ({fe_index.stat().st_size} bytes).")
-    else:
-        record("Frontend Bundle", "WARN", "frontend/dist/index.html missing or empty. Run pre-requisite.bat to compile.")
+    try:
+        from .frontend_build import check_dist
+        info = check_dist(ROOT_DIR)
+        if info["ok"]:
+            record("Frontend Bundle", "PASS",
+                   f"frontend/dist was built from the current frontend/src "
+                   f"({info['src_file_count']} source files, src hash {info['src_hash'][:12]}).")
+        elif info["status"] == "MISSING":
+            record("Frontend Bundle", "WARN",
+                   "frontend/dist/index.html is missing. START.bat builds it automatically "
+                   "(Node.js 18+ required) or run pre-requisite.bat.")
+        else:
+            record("Frontend Bundle", "WARN",
+                   f"frontend/dist is {info['status']} — it does NOT match frontend/src: "
+                   + "; ".join(info["reasons"]) + ". START.bat rebuilds it automatically.")
+    except Exception as e:                                            # pragma: no cover - defensive
+        if fe_index.exists() and fe_index.stat().st_size > 50:
+            record("Frontend Bundle", "PASS", f"frontend/dist/index.html verified ({fe_index.stat().st_size} bytes).")
+        else:
+            record("Frontend Bundle", "WARN", "frontend/dist/index.html missing or empty. Run pre-requisite.bat to compile.")
 
     # 8. Desktop EXE Packaging Layer
     desktop_app = ROOT_DIR / "desktop" / "app_window.py"

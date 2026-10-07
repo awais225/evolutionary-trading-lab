@@ -269,6 +269,7 @@ if not exist "%ROOT_DIR%\frontend\dist\index.html" (
 )
 
 echo   [OK] Production dashboard bundle compiled and verified at frontend\dist\index.html.
+call "%VENV_PYTHON%" "%ROOT_DIR%\backend\tools\frontend_build_guard.py" --root "%ROOT_DIR%" --stamp >> "%LOG_FILE%" 2>&1
 echo [OK] frontend\dist\index.html successfully verified. >> "%LOG_FILE%"
 
 REM ---------------------------------------------------------------------------

@@ -38,6 +38,26 @@ log = logging.getLogger("main")
 ROOT = P.ROOT_DIR
 FRONTEND_DIST = ROOT / "frontend" / "dist"
 
+
+class DashboardStaticFiles(StaticFiles):
+    """Serve the built dashboard without ever letting a browser pin a stale one.
+
+    ``index.html`` is served ``no-store`` so a rebuilt bundle is picked up on the
+    next request instead of being answered from the browser cache, while the
+    content-hashed files under ``assets/`` stay immutable-cacheable (their name
+    changes whenever their content does).
+    """
+
+    async def get_response(self, path: str, scope):                     # type: ignore[override]
+        resp = await super().get_response(path, scope)
+        request_path = str(scope.get("path") or "")
+        ctype = str(resp.headers.get("content-type") or "")
+        if ctype.startswith("text/html") or request_path in ("", "/") or request_path.endswith(".html"):
+            resp.headers["Cache-Control"] = "no-store, must-revalidate"
+        elif request_path.startswith("/assets/"):
+            resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return resp
+
 app = FastAPI(title="Evolutionary Trading Research Lab", version=APP_VERSION,
               # V4.7: no handler can ever return invalid JSON / NaN / a raw object
               default_response_class=SafeJSONResponse)
@@ -55,6 +75,21 @@ async def startup() -> None:
     background bootstrap is the DATA scanning work that used to delay the
     listening socket by over a second.
     """
+    # Frontend bundle identity: never let a stale dashboard be served silently.
+    try:
+        from .frontend_build import check_dist
+        _fe = check_dist(ROOT)
+        if _fe["ok"]:
+            log.info("frontend bundle: frontend/dist matches frontend/src (src hash %s, %d files)",
+                     _fe["src_hash"][:16], _fe["src_file_count"])
+        else:
+            log.warning("frontend bundle is %s and does NOT match frontend/src (%s). "
+                        "The launcher (start.bat) rebuilds it; by hand: cd frontend && npm run build. "
+                        "Served bundle: %s",
+                        _fe["status"], "; ".join(_fe["reasons"]) or "unknown reason", _fe["dist_dir"])
+    except Exception as e:                                        # pragma: no cover - defensive
+        log.warning("frontend bundle identity could not be checked: %s", e)
+
     # 0. Single-Instance PID Lease & Pre-Bind Check (spec V2.9)
     from .lease import get_lease_manager
     lease_mgr = get_lease_manager()
@@ -365,9 +400,24 @@ def root_system_status():
     }
 
 
+@app.get("/system/build")
+def system_build():
+    """What this backend is *actually* serving on ``/`` and from where.
+
+    The launcher (``start.bat``) reads this to decide whether an instance that is
+    already listening serves *this* repository at the *current* build, instead of
+    assuming that any process answering ``/health`` is up to date. It also lets
+    an operator see at a glance whether ``frontend/dist`` was built from the
+    ``frontend/src`` currently on disk.
+    """
+    from .frontend_build import served_payload
+    serving = "static" if (FRONTEND_DIST / "index.html").exists() else "fallback"
+    return served_payload(ROOT, serving=serving)
+
+
 # ---- serve built frontend (single-port mode) ----
 if FRONTEND_DIST.exists() and (FRONTEND_DIST / "index.html").exists():
-    app.mount("/", StaticFiles(directory=str(FRONTEND_DIST), html=True), name="frontend")
+    app.mount("/", DashboardStaticFiles(directory=str(FRONTEND_DIST), html=True), name="frontend")
 else:
     @app.get("/", response_class=HTMLResponse)
     def index_dev():

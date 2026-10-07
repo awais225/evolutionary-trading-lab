@@ -4,9 +4,10 @@ setlocal enabledelayedexpansion
 REM ===========================================================================
 REM       EVOLUTIONARY TRADING RESEARCH LAB V3.2 - APPLICATION LAUNCHER
 REM  Pure Windows Command Prompt (cmd.exe) syntax. Fully deterministic.
-REM  Validates environment, verifies database via verify_database.py, checks
-REM  pre-compiled frontend bundle without npm, manages port 8787, waits for
-REM  API readiness, launches dashboard, and keeps window open for monitoring.
+REM  Validates the environment, verifies the database via verify_database.py,
+REM  proves frontend\dist was built from the current frontend\src (rebuilding it
+REM  when stale), manages port 8787, waits for API readiness, launches the
+REM  dashboard, and keeps the window open for monitoring.
 REM ===========================================================================
 
 title Evolutionary Trading Research Lab V3.2
@@ -130,34 +131,80 @@ echo     Strategies: 371
 echo.
 
 REM ---------------------------------------------------------------------------
-REM STAGE 4: Frontend Production Bundle Verification (Zero NPM required)
+REM STAGE 4: Frontend - prove frontend\dist was built from frontend\src
+REM  The dashboard is served from frontend\dist, which is a generated artifact
+REM  and is NOT committed. This stage verifies that the bundle matches the
+REM  current source and rebuilds it when it does not, so an older interface can
+REM  never be served by the normal launcher.
 REM ---------------------------------------------------------------------------
-if not exist "%ROOT%\frontend\dist\index.html" (
-    echo.
-    echo ===========================================================
-    echo  STARTUP FAILED
-    echo ===========================================================
-    echo.
-    echo [ERROR] Production frontend bundle is missing.
-    echo.
-    echo Expected:
-    echo frontend\dist\index.html
-    echo.
-    echo Run:
-    echo REPAIR.bat
-    echo.
-    echo The application was NOT started because the dashboard bundle is missing.
-    echo Log: %STARTUP_LOG%
-    echo [%DATE% %TIME%] [STARTUP_FAILED] Missing frontend\dist\index.html >> "%STARTUP_LOG%"
-    echo.
-    echo Press any key to close...
-    pause >nul
-    exit /b 1
-)
+set "GUARD=%ROOT%\backend\tools\frontend_build_guard.py"
 
-echo [OK] Frontend production bundle:
-echo frontend\dist\index.html
-echo [OK] Frontend production bundle detected. >> "%STARTUP_LOG%"
+:FE_ENSURE
+echo [..] Verifying the dashboard bundle against frontend\src...
+"%VENV_PYTHON%" "%GUARD%" --root "%ROOT%" --check
+set "FE_RC=%ERRORLEVEL%"
+if "%FE_RC%"=="0" goto :FE_READY
+
+echo [ACTION] frontend\dist does not match frontend\src (guard exit %FE_RC%). Rebuilding it now.
+echo [%DATE% %TIME%] [ACTION] frontend bundle stale/missing (guard exit %FE_RC%). Rebuilding. >> "%STARTUP_LOG%"
+
+where npm >nul 2>nul
+if errorlevel 1 goto :FE_NO_NPM
+
+pushd "%ROOT%\frontend"
+if exist "node_modules" goto :FE_BUILD
+
+echo [..] Installing frontend dependencies (npm install)...
+echo [%DATE% %TIME%] [INFO] npm install (frontend) >> "%STARTUP_LOG%"
+call npm install --no-audit --no-fund
+if errorlevel 1 goto :FE_NPM_FAILED
+
+:FE_BUILD
+echo [..] Compiling frontend\src into frontend\dist (npm run build)...
+echo [%DATE% %TIME%] [INFO] npm run build (frontend) >> "%STARTUP_LOG%"
+call npm run build
+if errorlevel 1 goto :FE_BUILD_FAILED
+popd
+
+echo [..] Recording the bundle identity (frontend\dist\build-info.json)...
+"%VENV_PYTHON%" "%GUARD%" --root "%ROOT%" --stamp
+if errorlevel 1 goto :FE_STAMP_FAILED
+
+"%VENV_PYTHON%" "%GUARD%" --root "%ROOT%" --check
+if errorlevel 1 goto :FE_VERIFY_FAILED
+goto :FE_READY
+
+:FE_NPM_FAILED
+popd
+set "FAILED_REASON=npm install failed in frontend\. The application was NOT started: starting it would serve an out-of-date dashboard."
+set "FAILED_CMD=cd frontend && npm install"
+goto :STARTUP_FAILED
+
+:FE_BUILD_FAILED
+popd
+set "FAILED_REASON=npm run build failed in frontend\. The application was NOT started: starting it would serve an out-of-date dashboard."
+set "FAILED_CMD=cd frontend && npm run build"
+goto :STARTUP_FAILED
+
+:FE_STAMP_FAILED
+set "FAILED_REASON=The freshly built dashboard could not be stamped (frontend\dist\build-info.json), so it cannot be proven to be current."
+set "FAILED_CMD=%VENV_PYTHON% backend\tools\frontend_build_guard.py --root . --stamp"
+goto :STARTUP_FAILED
+
+:FE_VERIFY_FAILED
+set "FAILED_REASON=frontend\dist still does not match frontend\src after a successful build. Run REPAIR.bat and check LOGS\repair.log."
+set "FAILED_CMD=%VENV_PYTHON% backend\tools\frontend_build_guard.py --root . --check"
+goto :STARTUP_FAILED
+
+:FE_NO_NPM
+set "FAILED_REASON=The dashboard bundle in frontend\dist is not built from the current frontend\src and npm was not found on PATH to rebuild it. Install Node.js 18+ (or run PREREQUISITE.bat) and launch again. The application was NOT started with a stale dashboard."
+set "FAILED_CMD=npm run build   (in frontend\)"
+goto :STARTUP_FAILED
+
+:FE_READY
+echo [OK] Dashboard bundle verified against frontend\src.
+echo [OK] Frontend bundle verified against frontend\src. >> "%STARTUP_LOG%"
+"%VENV_PYTHON%" "%GUARD%" --root "%ROOT%" --summary >> "%STARTUP_LOG%" 2>&1
 echo.
 
 REM ---------------------------------------------------------------------------
@@ -166,21 +213,42 @@ REM ---------------------------------------------------------------------------
 call "%VENV_PYTHON%" "%ROOT%\backend\tools\check_port.py" 8787
 set "PORT_STATE=%ERRORLEVEL%"
 
-if "%PORT_STATE%"=="10" (
-    echo [OK] Existing Evolutionary Trading Research Lab backend detected.
-    echo [OK] Opening existing dashboard...
-    echo [OK] Existing lab detected on port 8787. >> "%STARTUP_LOG%"
-    start http://127.0.0.1:8787/
-    echo [OK] Browser launched for existing instance. >> "%STARTUP_LOG%"
-    goto :LAB_RUNNING_DISPLAY
-)
+if "%PORT_STATE%"=="20" goto :PORT_FOREIGN
+if "%PORT_STATE%"=="10" goto :PORT_IN_USE
+goto :PORT_FREE
 
-if "%PORT_STATE%"=="20" (
-    set "FAILED_REASON=Port 8787 is already occupied by an unrelated application. Close the conflicting software or configure another port in CONFIG\lab_config.yaml."
-    set "FAILED_CMD=%VENV_PYTHON% backend\tools\check_port.py 8787"
-    goto :STARTUP_FAILED
-)
+:PORT_IN_USE
+echo [..] Port 8787 already has an Evolutionary Trading Research Lab backend.
+echo [..] Checking that it serves THIS repository at the CURRENT build...
+"%VENV_PYTHON%" "%GUARD%" --root "%ROOT%" --verify-served http://127.0.0.1:8787
+set "SRV_RC=%ERRORLEVEL%"
+if "%SRV_RC%"=="0" goto :REUSE_EXISTING
 
+echo [ACTION] The instance on port 8787 is NOT serving this repository at the current build.
+echo [%DATE% %TIME%] [ACTION] Replacing stale/foreign instance on port 8787 (verify exit %SRV_RC%). >> "%STARTUP_LOG%"
+echo [..] Stopping that instance (graceful shutdown; only this lab is ever stopped)...
+"%VENV_PYTHON%" "%GUARD%" --root "%ROOT%" --stop http://127.0.0.1:8787 --port 8787
+if errorlevel 1 goto :STOP_FAILED
+goto :PORT_FREE
+
+:REUSE_EXISTING
+echo [OK] The running dashboard already serves this repository at the current build.
+echo [OK] Reusing the running instance: verified to serve the current build. >> "%STARTUP_LOG%"
+start http://127.0.0.1:8787/
+echo [OK] Browser launched for the verified instance. >> "%STARTUP_LOG%"
+goto :LAB_RUNNING_DISPLAY
+
+:STOP_FAILED
+set "FAILED_REASON=Port 8787 is held by an instance that is not serving this repository at the current build, and it could not be stopped safely (it may not be this lab at all - unrelated software is never killed). Close that application and launch again."
+set "FAILED_CMD=%VENV_PYTHON% backend\tools\frontend_build_guard.py --root . --stop http://127.0.0.1:8787"
+goto :STARTUP_FAILED
+
+:PORT_FOREIGN
+set "FAILED_REASON=Port 8787 is already occupied by an unrelated application. Close the conflicting software or configure another port in CONFIG\lab_config.yaml."
+set "FAILED_CMD=%VENV_PYTHON% backend\tools\check_port.py 8787"
+goto :STARTUP_FAILED
+
+:PORT_FREE
 echo [INFO] Port: 8787 >> "%STARTUP_LOG%"
 echo.
 
@@ -212,6 +280,17 @@ if errorlevel 1 (
 )
 
 echo [OK] Backend readiness confirmed. >> "%STARTUP_LOG%"
+echo.
+
+REM Prove that the running backend really serves the bundle built in STAGE 4.
+"%VENV_PYTHON%" "%GUARD%" --root "%ROOT%" --verify-served http://127.0.0.1:8787
+if errorlevel 1 (
+    echo [WARN] The running backend does not report the expected frontend build.
+    echo [%DATE% %TIME%] [WARN] verify-served failed after start; check LOGS\startup.log >> "%STARTUP_LOG%"
+) else (
+    echo [OK] Confirmed: the dashboard being served was built from this frontend\src.
+    echo [OK] Serving frontend\dist built from the current frontend\src. >> "%STARTUP_LOG%"
+)
 echo.
 
 REM ---------------------------------------------------------------------------

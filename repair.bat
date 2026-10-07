@@ -70,8 +70,16 @@ if not errorlevel 1 (
         exit /b 1
     )
     echo [OK] Frontend production bundle rebuilt at frontend\dist\index.html.
+    "%VENV_PYTHON%" "%ROOT_DIR%\backend\tools\frontend_build_guard.py" --root "%ROOT_DIR%" --stamp >> "%REPAIR_LOG%" 2>&1
 ) else (
-    echo [WARN] npm not found. Skipping frontend rebuild.
+    call "%VENV_PYTHON%" "%ROOT_DIR%\backend\tools\frontend_build_guard.py" --root "%ROOT_DIR%" --check >nul 2>&1
+    if errorlevel 1 (
+        echo [ERROR] npm not found and frontend\dist does not match frontend\src.
+        echo         Install Node.js 18+, then run REPAIR.bat again.
+        pause
+        exit /b 1
+    )
+    echo [WARN] npm not found. Existing frontend bundle already matches frontend\src.
 )
 
 echo [4/4] Verifying Database Connectivity and Historical Data...
