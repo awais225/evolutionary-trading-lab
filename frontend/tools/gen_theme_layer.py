@@ -38,11 +38,15 @@ ACCENT_SHADES = {
     "purple": {"500": "var(--violet)", "600": "#7c5cd0", "400": "var(--violet)", "300": "var(--violet)",
                "200": "#ddd2ff", "950": "#241c39", "900": "#2c2440", "800": "#3a3060", "700": "#4a3d78"},
     "violet": {"500": "var(--violet)", "400": "var(--violet)", "300": "var(--violet)"},
-    "cyan": {"300": "var(--cyan)", "400": "var(--cyan)", "500": "var(--cyan)", "700": "#166a80"},
-    "emerald": {"300": "var(--green)", "400": "var(--green)", "500": "#17805a", "600": "#10633f",
-                "800": "#0d4a30", "950": "#0d2a1c"},
-    "green": {"300": "var(--green)", "400": "var(--green)", "500": "#17805a", "600": "#10633f"},
-    "rose": {"200": "#ffd5d5", "300": "var(--red)", "400": "var(--red)", "500": "var(--red)",
+    "fuchsia": {"200": "#ddd2ff", "300": "var(--violet)", "400": "var(--violet)",
+                "500": "var(--violet)", "950": "#241c39"},
+    "cyan": {"100": "#cffafe", "200": "#a5f3fc", "300": "var(--cyan)", "400": "var(--cyan)",
+             "500": "var(--cyan)", "700": "#166a80", "950": "#0b2a33"},
+    "emerald": {"100": "#d1fae5", "200": "#a7f3d0", "300": "var(--green)", "400": "var(--green)",
+                "500": "#17805a", "600": "#10633f", "800": "#0d4a30", "950": "#0d2a1c"},
+    "green": {"100": "#d1fae5", "200": "#a7f3d0", "300": "var(--green)", "400": "var(--green)",
+              "500": "#17805a", "600": "#10633f"},
+    "rose": {"100": "#ffe4e4", "200": "#ffd5d5", "300": "var(--red)", "400": "var(--red)", "500": "var(--red)",
              "600": "#c9453f", "700": "#8f2f2f", "800": "#6f2626", "900": "#4a1d1d", "950": "#33181a"},
     "red": {"300": "var(--red)", "400": "var(--red)", "500": "var(--red)"},
     "amber": {"200": "#ffe0a3", "300": "var(--amber)", "400": "var(--amber)", "500": "var(--amber)",
@@ -331,15 +335,34 @@ DYNAMIC_EXTRA = {
 }
 
 
+def _tokens(raw: str):
+    # a class string nested inside a template literal arrives as \"border-…\":
+    # strip the escaping so the tokens are real class names
+    cleaned = (raw or "").replace('\\"', " ")
+    for tok in re.split(r"[\s${}]+", cleaned):
+        tok = tok.strip()
+        if re.fullmatch(r"[a-zA-Z][-a-zA-Z0-9_:./\[\]]*", tok) and not tok.startswith("https"):
+            yield tok
+
+
 def used_classes() -> "set[str]":
+    """Every class name the frontend can put on an element.
+
+    Two passes, because a class name reaches an element two ways:
+      * `className="…"` / `className={`…`}` literally, and
+      * a *conditional* string (`msg.ok ? "border-emerald-600/50 …" : "…"`, or a
+        style helper's return value) that the className-only pass cannot see.
+    The second pass keeps a token only when it maps to a real declaration, so
+    arbitrary strings (URLs, messages) never pollute the layer.
+    """
     used = set()
     for path in list(SRC.rglob("*.jsx")) + list(SRC.rglob("*.js")):
         text = path.read_text(encoding="utf-8", errors="replace")
         for m in re.finditer(r'className=(?:"([^"]*)"|\{`([^`]*)`\}|\{"([^"]*)"\})', text):
-            raw = m.group(1) or m.group(2) or m.group(3) or ""
-            for tok in re.split(r"[\s${}]+", raw):
-                tok = tok.strip()
-                if re.fullmatch(r"[a-zA-Z][-a-zA-Z0-9_:./\[\]]*", tok) and not tok.startswith("https"):
+            used.update(_tokens(m.group(1) or m.group(2) or m.group(3) or ""))
+        for m in re.finditer(r'"([^"\n]{1,120})"|\'([^\'\n]{1,120})\'|`([^`]{1,240})`', text):
+            for tok in _tokens(m.group(1) or m.group(2) or m.group(3) or ""):
+                if declaration(tok) is not None:
                     used.add(tok)
     return used
 

@@ -209,14 +209,23 @@ export function ManualOrderPanel({ defaultSymbol = "XAUUSD" }) {
   const symbolInfo = objOrNull(preview?.symbol_info);
   const defaults = objOrNull(preview?.defaults);
 
-  /* Market + execution state refresh (read-only). */
+  /* Market + execution state refresh (read-only).
+   *
+   * V5.1a §13 — the quote is polled, not read once: the entry price the operator
+   * sees is the *current* live quote for the side (BUY→ask, SELL→bid), so a moving
+   * market is reflected without pressing anything. The preview downstream depends
+   * on `entry`, so it re-sizes on the new quote automatically. */
   useEffect(() => {
     let alive = true;
-    api.mt5ExecutionState().then((r) => alive && setState(r)).catch(() => alive && setState(null));
-    api.liveTestingMarketHeader(form.symbol)
-      .then((r) => { if (!alive) return; setMarket((r?.market) || null); })
-      .catch(() => alive && setMarket(null));
-    return () => { alive = false; };
+    const tick = () => {
+      api.mt5ExecutionState().then((r) => alive && setState(r)).catch(() => alive && setState(null));
+      api.liveTestingMarketHeader(form.symbol)
+        .then((r) => { if (!alive) return; setMarket((r?.market) || null); })
+        .catch(() => alive && setMarket(null));
+    };
+    tick();
+    const t = setInterval(tick, 5000);
+    return () => { alive = false; clearInterval(t); };
   }, [form.symbol]);
 
   /* The preview is the single source of truth for the panel: it is re-run
@@ -290,9 +299,16 @@ export function ManualOrderPanel({ defaultSymbol = "XAUUSD" }) {
 
   return (
     <Card title="Manual order panel"
-          right={<Badge tone={executionAllowed ? "ok" : "warn"}>
-            {executionAllowed ? "DEMO EXECUTION ALLOWED" : "DEMO ONLY"}
-          </Badge>}>
+          right={
+            <div className="row-bar" style={{ margin: 0 }}>
+              <Badge tone={String(market?.source || "").toUpperCase() === "MT5" ? "real" : "sim"}>
+                {String(market?.source || "").toUpperCase() === "MT5" ? "REAL MT5" : "SIMULATOR"}
+              </Badge>
+              <Badge tone={executionAllowed ? "ok" : "warn"}>
+                {executionAllowed ? "DEMO EXECUTION ALLOWED" : "DEMO ONLY"}
+              </Badge>
+            </div>
+          }>
       {confirming && (
         <ConfirmModal
           open

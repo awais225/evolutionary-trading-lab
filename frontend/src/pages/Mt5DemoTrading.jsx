@@ -239,7 +239,7 @@ export default function Mt5DemoTrading() {
             onClick={handleStartAll}
             className="px-3.5 py-1.5 bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs rounded-lg transition-colors shadow flex items-center gap-1.5"
           >
-            <span>▶</span>
+            
             <span>LIVE ALL NODES</span>
           </button>
           <button
@@ -255,14 +255,14 @@ export default function Mt5DemoTrading() {
             onClick={handlePauseAll}
             className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 font-medium text-xs rounded-lg border border-slate-700 transition-colors"
           >
-            ⏸ PAUSE ALL
+            PAUSE ALL
           </button>
           <button
             type="button"
             onClick={handleStopAll}
             className="px-3 py-1.5 bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 font-medium text-xs rounded-lg border border-rose-800 transition-colors"
           >
-            ⏹ STOP ALL
+            STOP ALL
           </button>
         </div>
 
@@ -271,7 +271,7 @@ export default function Mt5DemoTrading() {
           onClick={loadDemoState}
           className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-mono rounded-lg transition-colors"
         >
-          ↻ Refresh Telemetry
+          Refresh Telemetry
         </button>
       </div>
 

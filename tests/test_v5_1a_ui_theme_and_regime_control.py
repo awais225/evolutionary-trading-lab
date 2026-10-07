@@ -122,6 +122,35 @@ def test_07_no_pictographic_emoji_icons(page):
     assert not pictographs, f"{page} contains emoji icons: {sorted(set(pictographs))}"
 
 
+#: media-control glyphs the V5 action buttons must not use (the kit's buttons are
+#: labelled text; these were the visible "this is a different UI" tell)
+BUTTON_GLYPHS = "\u25b6\u23f9\u23f8\u21bb\u21ba\u23ee\u23ed"
+
+CONTROL_FILES = ["components/LiveTestingControl.jsx", "components/LiveTestingPanels.jsx",
+                 "pages/LiveTesting.jsx", "pages/LiveTestResults.jsx",
+                 "pages/Mt5Backtest.jsx", "pages/Mt5DemoTrading.jsx"]
+
+
+@pytest.mark.parametrize("path", CONTROL_FILES)
+def test_07b_action_controls_carry_no_media_glyphs(path):
+    text = (SRC / path).read_text(encoding="utf-8")
+    found = sorted({ch for ch in text if ch in BUTTON_GLYPHS})
+    assert not found, (f"{path} puts glyph icons on controls: {found} — the V5 kit labels "
+                       "buttons with text and uses Badge/.status-pill for state")
+
+
+@pytest.mark.parametrize("path", CONTROL_FILES)
+def test_07c_the_status_area_reads_the_backend_bridge_not_an_assumption(path):
+    """§5/§11 — the MT5 badge is derived from the payload's own source field."""
+    text = (SRC / path).read_text(encoding="utf-8")
+    if path != "components/LiveTestingControl.jsx":
+        return
+    assert 'String(market?.source || "").toUpperCase()' in text, "the bridge must be read from the payload"
+    assert '"REAL MT5"' in text and '"SIMULATOR"' in text and '"UNAVAILABLE"' in text
+    # the badge is only real when the payload says MT5 *and* it is connected
+    assert 'isRealMt5 && connected ? "real"' in text
+
+
 # ===========================================================================
 # 4. the regime control in the schedule editor
 # ===========================================================================
