@@ -37,6 +37,38 @@ def validate_terminal_path(path_str: str) -> Tuple[bool, str]:
     return True, ""
 
 
+def normalize_terminal_path(path_str: str) -> Tuple[str, str]:
+    """Accept either the terminal ``.exe`` **or** the installation folder.
+
+    ``initialize(path=...)`` needs the executable. A saved path can legitimately
+    be a folder (the Windows diagnostic showed exactly that:
+    ``C:\\Program Files\\MetaTrader 5 IC Markets Global``), which makes
+    ``mt5.initialize(path=folder)`` fail with ``-10003 IPC initialize failed,
+    Process create failed`` while auto-discovery still works. Returns
+    ``(usable_path, note)``; the note is empty when nothing had to be changed.
+    """
+    raw = str(path_str or "").strip()
+    if not raw:
+        return "", "empty path"
+    p = Path(raw)
+    try:
+        if p.is_file():
+            return str(p), ""
+        if p.is_dir():
+            for exe in COMMON_EXE_NAMES:
+                cand = p / exe
+                try:
+                    if cand.exists():
+                        return str(cand), (f"the configured path was a folder; initialized "
+                                           f"{cand.name} inside it")
+                except Exception:
+                    continue
+            return str(p), "the configured path is a folder with no terminal executable inside it"
+    except Exception as e:                                  # pragma: no cover - defensive
+        return raw, f"path could not be inspected: {e}"
+    return raw, "the configured path does not exist"
+
+
 def discover_terminals() -> List[Dict[str, str]]:
     """
     Scans common Windows directories for all installed MT5 terminals.

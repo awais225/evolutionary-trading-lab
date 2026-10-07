@@ -61,6 +61,10 @@ class SymbolInfo:
     trade_stops_level: Optional[int] = None    # broker minimum SL/TP distance (points)
     freeze_level: Optional[int] = None
     filling_modes: Optional[List[int]] = None  # supported ORDER_FILLING_* modes
+    # V5.2 §1 — the raw ENUM_SYMBOL_FILLING_MODE bitmask (FOK=1, IOC=2) as the
+    # terminal reported it; 0/None means "no FOK/IOC restriction". Kept beside
+    # the decoded ORDER_FILLING_* list so diagnostics can show both.
+    filling_mode_raw: Optional[int] = None
     # V4.3 - broker specs used for risk-based position sizing (None = unknown,
     # in which case the risk calculation refuses to guess)
     trade_tick_size: Optional[float] = None    # price change for one tick

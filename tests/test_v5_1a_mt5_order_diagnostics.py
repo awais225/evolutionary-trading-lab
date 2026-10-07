@@ -354,7 +354,9 @@ def test_09_the_diagnostic_reports_volume_stops_and_fill_constraints(fake_pkg, r
     d = out["diagnostic"]
     assert d["symbol"]["volume_min"] == 0.01
     assert d["symbol"]["volume_max"] == 50.0
-    assert d["symbol"]["fill_modes"] == [0, 1]              # FOK | IOC bits decoded
+    # V5.2 §1 — the bitmask is decoded with the SYMBOL_FILLING_MODE→ORDER_FILLING
+    # translation (IOC first for market orders), never by reusing the bit values
+    assert d["symbol"]["fill_modes"] == [1, 0]              # IOC | FOK bits decoded
     assert d["fill_mode_used"] == 1 and d["fill_mode_supported"] is True
     assert d["bridge"]["connected"] is True
     assert d["terminal"]["trade_allowed"] is True

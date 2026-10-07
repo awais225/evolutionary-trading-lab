@@ -41,6 +41,8 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
+from .order_semantics import effective_deviation
+
 log = logging.getLogger("mt5.execution")
 
 # The phrase the UI must send (typed confirmation) for an order to be sent.
@@ -70,6 +72,9 @@ _CONST_FALLBACK = {
     "SYMBOL_TRADE_MODE_SHORTONLY": 2,
     "SYMBOL_TRADE_MODE_CLOSEONLY": 3,
     "SYMBOL_TRADE_MODE_FULL": 4,
+    "ORDER_FILLING_FOK": 0,
+    "ORDER_FILLING_IOC": 1,
+    "ORDER_FILLING_RETURN": 2,
     "TRADE_RETCODE_REQUOTE": 10004,
     "TRADE_RETCODE_REJECT": 10006,
     "TRADE_RETCODE_CANCEL": 10007,
@@ -577,18 +582,20 @@ def live_test_magic(strategy_id: Optional[int]) -> int:
     return LIVE_TEST_MAGIC_BASE + (int(strategy_id) % 900 if strategy_id is not None else 0)
 
 
-def pick_filling(symbol_info) -> int:
-    """Choose the order filling mode from the symbol's supported set."""
-    modes = getattr(symbol_info, "filling_modes", None) or []
+def pick_filling(symbol_info, mt5: Any = None) -> int:
+    """The ``type_filling`` to build the request with, derived from the symbol.
+
+    V5.2 §1/§20 — delegates to :mod:`app.mt5.order_semantics`, which knows that
+    ``symbol_info().filling_mode`` is a SYMBOL_FILLING_MODE bitmask (FOK=1, IOC=2)
+    and that a zero bitmask means the Return fill policy (ORDER_FILLING_RETURN=2),
+    NOT IOC. The previous implementation guessed IOC in that case, which is why a
+    healthy IC Markets XAUUSD terminal refused the order.
+    """
+    from .order_semantics import pick_filling as _pick
     try:
-        modes = [int(m) for m in modes]
-    except Exception:
-        modes = []
-    for name in ("ORDER_FILLING_IOC", "ORDER_FILLING_FOK", "ORDER_FILLING_RETURN"):
-        c = _c(name)
-        if c in modes:
-            return c
-    return _c("ORDER_FILLING_IOC")
+        return int(_pick(symbol_info, mt5))
+    except Exception:                                   # pragma: no cover - last resort
+        return _c("ORDER_FILLING_RETURN")
 
 
 def build_market_order_request(payload: Dict[str, Any], *, filling: int,
@@ -843,12 +850,18 @@ def place_demo_order(payload: Dict[str, Any], bridge=None) -> Dict[str, Any]:
                                     stage="VALIDATION", http_status=422)
 
         norm = report["normalized"]
-        filling = pick_filling(sinfo)
+        filling = pick_filling(sinfo, mt5_module())
+        # V5.2 §1 — `deviation` is in POINTS: the same number is 2.0 USD on a
+        # 2-digit XAUUSD symbol. Widen it to the symbol's own spread unless the
+        # caller asked for more (read-only use of the quote already fetched).
+        dev = effective_deviation(sinfo, int(payload.get("deviation") or 20),
+                                  spread_points=(quote.get("spread_points")
+                                                 if isinstance(quote, dict) else None))
         request = build_market_order_request(
             {"symbol": symbol, "side": side, "volume": norm["volume"], "price": exec_price,
              "sl": norm["sl"], "tp": norm["tp"], "magic": norm["magic"],
              "comment": payload.get("comment") or "evolab-demo-manual"},
-            filling=filling, deviation=int(payload.get("deviation") or 20))
+            filling=filling, deviation=int(dev["value"]))
 
         _gate.stage("SENDING", request=request)
         log.info("[V4.2] sending DEMO order: %s", json.dumps(
@@ -964,6 +977,8 @@ def place_demo_order(payload: Dict[str, Any], bridge=None) -> Dict[str, Any]:
             # V5.1a-next §A — the raw order_send facts travel with every result,
             # so a reviewer never has to guess whether the call happened.
             "result_class": "BROKER_RESULT",
+            "deviation": dev,
+            "filling_resolution": (raw.get("filling_resolution") if isinstance(raw, dict) else None),
             "order_send": {"called": order_send_called,
                            "call_count": (raw.get("call_count") if isinstance(raw, dict) else None),
                            "last_error": order_send_last_error,

@@ -24,7 +24,12 @@ from typing import Dict, List, Optional
 from .bridge import (MarketBridge, Bar, Tick, SymbolInfo, AccountInfo,
                      OrderResult, TIMEFRAME_MINUTES)
 from .config import get_saved_terminal_path, save_mt5_config, load_mt5_config
-from .discovery import discover_terminals, validate_terminal_path
+from .discovery import discover_terminals, validate_terminal_path, normalize_terminal_path
+from .order_semantics import (ORDER_FILLING_FOK, ORDER_FILLING_IOC, ORDER_FILLING_RETURN,
+                              allowed_filling_by_bitmask, effective_deviation,
+                              filling_candidates, filling_name, interpret_check_result,
+                              last_error_name, resolve_filling, retcode_name,
+                              symbol_filling_bitmask)
 
 log = logging.getLogger("mt5.real")
 
@@ -94,6 +99,13 @@ class MT5RealBridge(MarketBridge):
             saved_p = get_saved_terminal_path()
             if saved_p and Path(saved_p).exists():
                 target_path = saved_p
+        # V5.2 §1 — a saved *folder* must not be handed to initialize(): it fails
+        # with -10003 "Process create failed". Resolve it to the executable first.
+        if target_path:
+            target_path, _path_note = normalize_terminal_path(target_path)
+            self._path = target_path
+            if _path_note:
+                log.info("terminal path normalized: %s (%s)", target_path, _path_note)
 
         kwargs = {"timeout": self._timeout}
         if self._login:
@@ -329,6 +341,9 @@ class MT5RealBridge(MarketBridge):
                           trade_stops_level=int(getattr(si, "trade_stops_level", 0) or 0),
                           freeze_level=int(getattr(si, "freeze_level", 0) or 0),
                           filling_modes=_filling_modes(si),
+                          filling_mode_raw=(int(getattr(si, "filling_mode"))
+                                            if getattr(si, "filling_mode", None) is not None
+                                            else None),
                           trade_tick_size=float(getattr(si, "trade_tick_size", 0.0) or 0.0) or None,
                           trade_tick_value=float(getattr(si, "trade_tick_value", 0.0) or 0.0) or None,
                           currency_profit=str(getattr(si, "currency_profit", "") or "") or None)
@@ -554,11 +569,12 @@ class MT5RealBridge(MarketBridge):
             return {"ok": False, "retcode": None, "raw": None,
                     "exception": f"order_check returned None (mt5.last_error={err})"}
         raw = _result_to_dict(checked)
-        done = getattr(mt5, "TRADE_RETCODE_DONE", 10009)
-        ok = raw.get("retcode") == done
-        log.info("[V5.1a] mt5.order_check retcode=%s margin=%s comment=%r",
-                 raw.get("retcode"), raw.get("margin"), raw.get("comment"))
-        return {"ok": bool(ok), "retcode": raw.get("retcode"), "raw": raw}
+        verdict = interpret_check_result(raw, mt5)
+        log.info("[V5.2] mt5.order_check retcode=%s (%s) margin=%s comment=%r -> %s",
+                 verdict["retcode"], verdict["retcode_name"], verdict["margin"],
+                 verdict["comment"], "PASS" if verdict["ok"] else "REFUSED")
+        return {"ok": bool(verdict["ok"]), "retcode": verdict["retcode"], "raw": raw,
+                "verdict": verdict}
 
     def send_market_order(self, request: Dict) -> Dict:
         """Send a fully-built MT5 order request (market order with real SL/TP).
@@ -577,17 +593,23 @@ class MT5RealBridge(MarketBridge):
                     "error": "MT5 terminal not connected",
                     "diagnostic": self._execution_diagnostic(request, called=False,
                                                              phase="BRIDGE_NOT_CONNECTED")}
+        # V5.2 §1/§20 — the filling mode is derived from the symbol's own metadata
+        # and confirmed by the terminal's read-only order_check before anything is
+        # sent. Never hard-coded, never assumed from the request.
+        request, filling_resolution = self._resolve_request_filling(dict(request))
         check = self.check_market_order(request)
         if not check.get("unsupported") and not check.get("ok"):
             raw_check = check.get("raw") or {}
             return {"ok": False, "retcode": check.get("retcode"), "raw": raw_check,
                     "check": check, "request": dict(request), "called": False,
+                    "filling_resolution": filling_resolution,
                     "refused_by": "mt5.order_check",
                     "error": (raw_check.get("comment")
                               or f"order_check refused the order (retcode {check.get('retcode')})"),
                     "diagnostic": self._execution_diagnostic(request, called=False,
                                                              phase="ORDER_CHECK_REFUSED",
-                                                             check=check)}
+                                                             check=check,
+                                                             filling=filling_resolution)}
         try:
             result = mt5.order_send(dict(request))
         except Exception as e:  # pragma: no cover - terminal dependent
@@ -597,7 +619,8 @@ class MT5RealBridge(MarketBridge):
                     "last_error": self._last_error_safe(),
                     "request": dict(request), "check": check,
                     "diagnostic": self._execution_diagnostic(
-                        request, called=True, phase="ORDER_SEND_RAISED", check=check,
+                        request, called=True, phase="ORDER_SEND_RAISED",
+                        filling=filling_resolution, check=check,
                         exception={"type": type(e).__name__, "message": str(e),
                                    "traceback_tail": traceback.format_exc().strip().splitlines()[-6:]})}
         if result is None:
@@ -609,22 +632,74 @@ class MT5RealBridge(MarketBridge):
                     "last_error": err,
                     "exception": f"order_send returned None (mt5.last_error={err})",
                     "exception_type": "NoResult",
+                    "filling_resolution": filling_resolution,
                     "request": dict(request), "check": check,
                     "diagnostic": self._execution_diagnostic(
                         request, called=True, phase="ORDER_SEND_NO_RESULT", check=check,
-                        last_error=err)}
+                        last_error=err, filling=filling_resolution)}
         raw = _result_to_dict(result)
         log.info("[V4.2] mt5.order_send retcode=%s order=%s deal=%s price=%s vol=%s sl=%s tp=%s comment=%r",
                  raw.get("retcode"), raw.get("order"), raw.get("deal"), raw.get("price"),
                  raw.get("volume"), raw.get("sl"), raw.get("tp"), raw.get("comment"))
         return {"ok": bool(raw.get("retcode")), "retcode": raw.get("retcode"), "raw": raw,
-                "check": check, "request": dict(request), "called": True, "call_count": 1,
+                "check": check, "filling_resolution": filling_resolution,
+                "request": dict(request), "called": True, "call_count": 1,
                 "last_error": self._last_error_safe(),
                 "diagnostic": self._execution_diagnostic(request, called=True,
                                                          phase="ORDER_SEND_RETURNED_RESULT",
-                                                         check=check)}
+                                                         check=check,
+                                                         filling=filling_resolution)}
 
-    # ---------- execution diagnostics (V5.1a-next §A) ----------
+    def _resolve_request_filling(self, request: Dict) -> Tuple[Dict, Dict]:
+        """Make ``request["type_filling"]`` one this terminal accepts for this symbol.
+
+        Read-only: the candidates come from ``symbol_info().filling_mode`` (the
+        SYMBOL_FILLING_MODE bitmask, which does *not* share values with
+        ENUM_ORDER_TYPE_FILLING) and each one is confirmed with ``mt5.order_check``.
+        Nothing is sent here.
+        """
+        resolution: Dict = {"evaluated": True, "applied": False,
+                            "requested": request.get("type_filling"),
+                            "requested_name": filling_name(request.get("type_filling")),
+                            "resolution": "not evaluated"}
+        try:
+            sinfo = self.symbol_info(str(request.get("symbol") or ""))
+        except Exception as e:                                  # pragma: no cover - defensive
+            sinfo = None
+            resolution["error"] = f"symbol_info failed: {type(e).__name__}: {e}"
+        if sinfo is None:
+            resolution["evaluated"] = False
+            resolution["resolution"] = ("symbol metadata unavailable — the request keeps the "
+                                        "filling mode it was built with")
+            return request, resolution
+        cands = filling_candidates(sinfo, mt5)
+        bitmask = symbol_filling_bitmask(sinfo)
+        requested = request.get("type_filling")
+        resolution.update({"symbol_filling_mode": bitmask,
+                           "symbol_filling_mode_name": ("no FOK/IOC bit (0) — Return policy"
+                                                        if bitmask == 0 else f"bitmask {bitmask}"),
+                           "candidates": cands,
+                           "first_candidate": cands[0]["name"] if cands else None})
+        consistent = (requested is not None
+                      and cands and int(requested) == int(cands[0]["value"])
+                      and allowed_filling_by_bitmask(sinfo, requested))
+        if consistent:
+            resolution.update({"filling": int(requested),
+                               "name": filling_name(requested),
+                               "why": "already consistent with symbol_info().filling_mode",
+                               "resolution": ("the request already uses the filling mode "
+                                              "derived from symbol_info().filling_mode")})
+            return request, resolution
+        resolved = resolve_filling(sinfo, mt5, request, candidates=cands)
+        request["type_filling"] = int(resolved["filling"])
+        resolution.update({"applied": True, "filling": resolved["filling"],
+                           "name": resolved["name"], "why": resolved.get("why"),
+                           "resolution": resolved["resolution"],
+                           "probes": resolved.get("probes")})
+        log.info("[V5.2] filling mode resolved for %s: %s (%s)",
+                 request.get("symbol"), resolved["name"], resolved["resolution"])
+        return request, resolution
+
     @staticmethod
     def _last_error_safe():
         """mt5.last_error() as a list, or None when it cannot be read."""
@@ -642,7 +717,8 @@ class MT5RealBridge(MarketBridge):
     def _execution_diagnostic(self, request: Dict, *, called: bool, phase: str,
                               check: Optional[Dict] = None,
                               last_error: Any = None,
-                              exception: Optional[Dict] = None) -> Dict:
+                              exception: Optional[Dict] = None,
+                              filling: Optional[Dict] = None) -> Dict:
         """Everything needed to explain an order_send outcome without guessing.
 
         Read-only: re-reads the terminal/account/symbol state and returns it
@@ -657,11 +733,18 @@ class MT5RealBridge(MarketBridge):
             "last_error": last_error,
             "exception": exception,
             "check": ({"ok": check.get("ok"), "retcode": check.get("retcode"),
+                       "retcode_name": (check.get("verdict") or {}).get("retcode_name")
+                                       or retcode_name(check.get("retcode")),
                        "unsupported": check.get("unsupported"),
                        "comment": ((check.get("raw") or {}).get("comment")
-                                   if isinstance(check.get("raw"), dict) else None)}
+                                   if isinstance(check.get("raw"), dict) else None),
+                       "rule": (check.get("verdict") or {}).get("rule"),
+                       "margin": (check.get("verdict") or {}).get("margin")}
                       if isinstance(check, dict) else None),
+            "last_error_name": last_error_name(last_error) if last_error else None,
         }
+        if isinstance(filling, dict):
+            diag["filling_resolution"] = filling
         # terminal identity + flags
         try:
             ti = mt5.terminal_info() if MT5_PACKAGE_AVAILABLE else None
@@ -729,7 +812,12 @@ class MT5RealBridge(MarketBridge):
             }
             req_fill = (request or {}).get("type_filling")
             diag["fill_mode_used"] = req_fill
-            diag["fill_mode_supported"] = (req_fill in _filling_modes(si)) if req_fill is not None else None
+            diag["fill_mode_used_name"] = filling_name(req_fill)
+            bitmask = symbol_filling_bitmask(si)
+            diag["symbol_filling_bitmask"] = bitmask
+            diag["fill_mode_supported"] = (allowed_filling_by_bitmask(si, req_fill)
+                                           if req_fill is not None else None)
+            diag["fill_mode_candidates"] = [c["name"] for c in filling_candidates(si, mt5)]
         else:
             diag["symbol"] = {"symbol": symbol, "available": False}
         return diag
@@ -839,19 +927,28 @@ class MT5RealBridge(MarketBridge):
                            comment=getattr(result, "comment", ""), source=self.source)
 
 def _filling_modes(si) -> List[int]:
-    """Supported ORDER_FILLING_* modes from symbol_info.filling_mode bitmask."""
-    out: List[int] = []
+    """``type_filling`` values this symbol accepts, from its own metadata.
+
+    V5.2 §1/§20 — the bitmask in ``symbol_info().filling_mode`` is
+    ``ENUM_SYMBOL_FILLING_MODE`` (SYMBOL_FILLING_FOK=1, SYMBOL_FILLING_IOC=2),
+    which does **not** share values with ``ENUM_ORDER_TYPE_FILLING``
+    (ORDER_FILLING_FOK=0, IOC=1, RETURN=2). The previous fallback mapped a zero
+    bitmask to IOC, which is exactly what made a healthy IC Markets XAUUSD
+    terminal refuse the order. A zero bitmask means "no FOK/IOC restriction":
+    market orders then use the Return fill policy.
+    """
     try:
         mask = int(getattr(si, "filling_mode", 0) or 0)
     except Exception:
-        return out
-    for name, bit in (("ORDER_FILLING_FOK", 1), ("ORDER_FILLING_IOC", 2)):
-        if mask & bit:
-            out.append(int(getattr(mt5, name, 0 if name.endswith("FOK") else 1)))
+        mask = 0
+    out: List[int] = []
+    # market orders prefer IOC, then FOK; RETURN is the no-restriction policy
+    if mask & 2:
+        out.append(ORDER_FILLING_IOC)
+    if mask & 1:
+        out.append(ORDER_FILLING_FOK)
     if not out:
-        # Some builds report 0 -> fall back to the commonly supported modes.
-        out = [int(getattr(mt5, "ORDER_FILLING_RETURN", 2)),
-               int(getattr(mt5, "ORDER_FILLING_IOC", 1))]
+        out = [ORDER_FILLING_RETURN]
     return out
 
 

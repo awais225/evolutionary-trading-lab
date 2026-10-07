@@ -428,6 +428,7 @@ def probe_terminal(symbol: str = "XAUUSD", root: Optional[Path] = None,
                                 3: "CLOSE_ONLY", 4: "FULL"}.get(getattr(si, "trade_mode", None), "unknown"),
             "trade_allowed": getattr(si, "trade_allowed", None),
             "filling_modes": _filling_modes_of(si),
+            "filling_plan": _filling_plan(si, mt5),
             "currency_profit": getattr(si, "currency_profit", None),
         })
     out["symbol"] = sym
@@ -480,29 +481,43 @@ def probe_terminal(symbol: str = "XAUUSD", root: Optional[Path] = None,
 
 
 def _filling_modes_of(si: Any) -> List[str]:
-    names = {0: "ORDER_FILLING_FOK", 1: "ORDER_FILLING_IOC", 2: "ORDER_FILLING_RETURN"}
+    """``type_filling`` values this symbol accepts, from its own metadata.
+
+    V5.2 §1/§20 — ``symbol_info().filling_mode`` is the SYMBOL_FILLING_MODE
+    *bitmask* (SYMBOL_FILLING_FOK=1, SYMBOL_FILLING_IOC=2), which does not share
+    values with ENUM_ORDER_TYPE_FILLING (ORDER_FILLING_FOK=0, IOC=1, RETURN=2).
+    A bitmask of 0 means "no FOK/IOC restriction": market orders then use the
+    Return fill policy. Decoding the bit with the ORDER_FILLING values is exactly
+    how this tool previously reported IOC for a symbol that only accepts RETURN.
+    """
     try:
-        from . import execution
-        names = {execution._c(k): k for k in ("ORDER_FILLING_FOK", "ORDER_FILLING_IOC",
-                                              "ORDER_FILLING_RETURN")}
+        from .order_semantics import filling_candidates
+        return [c["name"] for c in filling_candidates(si)]
     except Exception:
-        pass
-    raw = getattr(si, "filling_mode", None)
-    flags = getattr(si, "filling_modes", None)
-    out: List[str] = []
-    if flags is None and raw is not None:
-        flags = raw
+        return []
+
+
+def _filling_plan(si: Any, mt5: Any = None) -> Dict[str, Any]:
+    """What the tool knows about the symbol's filling before any order is checked."""
     try:
-        value = int(flags)
-    except Exception:
-        return out
-    for bit, name in names.items():
-        try:
-            if value & int(bit):
-                out.append(name)
-        except Exception:
-            continue
-    return out
+        from .order_semantics import (decoded_filling_modes, filling_name,
+                                      symbol_filling_bitmask)
+    except Exception:                                   # pragma: no cover
+        return {}
+    bitmask = symbol_filling_bitmask(si)
+    cands = _filling_modes_of(si)
+    return {
+        "symbol_filling_mode_bitmask": bitmask,
+        "symbol_filling_mode_note": ("0 — no SYMBOL_FILLING_FOK/IOC bit, so market orders use "
+                                     "the Return fill policy"
+                                     if bitmask == 0 else
+                                     f"bitmask {bitmask} (SYMBOL_FILLING_FOK=1, SYMBOL_FILLING_IOC=2)"),
+        "decoded_type_filling_values": decoded_filling_modes(si),
+        "type_filling_to_use": cands[0] if cands else None,
+        "type_filling_to_use_name": (filling_name(decoded_filling_modes(si)[0])
+                                     if decoded_filling_modes(si) else None),
+        "candidate_names": cands,
+    }
 
 
 def _probe_order_check(mt5: Any, symbol: str, sym: Dict[str, Any], tick: Dict[str, Any],
@@ -533,6 +548,26 @@ def _probe_order_check(mt5: Any, symbol: str, sym: Dict[str, Any], tick: Dict[st
                          [getattr(mt5, k, None) for k in
                           ("ORDER_FILLING_IOC", "ORDER_FILLING_FOK", "ORDER_FILLING_RETURN")]
                          if x is not None] or [1]
+
+    # V5.2 §1 — the filling mode comes from the symbol's own metadata, never from
+    # a hard-coded constant: symbol_info() in the probe carries the real SYMBOL_*
+    # bitmask, so decode it here instead of guessing IOC.
+    try:
+        from .order_semantics import filling_candidates as _cands, filling_name as _fname
+        _si_live = None
+        try:
+            _si_live = mt5.symbol_info(symbol)
+        except Exception:
+            _si_live = None
+        if _si_live is not None:
+            _plan = [c["value"] for c in _cands(_si_live)]
+            if _plan:
+                _Spec.filling_modes = _plan
+                result["filling_source"] = ("symbol_info().filling_mode (SYMBOL_FILLING_MODE "
+                                            "bitmask) — decoded, not hard-coded")
+                result["filling_candidates"] = [_fname(v) for v in _plan]
+    except Exception as e:                              # pragma: no cover - defensive
+        result["filling_source_error"] = f"{type(e).__name__}: {e}"
 
     filling = pick_filling(_Spec())
     volume = float(sym.get("volume_min") or 0.01)
@@ -573,10 +608,46 @@ def _probe_order_check(mt5: Any, symbol: str, sym: Dict[str, Any], tick: Dict[st
                   "margin_level", "comment", "request")
     }
     raw.pop("request", None)                        # keep the report readable
-    done = getattr(mt5, "TRADE_RETCODE_DONE", 10009)
-    result.update({"ok": raw.get("retcode") == done, "retcode": raw.get("retcode"),
-                   "comment": raw.get("comment"), "margin": raw.get("margin"),
+    # V5.2 §3 — MQL5 semantics: a passing MqlTradeCheckResult reports retcode 0
+    # (or 10009/10008) with comment 'Done' and a computed margin. Interpreting it
+    # as "retcode != 10009 -> refused" is what made this tool report
+    # MT5 ORDER VALIDATION FAILED for a perfectly valid request.
+    from .order_semantics import interpret_check_result
+    verdict = interpret_check_result(checked, mt5)
+    result.update({"ok": bool(verdict["ok"]), "retcode": verdict["retcode"],
+                   "retcode_name": verdict["retcode_name"],
+                   "comment": verdict["comment"], "margin": verdict["margin"],
+                   "margin_free": verdict.get("margin_free"),
+                   "rule": verdict["rule"], "interpretation": verdict["rule"],
                    "raw": {k: v for k, v in raw.items() if k != "comment"}})
+
+    # when the request's own filling mode is refused, find the one the terminal
+    # accepts — read-only, through the terminal's own order_check (never order_send)
+    if not verdict["ok"] and int(verdict["retcode"] or 0) == 10030:
+        try:
+            from .order_semantics import resolve_filling
+            sinfo_live = mt5.symbol_info(symbol)
+            if sinfo_live is not None:
+                resolved = resolve_filling(sinfo_live, mt5, request)
+                result["filling_resolution"] = {
+                    "ok": resolved["ok"], "filling": resolved["filling"],
+                    "name": resolved["name"], "resolution": resolved["resolution"],
+                    "probes": resolved["probes"]}
+                if resolved["ok"]:
+                    request = dict(request)
+                    request["type_filling"] = int(resolved["filling"])
+                    result["request"] = request
+                    again = check(dict(request))
+                    v2 = interpret_check_result(again, mt5)
+                    result.update({"ok": bool(v2["ok"]), "retcode": v2["retcode"],
+                                   "retcode_name": v2["retcode_name"],
+                                   "comment": v2["comment"], "margin": v2["margin"],
+                                   "rule": (v2["rule"] + " (after switching type_filling to "
+                                            f"{resolved['name']})"),
+                                   "interpretation": v2["rule"],
+                                   "rechecked_with_filling": resolved["name"]})
+        except Exception as e:                          # pragma: no cover - defensive
+            result["filling_resolution_error"] = f"{type(e).__name__}: {e}"
     return result
 
 
@@ -648,7 +719,9 @@ def classify_layers(facts: Dict[str, Any]) -> Dict[str, str]:
     if f.get("order_check_attempted") and f.get("order_check_ok") is False:
         return out(MT5_ORDER_VALIDATION_FAILED,
                    f"mt5.order_check refused the project's own request "
-                   f"(retcode {f.get('order_check_retcode')}) — nothing was sent")
+                   f"({f.get('order_check_retcode_name') or 'retcode ' + str(f.get('order_check_retcode'))}"
+                   f", comment {f.get('order_check_comment')!r}) — nothing was sent. "
+                   f"Rule applied: {f.get('order_check_rule') or 'n/a'}")
     return out(MT5_READY,
                "the package imports, the terminal is connected, the account and symbol are available, "
                "trading is permitted and mt5.order_check accepts the project's own order request")
@@ -685,6 +758,9 @@ def _facts_from_probe(machine_ok: bool, py: Dict[str, Any], probe: Dict[str, Any
         "order_check_attempted": bool(oc.get("attempted")),
         "order_check_ok": oc.get("ok"),
         "order_check_retcode": oc.get("retcode"),
+        "order_check_retcode_name": oc.get("retcode_name"),
+        "order_check_comment": oc.get("comment"),
+        "order_check_rule": oc.get("rule"),
     }
 
 
@@ -839,6 +915,12 @@ def format_diagnostic(rep: Dict[str, Any]) -> str:
         add(f"  trade_mode       : {sym.get('trade_mode_name')} ({sym.get('trade_mode')}) "
             f"| trade_allowed={sym.get('trade_allowed')}")
         add(f"  filling modes    : {', '.join(sym.get('filling_modes') or []) or '(unknown)'}")
+        plan = sym.get("filling_plan") or {}
+        if plan:
+            add(f"  filling bitmask  : {plan.get('symbol_filling_mode_bitmask')} "
+                f"({plan.get('symbol_filling_mode_note')})")
+            add(f"  type_filling to use: {plan.get('type_filling_to_use_name') or '(unknown)'} "
+                f"— derived from the symbol's own metadata, not hard-coded")
     else:
         add(f"  NOT AVAILABLE — {sym.get('error') or 'symbol_info returned nothing'}")
     tk = mt5.get("tick") or {}
