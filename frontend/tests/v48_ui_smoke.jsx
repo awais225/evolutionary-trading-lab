@@ -687,6 +687,11 @@ export async function runSmoke() {
   await render("page:LiveTesting-idle", wrap(<LiveTesting />), (t) => t.includes("IDLE ON ENTRY"));
   await render("page:Mt5DemoTrading-demo-only", wrap(<Mt5DemoTrading />), (t) =>
     t.includes("DEMO ACCOUNT ONLY"));
+  // V5.1a-next §7/§15 — the MT5 Demo Trading page must carry the manual trade
+  // calculator itself (default $10, 300-pip stop, live entry, auto lot).
+  await render("page:Mt5DemoTrading-manual-calculator", wrap(<Mt5DemoTrading />), (t) =>
+    t.includes("Amount / risk") && t.includes("Recalculate now") && t.includes("Lot size")
+    && t.includes("money at risk"));
   await render("page:Mt5Backtest-simulator", wrap(<Mt5Backtest />), (t) =>
     t.includes("REAL MT5 TRADING UNAVAILABLE") && t.includes("SIMULATOR MODE ACTIVE"));
   // 5c. V5.1a §6/§7/§32 — Deep Backtest lists qualified nodes with real metrics,

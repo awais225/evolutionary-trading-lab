@@ -5,6 +5,7 @@ import { NA_TEXT, numOrNull, rows as safeRows, txt } from "../lib/safe.js";
 import { useLab } from "../App.jsx";
 import StructuredError from "../components/StructuredError.jsx";
 import DemoOrderPanel from "../components/DemoOrderPanel.jsx";
+import { ManualOrderPanel } from "../components/LiveTestingPanels.jsx";
 
 export default function Mt5DemoTrading() {
   const { shortlist, toggleShortlist, setSelectedStrategyId, navigateTab } = useLab() || {};
@@ -218,8 +219,16 @@ export default function Mt5DemoTrading() {
         </div>
       </div>
 
-      {/* V4.8 — account type / connection / safety state, then the manual order panel */}
+      {/* V4.8 — account type / connection / safety state */}
       <DemoAccountSafety />
+
+      {/* V5.1a-next §7/§15 — the manual trade calculator. It opens with $10 of
+       * money at risk, a 300-pip stop, the current live entry price and the lot
+       * size computed from the broker's own specification — the same component
+       * and the same single implementation the Live Testing page uses (nothing
+       * was redesigned). The V4.2 panel below keeps its own attach-to-strategy
+       * order flow. */}
+      <ManualOrderPanel defaultSymbol="XAUUSD" />
 
       {/* V4.2 — manual, explicitly-confirmed demo order execution */}
       <DemoOrderPanel />
