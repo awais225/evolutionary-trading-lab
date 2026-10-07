@@ -12,6 +12,7 @@ import contextlib
 import json
 import logging
 import os
+import time
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -146,6 +147,12 @@ async def startup() -> None:
     else:
         lifecycle.run()
 
+    # V5 §10: the process session is opened before anything can be launched
+    try:
+        power_session_start()
+    except Exception as e:
+        log.warning("power session could not be opened: %s", e)
+
     if os.environ.get("LAB_AUTOSTART", "").lower() in ("1", "true", "yes"):
         mode = os.environ.get("LAB_AUTOSTART_MODE", "continuous")
         threading_start(mode)
@@ -154,6 +161,48 @@ async def startup() -> None:
 def threading_start(mode: str) -> None:
     from .orchestrator.lab import get_lab
     get_lab().start(mode)
+
+
+def power_session_start() -> None:
+    """V5 §10 — open the dashboard's process session record.
+
+    The session lists every process this dashboard started (its own pid, the MT5
+    bridge it attached to, and — when a launcher started one — the frontend
+    server), so the Power button can stop exactly those and nothing else.
+    """
+    from .power import get_power_manager
+    pm = get_power_manager()
+    session = pm.start_session()
+
+    # an independently started MT5 terminal is recorded as EXTERNAL: the shutdown
+    # disconnects from it but never signals it
+    try:
+        from .mt5 import bridge_status
+        bs = bridge_status() or {}
+        if bs.get("connected") or bs.get("terminal_pid"):
+            if bs.get("terminal_pid"):
+                pm.register("mt5_bridge", int(bs["terminal_pid"]),
+                            label=bs.get("terminal_name") or "MT5 terminal",
+                            external=bool(bs.get("launched_by_operator", True)),
+                            note="attached terminal - disconnected, never killed")
+    except Exception as e:
+        log.debug("power session: MT5 bridge not registered (%s)", e)
+
+    # a launcher (start.bat / run scripts) may leave the frontend/dev-server pid and
+    # its identity in LOGS/power_session.json before the backend starts
+    try:
+        external = pm.session_file
+        if external.exists():
+            payload = json.loads(external.read_text(encoding="utf-8"))
+            for rec in (payload.get("external_processes") or []):
+                pm.register(rec["role"], int(rec["pid"]), label=rec.get("label", ""),
+                            cmdline=rec.get("cmdline"), start_time=rec.get("start_time"),
+                            external=bool(rec.get("external", False)), note=rec.get("note"))
+    except Exception as e:
+        log.debug("power session: external launcher records not read (%s)", e)
+
+    log.info("power session %s opened (backend pid %s)", session["session_id"], os.getpid())
+    return None
 
 
 @app.on_event("shutdown")
@@ -167,6 +216,15 @@ async def shutdown() -> None:
         log.warning("live testing shutdown notice: %s", e)
     from .lease import get_lease_manager
     get_lease_manager().release()
+    # V5 §10: keep the session record for the report, but mark it closed so a
+    # restart never thinks processes from the previous run are still owned
+    try:
+        from .power import get_power_manager
+        pm = get_power_manager()
+        pm.notes.append(f"backend stopped at {time.strftime('%Y-%m-%d %H:%M:%S')}")
+        pm.save()
+    except Exception:
+        pass
 
 
 @app.websocket("/ws")

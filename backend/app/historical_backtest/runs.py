@@ -76,6 +76,8 @@ SIM_SCOPE = "SIMULATOR"
 COST_KEYS = ("spread_mult", "slippage_mult", "commission_mult")
 
 _EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="mt5-hist")
+#: how far ahead a scheduled deep backtest may be queued
+MAX_SCHEDULE_AHEAD_S = 24 * 3600
 _SUBMIT_LOCK = threading.RLock()
 _CANCELS: set = set()
 _TRADE_CACHE: "Dict[str, Tuple[float, pd.DataFrame]]" = {}
@@ -628,6 +630,20 @@ def validate_request(payload: Dict[str, Any], db: Any = None) -> Tuple[Optional[
     if window is None:
         return None, [{"field": "start_date", "error": why}]
 
+    # V5 §9 — a run may be scheduled instead of fired immediately. The queue
+    # accepts it now and the single executor starts it at (or after) that time.
+    scheduled_at = _parse_ts(payload.get("schedule_at") or payload.get("scheduled_at"))
+    if scheduled_at is not None:
+        horizon = time.time() + MAX_SCHEDULE_AHEAD_S
+        if scheduled_at < time.time() - 60:
+            errors.append({"field": "schedule_at",
+                           "error": "the scheduled time is in the past; schedule the run for now or later"})
+        elif scheduled_at > horizon:
+            errors.append({"field": "schedule_at",
+                           "error": (f"the scheduled time is more than "
+                                     f"{int(MAX_SCHEDULE_AHEAD_S / 3600)} h ahead; the queue does not "
+                                     "hold jobs that far out")})
+
     balance = _as_float(payload.get("initial_balance", get_config().backtest.initial_balance))
     if balance is None or balance <= 0:
         errors.append({"field": "initial_balance", "error": "initial_balance must be a positive number"})
@@ -672,6 +688,7 @@ def validate_request(payload: Dict[str, Any], db: Any = None) -> Tuple[Optional[
         "end_ts": end_ts,
         "start_date": str(payload.get("start_date") or payload.get("start")),
         "end_date": str(payload.get("end_date") or payload.get("end")),
+        "scheduled_at": scheduled_at,
         "period_adjusted": bool(adjusted),
         "requested_start_ts": requested["start_ts"],
         "requested_end_ts": requested["end_ts"],
@@ -978,6 +995,24 @@ def _execute(run_id: str, db: Any) -> None:
         bridge = bridge_status()
     except Exception as e:                                  # pragma: no cover - defensive
         bridge = {"active_bridge": "unavailable", "error": str(e)}
+    # V5 §9 — honour a scheduled start. The run stays QUEUED (visible, cancellable)
+    # until its time arrives; the single-worker executor keeps START executed runs
+    # one at a time either way.
+    sched = cfg.get("scheduled_at")
+    if sched:
+        while True:
+            if run_id in _CANCELS:
+                _CANCELS.discard(run_id)
+                _update_from(db, run_id, ("QUEUED",), status="CANCELLED", finished_at=time.time(),
+                             error="cancelled by operator while scheduled")
+                return
+            now = time.time()
+            if now >= float(sched):
+                break
+            if _row(db, run_id) is None:
+                return
+            time.sleep(min(5.0, max(0.5, float(sched) - now)))
+
     started = time.time()
     if not _update_from(db, run_id, ("QUEUED",), status="RUNNING", started_at=started):
         log.info("run %s is no longer QUEUED; worker does not start it", run_id)

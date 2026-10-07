@@ -211,7 +211,7 @@ export default function BacktestMatrix() {
             </div>
           ) : null;
         })()}
-        <BacktestMatrixTable data={(() => { const rows = (mData && (mData.rows || (mData.matrix && mData.matrix.rows))) || []; const { live } = splitDead(rows); return mData && rows.length ? { ...mData, rows: live, matrix: mData.matrix ? { ...mData.matrix, rows: live } : mData.matrix } : mData; })()} loading={mBusy} error={null} maxHeight={340} loading={mBusy} error={null} maxHeight={340}
+        <BacktestMatrixTable data={(() => { const rows = (mData && (mData.rows || (mData.matrix && mData.matrix.rows))) || []; const { live } = splitDead(rows); return mData && rows.length ? { ...mData, rows: live, matrix: mData.matrix ? { ...mData.matrix, rows: live } : mData.matrix } : mData; })()} loading={mBusy} error={null} maxHeight={340}
                              onSelectNode={(id) => setSid(String(id))}
                              emptyHint="No node matched — clear the filter or select different ids." />
       </div>

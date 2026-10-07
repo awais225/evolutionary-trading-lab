@@ -437,6 +437,16 @@ class EvolutionEngine:
         row = self.db.one("SELECT MAX(generation) g FROM strategies")
         return int(row["g"] or 0)
 
+    def _apply_timeframe_scope(self, symbol: str) -> List[str]:
+        """V5: restrict genome generation/mutation to testable timeframes."""
+        try:
+            avail = get_data_engine().get_available_timeframes(symbol)
+        except Exception as e:                                # never block research
+            log.warning("[EVOLUTION] could not determine available timeframes: %s", e)
+            avail = []
+        gops.set_timeframe_scope(avail)
+        return gops.timeframe_scope()
+
     def seed_population(self, n: int, symbol: str) -> int:
         """Create generation-0 random genomes (BORN) with dynamic entropy duplicate protection."""
         cfg = get_config()
@@ -452,7 +462,7 @@ class EvolutionEngine:
         attempts = 0
         max_attempts = max(n * 20, 200)
 
-        avail_tfs = get_data_engine().get_available_timeframes(symbol)
+        avail_tfs = self._apply_timeframe_scope(symbol)
         while created < n and attempts < max_attempts and not self.is_target_reached():
             attempts += 1
             chosen_tf = self._rng.choice(avail_tfs) if avail_tfs else cfg.data.timeframe
@@ -468,6 +478,35 @@ class EvolutionEngine:
                 salt = (int(time.time() * 1000) ^ os.getpid() ^ (self._entropy_counter << 16)) & 0x7FFFFFFF
                 self._rng = random.Random(salt)
         return created
+
+    def _resolve_run_id(self) -> str:
+        """The run a newly born node belongs to.
+
+        Never returns an empty value: the V3.6 migration classifies rows with a
+        NULL run id as LEGACY_TEST, so a node without a run would be re-labelled
+        legacy on the next startup. Resolution order: the engine's active run,
+        the pipeline state's run, the newest persisted run, then a neutral id.
+        """
+        if self.active_run_id:
+            return self.active_run_id
+        try:
+            from ..orchestrator.pipeline_state import get_pipeline_state_manager
+            rid = get_pipeline_state_manager().run_id
+            if rid:
+                self.active_run_id = rid
+                return rid
+        except Exception:
+            pass
+        try:
+            runs = self.db.get_all_research_runs()
+            for r in runs:
+                rid = r.get("run_id")
+                if rid and rid != "RUN-HISTORICAL-PRESERVED":
+                    self.active_run_id = rid
+                    return rid
+        except Exception:
+            pass
+        return "RUN-UNASSIGNED"
 
     def try_insert(self, genome: Dict, parent_id: Optional[int], generation: int,
                    status: str = "BORN", origin: str = "evolution",
@@ -515,8 +554,15 @@ class EvolutionEngine:
             "mutation_params": __import__("json").dumps(mutation_params) if mutation_params else None,
             "config_version": config_digest(),
             "software_version": APP_VERSION,
-            "run_id": self.active_run_id or "RUN-20260927-CLEAN-MT5",
-            "data_source": "USER_RESEARCH" if (self.active_run_id and "TEST" not in self.active_run_id.upper() and "HISTORICAL" not in self.active_run_id.upper()) else "LEGACY_TEST",
+            "run_id": self._resolve_run_id(),
+            # V5: a node born inside the research workflow is USER_RESEARCH by
+            # provenance. The previous rule derived the classification by string
+            # matching the run id ("TEST"/"HISTORICAL") and fell back to
+            # LEGACY_TEST when no run id was set, so freshly generated nodes were
+            # written as legacy records and immediately hidden from the research
+            # tables. LEGACY_TEST belongs to the imported historical
+            # infrastructure rows only (classified once by the V3.6 migration).
+            "data_source": "USER_RESEARCH",
         }
         sid = self.db.insert_strategy(record)
 
@@ -695,7 +741,7 @@ class EvolutionEngine:
             n_expl = target_births   # no viable pool yet -> explore
 
         # Initial exploration allotment
-        avail_tfs = get_data_engine().get_available_timeframes(symbol)
+        avail_tfs = self._apply_timeframe_scope(symbol)
         cur_gen = self.generation()
         for _ in range(n_expl * 5):
             if counts["exploration"] >= n_expl or self.is_target_reached():

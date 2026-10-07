@@ -25,6 +25,7 @@ const ResearchAI = lazy(() => import("./pages/ResearchAI.jsx"));
 const Settings = lazy(() => import("./pages/Settings.jsx"));
 const Logs = lazy(() => import("./pages/Logs.jsx"));
 const FinalTesting = lazy(() => import("./pages/FinalTesting.jsx"));
+const DeepBacktest = lazy(() => import("./pages/DeepBacktest.jsx"));
 import StrategyDrawer from "./components/StrategyDrawer.jsx";
 import TopStatusRow from "./components/TopStatusRow.jsx";
 import MilestoneProgressPath from "./components/MilestoneProgressPath.jsx";
@@ -38,7 +39,8 @@ const PAGES = [
   ["overview", "1", "Overview", Overview],
   ["stats", "2", "Stats", Stats],
   ["final_testing", "3", "Final Testing", FinalTesting],
-  ["lab", "4", "Strategy Laboratory", StrategyLab],
+  ["deep_backtest", "4", "Deep Backtest", DeepBacktest],
+  ["lab", "5", "Strategy Laboratory", StrategyLab],
   ["economics", "5", "Node Economics", NodeEconomics],
   ["matrix", "6", "Backtest Matrix", BacktestMatrix],
   ["mt5_backtest", "7", "MT5 Backtest", Mt5Backtest],

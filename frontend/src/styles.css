@@ -250,3 +250,19 @@ pre.json {
   padding: 6px 8px; font-size: 11.5px; margin-top: 6px; }
 .kit-ok { color: #8ef0bd; background: #0d2a1c; border: 1px solid #10633f; border-radius: 6px;
   padding: 6px 8px; font-size: 11.5px; margin-top: 6px; }
+
+/* V5 §6 — Deep Backtest star cell (compact watchlist toggle) */
+.star-btn { background: transparent; border: 0; cursor: pointer; font-size: 15px;
+  line-height: 1; color: var(--muted); padding: 2px; }
+.star-btn.on { color: #ffd982; }
+.star-btn:hover { color: #ffd982; }
+
+/* V5 §10 — Power button (top-left of the Overview header) */
+.power-btn {
+  white-space: nowrap;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+@media (max-width: 720px) {
+  .power-btn span[aria-hidden="true"] { font-size: 15px; }
+}

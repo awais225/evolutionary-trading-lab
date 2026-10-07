@@ -653,8 +653,12 @@ def reconcile_tasks() -> Dict:
     now_ts = time.time()
     for p in pending:
         sid = p["id"]
-        # Mark as FAILED or resolve
-        db.update_strategy(sid, status="FAILED", failure_reason="Reconciled at research ceiling", updated_at=now_ts)
+        # V5 §3: these nodes were never evaluated — the run hit its ceiling
+        # before their batch ran. Reporting them as FAILED strategies was a
+        # false negative; NOT_TESTED keeps them eligible for a later run.
+        db.update_strategy(sid, status="NOT_TESTED",
+                           creation_reason="Reconciled at research ceiling (never evaluated)",
+                           updated_at=now_ts)
         reconciled_count += 1
     
     # Transition research runs
@@ -769,14 +773,17 @@ def _filter_persisted_strategies(
     query = """
         SELECT s.id, s.symbol, s.timeframe, s.direction, s.status, s.fitness, s.parent_id, s.generation,
                s.mutation_type, s.creation_reason, s.created_at, s.run_id, s.data_source, s.research_node_num,
-               s.failure_reason, s.survival_reason,
+               s.failure_reason, s.survival_reason, s.genome as genome,
                b.stage as bt_stage, b.metrics, b.verdict, b.fitness as bt_fitness, b.created_at as bt_created_at,
+               b.dataset_id as bt_dataset_id, b.window as bt_window,
+               d.start_ts as ds_start_ts, d.end_ts as ds_end_ts, d.bars as ds_bars,
                v.robustness_score, v.oos
         FROM strategies s
         LEFT JOIN backtests b ON b.strategy_id = s.id AND b.id = (
             SELECT id FROM backtests WHERE strategy_id = s.id AND stage IN ('detail', 'screen')
             ORDER BY CASE stage WHEN 'detail' THEN 0 ELSE 1 END, id DESC LIMIT 1
         )
+        LEFT JOIN datasets d ON d.id = b.dataset_id
         LEFT JOIN validations v ON v.strategy_id = s.id
         ORDER BY s.id DESC
     """
@@ -948,9 +955,40 @@ def _filter_persisted_strategies(
         if max_loss is not None and abs(largest_loss) > abs(max_loss):
             continue
 
+        from .. import status as st_v5
+        _v5 = st_v5.status_payload(r)
+        # the tested period is the dataset range plus the row window the backtest used
+        try:
+            import json as _json
+            _win = _json.loads(r["bt_window"]) if r.get("bt_window") else None
+        except Exception:
+            _win = None
+        _risk = None
+        try:
+            import json as _json2
+            _g = _json2.loads(r["genome"]) if r.get("genome") else {}
+            _risk = (_g.get("risk") or {}).get("risk_per_trade")
+        except Exception:
+            _risk = None
         matched.append({
             "id": r["id"],
             "node_id": f"Node_{r['id']}",
+            # V5 §3/§6 — explicit status + failure class for the tables
+            "v5_status": _v5["v5_status"],
+            "v5_status_label": _v5["v5_status_label"],
+            "v5_status_hint": _v5["v5_status_hint"],
+            "is_alive": _v5["is_alive"],
+            "is_infrastructure_failure": _v5["is_infrastructure_failure"],
+            "failure_class": _v5["failure_class"],
+            "error_class": (None if _v5["is_alive"]
+                            else ("STRATEGY" if _v5["v5_status"] == "STRATEGY_FAILED" else "INFRASTRUCTURE")),
+            "last_tested_at": r.get("bt_created_at"),
+            "risk_per_trade": _risk,
+            "period": {"dataset_id": r.get("bt_dataset_id"),
+                       "dataset_start": r.get("ds_start_ts"),
+                       "dataset_end": r.get("ds_end_ts"),
+                       "bars": r.get("ds_bars"),
+                       "window": _win},
             "research_node_num": r.get("research_node_num") or r["id"],
             "run_id": r.get("run_id") or "RUN-HISTORICAL-PRESERVED",
             "data_source": r.get("data_source") or "USER_RESEARCH",
@@ -2021,6 +2059,7 @@ def research_run_backup(payload: Dict[str, Any] = Body(default_factory=dict)) ->
 @router.post("/research-run/start-fresh")
 def research_run_start_fresh(payload: Dict[str, Any] = Body(default_factory=dict)) -> Dict[str, Any]:
     """Option A (backup_and_reset) / Option C (reset_only): reset USER_RESEARCH, start a new run."""
+    _require_accepting_tasks("this research run")
     from ..research_run import start_fresh_run
     mode = str(payload.get("mode") or "")
     confirm = str(payload.get("confirm") or "")
@@ -3031,6 +3070,15 @@ def live_test_results(
     shortlist_only: Optional[bool] = None,
     status: Optional[str] = None
 ) -> Dict:
+    """V5 §17 — live-testing results, every figure computed from the trades.
+
+    The previous surface returned hard-coded drawdown / Sharpe / consistency /
+    "PASSING" values. Those are gone: each statistic is derived from the recorded
+    live trades, and anything that cannot be computed from the available records
+    is returned as null and listed in ``unavailable``.
+    """
+    from ..live_testing.results import live_statistics, PROP_RULES
+
     db = get_db()
     trades = db.get_live_test_trades(strategy_id)
     shortlist = set(db.get_shortlist())
@@ -3039,60 +3087,23 @@ def live_test_results(
     if status:
         trades = [t for t in trades if t.get("status") == status]
 
-    total_trades = len(trades)
-    closed = [t for t in trades if t.get("status") == "CLOSED"]
-    winning = [t for t in closed if t.get("pnl", 0.0) > 0]
-    losing = [t for t in closed if t.get("pnl", 0.0) < 0]
+    configs = []
+    if strategy_id is not None:
+        cfg = db.get_live_test_config(strategy_id)
+        if cfg:
+            configs = [cfg]
+    else:
+        try:
+            configs = [r for r in db.q("SELECT * FROM live_test_configs")] or []
+        except Exception:
+            configs = []
 
-    gross_profit = sum(t.get("pnl", 0.0) for t in winning)
-    gross_loss = abs(sum(t.get("pnl", 0.0) for t in losing))
-    net_profit = gross_profit - gross_loss
-    pf = (gross_profit / gross_loss) if gross_loss > 0 else (99.0 if gross_profit > 0 else 1.0)
-    win_rate = (len(winning) / len(closed)) if closed else 0.0
-
-    starting_capital = 10000.0
-    current_capital = starting_capital + net_profit
-
-    # Prop-firm style metrics (spec §22)
-    daily_pnl = sum(t.get("pnl", 0.0) for t in trades if t.get("open_ts", 0) >= time.time() - 86400)
-    max_daily_loss_limit = 500.0  # 5%
-    max_total_loss_limit = 1000.0 # 10%
-    profit_target = 1000.0        # 10%
-
-    return {
-        "summary": {
-            "starting_capital": starting_capital,
-            "current_capital": round(current_capital, 2),
-            "net_profit": round(net_profit, 2),
-            "gross_profit": round(gross_profit, 2),
-            "gross_loss": round(gross_loss, 2),
-            "return_pct": round((net_profit / starting_capital) * 100, 2),
-            "profit_factor": round(pf, 3),
-            "win_rate": round(win_rate * 100, 2),
-            "trade_count": total_trades,
-            "closed_trades": len(closed),
-            "open_trades": len(trades) - len(closed),
-            "daily_pnl": round(daily_pnl, 2),
-            "max_drawdown_pct": 2.45,
-            "sharpe": 1.72,
-            "sortino": 2.15,
-            "expectancy": round(net_profit / max(1, len(closed)), 2),
-        },
-        "prop_firm": {
-            "account_size": starting_capital,
-            "equity": round(current_capital, 2),
-            "daily_loss_limit": max_daily_loss_limit,
-            "daily_loss_remaining": round(max(0.0, max_daily_loss_limit + daily_pnl), 2),
-            "max_loss_limit": max_total_loss_limit,
-            "max_loss_remaining": round(max(0.0, max_total_loss_limit + net_profit), 2),
-            "profit_target": profit_target,
-            "profit_target_distance": round(max(0.0, profit_target - net_profit), 2),
-            "consistency_score": 92.5,
-            "rule_violations": 0,
-            "status": "PASSING",
-        },
-        "trades": trades[:200],
-    }
+    stats = live_statistics(trades, configs=configs, start_balance=PROP_RULES["account_size"])
+    stats["trades"] = trades[:200]
+    stats["trade_sample_note"] = ("at most 200 records are returned; every statistic above is "
+                                  "computed over ALL recorded trades")
+    stats["read_only"] = True
+    return stats
 
 
 # ---------------- V4.3: controlled live testing, risk & monitoring ----------------
@@ -3273,7 +3284,11 @@ def live_testing_node_config(sid: int, payload: Dict = Body(...)) -> Dict:
     current = db.get_live_test_config(sid) or {}
     merged = {**current, **{k: v for k, v in payload.items()
                             if k in ("timeframes", "days", "sessions", "start_time", "end_time",
-                                     "timezone", "lot_size", "risk_pct", "is_active", "status")}}
+                                     "timezone", "lot_size", "risk_pct", "is_active", "status",
+                                     # V5 §11 execution attributes
+                                     "spread_limit_points", "cooldown_minutes",
+                                     "max_trades_per_day", "max_positions",
+                                     "slippage_limit_points")}}
     db.set_live_test_config(sid, merged)
     return {"ok": True, "strategy_id": sid, "config": db.get_live_test_config(sid),
             "raw_risk_pct_override": db.one(
@@ -3506,6 +3521,9 @@ def mt5_execution_preview(payload: Dict = Body(default_factory=dict)) -> Dict:
     side = str(payload.get("side") or "BUY").upper()
     entry = payload.get("entry")
     sl = payload.get("sl")
+    tp = payload.get("tp")
+    sl_pips = payload.get("sl_pips")
+    tp_pips = payload.get("tp_pips")
     risk_amount = payload.get("risk_amount")
     volume = payload.get("volume")
 
@@ -3526,7 +3544,64 @@ def mt5_execution_preview(payload: Dict = Body(default_factory=dict)) -> Dict:
     except Exception:
         quote = None
 
+    # ---- pip/price levels (spec §13) --------------------------------------
+    # The panel lets the operator work in pips (broker-independent) or in price
+    # (exact). Both are converted here, against the same symbol specification the
+    # sizing uses, so "300 pips" always means the same distance the order will get.
     limits = risk_limits()
+    pip_size = None
+    points_per_pip = None
+    try:
+        from ..backtest.symbol_specs import get_symbol_specs
+        pip_size = get_symbol_specs(symbol, allow_mt5=False).pip_size
+        points_per_pip = 10.0
+    except Exception:
+        pip_size = None
+    entry_price = entry
+    if entry_price in (None, "") and quote:
+        entry_price = quote.get("ask") if side == "BUY" else quote.get("bid")
+
+    def _quoted(v):
+        try:
+            return None if v in (None, "") else float(v)
+        except (TypeError, ValueError):
+            return None
+
+    levels = {"entry": _quoted(entry_price), "sl": _quoted(sl), "tp": _quoted(tp),
+              "sl_pips": _quoted(sl_pips), "tp_pips": _quoted(tp_pips),
+              "pip_size": pip_size, "points_per_pip": points_per_pip,
+              "sl_from_pips": False, "tp_from_pips": False, "warnings": []}
+    if pip_size and levels["entry"] is not None:
+        sign = -1.0 if side == "BUY" else 1.0          # a stop sits against the entry
+        if levels["sl"] is None and levels["sl_pips"] is not None:
+            levels["sl"] = round(levels["entry"] + sign * levels["sl_pips"] * pip_size,
+                                 int(getattr(spec, "digits", 2) or 2))
+            levels["sl_from_pips"] = True
+        if levels["tp"] is None and levels["tp_pips"] is not None:
+            levels["tp"] = round(levels["entry"] - sign * levels["tp_pips"] * pip_size,
+                                 int(getattr(spec, "digits", 2) or 2))
+            levels["tp_from_pips"] = True
+        if levels["sl_pips"] is None and levels["sl"] is not None:
+            levels["sl_pips"] = round(abs(levels["entry"] - levels["sl"]) / pip_size, 1)
+        if levels["tp_pips"] is None and levels["tp"] is not None:
+            levels["tp_pips"] = round(abs(levels["entry"] - levels["tp"]) / pip_size, 1)
+        if levels["sl"] is not None:
+            wrong_side = ((side == "BUY" and levels["sl"] >= levels["entry"]) or
+                          (side == "SELL" and levels["sl"] <= levels["entry"]))
+            if wrong_side:
+                levels["warnings"].append(
+                    f"the stop is on the wrong side of a {side} entry")
+        if levels["tp"] is not None:
+            wrong_side = ((side == "BUY" and levels["tp"] <= levels["entry"]) or
+                          (side == "SELL" and levels["tp"] >= levels["entry"]))
+            if wrong_side:
+                levels["warnings"].append(
+                    f"the target is on the wrong side of a {side} entry")
+        sl = levels["sl"]
+        tp = levels["tp"]
+    elif levels["sl"] is None and levels["sl_pips"] is not None:
+        levels["warnings"].append("pip levels need an entry price - send entry or have a quote")
+
     mode = "risk_to_lot" if (volume in (None, "") and risk_amount not in (None, "")) else \
            "lot_to_risk" if volume not in (None, "") else None
     if mode is None:
@@ -3559,8 +3634,48 @@ def mt5_execution_preview(payload: Dict = Body(default_factory=dict)) -> Dict:
                     "tick_size": getattr(spec, "trade_tick_size", None),
                     "tick_value": getattr(spec, "trade_tick_value", None),
                     "source": getattr(spec, "source", None)}
+    # ---- money estimates for the panel (spec §13/§14) ----------------------
+    # Computed with the broker's own tick value when it is available: the panel
+    # must show what MT5 will show, never a rounded guess.
+    estimate = {"loss_at_sl": None, "profit_at_tp": None, "reward_risk": None,
+                "per_point_value": None, "basis": None}
+    lots_for_estimate = None
+    if sizing:
+        lots_for_estimate = sizing.get("volume")
+    if lots_for_estimate and spec is not None:
+        tv = getattr(spec, "trade_tick_value", None) or getattr(spec, "tick_value", None)
+        ts_ = getattr(spec, "trade_tick_size", None) or getattr(spec, "tick_size", None) or \
+            getattr(spec, "point", None)
+        try:
+            if tv and ts_:
+                per_price_unit = float(tv) * float(lots_for_estimate) / float(ts_)
+                estimate["per_point_value"] = round(per_price_unit * float(getattr(spec, "point", 0.0)), 6)
+                estimate["basis"] = f"broker tick_value={tv} tick_size={ts_} x {lots_for_estimate} lot"
+                if levels["entry"] is not None and levels["sl"] is not None:
+                    estimate["loss_at_sl"] = round(abs(levels["entry"] - levels["sl"]) *
+                                                   per_price_unit, 2)
+                if levels["entry"] is not None and levels["tp"] is not None:
+                    estimate["profit_at_tp"] = round(abs(levels["tp"] - levels["entry"]) *
+                                                     per_price_unit, 2)
+                if estimate["loss_at_sl"] and estimate["profit_at_tp"]:
+                    estimate["reward_risk"] = round(estimate["profit_at_tp"] /
+                                                    estimate["loss_at_sl"], 3)
+        except (TypeError, ValueError, ZeroDivisionError):
+            pass
+    try:
+        from ..config import get_config
+        lt = get_config().live_testing
+        defaults = {"sl_pips": lt.manual_sl_pips_default,
+                    "risk_amount": lt.manual_risk_amount_default,
+                    "risk_pct_default": lt.risk_pct_default,
+                    "risk_pct_max": lt.risk_pct_max,
+                    "symbol": "XAUUSD"}
+    except Exception:
+        defaults = {"sl_pips": 300.0, "risk_amount": 10.0}
+
     return {"ok": blocked is None, "mode": mode, "sizing": sizing, "blocked": blocked,
             "symbol_info": sym_info, "quote": quote, "risk_limits": limits,
+            "levels": levels, "estimate": estimate, "defaults": defaults,
             "orders_placed": False, "read_only": True,
             "note": ("preview only - no order is sent, and the live execution path itself "
                      "still refuses to run without a real demo terminal")}
@@ -3721,9 +3836,24 @@ def mt5_historical_capabilities(refresh: bool = False) -> Dict[str, Any]:
     return hb.capabilities(refresh=refresh)
 
 
+def _require_accepting_tasks(what: str) -> None:
+    """V5 §10 — refuse to start new work while the dashboard is shutting down."""
+    from ..power import accepting_tasks
+    if not accepting_tasks():
+        raise HTTPException(status_code=503, detail={
+            "ok": False, "code": "SHUTTING_DOWN",
+            "message": f"the dashboard is shutting down - {what} will not be started",
+            "hint": "start the dashboard again to run new work"})
+
+
 @router.post("/mt5-historical/runs")
 def mt5_historical_start_run(payload: Dict = Body(default_factory=dict)) -> Dict[str, Any]:
-    """Validate -> queue -> execute in the background. Returns the run id."""
+    """Validate -> queue -> execute in the background. Returns the run id.
+
+    ``schedule_at`` (V5 §9) keeps the run QUEUED, visible and cancellable, until
+    the requested time.
+    """
+    _require_accepting_tasks("this MT5 historical run")
     from ..historical_backtest import runs as hb
     result = hb.start_run(payload or {})
     if not result.get("started"):
@@ -3788,3 +3918,698 @@ def research_compare(ids: str) -> Dict[str, Any]:
     """Side-by-side comparison (<= 8 nodes) reusing the V4.4 per-node builder."""
     from ..stats import strategy_lab
     return strategy_lab.compare(ids=ids)
+
+
+# --------------------------------------------------------------------------- #
+# V5 §4 — diagnostics (read-only; never fabricates a value)
+# --------------------------------------------------------------------------- #
+@router.get("/diagnostics/all")
+def diagnostics_all() -> Dict[str, Any]:
+    """DATA + ELIGIBILITY + BACKTEST + EVOLUTION diagnostics in one call."""
+    from .. import diagnostics as dg
+    return dg.all_reports()
+
+
+@router.get("/diagnostics/data")
+def diagnostics_data(include_rows: int = 400) -> Dict[str, Any]:
+    """Every dataset artifact with its real on-disk state, format and range."""
+    from .. import diagnostics as dg
+    return dg.data_report(include_rows=include_rows)
+
+
+@router.get("/diagnostics/eligibility")
+def diagnostics_eligibility() -> Dict[str, Any]:
+    """Per-timeframe usability: which timeframes can actually be researched."""
+    from .. import diagnostics as dg
+    return dg.eligibility_report()
+
+
+@router.get("/diagnostics/backtest")
+def diagnostics_backtest() -> Dict[str, Any]:
+    """Backtest counters: requested/generated/tested/skipped/rejected/... /alive."""
+    from .. import diagnostics as dg
+    return dg.backtest_report()
+
+
+@router.get("/diagnostics/evolution")
+def diagnostics_evolution(limit_generations: int = 20) -> Dict[str, Any]:
+    """Evolution counters: parents, mutations, duplicates, per-generation survival."""
+    from .. import diagnostics as dg
+    return dg.evolution_report(limit_generations=limit_generations)
+
+
+@router.get("/status/taxonomy")
+def status_taxonomy() -> Dict[str, Any]:
+    """The V5 status vocabulary, labels and hints used across the dashboard."""
+    from .. import status as st
+    return {
+        "statuses": list(st.V5_STATUSES),
+        "labels": st.STATUS_LABELS,
+        "hints": st.STATUS_HINTS,
+        "alive_statuses": list(st.ALIVE_STATUSES),
+        "infrastructure_statuses": list(st.INFRASTRUCTURE_STATUSES),
+    }
+
+
+# --------------------------------------------------------------------------- #
+# V5 §8/§9 — live testing: market header, node table, per-node indicator state
+# --------------------------------------------------------------------------- #
+@router.get("/live-testing/market-header")
+def live_testing_market_header(symbol: Optional[str] = None,
+                               strategy_id: Optional[int] = None) -> Dict[str, Any]:
+    """§8 — the live market header: bid/ask/spread/time plus the *selected node's*
+    own indicator values, evaluated with the engine's own feature code.
+
+    Nothing is synthesised: when the terminal is unavailable the fields are null
+    and ``reasons`` says why; when a node is selected, its indicators are the
+    real feature values the live engine would trade on, with the clause-level
+    verdict from the engine's evaluator.
+    """
+    from datetime import datetime, timezone
+
+    from ..live_testing.conditions import node_condition_states
+
+    eng = _live_engine()
+    panel = dict(eng.market_panel(symbol) or {})
+    # the panel is the engine's own view; the header adds the three derived values
+    # the spec asks for (spread, mid price, quote time) without inventing anything
+    try:
+        if panel.get("bid") is not None and panel.get("ask") is not None:
+            bid, ask = float(panel["bid"]), float(panel["ask"])
+            panel["spread"] = round(ask - bid, 8)
+            panel["price"] = round((ask + bid) / 2.0, 8)
+    except (TypeError, ValueError):
+        pass
+    if panel.get("tick_time"):
+        try:
+            panel["time"] = datetime.fromtimestamp(
+                float(panel["tick_time"]), tz=timezone.utc).isoformat(timespec="seconds")
+        except Exception:
+            panel["time"] = None
+    panel["session"] = panel.get("session_status")
+    out: Dict[str, Any] = {
+        "market": panel,
+        "available": bool(panel.get("bridge_available")),
+        "reasons": panel.get("reasons") or [],
+        "reason": "; ".join(panel.get("reasons") or []) or None,
+        "node": None,
+        "indicators": [],
+        "symbol": panel.get("symbol"),
+        "timeframe": None,
+        "ts": time.time(),
+    }
+
+    sid = strategy_id
+    if sid is None:
+        try:
+            active = [n["id"] for n in eng.eligible_nodes() if (n.get("config") or {}).get("is_active")]
+            sid = active[0] if active else None
+        except Exception:
+            sid = None
+    if sid is None:
+        return out
+
+    db = get_db()
+    strat = db.get_strategy(sid)
+    if strat is None:
+        out["node_error"] = f"node {sid} not found"
+        return out
+    genome = _genome_of(strat)
+    out["node"] = {
+        "strategy_id": sid,
+        "symbol": strat.get("symbol") or genome.get("symbol"),
+        "timeframe": strat.get("timeframe") or genome.get("timeframe"),
+        "direction": genome.get("direction", "both"),
+        "status": strat.get("status"),
+        "v5_status": __import__("app.status", fromlist=["x"]).v5_status(strat),
+        "risk_pct": (db.get_live_test_config(sid) or {}).get("risk_pct"),
+    }
+    out["timeframe"] = out["node"]["timeframe"]
+
+    from ..live_testing.conditions import node_indicator_values
+    try:
+        ind = node_indicator_values(eng, sid, symbol or out["node"].get("symbol"))
+        out["indicators"] = ind.get("indicators") or []
+        out["indicators_available"] = ind.get("available")
+        out["indicators_reason"] = ind.get("reason")
+        out["indicator_bar_time"] = ind.get("bar_time")
+        out["indicator_note"] = ind.get("note")
+    except Exception as e:
+        out["indicator_error"] = f"{type(e).__name__}: {e}"[:200]
+
+    try:
+        insp = node_condition_states(eng, symbol or out["node"]["symbol"])
+        for n in (insp.get("nodes") or []):
+            if n.get("node_id") == sid:
+                out["conditions"] = n.get("sides") or []
+                out["conditions_available"] = n.get("available")
+                out["conditions_reason"] = n.get("reason")
+                break
+    except Exception as e:
+        out["condition_error"] = f"{type(e).__name__}: {e}"[:200]
+
+    return out
+
+
+@router.get("/live-testing/nodes-table")
+def live_testing_nodes_table(
+    search: Optional[str] = None,
+    status: Optional[str] = None,
+    timeframe: Optional[str] = None,
+    starred_only: bool = False,
+    include_stopped: bool = True,
+    sort_by: str = "node_id",
+    sort_desc: bool = False,
+    limit: int = 50,
+    offset: int = 0,
+) -> Dict[str, Any]:
+    """§9 — ONE combined live node table.
+
+    Combines the authoritative research metrics (IS return, profit factor) with
+    the node's live state (activation, schedule, effective risk) and its real
+    live P/L, and reports whether the risk in force is the global default or a
+    per-node override (never a cosmetic flag: ``effective_risk_pct`` is the value
+    the live engine sizes positions with).
+    """
+    from ..live_testing.results import per_node_live_stats
+    from ..live_testing.risk import risk_limits, resolve_risk_pct
+
+    db = get_db()
+    eng = _live_engine()
+    limits = risk_limits()
+    global_pct = limits.get("risk_pct_default")
+
+    try:
+        enrolled = {n["id"]: n for n in eng.eligible_nodes()}
+        excluded = eng.excluded_nodes()
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:300], "nodes": [], "total": 0}
+
+    live = per_node_live_stats(db)
+    shortlist = set(db.get_shortlist())
+    search_clean = (search or "").strip().lower()
+
+    # The table lists the nodes that can actually be live-tested — every enrolled
+    # node PLUS every user-research node that reached a live-testable stage. A node
+    # that is merely not enrolled yet must still be visible, otherwise the operator
+    # could never start it. LEGACY_TEST nodes are never listed (they are reported
+    # in `excluded` with the reason).
+    STARTABLE = ("VALID", "LIVE_ELIGIBLE", "LIVE_TESTING", "LIVE_COMPLETED", "MT5_DEMO")
+    candidates: Dict[int, Dict[str, Any]] = dict(enrolled)
+    try:
+        cfg_rows = {int(r["strategy_id"]): r
+                    for r in (db.q("SELECT * FROM live_test_configs") or [])}
+    except Exception:
+        cfg_rows = {}
+    # Only rows whose STORED status can map to a live-testable V5 status are
+    # fetched — the alive set is small (dozens), while the failed bulk is ~10k, so
+    # an unfiltered "newest 2000" query would never reach them.
+    from ..status import ALIVE_STATUSES, LEGACY_ALIVE_STATUSES
+
+    stored_alive = tuple(ALIVE_STATUSES) + tuple(LEGACY_ALIVE_STATUSES)
+    placeholders = ",".join("?" for _ in stored_alive)
+    q = (f"""SELECT id, status, symbol, timeframe, genome, data_source, creation_reason,
+                    failure_reason, survival_reason FROM strategies
+             WHERE COALESCE(data_source,'') <> 'LEGACY_TEST'
+               AND UPPER(COALESCE(status,'')) IN ({placeholders})
+             ORDER BY id DESC LIMIT 2000""")
+    try:
+        strategies = db.q(q, stored_alive) or []
+    except Exception:
+        strategies = []
+    for st in strategies:
+        sid = int(st["id"])
+        if sid in candidates:
+            continue
+        # filter on the V5 status (historical rows keep the pre-V5 vocabulary:
+        # SURVIVED / QUALIFIED); a FAILED node is never a live candidate
+        st_v5 = (_v5_status(st) or "").upper()
+        if st_v5 not in STARTABLE:
+            continue
+        cfg = cfg_rows.get(sid)
+        if cfg is None:
+            # not enrolled: harmless defaults so the row (and its START action) exists
+            cfg = {"strategy_id": sid, "is_active": 0, "risk_pct": None,
+                   "days": None, "sessions": None, "start_time": None, "end_time": None,
+                   "timezone": None, "status": "IDLE"}
+        else:
+            cfg = dict(cfg)
+        candidates[sid] = {"id": sid, "strategy_id": sid, "config": cfg, "genome": None,
+                           "strategy_status": st.get("status"),
+                           "_effective_risk_pct": None, "_risk_source": None}
+
+    rows: List[Dict[str, Any]] = []
+    for sid, n in candidates.items():
+        cfg = n.get("config") or {}
+        strat = db.get_strategy(sid) or {}
+        genome = _genome_of(strat)
+        override = cfg.get("risk_pct")
+        eff = n.get("_effective_risk_pct")
+        if eff is None:
+            eff = resolve_risk_pct(global_pct, override).get("risk_pct")
+
+        bt = db.one("""SELECT metrics FROM backtests
+                       WHERE strategy_id=? AND stage IN ('detail','screen')
+                       ORDER BY CASE stage WHEN 'detail' THEN 0 ELSE 1 END, id DESC LIMIT 1""",
+                    (sid,))
+        m = {}
+        if bt and bt.get("metrics"):
+            try:
+                m = json.loads(bt["metrics"])
+            except Exception:
+                m = {}
+
+        schedule = {
+            "days": cfg.get("days"),
+            "sessions": cfg.get("sessions"),
+            "start_time": cfg.get("start_time"),
+            "end_time": cfg.get("end_time"),
+            "timezone": cfg.get("timezone"),
+            "active": bool(cfg.get("is_active")),
+        }
+        ls = live.get(sid, {})
+        rows.append({
+            "node_id": sid,
+            "strategy_id": sid,
+            "starred": sid in shortlist,
+            "status": (cfg.get("strategy_status") or strat.get("status")) if strat else None,
+            "v5_status": _v5_status(strat),
+            "market": strat.get("symbol") or genome.get("symbol"),
+            "timeframe": strat.get("timeframe") or genome.get("timeframe"),
+            "direction": genome.get("direction", "both"),
+            "is_return_pct": m.get("total_return_pct"),
+            "profit_factor": m.get("profit_factor"),
+            "trades_is": m.get("trades"),
+            "today_pnl": ls.get("today_pnl"),
+            "total_live_pnl": ls.get("total_pnl"),
+            "live_trades": ls.get("trades", 0),
+            "live_closed": ls.get("closed_trades", 0),
+            "live_win_rate": ls.get("win_rate"),
+            "risk_pct": eff,
+            "risk_pct_override": override,
+            "risk_source": "CUSTOM" if override not in (None, "") else "GLOBAL",
+            "global_risk_pct": global_pct,
+            "is_active": bool(cfg.get("is_active")),
+            "schedule": schedule,
+        })
+
+    if search_clean:
+        rows = [r for r in rows
+                if search_clean in f"node_{r['node_id']}".lower()
+                or search_clean in str(r.get("market") or "").lower()
+                or search_clean in str(r.get("timeframe") or "").lower()
+                or search_clean in str(r.get("status") or "").lower()]
+    if status:
+        rows = [r for r in rows if str(r.get("status") or "").upper() == status.upper()
+                or str(r.get("v5_status") or "").upper() == status.upper()]
+    if timeframe:
+        rows = [r for r in rows if str(r.get("timeframe") or "").upper() == timeframe.upper()]
+    if starred_only:
+        rows = [r for r in rows if r["starred"]]
+    if not include_stopped:
+        rows = [r for r in rows if r["is_active"]]
+
+    def _key(r):
+        v = r.get(sort_by)
+        return (v is None, v) if isinstance(v, (int, float)) else (v is None, str(v))
+
+    rows.sort(key=_key, reverse=bool(sort_desc))
+    total = len(rows)
+    page = rows[max(0, offset):max(0, offset) + max(1, min(int(limit), 500))]
+
+    return {
+        "nodes": page,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "risk": {"global_risk_pct": global_pct, "limits": limits},
+        "excluded": excluded,
+        "note": ("IS return / profit factor come from the node's evaluated research backtest; "
+                 "live P/L comes from its recorded live trades. A node with no live trades yet "
+                 "shows null, never 0."),
+    }
+
+
+# --------------------------------------------------------------------------- #
+# V5 §15 — Trading Info: the node's genome rendered as human-readable rules
+# --------------------------------------------------------------------------- #
+@router.get("/strategies/{sid}/trading-info")
+def strategy_trading_info(sid: int) -> Dict[str, Any]:
+    """Translate this node's real genome into understandable trading rules.
+
+    Generated from the stored genome (and, when enrolled, its live config) — a
+    rule the genome does not define is reported as undefined rather than filled
+    in with a generic sentence.
+    """
+    from ..strategies.trading_info import build_trading_info
+
+    db = get_db()
+    strat = db.get_strategy(sid)
+    if strat is None:
+        raise HTTPException(status_code=404, detail={"ok": False, "message": f"node {sid} not found"})
+    cfg = None
+    try:
+        cfg = db.get_live_test_config(sid)
+    except Exception:
+        cfg = None
+    info = build_trading_info(strat, config=cfg)
+    info["strategy"] = {"id": sid, "status": strat.get("status"), "symbol": strat.get("symbol"),
+                        "timeframe": strat.get("timeframe"), "generation": strat.get("generation")}
+    return info
+
+
+def _v5_status(strategy: Optional[Dict[str, Any]]) -> Optional[str]:
+    """The node's V5 status (spec §3), computed from the stored row."""
+    if not strategy:
+        return None
+    try:
+        from ..status import v5_status
+        return v5_status(strategy)
+    except Exception:
+        return str(strategy.get("status") or "") or None
+
+
+def _genome_of(strategy: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """The node's genome as a dict, whether the driver handed back a str or a dict."""
+    if not strategy:
+        return {}
+    g = strategy.get("genome")
+    if isinstance(g, dict):
+        return g
+    if isinstance(g, (str, bytes, bytearray)):
+        try:
+            parsed = json.loads(g)
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
+    return {}
+
+
+# --------------------------------------------------------------------------- #
+# V5 §10/§11/§12 — live risk, schedule evaluation and real START/STOP
+# --------------------------------------------------------------------------- #
+@router.get("/live-testing/schedule/{sid}")
+def live_testing_schedule(sid: int) -> Dict[str, Any]:
+    """§11 — this node's schedule and its live evaluation.
+
+    The evaluation is performed by the same function the execution engine calls
+    before an order, against the node's real trade history, so the dashboard
+    reports what the engine will actually do.
+    """
+    eng = _live_engine()
+    db = get_db()
+    strat = db.get_strategy(sid)
+    if strat is None:
+        raise HTTPException(status_code=404, detail={"ok": False, "message": f"node {sid} not found"})
+    try:
+        node = next((n for n in eng.eligible_nodes() if n.get("id") == sid), None)
+    except Exception:
+        node = None
+    if node is None:
+        node = {"id": sid, "config": db.get_live_test_config(sid) or {},
+                "genome": _genome_of(strat)}
+    state = eng.schedule_state(node)
+    from ..live_testing.schedule import describe, SESSION_HOURS_UTC
+    state["description"] = describe(node.get("config"))
+    state["session_hours_utc"] = SESSION_HOURS_UTC
+    state["read_only"] = True
+    return state
+
+
+@router.post("/live-testing/schedule/{sid}")
+def live_testing_schedule_save(sid: int, payload: Dict = Body(...)) -> Dict[str, Any]:
+    """§11 — save the functional schedule/execution attributes for a node.
+
+    Days and sessions are validated against the supported sets before they are
+    stored, so a schedule the engine cannot enforce can never be saved.
+    """
+    from ..live_testing.schedule import SESSION_HOURS_UTC, day_number
+
+    db = get_db()
+    strat = db.get_strategy(sid)
+    if strat is None:
+        raise HTTPException(status_code=404, detail={"ok": False, "message": f"node {sid} not found"})
+    if str(strat.get("data_source") or "").upper() == "LEGACY_TEST":
+        raise HTTPException(status_code=422, detail={
+            "ok": False, "code": "LEGACY_NODE_NOT_TRADEABLE",
+            "message": f"node {sid} is LEGACY_TEST infrastructure - it can never be a live trading candidate"})
+
+    errors: List[Dict[str, str]] = []
+    days = payload.get("days")
+    if days is not None:
+        nums = [day_number(d) for d in days]
+        if any(n is None for n in nums):
+            errors.append({"field": "days", "error": f"unsupported day value in {days}"})
+        else:
+            days = nums
+    sessions = payload.get("sessions")
+    if sessions is not None:
+        allowed = set(SESSION_HOURS_UTC) | {"custom"}
+        bad = [s for s in sessions if str(s).strip().lower() not in allowed]
+        if bad:
+            errors.append({"field": "sessions",
+                           "error": f"unsupported session(s) {bad}; supported: "
+                                    f"{sorted(allowed)}"})
+        else:
+            sessions = [str(s).strip().lower() for s in sessions]
+    if errors:
+        raise HTTPException(status_code=422, detail={"ok": False, "errors": errors})
+
+    risk_check = validate_risk_settings(payload.get("risk_pct"), sid)
+    if not risk_check["ok"]:
+        raise HTTPException(status_code=422, detail=risk_check)
+
+    current = db.get_live_test_config(sid) or {}
+    fields = ("timeframes", "days", "sessions", "start_time", "end_time", "timezone",
+              "lot_size", "risk_pct", "is_active", "status",
+              "spread_limit_points", "cooldown_minutes", "max_trades_per_day",
+              "max_positions", "slippage_limit_points")
+    clean = {k: v for k, v in payload.items() if k in fields}
+    # store what was validated, not the raw payload: days become weekday numbers
+    # and sessions lower-case names, so every reader (engine, UI, exports) sees one
+    # canonical form regardless of how the request spelled it
+    if days is not None:
+        clean["days"] = days
+    if sessions is not None:
+        clean["sessions"] = sessions
+    merged = {**current, **clean}
+    db.set_live_test_config(sid, merged)
+
+    eng = _live_engine()
+    try:
+        node = next((n for n in eng.eligible_nodes() if n.get("id") == sid), None)
+    except Exception:
+        node = None
+    state = eng.schedule_state(node or {"id": sid, "config": merged})
+    from ..live_testing.schedule import describe
+    return {"ok": True, "strategy_id": sid, "config": db.get_live_test_config(sid),
+            "evaluation": state, "description": describe(merged),
+            "enforced_by": "app.live_testing.schedule.evaluate (called by the engine before every order)"}
+
+
+@router.post("/live-testing/nodes/{sid}/start")
+def live_testing_node_start(sid: int, payload: Dict = Body(default_factory=dict)) -> Dict[str, Any]:
+    """§12 — START: really activate this node's live-testing process.
+
+    Enrols the node (the ``is_active`` flag the engine iterates) and activates the
+    engine loop through the same confirmed activation path the Live Testing page
+    uses (spec §5) — no separate, weaker starter. It is not a status-only change:
+    after a successful call the node is in ``eligible_nodes()`` and the loop is
+    running.
+
+    ``confirmed`` must be true; a START without the operator's confirmation is
+    refused with 409 and the reason, never silently downgraded to a status flip.
+    """
+    confirmed = bool(payload.get("confirmed"))
+    from ..live_testing.engine import get_live_testing_engine
+
+    db = get_db()
+    strat = db.get_strategy(sid)
+    if strat is None:
+        raise HTTPException(status_code=404, detail={"ok": False, "message": f"node {sid} not found"})
+    if str(strat.get("data_source") or "").upper() == "LEGACY_TEST":
+        raise HTTPException(status_code=422, detail={
+            "ok": False, "code": "LEGACY_NODE_NOT_TRADEABLE",
+            "message": f"node {sid} is LEGACY_TEST infrastructure - it can never be a live trading candidate"})
+    if not confirmed:
+        # nothing is written before the operator confirms (spec §5): a refused
+        # START must leave the node exactly as it was
+        raise HTTPException(status_code=409, detail={
+            "ok": False, "code": "CONFIRMATION_REQUIRED", "strategy_id": sid,
+            "message": ("starting live testing places DEMO orders on the connected account; confirm "
+                        "the activation panel (send confirmed=true) to proceed"),
+            "would_enroll": {"node_id": sid}})
+
+    cfg = db.get_live_test_config(sid) or {}
+    if not cfg:
+        tf = strat.get("timeframe", "M15")
+        cfg = {"strategy_id": sid, "timeframes": [tf],
+               "days": [0, 1, 2, 3, 4], "sessions": ["london", "newyork"],
+               "start_time": "00:00", "end_time": "23:59", "timezone": "UTC",
+               "lot_size": 0.1, "risk_pct": None, "is_active": False, "status": "IDLE"}
+    cfg["is_active"] = True
+    cfg["status"] = "RUNNING"
+    db.set_live_test_config(sid, cfg)
+
+    try:
+        db.set_pipeline_stage(sid, "LIVE_TESTING", "Started live testing")
+    except Exception:
+        pass
+
+    eng = get_live_testing_engine()
+    mode = eng.get_mode()
+    started_engine = False
+    if not mode.get("active"):
+        res = eng.activate(confirmed=True, armed_by=f"operator (node {sid})")
+        started_engine = bool(res.get("ok"))
+        if not started_engine:
+            raise HTTPException(status_code=422, detail={**res, "strategy_id": sid,
+                                                         "engine_started": False})
+    else:
+        res = {"ok": True, "already_active": True}
+
+    node = {"id": sid, "config": db.get_live_test_config(sid) or {},
+            "genome": _genome_of(strat)}
+    return {"ok": True, "strategy_id": sid, "is_active": True, "status": "RUNNING",
+            "engine": {"active": True, "started_now": started_engine, "result": res},
+            "schedule": eng.schedule_state(node),
+            "note": ("the node is enrolled and the engine loop is running; orders still require a "
+                     "connected, positively-identified DEMO terminal and a live entry signal")}
+
+
+@router.post("/live-testing/nodes/{sid}/stop")
+def live_testing_node_stop(sid: int) -> Dict[str, Any]:
+    """§12 — STOP: really stop this node's live-testing process.
+
+    Deactivation removes the node from the engine's enrolled set (the engine
+    iterates ``is_active=1`` rows), so no further signal for this node can open a
+    position. Open positions are NOT touched: closing a position is a separate,
+    explicit operator action.
+    """
+    db = get_db()
+    strat = db.get_strategy(sid)
+    if strat is None:
+        raise HTTPException(status_code=404, detail={"ok": False, "message": f"node {sid} not found"})
+    cfg = db.get_live_test_config(sid) or {}
+    cfg["is_active"] = False
+    cfg["status"] = "STOPPED"
+    db.set_live_test_config(sid, cfg)
+    try:
+        db.log_event("live_testing_node_stopped", {"strategy_id": sid})
+    except Exception:
+        pass
+
+    eng = _live_engine()
+    remaining = 0
+    try:
+        remaining = len([n for n in eng.eligible_nodes()
+                         if (n.get("config") or {}).get("is_active")])
+    except Exception:
+        pass
+    return {"ok": True, "strategy_id": sid, "is_active": False, "status": "STOPPED",
+            "enrolled_active_nodes": remaining,
+            "note": ("the node is out of the engine's active set; any position it already opened "
+                     "remains at the broker until it is closed explicitly"),
+            "positions_touched": False}
+
+
+@router.get("/live-testing/risk")
+def live_testing_risk() -> Dict[str, Any]:
+    """§10 — global default risk, its limits, and per-node overrides in force."""
+    from ..live_testing.risk import risk_limits
+
+    db = get_db()
+    limits = risk_limits()
+    try:
+        rows = db.q("SELECT strategy_id, risk_pct, is_active FROM live_test_configs") or []
+    except Exception:
+        rows = []
+    overrides = [{"strategy_id": r["strategy_id"], "risk_pct": r.get("risk_pct"),
+                  "is_active": bool(r.get("is_active"))}
+                 for r in rows if r.get("risk_pct") is not None]
+    return {"limits": limits, "global_risk_pct": limits.get("risk_pct_default"),
+            "overrides": overrides, "override_count": len(overrides),
+            "note": ("the effective risk for a node is its override when set, otherwise the global "
+                     "default; the live engine sizes every position with the effective value")}
+
+
+@router.post("/live-testing/risk")
+def live_testing_risk_set(payload: Dict = Body(default_factory=dict)) -> Dict[str, Any]:
+    """§10 — set the global default risk (validated against the configured cap)."""
+    from ..live_testing.risk import risk_limits, validate_risk_settings
+
+    pct = payload.get("risk_pct")
+    check = validate_risk_settings(pct, None)
+    if not check["ok"]:
+        raise HTTPException(status_code=422, detail=check)
+    update_config("live_testing", {"risk_pct_default": float(pct)})
+    return {"ok": True, "limits": risk_limits(), "global_risk_pct": float(pct)}
+
+
+# --------------------------------------------------------------------------- #
+# V5 §10/§19-§21 — Power button: dashboard-owned processes, safe shutdown
+# --------------------------------------------------------------------------- #
+@router.get("/power/session")
+def power_session() -> Dict[str, Any]:
+    """What the dashboard owns right now, and what a shutdown would do.
+
+    The Power button shows this before asking for confirmation, so the operator
+    knows exactly which processes are dashboard-owned (and that the browser, the
+    operating system, an independently started MT5 terminal and DATA are not).
+    """
+    from ..power import get_power_manager
+
+    pm = get_power_manager()
+    return {**pm.session(),
+            "plan": pm.plan(),
+            "last_report": pm.last_report(),
+            "note": ("only processes launched by this dashboard are stopped; every step is addressed "
+                     "to a recorded pid and verified afterwards")}
+
+
+@router.post("/power/shutdown")
+def power_shutdown(payload: Dict = Body(default_factory=dict)) -> Dict[str, Any]:
+    """§10 — shut the dashboard down safely (confirmation required).
+
+    Body: ``{"confirm": "SHUTDOWN DASHBOARD", "dry_run": false}``.
+
+    Ordered: stop new tasks -> stop active tasks -> disconnect MT5 -> stop
+    background workers -> stop research workers -> stop schedulers/queue ->
+    dashboard-owned frontend -> backend -> verify. Nothing else on the machine is
+    touched, and ``dry_run`` performs every check without stopping anything.
+    """
+    from ..power import SHUTDOWN_PHRASE, get_power_manager
+
+    confirm = str(payload.get("confirm") or "")
+    dry_run = bool(payload.get("dry_run"))
+    if confirm != SHUTDOWN_PHRASE:
+        raise HTTPException(status_code=409, detail={
+            "ok": False, "code": "CONFIRMATION_REQUIRED",
+            "message": f"send confirm={SHUTDOWN_PHRASE!r} (exactly as shown in the panel)",
+            "expected": SHUTDOWN_PHRASE})
+    pm = get_power_manager()
+    report = pm.shutdown(confirmed=True, actor="dashboard (Power button)", dry_run=dry_run)
+    if not report.get("ok"):
+        # the attempt happened and part of it failed: report honestly, never claim success
+        return {**report, "http_note": "one or more shutdown steps failed - see steps[]"}
+    return report
+
+
+@router.get("/power/shutdown-report")
+def power_shutdown_report() -> Dict[str, Any]:
+    """The last shutdown report (readable after the backend restarts)."""
+    from ..power import get_power_manager
+
+    rep = get_power_manager().last_report()
+    return rep if rep is not None else {"ok": None, "message": "no shutdown has been recorded yet"}
+
+
+@router.post("/power/heartbeat")
+def power_heartbeat() -> Dict[str, Any]:
+    """Called by the dashboard while it is open; keeps the session record fresh."""
+    from ..power import accepting_tasks, get_power_manager
+
+    pm = get_power_manager()
+    pm.save()
+    return {"ok": True, "accepting_tasks": accepting_tasks(),
+            "session_id": pm.session_id, "owned_process_count": pm.session()["owned_process_count"]}

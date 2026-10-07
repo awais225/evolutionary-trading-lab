@@ -360,7 +360,8 @@ class LiveTestingEngine:
             source = (r.get("data_source") or "").upper()
             genome = r.get("genome") or {}
             risk = resolve_risk_pct(limits["risk_pct_default"], r.get("risk_pct"))
-            entry = {"id": sid, "strategy_id": sid, "genome": genome, "config": r,
+            entry = {"id": sid, "node_id": sid, "strategy_id": sid,
+                     "genome": genome, "config": r,
                      "_effective_risk_pct": risk["risk_pct"], "_risk_source": risk["source"]}
             if source == "LEGACY_TEST":
                 notes.append({**entry, "reason": "LEGACY_TEST node - never a live trading candidate"})
@@ -545,6 +546,44 @@ class LiveTestingEngine:
                 "active_total": act.get("active_total", 0), "limit": limit,
                 "counted": act.get("counted", False), "source": act.get("source"),
                 "pending_orders": act.get("orders", 0), "positions": act.get("positions", 0)}
+
+    # ------------------------------------------------------------------ schedule ---
+    def schedule_state(self, node: Dict[str, Any], *, spread_points: Optional[float] = None,
+                       open_positions: int = 0,
+                       now: Optional[float] = None) -> Dict[str, Any]:
+        """V5 §11 — evaluate this node's live schedule against its real history.
+
+        The inputs are all from the lab's own records: how many trades the node
+        has taken today and when its last entry was. Nothing is cached, so the
+        answer the dashboard shows is the answer the engine acts on.
+        """
+        from .schedule import evaluate as _eval
+        sid = node.get("id")
+        cfg = node.get("config") or {}
+        db = get_db()
+        trades_today = 0
+        last_entry_ts = None
+        try:
+            rows = db.q("SELECT open_ts, status FROM live_test_trades WHERE strategy_id=?", (sid,)) or []
+            day_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0,
+                                                           microsecond=0).timestamp()
+            for r in rows:
+                ts = r.get("open_ts")
+                if ts is None:
+                    continue
+                if float(ts) >= day_start:
+                    trades_today += 1
+                if last_entry_ts is None or float(ts) > last_entry_ts:
+                    last_entry_ts = float(ts)
+        except Exception:
+            pass
+        state = _eval(cfg, now=now, spread_points=spread_points,
+                      trades_today=trades_today, open_positions=open_positions,
+                      last_entry_ts=last_entry_ts)
+        state["trades_today"] = trades_today
+        state["last_entry_ts"] = last_entry_ts
+        state["strategy_id"] = sid
+        return state
 
     # ------------------------------------------------------------------ status ---
     def status(self) -> Dict[str, Any]:
@@ -769,6 +808,44 @@ class LiveTestingEngine:
         db = get_db()
         limits = risk_limits()
         mode = self.get_mode()
+
+        # ---- V5 §11: the node's live schedule is enforced HERE, before any other
+        # gate, with the engine's own trade history as its input. A schedule the
+        # UI can display but the engine ignores is not a schedule; this is the one
+        # place an order can be started, so the rule set lives here.
+        from .schedule import evaluate as _eval_schedule
+        try:
+            _panel = self.market_panel(symbol)
+            _spread_pts = None
+            if _panel.get("ask") is not None and _panel.get("bid") is not None:
+                _point = _panel.get("point") or 0.01
+                _spread_pts = (float(_panel["ask"]) - float(_panel["bid"])) / float(_point)
+            _sched_eval = self.schedule_state(
+                node, spread_points=_spread_pts,
+                open_positions=(self.count_activity() or {}).get("active_total", 0))
+        except Exception as e:                      # never trade on an unevaluable schedule
+            self._block(node, symbol, side, STAGE_ORDER_VALIDATED, "SCHEDULE_UNEVALUABLE",
+                        f"the node's live schedule could not be evaluated ({type(e).__name__}: {e}) "
+                        "- refusing to trade")
+            return
+        if not _sched_eval["allowed"]:
+            self.stats["blocked"] += 1
+            self._stage({"stage": STAGE_BLOCKED, "node_id": sid, "symbol": symbol, "side": side,
+                         "status": "SCHEDULE_BLOCKED",
+                         "detail": {"blocked_stage": STAGE_ORDER_VALIDATED,
+                                    "reason": _sched_eval["reason"],
+                                    "rules": _sched_eval["rules"],
+                                    "local_time": _sched_eval["local_time"],
+                                    "timezone": _sched_eval["timezone"]}})
+            db.log_event("live_test_schedule_blocked",
+                         {"strategy_id": sid, "symbol": symbol, "side": side,
+                          "reason": _sched_eval["reason"]})
+            return
+        self._stage({"stage": STAGE_ORDER_VALIDATED, "node_id": sid, "symbol": symbol, "side": side,
+                     "status": "SCHEDULE_OK",
+                     "detail": {"local_time": _sched_eval["local_time"],
+                                "timezone": _sched_eval["timezone"],
+                                "rules": _sched_eval["rules"]}})
 
         # ---- safety gates (spec §3, §4, §10, §20) ----
         if not mode["active"]:

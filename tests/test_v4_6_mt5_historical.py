@@ -458,6 +458,54 @@ def test_provenance_records_exactly_what_was_tested(db, dataset_files):
 # --------------------------------------------------------------------------- #
 # 5. safety: a historical backtest can never place an order
 # --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# V5 §9 — scheduling: a deep run can be queued for a later time. The queue
+# refuses times it cannot honour, a scheduled run stays QUEUED (visible and
+# cancellable) until its time arrives, and a due run executes normally.
+# --------------------------------------------------------------------------- #
+def test_scheduled_run_stays_queued_until_its_time(db, monkeypatch):
+    # hold the synchronous executor: the schedule must keep the run queued
+    monkeypatch.setattr(hb._EXECUTOR, "hold", True, raising=False)
+    body = valid_body()
+    when = dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=1)
+    body["schedule_at"] = when
+    res = hb.start_run(body, db)
+    assert res["ok"] is True, res
+    assert res["status"] == "QUEUED"
+    row = db.one("SELECT status, config FROM mt5_historical_runs WHERE run_id=?", (res["run_id"],))
+    assert row["status"] == "QUEUED", "a scheduled run must not start before its time"
+    cfg = json.loads(row["config"])
+    assert abs(cfg["scheduled_at"] - when.timestamp()) < 1
+    assert hb.get_run(res["run_id"], db)["status"] == "QUEUED"
+    listed = hb.list_runs(db)
+    rows = listed.get("runs") if isinstance(listed, dict) else listed
+    assert any(r["run_id"] == res["run_id"] for r in rows)
+
+
+def test_schedule_in_the_past_is_rejected(db):
+    body = valid_body()
+    body["schedule_at"] = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=2)
+    res = hb.start_run(body, db)
+    assert res["ok"] is False and res["started"] is False
+    assert any(e["field"] == "schedule_at" for e in res["errors"]), res["errors"]
+
+
+def test_schedule_beyond_the_horizon_is_rejected(db):
+    body = valid_body()
+    body["schedule_at"] = dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=30)
+    res = hb.start_run(body, db)
+    assert res["ok"] is False and res["started"] is False
+    assert any(e["field"] == "schedule_at" for e in res["errors"]), res["errors"]
+
+
+def test_a_due_scheduled_run_executes_normally(db):
+    body = valid_body()
+    body["schedule_at"] = dt.datetime.now(dt.timezone.utc) - dt.timedelta(seconds=30)
+    run = run_to_end(db, body)
+    assert run["status"] == "COMPLETED"
+    assert run["results"]["metrics"]["trades"] >= 0
+
+
 def test_historical_backtest_never_calls_any_order_path(db, monkeypatch):
     calls = []
 

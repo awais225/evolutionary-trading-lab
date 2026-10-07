@@ -3,6 +3,7 @@ import { api, fmt } from "../api.js";
 import { useLab } from "../App.jsx";
 import { Metric, Pill, EventFeed, SignedNum, ErrorNote } from "../components/common.jsx";
 import NewResearchRunModal from "../components/NewResearchRunModal.jsx";
+import PowerButton from "../components/PowerButton.jsx";
 
 export default function Overview() {
   const { status, events, connected, refreshStatus, openStrategy } = useLab();
@@ -415,12 +416,15 @@ export default function Overview() {
         />
       )}
       <div className="flex justify-between items-center" style={{ marginBottom: "0.5rem" }}>
-        <div>
+        {/* V5 §10 — Power sits top-left: closing the DASHBOARD only, after a Yes/No confirmation */}
+        <PowerButton />
+        <div style={{ flex: "1 1 auto", textAlign: "center" }}>
           <h2 className="page-title">Overview</h2>
           <div className="page-sub">
             Autonomous evolutionary research laboratory · objective: robust positive expectancy.
           </div>
         </div>
+        <div style={{ width: 90 }} aria-hidden="true" />
       </div>
 
       <ErrorNote err={err} />

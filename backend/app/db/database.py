@@ -524,7 +524,11 @@ class Database:
         rid = s.get("run_id") or ""
         data_source = s.get("data_source")
         if not data_source:
-            data_source = "LEGACY_TEST" if (not rid or "TEST" in rid.upper() or "HISTORICAL" in rid.upper()) else "USER_RESEARCH"
+            # V5: default to the research population. LEGACY_TEST is a
+            # classification of *imported historical* records and is applied by
+            # the one-time V3.6 migration (and by explicit callers), never
+            # inferred here from the run id's spelling.
+            data_source = "USER_RESEARCH"
 
         research_node_num = s.get("research_node_num")
         if research_node_num is None:
@@ -1073,9 +1077,18 @@ class Database:
             "end_time": row.get("end_time") or "23:59",
             "timezone": row.get("timezone") or "UTC",
             "lot_size": row.get("lot_size") or 0.1,
-            "risk_pct": row.get("risk_pct") or 1.0,
+            # None means "no per-node override": resolving the effective risk is the
+            # risk engine's job (GLOBAL default vs CUSTOM override). Substituting a
+            # number here would silently turn every node into a custom-risk node.
+            "risk_pct": row.get("risk_pct"),
             "is_active": bool(row.get("is_active")),
             "status": row.get("status") or "IDLE",
+            # V5 §11 execution attributes (None = not configured)
+            "spread_limit_points": row.get("spread_limit_points"),
+            "cooldown_minutes": row.get("cooldown_minutes"),
+            "max_trades_per_day": row.get("max_trades_per_day"),
+            "max_positions": row.get("max_positions"),
+            "slippage_limit_points": row.get("slippage_limit_points"),
             "created_at": row.get("created_at"),
             "updated_at": row.get("updated_at"),
         }
@@ -1086,8 +1099,10 @@ class Database:
         sql = """
             INSERT INTO live_test_configs (
                 strategy_id, timeframes, days, sessions, start_time, end_time,
-                timezone, lot_size, risk_pct, is_active, status, created_at, updated_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                timezone, lot_size, risk_pct, is_active, status, created_at, updated_at,
+                spread_limit_points, cooldown_minutes, max_trades_per_day, max_positions,
+                slippage_limit_points
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(strategy_id) DO UPDATE SET
                 timeframes=excluded.timeframes,
                 days=excluded.days,
@@ -1101,6 +1116,7 @@ class Database:
                 status=excluded.status,
                 updated_at=excluded.updated_at
         """
+        self.ensure_live_test_config_columns()
         self.x(sql, (
             strategy_id,
             jd(cfg.get("timeframes", ["M1", "M5", "M15"])),
@@ -1115,6 +1131,11 @@ class Database:
             cfg.get("status", "IDLE"),
             now,
             now,
+            self._num_or_none(cfg.get("spread_limit_points")),
+            self._num_or_none(cfg.get("cooldown_minutes")),
+            self._num_or_none(cfg.get("max_trades_per_day")),
+            self._num_or_none(cfg.get("max_positions")),
+            self._num_or_none(cfg.get("slippage_limit_points")),
         ))
 
     def record_live_test_trade(self, t: Dict[str, Any]) -> int:
@@ -1282,6 +1303,27 @@ class Database:
         ("exec_price", "REAL"), ("retcode", "INTEGER"), ("result_json", "TEXT"),
         ("updated_at", "REAL"),
     )
+
+    @staticmethod
+    def _num_or_none(v):
+        try:
+            return None if v is None or v == "" else float(v)
+        except (TypeError, ValueError):
+            return None
+
+    #: V5 §11 — execution attributes the live engine enforces
+    V5_CONFIG_COLUMNS = (
+        ("spread_limit_points", "REAL"), ("cooldown_minutes", "REAL"),
+        ("max_trades_per_day", "REAL"), ("max_positions", "REAL"),
+        ("slippage_limit_points", "REAL"),
+    )
+
+    def ensure_live_test_config_columns(self) -> None:
+        """Additive, idempotent V5 migration for the live-test config."""
+        cols = {r["name"] for r in self.q("PRAGMA table_info(live_test_configs)")}
+        for name, typ in self.V5_CONFIG_COLUMNS:
+            if name not in cols:
+                self.x(f"ALTER TABLE live_test_configs ADD COLUMN {name} {typ}")
 
     def ensure_live_trade_columns(self) -> None:
         """Additive, idempotent migration for the V4.3 traceability columns."""

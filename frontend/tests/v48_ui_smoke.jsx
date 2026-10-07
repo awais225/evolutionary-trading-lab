@@ -28,12 +28,16 @@ import DatasetAvailability from "../src/components/DatasetAvailability.jsx";
 import PopulationSummary from "../src/components/PopulationSummary.jsx";
 import LiveTradeCounter from "../src/components/LiveTradeCounter.jsx";
 import DemoAccountSafety from "../src/components/DemoAccountSafety.jsx";
-import { RiskStrip, ManualOrderPanel, LiveMarketPanel, StageTimeline } from "../src/components/LiveTestingPanels.jsx";
+import { RiskStrip, ManualOrderPanel, LiveMarketPanel, StageTimeline, LiveNodeTable,
+         LiveMarketHeader, ScheduleDialog } from "../src/components/LiveTestingPanels.jsx";
+import PowerButton from "../src/components/PowerButton.jsx";
+import { TradingInfoTab } from "../src/components/StrategyDrawer.jsx";
+import Mt5Backtest from "../src/pages/Mt5Backtest.jsx";
+import LiveTestResults from "../src/pages/LiveTestResults.jsx";
 import NewResearchRunModal from "../src/components/NewResearchRunModal.jsx";
 import NodeDetailDrawer from "../src/components/NodeDetailDrawer.jsx";
 import LiveTesting from "../src/pages/LiveTesting.jsx";
 import Mt5DemoTrading from "../src/pages/Mt5DemoTrading.jsx";
-import Mt5Backtest from "../src/pages/Mt5Backtest.jsx";
 import NodeEconomics from "../src/pages/NodeEconomics.jsx";
 import StartupBanner from "../src/components/StartupBanner.jsx";
 import { JsonView } from "../src/components/common.jsx";
@@ -108,6 +112,75 @@ const MARKET = {
   session_status: "newyork", trading_available: false,
   reasons: ["simulator feed: no live ticks"], tick_age_s: 12.5, market_open: false,
   indicators: null, bar_close_in: null,
+};
+
+const MARKET_HEADER = {
+    available: true, reasons: [], reason: null, symbol: "XAUUSD", timeframe: "M15",
+    market: { symbol: "XAUUSD", bid: 2400.1, ask: 2400.3, spread: 0.2, price: 2400.2,
+              time: "2026-10-07T05:42:00+00:00", tick_age_s: 1.2, session_status: "london",
+              source: "MT5", bridge_available: true, connected: true, data_fresh: true },
+    node: { strategy_id: 1195, symbol: "XAUUSD", timeframe: "M15", direction: "both", status: "QUALIFIED",
+            v5_status: "VALID", risk_pct: null, node_id: 1195 },
+    indicators: [{ spec: "ema:50", value: 2399.4, error: null }, { spec: "rsi:14", value: 55.2, error: null },
+                 { spec: "sma:200", value: null, error: "KeyError: sma:200" }],
+    indicator_bar_time: 1791307700.0, indicators_available: true,
+    conditions: [{ side: "LONG", met_count: 1, total_count: 2, gate_ok: true, signal: false,
+                   conditions: [{ condition: "ema:50 > close", met: true },
+                                { condition: "rsi:14 < 70", met: false }] },
+                 { side: "SHORT", met_count: 0, total_count: 1, gate_ok: false, signal: false,
+                   conditions: [{ condition: "sma:10 > close", met: false }] }],
+};
+
+const RESEARCH_NODES = {
+  scope: "USER_RESEARCH", include_legacy: false, total: 36, legacy_excluded_total: 787,
+  offset: 0, limit: 10, returned: 3, pages: 4, sort: "return", dir: "desc",
+  nodes: [
+    { id: 10825, node_id: "Node_10825", research_node_num: 10010, status: "SURVIVED",
+      symbol: "XAUUSD", timeframe: "M30", direction: "long", shortlisted: true, research_eligible: true,
+      updated_at: 1791354366.07, research: { return_pct: 0.277, profit_factor: 1.743, trades: 182,
+                                              max_drawdown_pct: 0.1256, sharpe: 3.845 } },
+    { id: 240, node_id: "Node_240", research_node_num: 240, status: "QUALIFIED",
+      symbol: "XAUUSD", timeframe: "M15", direction: "LONG", shortlisted: false, research_eligible: true,
+      updated_at: 1791200000.0, research: { return_pct: 0.207, profit_factor: 1.435, trades: 88,
+                                             max_drawdown_pct: 0.21, sharpe: 2.1 } },
+    { id: 30000, node_id: "Node_30000", research_node_num: 30000, status: "FAILED",
+      symbol: "XAUUSD", timeframe: "M5", direction: "short", shortlisted: false, research_eligible: true,
+      updated_at: null, research: { return_pct: null, profit_factor: null, trades: null,
+                                     max_drawdown_pct: null, sharpe: null } },
+    null,
+  ],
+};
+
+const AUTHORITATIVE = {
+  id: 240, node_id: "Node_240", research_node_num: 240, status: "QUALIFIED", v5_status: "VALID",
+  symbol: "XAUUSD", timeframe: "M15", direction: "LONG", generation: 9, fitness: 0.63,
+  is_return_pct: 0.207, profit_factor: 1.435, trades_is: 88, genome: {},
+  backtests: [{ stage: "detail", metrics: { trades: 88, total_return_pct: 0.207, profit_factor: 1.435 } }],
+};
+
+const CAPS = {
+  label: "HISTORICAL MT5 BACKTEST", stage: "mt5_hist", cached: false,
+  scope: { default: "MT5", options: ["MT5", "SIMULATOR"] },
+  bridge: { active_bridge: "simulator", source: "SIMULATOR", is_simulated: true,
+            mt5_package_installed: false, terminal_build: null,
+            note: "the lab never needs a broker/terminal order session for a historical backtest" },
+  datasets: [
+    { symbol: "XAUUSD", timeframe: "M15", source: "MT5", dataset_id: "XAUUSD_M15", bars: 1850,
+      start: "2026-09-07T00:00:00+00:00", end: "2026-10-05T00:00:00+00:00",
+      broker: "Raw Trading Ltd", server: "Live01", fingerprint: "sha256:9f2c",
+      eligible: true, eligibility_reason: "eligible", min_bars: 300 },
+    { symbol: "XAUUSD", timeframe: "M15", source: "SIMULATOR", dataset_id: "sim_xau_m15", bars: 900,
+      start: "2026-01-01T00:00:00+00:00", end: "2026-03-01T00:00:00+00:00",
+      broker: null, server: null, fingerprint: "sha256:11ab",
+      eligible: true, eligibility_reason: "eligible", min_bars: 300 },
+  ],
+  datasets_by_symbol: { XAUUSD: ["M15", "M1"] },
+  rejected_datasets: [{ symbol: "XAUUSD", timeframe: "M15", source: "SIMULATOR",
+                        dataset_id: "sim_xau_m15_short",
+                        reason: "dataset integrity: 88 rows, minimum 300 bars required" }],
+  defaults: { initial_balance: 10000.0, risk_per_trade: 0.005 },
+  limits: { min_bars: 300, max_queue: 5, max_active: 1, max_trades_limit: 500, one_at_a_time: true },
+  modes: { historical_backtest: true, places_orders: false },
 };
 
 const NODES = [
@@ -187,8 +260,20 @@ export function setHealthFailure(value) { HEALTH_FAILS = value; }
 /** Drive the manual order panel's submit with a controlled backend answer. */
 export function setPlaceResponse(value, ok = true) { PLACE_RESPONSE = value; PLACE_OK = ok; }
 
+/** V5: every POST the UI sent (path + body), so the smoke can assert the real
+ *  endpoints are called — a cosmetic button would fail here. */
+export const nodesTablePosts = [];
+export const shutdownCalls = [];
+export const dataSyncCalls = [];
+export const seenUrls = [];
+export const shortlistToggles = [];
+
+
+
 export function payloadFor(path) {
   if (path === "/health" && HEALTH_FAILS) throw new Error("Failed to fetch");   // unreachable status endpoint
+  if (path.includes("/api/live-testing/nodes/")) { nodesTablePosts.push(path); return { ok: true, is_active: true, status: "RUNNING" }; }
+  if (path.includes("/api/power/shutdown")) { return { ok: true, dry_run: true, steps: [], backend_stopping: false }; }
   if (path.includes("/api/mt5-execution/preview")) return PREVIEW_RESPONSE;
   if (path.includes("/api/mt5-execution/place")) {
     if (!PLACE_OK) {
@@ -201,7 +286,7 @@ export function payloadFor(path) {
   }
   if (path.includes("/api/mt5-execution/state")) return EXEC_STATE_STUB;
   if (path.includes("/api/mt5-execution/")) return EXEC_STATE_STUB;
-  if (path.includes("/api/live-testing/market")) return MARKET;
+  if (path.includes("/api/live-testing/market") && !path.includes("market-header")) return MARKET;
   if (path.includes("/api/live-testing/counter")) return {
     activity: { active_total: 0, positions: 0, orders: 0, source: "MT5 (SIMULATOR)", counted: false, error: "broker positions/orders unavailable: the active bridge is 'SIMULATOR', not a real MT5 connection" },
     limit: { reached: false, limit: 1, counted: false, source: "MT5 (SIMULATOR)" },
@@ -222,6 +307,59 @@ export function payloadFor(path) {
       null,
     ],
   };
+  if (path.includes("/api/live-testing/nodes-table")) return {
+    nodes: [
+      { node_id: 1195, starred: true, status: "QUALIFIED", v5_status: "VALID", market: "XAUUSD",
+        timeframe: "M15", direction: "both", is_return_pct: 12.5, profit_factor: 1.42, trades_is: 210,
+        today_pnl: null, total_live_pnl: null, live_trades: 0, live_closed: 0, live_win_rate: null,
+        risk_pct: 1.0, risk_pct_override: null, risk_source: "GLOBAL", global_risk_pct: 1.0,
+        is_active: false, schedule: { days: [0, 1, 2, 3, 4], sessions: ["london"], start_time: "00:00",
+                                      end_time: "23:59", timezone: "UTC", active: false } },
+      { node_id: 1908, starred: false, status: "SURVIVED", v5_status: "VALID", market: "XAUUSD",
+        timeframe: "M15", direction: "short", is_return_pct: null, profit_factor: null, trades_is: null,
+        today_pnl: null, total_live_pnl: null, live_trades: 0, live_closed: 0, live_win_rate: null,
+        risk_pct: null, risk_pct_override: null, risk_source: "GLOBAL", global_risk_pct: 1.0,
+        is_active: false, schedule: { active: false } },
+      null,
+    ],
+    total: 2, limit: 25, offset: 0,
+    risk: { global_risk_pct: 1.0, limits: { risk_pct_default: 1.0, risk_pct_max: 2.0, max_active_trades: 1 } },
+    excluded: [], note: "IS metrics from the research backtest; live P/L from recorded live trades.",
+  };
+  if (path.includes("/api/live-testing/schedule/")) return {
+    allowed: false, reason: "sessions: 05:42 UTC against london 07:00–16:00 UTC",
+    local_time: "2026-10-07T05:42:00+00:00", utc_time: "2026-10-07T05:42:00+00:00", timezone: "UTC",
+    weekday: "Wednesday", trades_today: 0, last_entry_ts: null, strategy_id: 1195,
+    description: "Mon/Tue/Wed/Thu/Fri, London, 00:00–23:59 UTC",
+    rules: [{ rule: "days", ok: true, detail: "Wednesday is an active trading day" },
+            { rule: "sessions", ok: false, detail: "05:42 UTC against london 07:00–16:00 UTC" }],
+    schedule: { days: [0, 1, 2, 3, 4], sessions: ["london"], start_time: "00:00", end_time: "23:59",
+                timezone: "UTC", cooldown_minutes: 30, max_trades_per_day: 3, spread_limit_points: 25,
+                max_positions: 1 },
+  };
+  if (path.includes("/api/live-testing/risk")) return {
+    limits: { risk_pct_default: 1.0, risk_pct_max: 2.0, max_active_trades: 1 },
+    global_risk_pct: 1.0, overrides: [{ strategy_id: 1908, risk_pct: 0.5, is_active: false }],
+    override_count: 1, note: "effective risk = override when set, otherwise the global default",
+  };
+  if (path.includes("/api/live-testing/market-header")) return MARKET_HEADER;
+  if (path.includes("/api/power/session")) return {
+    session_id: "s-abc123", started_at: 1791300000, backend_pid: 4242, roles: ["backend"],
+    owned: { backend: [{ role: "backend", pid: 4242, label: "dashboard backend / API", alive: true,
+                         launched_by: "dashboard", external: false }] },
+    owned_role_count: 1, owned_process_count: 1, accepting_tasks: true,
+    never_touched: ["the browser and its tabs", "the operating system (no shutdown / restart / logoff / sleep)"],
+    shutdown_phrase: "SHUTDOWN DASHBOARD", session_file: "LOGS/power_session.json",
+    plan: [{ order: 1, step: "stop_new_tasks", description: "Stop accepting new tasks", skipped: false },
+           { order: 2, step: "verify", description: "Verify every dashboard-owned process has stopped", skipped: false }],
+    last_report: null,
+  };
+  if (path.includes("/api/power/")) return { ok: true, dry_run: true, steps: [] };
+  if (path.includes("/api/strategies/") && path.includes("/trading-info")) return {
+    ok: true, strategy_id: 1195, text: "IDENTITY\n  Node: Node_1195",
+    sections: [{ id: "identity", title: "Identity", items: [{ label: "Symbol", value: "XAUUSD" }] }],
+    node: { id: 1195 },
+  };
   if (path.includes("/api/live-testing/nodes")) return { nodes: NODES, excluded: [7], limit: 1 };
   if (path.includes("/api/live-testing/status")) return {
     mode: "INACTIVE", active: false, bridge_source: "SIMULATOR", cycle_count: 0,
@@ -231,6 +369,13 @@ export function payloadFor(path) {
   if (path.includes("/api/live-test/status")) return { active_strategies: 0, open_positions: 0, today_pnl: 0, total_pnl: 0, cycle_count: 0, last_cycle_iso: null, last_noop_reason: "engine inactive" };
   if (path.includes("/api/live-test/results")) return { summary: {}, trades: [], prop_firm: {} };
   if (path.includes("/api/data/inventory")) return INVENTORY;
+  if (path.includes("/api/mt5-historical/capabilities")) return CAPS;
+  if (path.includes("/api/research/strategies")) return RESEARCH_NODES;
+  if (path.includes("/api/research/shortlist/toggle")) return { ok: true, starred: true };
+  if (path.includes("/api/data/sync")) return {
+    symbol: "XAUUSD", timeframe: "M15", fetch_mode: "reuse_existing", new_bars: 0,
+    total_bars: 1850, version: 3, dataset_id: "XAUUSD_M15", action: "REUSING EXISTING DATA",
+  };
   if (path.includes("/api/data/management/status")) return MGMT;
   if (path.includes("/api/stats/overview")) return STATS;
   if (path.includes("/api/stats/")) return { scope: "USER_RESEARCH", total: 10000, nodes: [], population: STATS.population };
@@ -244,6 +389,7 @@ export function payloadFor(path) {
     server: "SIM", balance: 10000.0, equity: 10000.0, free_margin: 9500.0,
     active_strategies_count: 1, open_positions_count: 0, today_pnl: 0, total_pnl: 0, active_strategies: [240],
   };
+  if (path.includes("/api/strategies/") && path.includes("/authoritative")) return AUTHORITATIVE;
   if (path.includes("/api/strategies/")) return DRAWER_NODE;
   if (path.includes("/api/lab/status")) return { current_nodes: 10000, alive: 33, dead: 9967, qualified: 5, generation_number: 39, running: false };
   if (path.includes("/api/mt5-historical/runs/")) return { run_id: "HRUN-1", status: "COMPLETED", results: { metrics: {} }, orders_placed: false, is_mt5_data: true, data: { source: "MT5" } };
@@ -258,6 +404,30 @@ export function payloadFor(path) {
 /* ------------------------------------------------------------------- the run */
 export async function runSmoke() {
   const results = [];
+  // capture the real requests the V5 controls send (the harness installs its own
+  // fetch stub before this runs, so the wrapper has to go here)
+  const _origFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts = {}) => {
+    const urlStr = String(url);
+    if (urlStr.includes("/api/live-testing/nodes/")) nodesTablePosts.push(urlStr);
+    if (urlStr.includes("/api/power/shutdown")) {
+      let body = {};
+      try { body = JSON.parse(opts.body || "{}"); } catch { body = {}; }
+      shutdownCalls.push(body);
+    }
+    if (urlStr.includes("/api/research/shortlist/toggle")) {
+      let body = {};
+      try { body = JSON.parse(opts.body || "{}"); } catch { body = {}; }
+      shortlistToggles.push(body);
+    }
+    if (urlStr.includes("/api/data/sync")) {
+      let body = {};
+      try { body = JSON.parse(opts.body || "{}"); } catch { body = {}; }
+      dataSyncCalls.push(body);
+    }
+    seenUrls.push(urlStr);
+    return _origFetch(url, opts);
+  };
   const container = document.createElement("div");
   document.body.appendChild(container);
 
@@ -273,8 +443,11 @@ export async function runSmoke() {
       } catch (e) { crashed = e; }
       const text = container.textContent || "";
       if (crashed) throw crashed;
-      if (/undefined|NaN|\[object Object\]/.test(text)) {
-        throw new Error(`rendered text contains unsafe output … "${text.slice(0, 160)}"`);
+      const unsafe = text.match(/undefined|NaN|\[object Object\]/);
+      if (unsafe) {
+        const at = text.indexOf(unsafe[0]);
+        throw new Error("rendered text contains unsafe output (" + unsafe[0] + ") … \""
+          + text.slice(Math.max(0, at - 90), at + 70) + "\"");
       }
       if (expect && !expect(text)) {
         throw new Error(`expected text missing … "${text.slice(0, 200)}"`);
@@ -348,6 +521,16 @@ export async function runSmoke() {
 
   // 6. real button behaviour: the preview converts, the order panel refuses to
   // send without the confirmation dialog, and a refused submission is shown
+  const clickTextIn = async (container, text) => {
+    const buttons = Array.from(container.querySelectorAll("button"));
+    const btn = buttons.find((b) => (b.textContent || "").includes(text));
+    if (!btn) throw new Error(`no button labelled "${text}"`);
+    await act(async () => {
+      btn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    return btn;
+  };
   const clickText = async (text) => {
     const buttons = Array.from(container.querySelectorAll("button"));
     const btn = buttons.find((b) => (b.textContent || "").includes(text));
@@ -404,9 +587,9 @@ export async function runSmoke() {
     const root = createRoot(container);
     try {
       await act(async () => { root.render(wrap(<ManualOrderPanel />)); await Promise.resolve(); });
-      await setValue("Stop loss", "2405");
+      await setValue("Stop loss", "2405");          // the pips field (300 by default)
       await setValue("Amount / risk", "300");
-      await clickText("Risk → lot size");
+      await clickText("Recalculate (backend)");
       await act(async () => { await Promise.resolve(); await Promise.resolve(); });
       const text = container.textContent || "";
       if (!text.includes("0.06")) throw new Error(`the preview answer was not rendered … "${text.slice(0, 180)}"`);
@@ -453,6 +636,242 @@ export async function runSmoke() {
       try { await act(async () => { root.unmount(); }); } catch {}
       setPlaceResponse({ ok: true, order_ticket: 5512345, retcode: 10009, result_message: "Request executed" }, true);
       setExecutionState(EXEC_STATE);
+    }
+  }
+
+  // 5b. V5 — the live node table, the schedule dialog, START/STOP, the market
+  // header, the Power button and the Trading Info tab
+  {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    try {
+      await act(async () => { root.render(wrap(<LiveNodeTable />)); await Promise.resolve(); await Promise.resolve(); });
+      let text = container.textContent || "";
+      if (!text.includes("Node_1195")) throw new Error(`the live node table did not list the node … "${text.slice(0, 200)}"`);
+      if (!/1 \.\. /.test(text) && !text.includes("1 %")) throw new Error("the effective risk is not shown");
+      if (!text.includes("(global)") && !text.includes("(node override)")) {
+        throw new Error("the table must show whether risk is global or a node override");
+      }
+
+      // START goes through the real endpoint (POST .../start) and reports back
+      const start = Array.from(container.querySelectorAll("button")).find((b) => (b.textContent || "").trim() === "START");
+      if (!start) throw new Error("no START action in the node table");
+      await act(async () => { start.dispatchEvent(new MouseEvent("click", { bubbles: true })); await Promise.resolve(); await Promise.resolve(); });
+      if (!(nodesTablePosts || []).some((u) => /\/live-testing\/nodes\/1195\/start$/.test(u))) {
+        throw new Error(`START did not call the node start endpoint (posts: ${JSON.stringify(nodesTablePosts)})`);
+      }
+
+      // the schedule dialog shows the engine's own evaluation, not a client guess
+      await act(async () => {
+        root.render(wrap(<ScheduleDialog nodeId={1195} onClose={() => {}} onSaved={() => {}} />));
+        await Promise.resolve(); await Promise.resolve();
+      });
+      text = container.textContent || "";
+      if (!text.includes("may trade now") && !text.includes("BLOCKED")) {
+        throw new Error("the schedule dialog does not show the engine's verdict");
+      }
+      if (!text.includes("sessions") || !text.includes("london 07:00")) {
+        throw new Error(`the schedule dialog does not show the blocking rule … "${text.slice(0, 240)}"`);
+      }
+      results.push({ label: "LiveNodeTable:start+schedule", ok: true });
+    } catch (e) {
+      results.push({ label: "LiveNodeTable:start+schedule", ok: false, error: e.message || String(e) });
+    } finally {
+      try { await act(async () => { root.unmount(); }); } catch {}
+    }
+  }
+
+  {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    try {
+      await act(async () => { root.render(wrap(<PowerButton />)); await Promise.resolve(); });
+      await clickTextIn(container, "Power");
+      await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+      let text = container.textContent || "";
+      if (!/Are you sure you want to close the dashboard\?/i.test(text)) {
+        throw new Error("the Power button did not ask the confirmation question");
+      }
+      for (const needle of ["Only the dashboard is closed", "operating system", "DATA"]) {
+        if (!text.includes(needle)) throw new Error(`the Power dialog does not state: ${needle}`);
+      }
+      if (!text.includes("Yes, close the dashboard")) throw new Error("the dialog has no Yes button");
+      // NO: the dialog closes and nothing is called
+      shutdownCalls.length = 0;
+      await clickTextIn(container, "Cancel");
+      await act(async () => { await Promise.resolve(); });
+      if (shutdownCalls.length !== 0) throw new Error("cancelling the dialog still called the shutdown endpoint");
+      text = container.textContent || "";
+      if (/Are you sure you want to close the dashboard\?/i.test(text)) throw new Error("the dialog did not close on No");
+
+      // YES with a dry run: the plan and the report are shown, nothing stops
+      await clickTextIn(container, "Power");
+      await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+      await clickTextIn(container, "Dry run");
+      await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+      if (!shutdownCalls.some((b) => b.dry_run === true && b.confirm === "SHUTDOWN DASHBOARD")) {
+        throw new Error(`the dry run did not send the confirmation phrase (calls: ${JSON.stringify(shutdownCalls)})`);
+      }
+      results.push({ label: "PowerButton:yes/no+dry-run", ok: true });
+    } catch (e) {
+      results.push({ label: "PowerButton:yes/no+dry-run", ok: false, error: e.message || String(e) });
+    } finally {
+      try { await act(async () => { root.unmount(); }); } catch {}
+    }
+  }
+
+  {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    try {
+      await act(async () => { root.render(wrap(<TradingInfoTab id={1195} />)); await Promise.resolve(); await Promise.resolve(); });
+      const text = container.textContent || "";
+      if (!text.includes("What this node actually trades")) throw new Error("the Trading Info tab did not render its sections");
+      if (!text.includes("XAUUSD")) throw new Error("the Trading Info tab does not show the node's symbol");
+      results.push({ label: "TradingInfo:renders-from-genome", ok: true });
+    } catch (e) {
+      results.push({ label: "TradingInfo:renders-from-genome", ok: false, error: e.message || String(e) });
+    } finally {
+      try { await act(async () => { root.unmount(); }); } catch {}
+    }
+  }
+
+  {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    try {
+      await act(async () => { root.render(wrap(<LiveMarketHeader symbol="XAUUSD" nodeId={1195} nodes={[{ node_id: 1195, market: "XAUUSD", timeframe: "M15" }]} />)); await Promise.resolve(); await Promise.resolve(); });
+      const text = container.textContent || "";
+      for (const needle of ["Bid", "Ask", "Spread", "2400.1", "ema:50", "55.2"]) {
+        if (!text.includes(needle)) throw new Error(`the market header is missing ${needle}`);
+      }
+      if (!/rsi:14/.test(text)) throw new Error("the header does not show the node's indicator values");
+      results.push({ label: "LiveMarketHeader:market+indicators", ok: true });
+    } catch (e) {
+      results.push({ label: "LiveMarketHeader:market+indicators", ok: false, error: e.message || String(e) });
+    } finally {
+      try { await act(async () => { root.unmount(); }); } catch {}
+    }
+  }
+
+  {
+    // §18: the per-node detail card must open *and* its shortlist action must work —
+    // an undefined handler here used to throw only when a row was opened.
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    try {
+      await act(async () => { root.render(wrap(<LiveTestResults />)); await Promise.resolve(); await Promise.resolve(); });
+      const detailBtn = Array.from(container.querySelectorAll("button"))
+        .find((b) => /detail/i.test(b.textContent || ""));
+      if (!detailBtn) throw new Error("the results table has no detail action");
+      await act(async () => { detailBtn.dispatchEvent(new MouseEvent("click", { bubbles: true })); await Promise.resolve(); await Promise.resolve(); });
+      const text = container.textContent || "";
+      if (!text.includes("add to shortlist") && !text.includes("remove from shortlist")) {
+        throw new Error(`the node detail card has no shortlist action … "${text.slice(0, 200)}"`);
+      }
+      results.push({ label: "LiveTestResults:node-detail+shortlist", ok: true });
+    } catch (e) {
+      results.push({ label: "LiveTestResults:node-detail+shortlist", ok: false, error: e.message || String(e) });
+    } finally {
+      try { await act(async () => { root.unmount(); }); } catch {}
+    }
+  }
+
+  {
+    // §19: the node's own symbol/timeframe must be resolvable to a real stored dataset
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    try {
+      await act(async () => { root.render(wrap(<Mt5Backtest />)); await Promise.resolve(); await Promise.resolve(); });
+      const text = container.textContent || "";
+      for (const needle of ["Data for this node", "XAUUSD M15", "MT5 DATA", "1,850 bars", "sha256:9f2c",
+                            "eligible", "dataset XAUUSD_M15", "dataset integrity: 88 rows, minimum 300 bars required"]) {
+        if (!text.includes(needle)) throw new Error(`the node-data panel is missing ${needle} … "${text.slice(0, 260)}"`);
+      }
+      const fetchBtn = Array.from(container.querySelectorAll("button"))
+        .find((b) => /fetch \/ extend stored data/.test(b.textContent || ""));
+      if (!fetchBtn) throw new Error("the node-data panel has no fetch action");
+      dataSyncCalls.length = 0;
+      await act(async () => { fetchBtn.click(); await Promise.resolve(); await Promise.resolve(); });
+      if (!dataSyncCalls.some((b) => b.symbol === "XAUUSD" && b.timeframe === "M15" && b.force === false)) {
+        throw new Error(`the fetch action did not request the node's own data (calls: ${JSON.stringify(dataSyncCalls)}, disabled=${fetchBtn.disabled}, hasErr=${(container.textContent || "").includes("fetch failed")}, btn="${(fetchBtn.textContent || "")}"))`);
+      }
+      if (!(container.textContent || "").includes("REUSING EXISTING DATA")) {
+        throw new Error("the engine's own answer was not shown back");
+      }
+      results.push({ label: "Mt5Backtest:node-data-availability+fetch", ok: true });
+    } catch (e) {
+      results.push({ label: "Mt5Backtest:node-data-availability+fetch", ok: false, error: e.message || String(e) });
+    } finally {
+      try { await act(async () => { root.unmount(); }); } catch {}
+    }
+  }
+
+  {
+    // §19: choose the node from real research rows — search, sort, star, paging, backtest this
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    try {
+      await act(async () => { root.render(wrap(<Mt5Backtest />)); await Promise.resolve(); await Promise.resolve(); });
+      let text = container.textContent || "";
+      for (const needle of ["Choose a node to backtest", "Node_10825", "Node_30000", "1.743", "27.70 %",
+                            "12.6 %", "page 1 of 4", "legacy rows excluded: 787"]) {
+        if (!text.includes(needle)) throw new Error(`the node picker is missing ${needle} … "${text.slice(0, 240)}"`);
+      }
+      // a failed row must be shown as failed with N/A metrics — never as a zero
+      const failedRow = Array.from(container.querySelectorAll("tr"))
+        .find((tr) => (tr.textContent || "").includes("Node_30000"));
+      if (!failedRow || !(failedRow.textContent || "").includes("FAILED")) throw new Error("the failed node is not marked FAILED");
+      if (!(failedRow.textContent || "").includes("N/A")) throw new Error("missing metrics must render as N/A, not 0");
+
+      // star toggles through the real endpoint
+      shortlistToggles.length = 0;
+      const star = Array.from(container.querySelectorAll("button")).find((b) => (b.textContent || "").trim() === "☆");
+      if (!star) throw new Error("no star action in the node picker");
+      await act(async () => { star.click(); await Promise.resolve(); await Promise.resolve(); });
+      if (!shortlistToggles.some((b) => b.strategy_id !== undefined && b.strategy_id !== null)) {
+        throw new Error(`the star action did not call the shortlist endpoint (calls: ${JSON.stringify(shortlistToggles)})`);
+      }
+
+      // search + sort + starred-only must be re-requested from the backend
+      seenUrls.length = 0;
+      const searchBox = Array.from(container.querySelectorAll("input"))
+        .find((i) => /search id/.test(i.placeholder || ""));
+      if (!searchBox) throw new Error("the node picker has no search box");
+      await act(async () => {
+        // React tracks the previous value: set it through the native setter, as a
+        // real browser would, otherwise onChange is never dispatched
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+        setter.call(searchBox, "30000");
+        searchBox.dispatchEvent(new Event("input", { bubbles: true }));
+        await Promise.resolve();
+      });
+      await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+      if (!seenUrls.some((s) => s.includes("/api/research/strategies") && s.includes("search=30000"))) {
+        throw new Error(`the search box did not re-query the backend (seen: ${JSON.stringify(seenUrls.slice(-3))})`);
+      }
+
+      // "backtest this" loads that node into the page
+      const useBtn = Array.from(container.querySelectorAll("button"))
+        .find((b) => (b.textContent || "").includes("backtest this"));
+      if (!useBtn) throw new Error("no \"backtest this\" action in the node picker");
+      seenUrls.length = 0;
+      await act(async () => { useBtn.click(); await Promise.resolve(); await Promise.resolve(); });
+      if (!seenUrls.some((s) => /\/api\/strategies\/10825\/authoritative$/.test(s))) {
+        throw new Error(`\"backtest this\" did not load the node (seen: ${JSON.stringify(seenUrls.slice(-3))})`);
+      }
+      results.push({ label: "Mt5Backtest:node-picker+search+star", ok: true });
+    } catch (e) {
+      results.push({ label: "Mt5Backtest:node-picker+search+star", ok: false, error: e.message || String(e) });
+    } finally {
+      try { await act(async () => { root.unmount(); }); } catch {}
     }
   }
 

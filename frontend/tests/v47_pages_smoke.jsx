@@ -39,6 +39,7 @@ import MarketData from "../src/pages/MarketData.jsx";
 import FinalTesting from "../src/pages/FinalTesting.jsx";
 import EvolutionTree from "../src/pages/EvolutionTree.jsx";
 import ResearchAI from "../src/pages/ResearchAI.jsx";
+import DeepBacktest from "../src/pages/DeepBacktest.jsx";
 
 const HOSTILE_NODE = {
   node: {
@@ -102,6 +103,7 @@ const PAGES = [
   ["PaperTrading", PaperTrading], ["Population", Population], ["Activity", Activity],
   ["Logs", Logs], ["Settings", Settings], ["MarketData", MarketData], ["FinalTesting", FinalTesting],
   ["EvolutionTree", EvolutionTree], ["ResearchAI", ResearchAI],
+  ["DeepBacktest", DeepBacktest],
 ];
 
 const LAB_VALUE = {

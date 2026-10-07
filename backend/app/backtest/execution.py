@@ -34,6 +34,16 @@ class ExecutionParams:
     commission_mult: float = 1.0
     # empirical calibration (optional; filled from paper observations)
     empirical_slippage_points: Optional[np.ndarray] = None
+    # V5 §5 — broker volume constraints (defaults are the common MT5 values)
+    default_spread_points: float = 18.0
+    min_lots: float = 0.01
+    max_lots: float = 100.0
+    lot_step: float = 0.01
+    # V5 §5 — broker minimum stop distance in points (trade_stops_level)
+    stops_level_points: int = 0
+    # provenance of the contract facts the run used
+    specs_source: str = "CONFIG"
+    specs_verified: bool = False
 
     @classmethod
     def from_config(cls, cfg=None) -> "ExecutionParams":
@@ -49,6 +59,7 @@ class ExecutionParams:
             slippage_std_points=bt.slippage_std_points,
             slippage_max_points=bt.slippage_max_points,
             execution_delay_ms=bt.execution_delay_ms,
+            default_spread_points=bt.default_spread_points,
         )
 
 
@@ -94,11 +105,25 @@ def exit_fill_price(side: str, price: float, half_spread: float,
 def lots_for_risk(equity: float, risk_per_trade: float, sl_distance: float,
                   contract_size: float, max_lots: float,
                   min_lots: float = 0.01, lot_step: float = 0.01) -> float:
-    if sl_distance <= 0 or contract_size <= 0:
+    """Volumes are floored to the broker's lot step and clamped to its limits.
+
+    ``min_lots`` is applied as a floor only when the risk-sized volume is at
+    least one step: a trade whose correct size is below the broker minimum is
+    *not* silently enlarged into a bigger risk (that would overstate the risk
+    per trade against the configured budget); it returns 0 and the caller skips
+    the trade.
+    """
+    if sl_distance <= 0 or contract_size <= 0 or lot_step <= 0:
         return 0.0
     raw = (equity * risk_per_trade) / (sl_distance * contract_size)
-    lots = max(min_lots, min(max_lots, np.floor(raw / lot_step) * lot_step))
-    return round(lots, 2)
+    steps = np.floor(raw / lot_step)
+    if steps < 1:
+        return 0.0
+    lots = min(max_lots, steps * lot_step)
+    # clamp to the minimum only when it is affordable within the risk budget
+    if lots < min_lots:
+        lots = min_lots if min_lots <= raw else lots
+    return round(float(lots), 2)
 
 
 def commission_cost(lots: float, p: ExecutionParams) -> float:

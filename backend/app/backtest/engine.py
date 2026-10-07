@@ -272,8 +272,9 @@ class Backtester:
 
         exit_cond = self._eval(ex["exit_condition"], ctx) if ex.get("exit_condition") else None
 
-        # ---- execution model ----
-        ep = ExecutionParams.from_config(cfg)
+        # ---- execution model (V5 §5: driven by the symbol's broker specs) ----
+        from .symbol_specs import execution_params_for
+        ep, symbol_specs = execution_params_for(g.get("symbol") or "", cfg)
         ep.spread_mult = req.spread_mult
         ep.slippage_mult = req.slippage_mult
         ep.commission_mult = req.commission_mult
@@ -285,7 +286,7 @@ class Backtester:
         ts = df["ts"].to_numpy(np.float64)
         spread_pts = df["spread"].to_numpy(np.float64) * ep.spread_mult
         spread_pts = np.where(np.isfinite(spread_pts) & (spread_pts > 0), spread_pts,
-                              cfg.backtest.default_spread_points * ep.spread_mult)
+                              ep.default_spread_points * ep.spread_mult)
         half_spread = spread_pts * ep.point / 2.0
         sess_arr = df["session"].astype(str).to_numpy()
         dow_arr = df["dow"].to_numpy(np.int64)
@@ -308,6 +309,7 @@ class Backtester:
             idx_keep = np.linspace(0, len(entries) - 1, req.max_trades * 4).astype(int)
             entries = entries[idx_keep]
 
+        stops_level_skips = 0
         slip_draws = slip.draw(len(entries) * 2 + 2)
         s_i = 0
         next_free = 0
@@ -328,10 +330,17 @@ class Backtester:
             sl_dist = sl_mult * a if sl_mult > 0 else 0.0
             tp_dist = tp_mult * a if tp_mult > 0 else 0.0
             lots = lots_for_risk(equity, rpt, sl_dist if sl_dist > 0 else a * 1.5,
-                                 ep.contract_size, max_lots)
+                                 ep.contract_size, max_lots,
+                                 min_lots=ep.min_lots, lot_step=ep.lot_step)
             if lots <= 0:
                 continue
             if sl_dist > 0:
+                # V5 §5: the broker refuses stops closer than trade_stops_level.
+                # Such an order would be rejected live, so it is not filled here:
+                # it is counted and skipped (no invented fill, no widened stop).
+                if ep.stops_level_points > 0 and (sl_dist / ep.point) < ep.stops_level_points:
+                    stops_level_skips += 1
+                    continue
                 sl = entry_price - sl_dist if side == "buy" else entry_price + sl_dist
             else:
                 sl = np.nan
@@ -407,7 +416,8 @@ class Backtester:
             if len(trades) >= req.max_trades:
                 break
 
-        metrics = self._metrics(trades, equity, balance, max_dd, req, ep, ghash, lo, hi)
+        metrics = self._metrics(trades, equity, balance, max_dd, req, ep, ghash, lo, hi,
+                                symbol_specs=symbol_specs, stops_level_skips=stops_level_skips)
         runtime = (time.perf_counter() - t0) * 1000.0
         metrics["runtime_ms"] = round(runtime, 1)
         # Complete trade history and equity curve (spec §11)
@@ -428,7 +438,8 @@ class Backtester:
 
     def _metrics(self, trades: List[Trade], equity: float, balance: float,
                  max_dd: float, req: BacktestRequest, ep: ExecutionParams,
-                 ghash: str, lo: int, hi: int) -> Dict:
+                 ghash: str, lo: int, hi: int, symbol_specs=None,
+                 stops_level_skips: int = 0) -> Dict:
         nt = len(trades)
         pnls = np.array([t.pnl for t in trades], dtype=np.float64)
         wins = pnls[pnls > 0]; losses = pnls[pnls <= 0]
@@ -497,6 +508,31 @@ class Backtester:
             "stress": {"spread_mult": req.spread_mult, "slippage_mult": req.slippage_mult,
                        "commission_mult": req.commission_mult,
                        "perturb": req.perturb, "mc_skip_prob": req.mc_skip_prob},
+            # V5 §5 — the execution model every number above was produced with.
+            # Nothing here is inferred after the fact: the values are the ones
+            # the fill loop actually used.
+            "execution_model": {
+                "symbol": symbol_specs.symbol,
+                "specs_source": symbol_specs.source,
+                "specs_verified": bool(symbol_specs.verified),
+                "specs_notes": symbol_specs.notes,
+                "contract_size": ep.contract_size,
+                "point": ep.point,
+                "tick_size": symbol_specs.tick_size,
+                "tick_value": symbol_specs.tick_value,
+                "volume_min": ep.min_lots,
+                "volume_max": ep.max_lots,
+                "volume_step": ep.lot_step,
+                "stops_level_points": ep.stops_level_points,
+                "default_spread_points": ep.default_spread_points,
+                "commission_per_lot": ep.commission_per_lot * ep.commission_mult,
+                "swap_per_lot_per_day": ep.swap_per_lot_per_day,
+                "slippage_model": ep.slippage_model,
+                "slippage_mean_points": ep.slippage_mean_points * ep.slippage_mult,
+                "execution_delay_ms": ep.execution_delay_ms,
+                "fill_rule": "signals evaluated on bar close; market fills at next bar open with spread+slippage",
+                "stops_level_skips": int(stops_level_skips),
+            },
             "genome_hash": ghash,
         }
 

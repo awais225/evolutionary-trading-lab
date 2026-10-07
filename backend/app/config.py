@@ -249,6 +249,9 @@ class LiveTestingConfig:
     tick_interval_s: float = 15.0      # live-testing evaluation interval
     max_data_age_s: int = 120          # stale market data blocks new trades
     require_sl: bool = True            # risk-based sizing needs a real SL
+    # V5 §13 — manual order panel defaults (all editable in the panel)
+    manual_sl_pips_default: float = 300.0      # default stop distance, pips
+    manual_risk_amount_default: float = 10.0   # default money at risk, account currency
 
 
 @dataclass

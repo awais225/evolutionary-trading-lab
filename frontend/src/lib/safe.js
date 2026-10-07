@@ -62,3 +62,12 @@ export function numOrNull(v) {
 export function objOrNull(v) {
   return isPlainObject(v) ? v : null;
 }
+
+/** An array of usable objects: drops null/undefined/scalar entries.
+ *
+ *  List payloads can contain a null element (a partially written row, a stub, an
+ *  older backend). `.map(r => r.id)` on those crashes the whole page, so lists of
+ *  records go through this helper instead of `arr()`. */
+export function rows(v) {
+  return arr(v).filter((r) => isPlainObject(r));
+}

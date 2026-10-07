@@ -250,7 +250,12 @@ def test_v47_render_smoke_still_passes():
     out = (proc.stdout or "") + (proc.stderr or "")
     assert proc.returncode == 0, out[-4000:]
     assert "FAIL" not in out, out[-4000:]
-    assert "39/39 renders OK" in out, out[-2000:]
+    # V5 added a page (Deep Backtest): the harness prints the live count, so assert
+    # the line's shape and that every rendered page succeeded.
+    import re as _re
+    m = _re.search(r"(\d+)/(\d+) renders OK", out)
+    assert m and m.group(1) == m.group(2), out[-2000:]
+    assert int(m.group(1)) >= 39, out[-2000:]
 
 
 # --------------------------------------------------------------------------- #

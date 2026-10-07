@@ -2962,3 +2962,65 @@ regression tests proving each fix, and nothing else.
 Status: V4.7 audit remediation requested and finished; what was implemented,
 tested and pushed is recorded in lmsarena.txt.
 =============================================================
+
+=============================================================
+=============================================================
+V5 — DATA INTEGRITY, DEEP BACKTEST, LIVE TESTING, MT5
+     INTEGRATION & DASHBOARD SHUTDOWN (what was requested)
+=============================================================
+V5 is a functional and research-pipeline update (not a UI redesign). Priorities:
+diagnose and fix the DATA + low-alive-node problem; correct the node/status/
+backtest pipeline; make backtesting realistic; add the Deep Backtest tab;
+redesign Live Testing; implement real MT5 manual/demo trading; generate Node
+Trading Info from the genome; redesign MT5 Backtest / Live Results / MT5 Demo;
+add the Overview Power button with a safe dashboard-only shutdown; then test the
+whole system and report.
+
+Decisions taken and how each open question was settled:
+
+* The low survivor count is a classification/infrastructure problem, not a
+  population collapse: most "FAILED" rows were never tested because their market
+  data could not be resolved, and one status bucket conflated that with a real
+  performance failure. Fixing the status vocabulary and the counters (and
+  removing the hard feature-cache gate) is the correct action; the alive count is
+  never inflated and validation is never weakened.
+* Feature caches are derived accelerators: a missing one is computed on demand,
+  a corrupt one is rebuilt and reported. A dataset that still cannot produce its
+  core feature set is excluded from that cycle and named - it does not block
+  research on the datasets that work, and its nodes are data outcomes, never
+  strategy failures.
+* Statuses are explicit (NOT_TESTED / PENDING / TESTING / VALID /
+  STRATEGY_FAILED / DATA_UNAVAILABLE / DATA_CORRUPT / BACKTEST_ERROR /
+  LIVE_ELIGIBLE / LIVE_TESTING / LIVE_COMPLETED / MT5_DEMO); only a real
+  performance rejection is STRATEGY_FAILED; requeued or never-executed
+  candidates are neither failures nor successes.
+* DATA is authoritative: never deleted, reset, regenerated, modified, replaced
+  with demo data or committed. Invalid files are identified and reported (as
+  CORRUPT) rather than silently replaced. Every probe runs on a disposable copy.
+* Backtests must be realistic (no lookahead, real MT5 data, symbol specs,
+  spread/slippage/commission/swap, no unrealistic fills). Deep Backtest date
+  presets and the Custom range must really control the run. No MT5 historical
+  data means DATA_UNAVAILABLE, never a strategy failure.
+* Live Testing: the schedule is functional and enforced by the engine (days,
+  sessions, risk, execution rules), START/STOP really start and stop the node's
+  live process, and risk is the effective per-node value the engine sizes with.
+* Manual orders execute through the real MT5 demo path only; nothing is faked,
+  a refusal is shown with its real reason, and no real-money trade is made.
+* Trading Info is generated from the actual genome - no hardcoded text.
+* The Power button asks "Are you sure you want to close the dashboard?" (Yes/No),
+  stops only dashboard-owned processes in a fixed order with ownership checks and
+  verification, never uses a broad kill, and never touches the browser, the OS,
+  unrelated processes, an independently started MT5 terminal or DATA.
+* chatgpt.txt stays the concise request/decision history; lmsarena.txt carries
+  the implementation and testing log with commit hashes and real results.
+* §27 report: V5_DATA_INTEGRITY_DEEP_BACKTEST_LIVE_TESTING_REPORT.md (Root Cause,
+  Old vs Current Logic, Data, Evolution, Deep Backtest, Live Testing, Manual MT5
+  Trading, Node Details, Results, Shutdown, Testing, Git).
+
+Standing rule carried into V6: never show an infrastructure failure as a strategy
+failure, never show a node alive when it failed, never fabricate a value the lab
+did not compute, and never weaken a validation gate to make a number look better.
+
+Status: V5 requested and finished; what was implemented, tested and pushed is
+recorded in lmsarena.txt and the §27 report named above.
+=============================================================

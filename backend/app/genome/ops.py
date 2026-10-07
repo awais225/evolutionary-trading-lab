@@ -17,6 +17,32 @@ from ..features.library import feature_family, PRIMARY_FAMILIES
 
 TF_LIST = ["M1", "M5", "M15", "M30", "H1"]
 
+# --------------------------------------------------------------------------- #
+# V5: timeframe scope
+#
+# Mutation could previously move a node onto any timeframe in TF_LIST, including
+# timeframes that have no research-eligible dataset on this machine. Those nodes
+# could never be tested and were then recorded as "failed strategies" -- 5,960 of
+# the 9,453 dataset-unavailable outcomes in the authoritative DATA came from
+# exactly this path. The evolution engine now restricts the whole genome factory
+# to the timeframes that can actually be tested.
+# --------------------------------------------------------------------------- #
+_TF_SCOPE: Optional[List[str]] = None
+
+
+def set_timeframe_scope(timeframes: Optional[List[str]]) -> None:
+    """Restrict generated/mutated genomes to timeframes that can be tested.
+
+    ``None`` (or an empty list) restores the full TF_LIST.
+    """
+    global _TF_SCOPE
+    clean = [tf for tf in (timeframes or []) if tf in TF_LIST]
+    _TF_SCOPE = clean or None
+
+
+def timeframe_scope() -> List[str]:
+    return list(_TF_SCOPE) if _TF_SCOPE else list(TF_LIST)
+
 # plausible parameter grids per family
 PARAM_GRID = {
     "sma": [10, 20, 50, 100, 200],
@@ -151,7 +177,7 @@ def build_entry_ast(specs: List[str], rng: random.Random,
 def random_genome(symbol: str, rng: random.Random, max_indicators: int = 3,
                   timeframe: Optional[str] = None,
                   direction: Optional[str] = None) -> Dict[str, Any]:
-    tf = timeframe or rng.choice(TF_LIST)
+    tf = timeframe or rng.choice(timeframe_scope())
     n_ind = rng.randint(1, max(1, min(max_indicators, 3)))
     families = rng.sample(PRIMARY_FAMILIES, n_ind)
     specs = []
@@ -446,10 +472,17 @@ def mutate(genome: Dict[str, Any], rng: random.Random,
         desc = f"min_hold -> {ex['min_hold_bars']} bars"
     elif mt == "timeframe_mutation":
         cur = g["timeframe"]
-        i = TF_LIST.index(cur) if cur in TF_LIST else 2
-        j = min(max(i + rng.choice([-1, 1]), 0), len(TF_LIST) - 1)
-        g["timeframe"] = TF_LIST[j]
-        desc = f"timeframe {cur} -> {g['timeframe']}"
+        options = timeframe_scope()
+        if cur not in options:
+            # the node sits on a timeframe that cannot be tested here: bring it
+            # back into the testable set instead of mutating further away
+            g["timeframe"] = options[len(options) // 2]
+            desc = f"timeframe {cur} -> {g['timeframe']} (returned to a measurable timeframe)"
+        else:
+            i = options.index(cur)
+            j = min(max(i + rng.choice([-1, 1]), 0), len(options) - 1)
+            g["timeframe"] = options[j]
+            desc = f"timeframe {cur} -> {g['timeframe']}"
     elif mt == "session_mutation":
         opts: List[Optional[List[str]]] = [None, ["london"], ["newyork"], ["asia"],
                                            ["london", "newyork"], ["london_ny_overlap"]]

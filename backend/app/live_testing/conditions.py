@@ -19,6 +19,7 @@ guessing.
 
 from __future__ import annotations
 
+import json
 from typing import Any, Dict, List, Optional
 
 import numpy as np
@@ -148,3 +149,95 @@ def node_condition_states(engine: Any, symbol: Optional[str] = None) -> Dict[str
     }
 
 
+
+
+def node_indicator_values(engine: Any, strategy_id: int,
+                          symbol: Optional[str] = None) -> Dict[str, Any]:
+    """V5 §8 — the selected node's own indicator values on the last closed bar.
+
+    Reads the node's genome, resolves exactly the features its rules reference
+    (plus its ATR spec and regime filters) through the engine's own feature code
+    on the live frame, and reports the numeric value of each at the last CLOSED
+    bar. Values are whatever the engine computed — nothing is smoothed, filled or
+    defaulted; a feature the engine cannot produce is reported with its error.
+    """
+    out: Dict[str, Any] = {"strategy_id": strategy_id, "available": False, "reason": None,
+                           "timeframe": None, "bar_time": None, "indicators": [],
+                           "read_only": True}
+    db = None
+    try:
+        from ..db.database import get_db
+        db = get_db()
+    except Exception:
+        pass
+
+    genome: Dict[str, Any] = {}
+    node = None
+    try:
+        for n in engine.eligible_nodes():
+            if n.get("id") == strategy_id:
+                node = n
+                genome = n.get("genome") or {}
+                break
+    except Exception as e:
+        out["reason"] = f"eligible nodes unavailable: {e}"
+        return out
+    if node is None and db is not None:
+        row = db.get_strategy(strategy_id)
+        if row is None:
+            out["reason"] = f"node {strategy_id} not found"
+            return out
+        try:
+            genome = json.loads(row.get("genome") or "{}")
+        except Exception:
+            genome = {}
+
+    sym = str(genome.get("symbol") or symbol or "").upper()
+    tf = genome.get("timeframe") or "M15"
+    out["symbol"] = sym
+    out["timeframe"] = tf
+    if not sym:
+        out["reason"] = "the node's genome does not name a symbol"
+        return out
+
+    try:
+        df = engine._live_frame(sym, tf)
+    except Exception as e:
+        out["reason"] = f"live frame unavailable: {type(e).__name__}: {e}"
+        return out
+    if df is None or df.empty or len(df) < 2:
+        out["reason"] = "no closed bars available from the active market bridge"
+        return out
+
+    ex = genome.get("exit") or {}
+    needed = set(referenced_features(genome)) | {"close", "open", "high", "low", "atr:14"}
+    needed.add(ex.get("atr_spec", "atr:14"))
+    needed |= {f"regime:{r}" for r in genome.get("regime_filters") or []}
+    try:
+        cache = engine._live_features(df, sorted(needed))
+    except Exception as e:
+        out["reason"] = f"feature computation failed: {type(e).__name__}: {e}"
+        return out
+
+    n = len(df)
+    i = n - 2                                    # last CLOSED bar (never the forming one)
+    out["bar_time"] = float(df["ts"].iloc[i])
+    out["bar_index"] = i
+    rows: List[Dict[str, Any]] = []
+    for spec in sorted(needed):
+        arr = cache.get(spec)
+        if arr is None:
+            rows.append({"spec": spec, "value": None, "error": "not produced by the engine"})
+            continue
+        try:
+            v = float(np.asarray(arr)[i])
+        except Exception as e:
+            rows.append({"spec": spec, "value": None, "error": f"{type(e).__name__}: {e}"})
+            continue
+        rows.append({"spec": spec, "value": None if not np.isfinite(v) else round(v, 6),
+                     "error": None if np.isfinite(v) else "value is not finite on this bar"})
+    out["indicators"] = rows
+    out["available"] = True
+    out["note"] = ("Values are the engine's own feature output at the last CLOSED bar of the "
+                   "node's timeframe — the same values the live rules are evaluated against.")
+    return out

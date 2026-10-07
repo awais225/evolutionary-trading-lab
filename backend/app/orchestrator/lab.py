@@ -18,6 +18,7 @@ V2 enhancements:
 """
 from __future__ import annotations
 
+import itertools
 import json
 import logging
 import os
@@ -26,7 +27,7 @@ import threading
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from ..activity import activity
 from ..ai_researcher.analyzer import apply_hypothesis, run_research_cycle
@@ -34,6 +35,7 @@ from ..api.ws import bus
 from ..backtest.fingerprint import compute_experiment_fingerprint
 from ..config import config_digest, get_config
 from ..data.engine import get_data_engine
+from ..status import STRATEGY_FAILED, classify_failure
 from ..db.database import get_db
 from ..evolution.engine import EvolutionEngine
 from ..features.engine import get_feature_engine
@@ -64,6 +66,27 @@ def _bt_payload(genome, dataset_id, stage, window=None, **kw):
     return p
 
 
+def feature_validation_outcome(usable_ids: List[str], failures: List[Dict[str, str]]) -> Dict[str, Any]:
+    """V5 §1 — what a feature-validation result means for the research cycle.
+
+    * nothing usable  -> BLOCK (with the real per-dataset reasons in `reason`)
+    * some unusable   -> CONTINUE and exclude exactly those datasets; their nodes
+                         are data outcomes, never strategy failures
+
+    A missing feature cache is *derived* data: the engine computes it on demand,
+    so only a dataset that still cannot produce its core feature set is excluded.
+    """
+    excluded = [str(f.get("dataset_id")) for f in failures or []]
+    if failures and not usable_ids:
+        detail = "; ".join(str(f.get("reason") or "") for f in failures)[:400]
+        return {
+            "action": "BLOCK",
+            "excluded": excluded,
+            "reason": f"FEATURE_VALIDATION_FAILED: no dataset could produce its core feature set - {detail}",
+        }
+    return {"action": "CONTINUE", "excluded": excluded, "reason": None}
+
+
 class Lab:
     def __init__(self):
         self.db = get_db()
@@ -81,7 +104,13 @@ class Lab:
         self._datasets_ready = False
         self.counters = {"screened": 0, "detailed": 0, "validated": 0, "qualified": 0,
                          "killed": 0, "born": 0, "duplicates": 0, "hypotheses": 0,
-                         "specializations": 0, "cycles": 0}
+                         "specializations": 0, "cycles": 0,
+                         # V5 §4 diagnostics — separated so a data/infrastructure
+                         # problem can never be read as a strategy result again
+                         "data_failures": 0, "data_corrupt": 0, "backtest_errors": 0,
+                         "skipped": 0, "rejected": 0, "strategy_failed": 0,
+                         "tested": 0, "survived": 0, "dataset_unavailable_candidates": 0,
+                         "requeued": 0}
         self.last_error = ""
         self.safe_paused = False
         self.safe_paused_reason = ""
@@ -90,6 +119,9 @@ class Lab:
         self._recovered_strategy_ids: set[int] = set()
         self._last_recovery_check_ts: float = 0.0
         self._last_pipeline_idle_ts: float = 0.0
+        # V5 §3/§4: nodes that were never judged because of data/infrastructure
+        self._infra_lock = threading.RLock()
+        self._infrastructure_nodes: set = set()
         self._lock = threading.RLock()
 
     # ---------------- lifecycle ----------------
@@ -328,8 +360,11 @@ class Lab:
         # Memory budget gate (spec §28) - scale to concurrent worker footprint
         concurrent_load = min(len(payloads), rm.effective_workers())
         if not rm.check_memory_budget(estimated_mb=concurrent_load * 2.0):
+            # V5: returning an empty list here left every candidate stuck in
+            # BACKTESTING (the caller zips payloads with results). Returning one
+            # None per payload lets the caller requeue them honestly.
             time.sleep(0.1)
-            return []
+            return [None] * len(payloads)
 
         self._ensure_pool()
         results: List[Optional[Dict]] = [None] * len(payloads)
@@ -413,7 +448,23 @@ class Lab:
                 "SELECT COUNT(*) c FROM strategies WHERE status IN ('BORN', 'BACKTESTING')"
             )["c"]
             completed_tasks = self.counters.get("screened", 0) + self.counters.get("detailed", 0)
-            failed_tasks = self.counters.get("killed", 0) + self.db.one("SELECT COUNT(*) c FROM strategies WHERE status='FAILED'")["c"]
+            failed_tasks = self.counters.get("killed", 0) + self.db.one(
+                "SELECT COUNT(*) c FROM strategies WHERE status IN ('FAILED','STRATEGY_FAILED','KILLED','RETIRED')"
+            )["c"]
+            # V5 §4: data/infrastructure skips are reported separately from
+            # strategy failures (10,000 -> 1-5 was mostly this number)
+            infra_tasks = self.db.one(
+                """SELECT COUNT(*) c FROM strategies
+                   WHERE status IN ('DATA_UNAVAILABLE','DATA_CORRUPT','BACKTEST_ERROR')
+                      OR (status='FAILED' AND (creation_reason LIKE 'DATASET UNAVAILABLE%'
+                                               OR creation_reason LIKE 'TRAIN_WINDOW_FAILED%'))"""
+            )["c"]
+            alive_tasks = self.db.one(
+                """SELECT COUNT(*) c FROM strategies
+                   WHERE status IN ('SURVIVED','QUALIFIED','SHORTLISTED','SCREENED','PAPER',
+                                    'MT5_BACKTESTED','LIVE_ELIGIBLE','LIVE_TESTING',
+                                    'VALID','LIVE_COMPLETED','MT5_DEMO')"""
+            )["c"]
             duplicate_tasks = self.counters.get("duplicates", 0) + self.evo.duplicates_blocked
             eligible_parents = len(self.evo.elites(20))
             children_gen = self.counters.get("born", 0)
@@ -437,6 +488,8 @@ class Lab:
                 f"  REJECTED TASKS: {children_rej}\n"
                 f"  DUPLICATE TASKS: {duplicate_tasks}\n"
                 f"  FAILED TASKS: {failed_tasks}\n"
+                f"  DATA/INFRA SKIPPED TASKS: {infra_tasks}\n"
+                f"  ALIVE TASKS: {alive_tasks}\n"
                 f"  ELIGIBLE PARENTS: {eligible_parents}\n"
                 f"  CHILDREN GENERATED: {children_gen}\n"
                 f"  CHILDREN REJECTED: {children_rej}\n"
@@ -460,6 +513,8 @@ class Lab:
                 "rejected_tasks": children_rej,
                 "duplicate_tasks": duplicate_tasks,
                 "failed_tasks": failed_tasks,
+                "data_skipped_tasks": infra_tasks,
+                "alive_tasks": alive_tasks,
                 "eligible_parents": eligible_parents,
                 "children_generated": children_gen,
                 "children_rejected": children_rej,
@@ -775,8 +830,16 @@ class Lab:
         return c.get("QUALIFIED", 0) + c.get("PAPER", 0)
 
     # ---------------- datasets & features ----------------
-    def _verify_and_validate_features(self, datasets: List[Dict]) -> bool:
-        """Verify feature artifacts on disk, schema columns, row counts before advancing (User Spec §4)."""
+    def _verify_and_validate_features(self, datasets: List[Dict]) -> Tuple[List[str], List[Dict[str, str]]]:
+        """Verify feature artifacts on disk, schema columns, row counts before advancing (User Spec §4).
+
+        V5 §1 — returns ``(usable_dataset_ids, failures)`` instead of a bare bool.
+        A dataset whose core feature set cannot be produced *after* the engine has
+        tried to compute it on demand is reported as a failure and excluded from
+        this cycle; it never blocks research on the datasets that do work, and a
+        node belonging to it is classified as a data outcome (never as a strategy
+        failure). Only when *nothing* usable remains does the caller block.
+        """
         import pandas as pd
         from .. import paths as P
         from ..features.library import is_spec_cached
@@ -785,6 +848,14 @@ class Lab:
         activity.info("FEATURES", "Feature validation started: verifying columns and row counts")
         total_cols = 0
         total_rows = 0
+        usable: List[str] = []
+        failures: List[Dict[str, str]] = []
+
+        def _exclude(ds_id: str, reason: str) -> None:
+            """Record the dataset as unusable for this cycle and keep going."""
+            failures.append({"dataset_id": ds_id, "reason": reason})
+            log.error("[ERROR] [FEATURES] %s", reason)
+            activity.error("FEATURES", reason)
 
         from ..data import storage
         cfg = get_config()
@@ -816,10 +887,8 @@ class Lab:
                         df_feat = None
 
             if df_feat is None:
-                err_msg = f"Feature parquet artifact missing for {ds_id} on disk"
-                log.error("[ERROR] [FEATURES] %s", err_msg)
-                activity.error("FEATURES", err_msg)
-                return False
+                _exclude(ds_id, f"Feature parquet artifact missing for {ds_id} on disk")
+                continue
 
             # 2. Verify expected columns and row count
             try:
@@ -840,30 +909,31 @@ class Lab:
                         log.warning("[FEATURES] Inline recomputation failed for %s: %s", ds_id, e)
 
                 if missing:
-                    err_msg = f"Feature validation failed for {ds_id}: missing columns for specs {missing}"
-                    log.error("[ERROR] [FEATURES] %s", err_msg)
-                    activity.error("FEATURES", err_msg)
-                    return False
+                    _exclude(ds_id, f"Feature validation failed for {ds_id}: missing columns for specs {missing}")
+                    continue
 
                 if len(df_feat) == 0:
-                    err_msg = f"Feature validation failed for {ds_id}: parquet has 0 rows"
-                    log.error("[ERROR] [FEATURES] %s", err_msg)
-                    activity.error("FEATURES", err_msg)
-                    return False
+                    _exclude(ds_id, f"Feature validation failed for {ds_id}: parquet has 0 rows")
+                    continue
 
                 total_cols += len(df_feat.columns)
                 total_rows += len(df_feat)
+                usable.append(ds_id)
                 log.debug("[FEATURES] Validated %s: %d columns, %d rows OK", ds_id, len(df_feat.columns), len(df_feat))
             except Exception as e:
-                err_msg = f"Failed to read/validate feature parquet for {ds_id}: {e}"
-                log.error("[ERROR] [FEATURES] %s", err_msg)
-                activity.error("FEATURES", err_msg)
-                return False
+                _exclude(ds_id, f"Failed to read/validate feature parquet for {ds_id}: {e}")
+                continue
 
-        msg = f"Feature validation completed: {len(datasets)} datasets verified ({total_cols} columns, {total_rows:,} rows)"
+        msg = (f"Feature validation completed: {len(usable)}/{len(datasets)} datasets verified "
+               f"({total_cols} columns, {total_rows:,} rows)")
         log.info("[SUCCESS] [FEATURES] %s", msg)
         activity.success("FEATURES", msg)
-        return True
+        if failures:
+            listed = "; ".join(f"{f['dataset_id']}: {f['reason']}" for f in failures)
+            log.warning("[FEATURES] %d dataset(s) excluded from this cycle: %s", len(failures), listed)
+            activity.warning("FEATURES", f"{len(failures)} dataset(s) excluded from this cycle "
+                                        f"(data outcome, not a strategy failure): {listed}")
+        return usable, failures
 
     def _ensure_datasets(self) -> None:
         from .stages import get_stage_manager
@@ -997,18 +1067,32 @@ class Lab:
 
         # Stage 5: FEATURE_VALIDATION
         sm.transition("FEATURE_PRECOMPUTATION", "FEATURE_VALIDATION", {"message": "Verifying column schemas and row counts"})
-        valid = self._verify_and_validate_features(datasets)
-        if not valid:
+        usable_ids, feat_failures = self._verify_and_validate_features(datasets)
+        outcome = feature_validation_outcome(usable_ids, feat_failures)
+        if outcome["action"] == "BLOCK":
+            # nothing can be researched at all: block (and say exactly why)
             self._datasets_ready = False
             self._research_blocked = True
-            self._block_reason = "FEATURE_VALIDATION_FAILED: Feature artifacts invalid or missing"
-            log.error("[SYSTEM] [ORCHESTRATOR] Feature validation failed. Research is BLOCKED. Halting before research.")
-            activity.error("ORCHESTRATOR", "Feature validation failed. Research is BLOCKED until valid feature artifacts exist.")
+            self._block_reason = outcome["reason"]
+            log.error("[SYSTEM] [ORCHESTRATOR] Feature validation failed for every dataset. Research is BLOCKED.")
+            activity.error("ORCHESTRATOR", "Feature validation failed for every dataset - research is BLOCKED "
+                                            "until at least one dataset has valid feature artifacts.")
             sm.transition("FEATURE_VALIDATION", "BLOCKED", {
-                "reason": "Feature validation failed",
+                "reason": "Feature validation failed for every dataset",
                 "action": "HALT_RESEARCH",
             })
             return False
+        if feat_failures:
+            # V5 §1: exclude the unusable datasets and research the rest. The
+            # excluded ones are reported (here and in the diagnostics report) and
+            # owned nodes are data outcomes, never strategy failures.
+            unusable = set(outcome["excluded"])
+            datasets = [d for d in datasets if d.get("id") not in unusable]
+            log.warning("[SYSTEM] [ORCHESTRATOR] excluding %d dataset(s) with unusable features; "
+                        "research continues on %d dataset(s)", len(unusable), len(datasets))
+            activity.warning("FEATURES", f"{len(unusable)} dataset(s) excluded from research "
+                                          f"(data outcome, not a strategy failure); "
+                                          f"{len(datasets)} dataset(s) remain usable")
 
         self._research_blocked = False
         self._block_reason = ""
@@ -1233,13 +1317,12 @@ class Lab:
             self._strategy_recovery_attempts[sid] = attempts
 
             if attempts >= 3:
-                # Mark FAILED instead of bouncing forever
-                self.db.update_strategy(
-                    sid,
-                    status="FAILED",
-                    creation_reason=f"Failed recovery: evaluation timeout threshold ({attempts}x) exceeded",
-                    updated_at=now_ts
-                )
+                # V5 §3: a node that could not be evaluated because its worker
+                # kept timing out is a BACKTEST_ERROR, never a failed strategy.
+                self._mark_infrastructure(
+                    sid, "BACKTEST_ERROR",
+                    f"Failed recovery: evaluation timeout threshold ({attempts}x) exceeded")
+                self.counters["backtest_errors"] = self.counters.get("backtest_errors", 0) + 1
                 n_failed += 1
             elif r["status"] == "BACKTESTING":
                 self.db.update_strategy(sid, status="BORN", updated_at=now_ts)
@@ -1372,6 +1455,19 @@ class Lab:
                 log.warning("[DATASET ELIGIBILITY] Dataset %s rejected: %s", ds.get("id"), reason)
         return None
 
+    def _mark_infrastructure(self, sid: int, cls: str, reason: str) -> None:
+        """Record an infrastructure/data outcome without calling it a strategy failure.
+
+        Spec V5 §3: the row keeps the raw reason verbatim, but its status is the
+        infrastructure class (DATA_UNAVAILABLE / DATA_CORRUPT / BACKTEST_ERROR),
+        so neither the dashboard nor the survival statistics can ever read it as
+        "this strategy failed".
+        """
+        status = cls if cls in ("DATA_UNAVAILABLE", "DATA_CORRUPT", "BACKTEST_ERROR") else "BACKTEST_ERROR"
+        self.db.update_strategy(sid, status=status, creation_reason=reason)
+        with self._infra_lock:
+            self._infrastructure_nodes.add(sid)
+
     def _screen_batch(self) -> None:
         if not self._datasets_ready or getattr(self, "_research_blocked", False):
             return
@@ -1395,10 +1491,16 @@ class Lab:
             genome = json.loads(r["genome"])
             ds_info = self._dataset_for(genome)
             if not ds_info:
+                # V5 §3: unavailable market data is an INFRASTRUCTURE outcome.
+                # The strategy itself was never judged, so it must not be
+                # recorded — or counted — as a failed strategy.
                 reason = f"DATASET UNAVAILABLE: No eligible dataset found for {genome.get('symbol')}:{genome.get('timeframe')}"
-                log.warning("[BACKTEST] Candidate strategy #%d rejected: %s. Proceeding to next candidate.", r["id"], reason)
-                activity.warning("RESEARCH", f"Candidate #{r['id']} rejected: {reason}")
-                self.db.update_strategy(r["id"], status="FAILED", creation_reason=reason)
+                self._mark_infrastructure(r["id"], "DATA_UNAVAILABLE", reason)
+                self.counters["data_failures"] += 1
+                self.counters["dataset_unavailable_candidates"] += 1
+                self.counters["skipped"] += 1
+                log.warning("[BACKTEST] Candidate strategy #%d not tested: %s. Proceeding to next candidate.", r["id"], reason)
+                activity.warning("RESEARCH", f"Candidate #{r['id']} NOT TESTED: {reason}")
                 continue
 
             dsid = ds_info["id"]
@@ -1406,8 +1508,9 @@ class Lab:
                 w = self._train_window(dsid)
             except Exception as e:
                 reason = f"TRAIN_WINDOW_FAILED: {dsid} ({e})"
-                log.error("[BACKTEST] Candidate strategy #%d failed train window: %s", r["id"], reason)
-                self.db.update_strategy(r["id"], status="FAILED", creation_reason=reason)
+                self._mark_infrastructure(r["id"], "DATA_UNAVAILABLE", reason)
+                self.counters["data_failures"] += 1
+                log.error("[BACKTEST] Candidate strategy #%d could not open a train window: %s", r["id"], reason)
                 continue
 
             self.db.update_strategy(r["id"], status="BACKTESTING")
@@ -1445,18 +1548,33 @@ class Lab:
         survived_count = 0
         failed_count = 0
 
+        results = list(itertools.chain(results, [None] * max(0, total_eval - len(results))))
         for idx, ((r, genome, ds_info, fp), res) in enumerate(zip(valid, results), 1):
-            self.counters["screened"] += 1
-            self._tested_this_gen += 1
             dsid = ds_info["id"]
             prog = round((idx / total_eval) * 100.0, 1)
 
+            if not res:
+                # V5 §3: the batch could not run this candidate at all (memory
+                # budget / pool recycle). That is neither a strategy failure nor
+                # a data failure — requeue it for the next tick.
+                self.db.update_strategy(r["id"], status="BORN")
+                self.counters["skipped"] += 1
+                self.counters["requeued"] = self.counters.get("requeued", 0) + 1
+                continue
+
+            self.counters["screened"] += 1
+            self.counters["tested"] += 1
+            self._tested_this_gen += 1
+
             if not res["ok"]:
                 fail_err = res.get("error", "Evaluation worker error")
-                self.db.update_strategy(r["id"], status="FAILED", failure_reason=fail_err[:250])
-                failed_count += 1
-                bus.publish("screen_failed", {"id": r["id"], "error": fail_err[:200]})
-                log.warning("[NODE] Node_%d FAILED: %s", r["id"], fail_err[:120])
+                # V5 §3: an evaluation/worker failure is an infrastructure
+                # outcome — the strategy was never judged on its own merits.
+                cls = classify_failure(fail_err) or "BACKTEST_ERROR"
+                self._mark_infrastructure(r["id"], cls, fail_err[:250])
+                self.counters["backtest_errors" if cls != "DATA_CORRUPT" else "data_corrupt"] += 1
+                bus.publish("screen_failed", {"id": r["id"], "error": fail_err[:200], "class": cls})
+                log.warning("[NODE] Node_%d not evaluated (%s): %s", r["id"], cls, fail_err[:120])
                 continue
             m = res["metrics"]
             f, _ = fitness(m, genome)
@@ -1476,10 +1594,13 @@ class Lab:
                 fail_msg = f"REJECTED: {'; '.join(reasons)}" if reasons else "REJECTED: failed screening criteria"
                 self.db.update_strategy(r["id"], status="FAILED", failure_reason=fail_msg)
                 self.counters["killed"] += 1
+                self.counters["strategy_failed"] += 1
+                self.counters["rejected"] += 1
                 bus.publish("strategy_failed", {"id": r["id"], "reasons": reasons[:3],
                                                 "trades": m.get("trades", 0)})
             else:
                 survived_count += 1
+                self.counters["survived"] += 1
                 wr = round(float(m.get("win_rate") or 0.0) * 100, 1)
                 pf = round(float(m.get("profit_factor") or 0.0), 2)
                 dd = round(float(m.get("max_drawdown_pct") or 0.0) * 100, 1)
@@ -1522,9 +1643,17 @@ class Lab:
                 except Exception as e:
                     log.debug("record_experiment_memory failed #%s: %s", r["id"], e)
 
-        log.info("[SUCCESS] [BACKTEST] Screened %d strategies (%d survived, %d failed)",
-                 total_eval, survived_count, failed_count)
-        activity.success("BACKTEST", f"✓ Screening completed — {total_eval}/{total_eval} strategies ({survived_count} survived, {failed_count} failed)", progress=100.0)
+        # V5: report what actually happened. Candidates whose batch could not run
+        # are requeued, not counted as screened/failed.
+        requeued = self.counters.get("requeued", 0)
+        log.info("[SUCCESS] [BACKTEST] Screened %d strategies (%d survived, %d failed, %d requeued)",
+                 survived_count + failed_count, survived_count, failed_count, requeued)
+        activity.success(
+            "BACKTEST",
+            f"✓ Screening completed — {survived_count + failed_count} screened "
+            f"({survived_count} survived, {failed_count} failed)"
+            + (f", {requeued} requeued for the next batch" if requeued else ""),
+            progress=100.0)
         activity.set_idle()
 
     # ---------------- detailed backtest (stage 2) ----------------
@@ -1577,12 +1706,24 @@ class Lab:
 
         activity.info("BACKTEST", f"Starting detailed backtest batch ({len(payloads)} strategies)")
         results = self._run_batch(payloads)
+        results = list(itertools.chain(results, [None] * max(0, len(valid) - len(results))))
         for (r, genome, ds_info, fp), res in zip(valid, results):
-            self.counters["detailed"] += 1
             dsid = ds_info["id"]
+            if not res:
+                # not executed (budget/pool) — stays SURVIVED and is retried
+                self.counters["skipped"] += 1
+                self.counters["requeued"] = self.counters.get("requeued", 0) + 1
+                continue
+            self.counters["detailed"] += 1
             if not res["ok"]:
-                self.db.update_strategy(r["id"], status="FAILED")
-                activity.warning("BACKTEST", f"Strategy #{r['id']} FAILED execution: {res.get('error')[:100]}")
+                # V5 §3: a worker/engine failure is an infrastructure outcome —
+                # the strategy was never judged on its own merits.
+                err = str(res.get("error") or "Evaluation worker error")
+                cls = classify_failure(err) or "BACKTEST_ERROR"
+                self._mark_infrastructure(r["id"], cls, err[:250])
+                self.counters["backtest_errors" if cls != "DATA_CORRUPT" else "data_corrupt"] += 1
+                bus.publish("detail_failed", {"id": r["id"], "error": err[:200], "class": cls})
+                activity.warning("BACKTEST", f"Strategy #{r['id']} not evaluated ({cls}): {err[:100]}")
                 continue
             m = res["metrics"]
             m["trades_sample"] = res["trades"][-300:]

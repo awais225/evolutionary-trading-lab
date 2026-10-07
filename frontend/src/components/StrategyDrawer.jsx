@@ -38,7 +38,8 @@ export default function StrategyDrawer({ id, onClose, onOpen }) {
       <p className="muted mono" style={{ fontSize: 12 }}>{s.description}</p>
 
       <div className="tabs">
-        {[["overview", "Overview"], ["genome", "Genome"], ["history", "Research History"],
+        {[["overview", "Overview"], ["trading", "Trading Info"], ["genome", "Genome"],
+          ["history", "Research History"],
           ["matrices", "Matrices"], ["validation", "Validation"], ["backtests", "Backtests"],
           ["paper", "Paper"], ["hypotheses", "Hypotheses"]].map(([k, label]) => (
           <button key={k} className={tab === k ? "active" : ""} onClick={() => setTab(k)}>{label}</button>
@@ -92,6 +93,8 @@ export default function StrategyDrawer({ id, onClose, onOpen }) {
           )}
         </div>
       )}
+
+      {tab === "trading" && <TradingInfoTab id={s.id} />}
 
       {tab === "genome" && (
         <div>
@@ -348,6 +351,101 @@ function ValidationView({ v }) {
           <h3>Regime holdout</h3>
           <MatrixTable title="" data={v.regime_holdout.per_regime} valueKeys={["trades", "pnl"]} />
           <div className="muted" style={{fontSize:12}}>profit concentration in single regime: {fmt.pct(v.regime_holdout.profit_concentration, 0)}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+/* ------------------------------------------------------- V5 §16 Trading Info */
+export function TradingInfoTab({ id }) {
+  /* The node's genome translated into human-readable rules by the backend.
+   * Nothing is written here: the tab renders `sections` as returned, and a rule
+   * the genome does not define is shown with the backend's reason instead of a
+   * generic sentence. */
+  const [info, setInfo] = useState(null);
+  const [err, setErr] = useState(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    setInfo(null); setErr(null);
+    api.strategyTradingInfo(id).then(setInfo).catch((e) => setErr(e.message || String(e)));
+  }, [id]);
+
+  if (err) return <ErrorNote err={err} />;
+  if (!info) return <Spinner />;
+
+  const sections = Array.isArray(info.sections) ? info.sections : [];
+  const text = typeof info.text === "string" ? info.text : "";
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setCopied(false);
+    }
+  };
+
+  const value = (v) => {
+    if (v === null || v === undefined) return <span className="muted">undefined</span>;
+    if (typeof v === "object") return <span className="mono">{JSON.stringify(v)}</span>;
+    return <span className="mono">{String(v)}</span>;
+  };
+
+  return (
+    <div>
+      <div className="panel" style={{ marginBottom: 12 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+          <div>
+            <b>What this node actually trades</b>
+            <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
+              Generated from the stored genome (and its live configuration when it is enrolled).
+              Every rule below is read from the node itself — there is no hard-coded strategy text.
+            </div>
+          </div>
+          <button className="btn ghost" onClick={copy} disabled={!text}>
+            {copied ? "copied" : "copy rules"}
+          </button>
+        </div>
+      </div>
+
+      {sections.map((sec) => (
+        <div className="panel" key={sec.title} style={{ marginBottom: 10 }}>
+          <div className="panel-title" style={{ marginBottom: 6 }}>{sec.title}</div>
+          <table className="tbl">
+            <tbody>
+              {(sec.items || sec.rows || []).map((r, i) => {
+                // the backend wraps an undefined field as {value: null, reason: "..."}
+                const inner = (r.value && typeof r.value === "object" && !Array.isArray(r.value)
+                  && "value" in r.value) ? r.value : { value: r.value, reason: r.reason };
+                return (
+                  <tr key={`${sec.title}-${i}`}>
+                    <td style={{ width: "32%", verticalAlign: "top" }}>
+                      {r.label}
+                      {r.detail ? <div className="muted" style={{ fontSize: 11 }}>{r.detail}</div> : null}
+                    </td>
+                    <td>
+                      {inner.value === null || inner.value === undefined
+                        ? <span className="muted">{inner.reason || "undefined"}</span>
+                        : (Array.isArray(inner.value)
+                          ? <span className="mono">{inner.value.join(", ")}</span>
+                          : value(inner.value))}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ))}
+
+      {text && (
+        <div className="panel">
+          <div className="panel-title" style={{ marginBottom: 6 }}>Plain-text form</div>
+          <pre className="mono" style={{ whiteSpace: "pre-wrap", fontSize: 12 }}>{text}</pre>
         </div>
       )}
     </div>

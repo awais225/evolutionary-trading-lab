@@ -70,7 +70,7 @@ dom.window.WebSocket = FakeWebSocket;
 const fetchCalls = [];
 let payloadFactory = () => ({});
 function installFetch() {
-  globalThis.fetch = async (url) => {
+  globalThis.fetch = async (url, opts = {}) => {
     fetchCalls.push(String(url));
     const body = payloadFactory(String(url));
     return {

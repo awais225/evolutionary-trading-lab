@@ -9,3 +9,4 @@ lab.log
 config/lab_config.yaml.bak
 .pytest_cache/
 *.parquet
+LOGS/*

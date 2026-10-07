@@ -204,7 +204,7 @@ export const api = {
   mt5StrategyBacktests: (sid) => req(`/api/mt5-backtest/strategies/${sid}`),
 
   // V4.6 — MT5 historical backtest execution (research; never places an order)
-  mt5HistoricalCapabilities: () => req("/api/mt5-historical/capabilities"),
+  mt5HistoricalCapabilities: (refresh = false) => req(`/api/mt5-historical/capabilities${refresh ? "?refresh=1" : ""}`),
   mt5HistoricalStartRun: (body) => req("/api/mt5-historical/runs", { method: "POST", body }),
   mt5HistoricalRuns: (params = {}) => {
     const q = qs(params);
@@ -244,6 +244,28 @@ export const api = {
   liveTestingSettings: (body) => req("/api/live-testing/settings", { method: "POST", body }),
   liveTestingTrades: (params = {}) => req(`/api/live-testing/trades?${new URLSearchParams(params)}`),
   liveTestingReconcile: () => req("/api/live-testing/reconcile", { method: "POST" }),
+
+  // V5 §10-§16 — redesigned Live Testing surface
+  liveTestingMarketHeader: (symbol, strategyId) =>
+    req(`/api/live-testing/market-header?${qs({ symbol, strategy_id: strategyId })}`),
+  liveTestingNodesTable: (params = {}) => req(`/api/live-testing/nodes-table?${qs(params)}`),
+  liveTestingSchedule: (sid) => req(`/api/live-testing/schedule/${sid}`),
+  saveLiveTestingSchedule: (sid, body) =>
+    req(`/api/live-testing/schedule/${sid}`, { method: "POST", body }),
+  liveTestingStartNode: (sid) =>
+    req(`/api/live-testing/nodes/${sid}/start`, { method: "POST", body: { confirmed: true } }),
+  liveTestingStopNode: (sid) => req(`/api/live-testing/nodes/${sid}/stop`, { method: "POST" }),
+  liveTestingRisk: () => req("/api/live-testing/risk"),
+  liveTestingSetRisk: (risk_pct) =>
+    req("/api/live-testing/risk", { method: "POST", body: { risk_pct } }),
+  strategyTradingInfo: (sid) => req(`/api/strategies/${sid}/trading-info`),
+
+  // V5 §10/§19-§21 — Power button / dashboard-owned shutdown
+  powerSession: () => req("/api/power/session"),
+  powerShutdown: (confirm, dryRun = false) =>
+    req("/api/power/shutdown", { method: "POST", body: { confirm, dry_run: dryRun } }),
+  powerShutdownReport: () => req("/api/power/shutdown-report"),
+  powerHeartbeat: () => req("/api/power/heartbeat", { method: "POST" }),
 
   // MT5 Demo Trading (V4)
   mt5DemoStatus: () => req("/api/mt5-demo/status"),

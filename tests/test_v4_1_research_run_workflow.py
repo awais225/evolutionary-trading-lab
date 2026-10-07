@@ -288,6 +288,18 @@ def _insert(evo, gops, rng, status: str, fitness: float, symbol: str = "XAUUSD")
     return sid
 
 
+def _insert_legacy(evo, gops, rng, status: str, fitness: float) -> int:
+    """Create an imported-historical (LEGACY_TEST) row *explicitly*.
+
+    V5: ``data_source`` is provenance, never inferred from the run id, so a node
+    is only legacy when it is recorded as legacy — the same way the one-time
+    V3.6 migration classifies the ~787 historical infrastructure rows.
+    """
+    sid = _insert(evo, gops, rng, status, fitness)
+    evo.db.update_strategy(sid, data_source="LEGACY_TEST")
+    return sid
+
+
 def test_population_cap_never_retires_legacy_nodes(tmp_path):
     """V4.1: the population cap retires research candidates only.
 
@@ -296,10 +308,10 @@ def test_population_cap_never_retires_legacy_nodes(tmp_path):
     """
     db, evo, gops, rng = _temp_engine(tmp_path, "cap.db")
 
-    # legacy infrastructure nodes: inserted while no user run is bound -> the
-    # project's own classification marks them LEGACY_TEST
+    # imported-historical infrastructure nodes (explicit LEGACY_TEST provenance,
+    # the same classification the V3.6 migration applies)
     evo.active_run_id = None
-    legacy_ids = [_insert(evo, gops, rng, "SURVIVED", 0.01 * (i + 1)) for i in range(5)]
+    legacy_ids = [_insert_legacy(evo, gops, rng, "SURVIVED", 0.01 * (i + 1)) for i in range(5)]
 
     # user research nodes of the active study: worse fitness than the legacy ones
     evo.active_run_id = "RUN-V41-CAP-CHECK"
@@ -326,8 +338,7 @@ def test_clear_failed_never_deletes_legacy_nodes(tmp_path):
     """V4.1: the failed-node clean-up control is scoped away from LEGACY_TEST."""
     db, evo, gops, rng = _temp_engine(tmp_path, "clear.db")
 
-    evo.active_run_id = None
-    legacy_ids = [_insert(evo, gops, rng, "FAILED", 0.1) for _ in range(3)]
+    legacy_ids = [_insert_legacy(evo, gops, rng, "FAILED", 0.1) for _ in range(3)]
     evo.active_run_id = "RUN-V41-CLEAR-CHECK"
     user_ids = [_insert(evo, gops, rng, "FAILED", 0.1) for _ in range(3)]
 
@@ -348,9 +359,8 @@ def test_node_state_default_scope_stays_user_research(tmp_path):
     """
     db, evo, gops, rng = _temp_engine(tmp_path, "scope.db")
 
-    evo.active_run_id = None
     for _ in range(3):
-        _insert(evo, gops, rng, "FAILED", 0.1)
+        _insert_legacy(evo, gops, rng, "FAILED", 0.1)
     evo.active_run_id = "RUN-V41-SCOPE-CHECK"
     for _ in range(2):
         _insert(evo, gops, rng, "FAILED", 0.1)

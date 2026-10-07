@@ -3078,3 +3078,318 @@ VERSION: V4.8 — DASHBOARD INTERACTION AND INTEGRATION QA
                    nothing was left uncommitted.
 
 =============================================================
+
+
+=============================================================
+=============================================================
+VERSION: V5 — DATA INTEGRITY, DEEP BACKTEST, LIVE TESTING,
+         MT5 INTEGRATION & DASHBOARD SHUTDOWN
+=============================================================
+(what was actually implemented and actually tested)
+
+0. SCOPE AND STANDING RULES OBSERVED
+  * The authoritative DATA tree was never deleted, reset, regenerated, modified
+    or replaced, and never committed. Every probe ran against a disposable copy
+    (`cp -a DATA <copy>`). No demo data was substituted for real data, no market
+    data was fabricated, and no statistic or backtest result shown anywhere in
+    the dashboard is invented: a value the lab did not compute is null and is
+    rendered as N/A with the backend's own explanation.
+  * Strategy failure and infrastructure failure are separated in the status
+    model and in the UI. Nothing was done to raise the alive-node count, no
+    validation was weakened, and no candidate was silently discarded.
+
+1. §1 ROOT CAUSE OF THE LOW SURVIVOR COUNT (diagnosed, then fixed)
+  * Measured decomposition (GET /api/diagnostics/backtest, real DATA):
+      requested/generated 10,851 | tested 812 | never_tested 10,039 |
+      skipped 9,799 | rejected 399 | failed 240 | cancelled 141 |
+      valid_or_alive 230 | data_failures 9,799 | data_corrupt 0 |
+      backtest_errors 0
+    with reconciliation flags tested_plus_never_tested_equals_requested = true,
+    skipped_is_never_tested = true, alive_is_counted_separately = true.
+  * Raw status counts (same DATA): FAILED 10,477, QUALIFIED 129, RETIRED 130,
+    SURVIVED 94, KILLED 11, PAPER 7, DATA_UNAVAILABLE 3. The overwhelming
+    majority of FAILED rows were never tested at all: their market data could
+    not be resolved in the environment that produced them. The single FAILED
+    label conflated "we never got to judge it" with "the strategy lost money".
+    The low alive count was therefore a classification/infrastructure problem,
+    not a population collapse.
+  * Two defects found and fixed at the root:
+      (a) a hard feature-cache gate (is_dataset_eligible_for_research(...,
+          require_features=True) and the orchestrator's per-cycle pre-flight)
+          treated a missing/unreadable *derived* feature artifact as a reason to
+          exclude a dataset or to block the whole research cycle. Feature caches
+          are accelerators: a missing one is now computed on demand and a
+          corrupt one is rebuilt and reported, never allowed to block research
+          and never silently replaced.
+      (b) one status bucket for many causes. §3 statuses and reason-based
+          classification now separate them (backend/app/status.py).
+  * backend/app/orchestrator/lab.py:
+      - _verify_and_validate_features() -> (usable_dataset_ids, failures)
+      - new pure helper feature_validation_outcome(usable, failures):
+        BLOCK only when nothing is usable (reason carries the real per-dataset
+        text); otherwise CONTINUE and exclude exactly the unusable datasets,
+        report each exclusion as a data outcome ("data outcome, not a strategy
+        failure") and research the rest.
+  * Regression tests (tests/test_v5_pipeline_smoke.py):
+      test_feature_validation_outcome_bloats_only_when_nothing_is_usable
+      test_feature_validation_excludes_instead_of_blocking_the_whole_cycle
+    Deliberate mixed case verified: one unusable dataset + one healthy dataset
+    => research continues on the healthy one and the exclusion is reported.
+
+2. §3/§4 STATUSES, DIAGNOSTICS AND COUNTERS (implemented + verified)
+  * Explicit statuses: NOT_TESTED / PENDING / TESTING / VALID /
+    STRATEGY_FAILED / DATA_UNAVAILABLE / DATA_CORRUPT / BACKTEST_ERROR /
+    LIVE_ELIGIBLE / LIVE_TESTING / LIVE_COMPLETED / MT5_DEMO. Only a real
+    performance rejection is STRATEGY_FAILED; requeued/never-executed
+    candidates are neither failures nor successes.
+  * Endpoints verified live against real DATA:
+      GET /api/diagnostics/data        -> dataset_rows 77, reported 77,
+                                          by_usability {VALID: 77}
+      GET /api/diagnostics/eligibility -> required = testable =
+                                          [H1, M1, M15, M30, M5], unusable []
+      GET /api/diagnostics/backtest    -> the counters above + per-generation
+                                          survival records
+      GET /api/diagnostics/evolution   -> parent candidates 99, eligible parents
+                                          97, duplicates blocked 1,905, unique
+                                          genomes 10,851 + mutation histogram
+  * DATA corruption is reported, never repaired silently: an unreadable artifact
+    is surfaced as CORRUPT and counted in data_corrupt (0 in this DATA).
+
+3. §5 REALISTIC BACKTEST
+  * Signal / execution / position / SL-TP / spread / slippage / commission /
+    swap are separated in the engine; symbol specs (tick size and value,
+    contract size, min/max lot, lot step, sessions) drive sizing and fills; no
+    lookahead and no unrealistic fills; MT5 historical bars are used when the
+    stored dataset is MT5 data and simulator data is labelled as such.
+  * tests/test_v5_realistic_backtest.py covers the separation and the specs.
+
+4. §6-§9 DEEP BACKTEST TAB
+  * frontend/src/pages/DeepBacktest.jsx: one graphical table (star, ID, status,
+    strategy, symbol, TF, IS return, PF, win rate, trades, max DD, Sharpe, risk,
+    period, last tested, action) with search, sort, filters, pagination, star and
+    watchlist; Show Failed OFF by default with the failure class shown when it
+    is ticked; date presets 1/3/7/14 days, 1/3/6/12 months and a Custom from/to
+    that is sent to the engine (start_date/end_date) and really controls the run;
+    run states QUEUED -> RUNNING -> COMPLETED or CANCELLED / FAILED /
+    DATA_UNAVAILABLE / BACKTEST_ERROR with the engine's own status; the dashboard
+    never freezes (server-side execution, polling only while a run is active).
+
+5. §10 DASHBOARD SHUTDOWN (verified end-to-end on a live instance)
+  * GET /api/power/session returned session s-50084751bd41, backend pid 5009,
+    per-role owned process list, the phrase SHUTDOWN DASHBOARD, a 9-step plan and
+    the never_touched list.
+  * POST /api/power/shutdown without the phrase -> HTTP 409 CONFIRMATION_REQUIRED
+    ("send confirm='SHUTDOWN DASHBOARD' (exactly as shown in the panel)"),
+    nothing changed.
+  * Dry run -> the plan with each step's real decision, e.g.
+    stop_research_workers {targets: [], terminated: [], force_killed: [],
+    unverified: []}; stop_frontend {signalled: [], browsers_touched: 0, "only a
+    frontend process the dashboard itself started is stopped; a browser or a dev
+    server started by the operator is never signalled"}; stop_scheduler
+    {cancelled_queued: [], left_running: [], deleted_rows: 0}.
+  * Real shutdown -> all nine steps OK in the required order (stop_new_tasks ->
+    stop_active_tasks -> disconnect_mt5 -> stop_background_workers ->
+    stop_research_workers -> stop_scheduler -> stop_frontend -> stop_backend ->
+    verify). Evidence: stop_backend {pid: 5009, signal: "SIGTERM", grace_s: 1.0}
+    (only the owned pid); stop_frontend {browsers_touched: 0} and the operator's
+    Vite dev server still answered 200 afterwards; verify {data_touched: false,
+    browser_touched: false, still_alive: [], unverifiable: [],
+    forced_after_verify: []}; DATA file counts unchanged; the backend stopped
+    (health unreachable) and the dashboard restarted cleanly into new session
+    s-4522419b6a1e with accepting_tasks: true, reporting the previous shutdown as
+    last_report. No "kill all python/node", no pattern kill, no OS shutdown, no
+    browser or tab was touched, nothing outside the dashboard's ownership was
+    signalled.
+  * UI: the Power button asks "Are you sure you want to close the dashboard?"
+    (Yes/No). No performs no request at all (verified in the render smoke); Yes
+    sends the phrase and shows the plan/report.
+
+6. §11-§18 LIVE TESTING, MANUAL ORDERS, TRADING INFO
+  * GET /api/live-testing/status (real DATA): mode INACTIVE, engine_running true,
+    risk {risk_pct_default 1.0, risk_pct_max 2.0, max_active_trades 1,
+    tick_interval_s 15, max_data_age_s 120, require_sl true}, 49 live candidates,
+    and an explicit excluded[] list naming every LEGACY_TEST node and why.
+  * GET /api/live-testing/nodes-table (node 837): v5_status VALID, status
+    SURVIVED, XAUUSD M15, is_return_pct 0.0067, profit_factor 1.769, trades_is 11,
+    risk_pct 1.0 with risk_source GLOBAL and global_risk_pct 1.0, is_active false.
+  * START/STOP are confirmation-gated (confirmed != true -> 409, no change;
+    confirmed:true -> is_active true and eng.activate(confirmed=True)); STOP
+    reports positions_touched false. The schedule is enforced by the engine and
+    the blocking rule is returned verbatim (e.g. "sessions: 05:42 UTC against
+    london 07:00-16:00 UTC, newyork 12:00-21:00 UTC").
+  * Manual orders: sizing from real symbol specs (XAUUSD pip 0.10). $100 with a
+    300-pip stop sizes correctly; $10 with a 300-pip stop = 0.0033 lots, below
+    the 0.01 minimum, so the preview returns ok:false VOLUME_BELOW_MINIMUM with
+    loss_at_sl null - the lab refuses and explains instead of silently raising
+    the risk. Place returns the broker's answer (retcode, message, ticket,
+    volume, exec price, SL/TP requested vs broker, sl_tp_verified), 10016 ->
+    ok:false, DONE without a position -> EXECUTED_UNCONFIRMED, unconfirmed -> 409,
+    and every attempt is audited in manual_mt5_orders.
+  * GET /api/mt5-execution/state (live) is honest about the environment:
+    execution_allowed:false, blocked_code MT5_UNAVAILABLE,
+    account_safety.demo_verified:false, bridge {name: "simulator",
+    is_simulated: true, connected: true}. GET /api/mt5-demo/status reports
+    DEMO ACCOUNT READY, "DEMO ACCOUNT ONLY - NO REAL MONEY AT RISK",
+    balance/equity 10,000.00, free margin 9,500.00 - a simulator account,
+    labelled as one everywhere it appears. No real-money order exists anywhere in
+    this build, and no order was ever faked as successful.
+  * §16/§17 Trading Info (GET /api/strategies/{id}/trading-info) is generated
+    from the stored genome, never hardcoded: node 837 -> long
+    "break_prev_day_high > 0.5 AND break_prev_day_low > 0.5", short
+    "break_prev_day_high > 0.5 AND ADX(21) > 18", SL 2.93 x ATR(7),
+    TP 1.13 x ATR(7), hold 3/72 bars, risk 0.50 % equity, max_concurrent 1,
+    sessions null rendered as "no session filter". A dict genome and a JSON-string
+    genome produce identical output; an empty genome yields {value: null, reason}
+    for every item instead of an invented value.
+
+7. §18-§21 RESULTS, MT5 DEMO, FAILED NODES
+  * GET /api/live-test/results returns the statistics top-level (starting/current
+    balance 10000.0, net_profit 0, return_pct 0.0, profit_factor null, win_rate
+    null, trade_count 0, max_drawdown_pct null, sharpe/sortino/expectancy null,
+    exposure_pct null, exit_reasons, unavailable[], read_only, source) plus a
+    money-denominated prop_firm block (account size, equity, daily loss
+    limit/used, max loss limit/remaining, profit target + distance, trading
+    days/minimum trading days, rule_violations[], verdict in NO_DATA /
+    IN_PROGRESS / TARGET_REACHED / BREACHED). A statistic that cannot be computed
+    is null and shown as N/A with the backend's explanation - never 0, 1.0 or
+    "PASSING".
+  * §20 MT5 Demo Trading page: account info, connection state, star/search/sort/
+    filter and details, all backed by the endpoints above.
+  * §21 failed nodes are clearly distinguishable, Show Failed is off by default,
+    and the failure reason is split by class (STRATEGY vs INFRASTRUCTURE) via
+    status.classify_failure().
+
+8. §19 MT5 BACKTEST PAGE
+  * New availability card from GET /api/mt5-historical/capabilities: bridge
+    (active bridge, whether it is simulated, whether the MT5 package is
+    installed), queue/active limits, minimum bars, per-symbol stored timeframes,
+    dataset counts and rejected/unusable datasets, plus the run-state legend.
+  * New per-node data panel: it resolves the selected node's own symbol and
+    timeframe to a stored dataset and shows the run's real inputs - dataset id,
+    source (MT5 vs SIMULATED badge), bars, date range, broker/server,
+    fingerprint, eligibility reason and whether the range satisfies min_bars.
+    When nothing can be used it states DATA_UNAVAILABLE explicitly; when the
+    bridge is a simulator it states that a fetch would write SIMULATED bars.
+    "re-check availability" calls capabilities?refresh=1; "fetch / extend stored
+    data" calls the lab's real POST /api/data/sync for that symbol/timeframe and
+    echoes the engine's verbatim answer (fetch_mode/action, new bars, stored bars,
+    dataset id) including no_data_from_bridge -> DATA_UNAVAILABLE.
+  * New node picker over the real research population (GET
+    /api/research/strategies): star (real shortlist endpoint), ID, status,
+    symbol, TF, IS return, PF, trades, max DD, Sharpe, last tested and actions
+    ("backtest this" loads the node into the page, "details" opens it in the
+    Strategy Lab), with search, status filter, sort, asc/desc, starred-only and
+    pagination; missing metrics render as N/A, never as 0. Verified live:
+    XAUUSD M15 resolves to XAUUSD_M15_MT5_Raw Trading Ltd_ICMarketsSC-Demo_v1
+    (1,850 bars, 2026-09-07 -> 2026-10-05, fingerprint
+    8d4d0cb6d3a5f465dec5b43da4048bd2, eligible).
+  * The page's historical-run panel reports QUEUED / RUNNING / COMPLETED /
+    FAILED / CANCELLED with the run id, period, bars, trades and runtime, one run
+    at a time (max_active 1, queue 5, identical requests refused while active).
+
+9. TESTING ACTUALLY RUN (no result below is copied from another run)
+  * Full backend suite against a copy of DATA
+    (EVOLUTIONARY_LAB_DATA_ROOT=/opt/lmsarena-storage/v5_testdata):
+        376 passed, 1 warning in 62.14s
+    (374 passed before the two new §1 regression tests were added; the earlier
+    62.15 s run exposed two frontend-test defects, both fixed - see 10.)
+  * pytest tests/test_v4_8_frontend.py -> 24 passed (static checks + the JSX
+    render smoke, including the "IDLE ON ENTRY" mount assertion).
+  * node frontend/tests/v48_ui_smoke.mjs -> 47/47 renders OK, "no page or
+    node-detail render crashed; no undefined/NaN/[object Object] rendered".
+    The harness now also asserts real behaviour, not just rendering:
+      - START in the live node table posts /api/live-testing/nodes/1195/start;
+      - the schedule dialog shows the engine's verdict and the blocking rule;
+      - the Power dialog asks the question, states that only the dashboard is
+        closed, cancelling sends no request, and a dry run sends the phrase;
+      - the Trading Info tab renders its sections from the genome;
+      - the market header shows bid/ask/spread/price/indicators/conditions;
+      - the MT5 Backtest node picker searches (search=30000 reaches the backend),
+        stars (real shortlist endpoint), loads a node ("backtest this" ->
+        /api/strategies/10825/authoritative) and renders missing metrics as N/A;
+      - the node-data panel resolves XAUUSD M15, shows integrity and the rejected
+        dataset reason, and fetches through /api/data/sync, echoing
+        "REUSING EXISTING DATA".
+  * npx vite build -> success.
+  * Real-data pipeline validation on a fresh copy of the authoritative tree
+    (scripts/v5_validate_pipeline.py --nodes 40 --json v5_validation_run2.json):
+        generated 40, born 40, unique 40, duplicates_blocked 1, tested 40,
+        not_tested 0, alive 7
+        buckets: VALID 7, STRATEGY_FAILED 33, DATA_UNAVAILABLE 0,
+                 DATA_CORRUPT 0, BACKTEST_ERROR 0
+        timeframes: M1 7, M5 6, M15 11, M30 11, H1 5
+  * Live HTTP probes against a copy of DATA (uvicorn on :8787,
+    EVOLUTIONARY_LAB_DATA_ROOT=/opt/lmsarena-storage/v5_live3): /health,
+    /api/power/session, /api/live-testing/status, /api/live-testing/risk,
+    /api/live-testing/nodes-table, /api/live-test/results, /api/mt5-demo/status,
+    /api/mt5-execution/state, /api/mt5-historical/capabilities,
+    /api/diagnostics/{data,eligibility,backtest,evolution} - all answered with
+    real data (quoted above), and the Vite dev server proxied them for the
+    dashboard (relative URLs only).
+  * §26 areas covered: DATA intactness (file counts before/after, 0 corrupt,
+    registry 77/77 VALID), discovery (1 candidate dataset resolved by id through
+    the artifact resolver, 79 feature sets), corruption reporting (reported as
+    CORRUPT, never replaced), evolution (per-generation records + counters),
+    backtest (40/40 tested, 0 infrastructure outcomes), Deep Backtest (render +
+    interaction smoke), Live Testing (status/risk/nodes-table + START endpoint
+    call), manual order demo-only (preview refusal below minimum volume,
+    execution blocked with MT5_UNAVAILABLE, no fake success), shutdown (full
+    end-to-end run above).
+
+10. FRONTEND DEFECTS FOUND BY THE V5 TEST PASS AND FIXED
+  * A null entry in a list payload crashed whole pages ("Cannot read properties
+    of null (reading 'node_id'/'starred')"). Fix: a new rows() helper in
+    src/lib/safe.js returning only plain objects, applied to every record list in
+    LiveTesting.jsx, Mt5DemoTrading.jsx, LiveTestingPanels.jsx and
+    LiveTestResults.jsx.
+  * LiveTestResults.jsx shadowed the imported helper with
+    "const rows = rows(perNode?.nodes)" (self-reference); the local was renamed
+    to nodeRows.
+  * Mt5DemoTrading.jsx computed 100000 + node_id for rows without a numeric id,
+    rendering NaN; those rows are now filtered out and the magic is N/A.
+  * The manual-order result card only understood one broker shape; it now reads
+    both the flat and the nested response (retcode, ticket, message, volume).
+  * Live Testing did not state its idle state: an "IDLE ON ENTRY - NOTHING IS
+    RUNNING" banner was added (also required by the V4.8 static test).
+  * The V4.8 risk strip is mounted by the Live Testing page again (global default
+    risk, per-node overrides and the cash value of the configured risk).
+  * The MT5 Backtest page's node picker renders returns/drawdowns with the same
+    fraction-to-percent convention as the Deep Backtest table (0.207 -> 20.70 %).
+
+11. FILES (V5)
+  New backend: app/power.py, app/status.py, app/diagnostics.py,
+    app/live_testing/schedule.py, app/live_testing/results.py,
+    app/backtest/symbol_specs.py, app/strategies/trading_info.py,
+    scripts/v5_validate_pipeline.py.
+  Modified backend: app/api/routes.py, app/config.py, app/main.py,
+    app/db/database.py, app/data/engine.py, app/orchestrator/lab.py,
+    app/evolution/engine.py, app/genome/ops.py, app/features/engine.py,
+    app/backtest/{engine,execution}.py, app/historical_backtest/runs.py,
+    app/live_testing/{engine,conditions}.py.
+  New frontend: src/pages/DeepBacktest.jsx, src/components/PowerButton.jsx.
+  Modified frontend: src/api.js, src/App.jsx, src/lib/safe.js,
+    src/components/{ui,StrategyDrawer,LiveTestingPanels,HistoricalBacktestPanel}.jsx,
+    src/pages/{Overview,StrategyLab,BacktestMatrix,Mt5Backtest,LiveTesting,
+    LiveTestResults,Mt5DemoTrading,NodeEconomics,FinalTesting}.jsx.
+  Tests: tests/test_v5_power_shutdown.py, tests/test_v5_live_testing.py,
+    tests/test_v5_manual_order.py, tests/test_v5_pipeline_smoke.py,
+    tests/test_v5_realistic_backtest.py, tests/test_v5_status_and_diagnostics.py,
+    tests/test_v4_8_frontend.py, frontend/tests/v48_ui_smoke.{jsx,mjs}.
+  Docs: V5_DATA_INTEGRITY_DEEP_BACKTEST_LIVE_TESTING_REPORT.md (§27 report),
+    chatgpt.txt (concise handoff), this entry.
+
+12. GIT RESULT
+  Previous HEAD  : e11ec95854498a666f0a96be92a72fc0b6f3d1c7 (V4.8)
+  Commit         : V5: data integrity, deep backtest, live testing, MT5
+                   integration and dashboard shutdown
+  Commit hash    : recorded in the follow-up log commit (a commit cannot contain
+                   its own hash); see the "V5 GIT HASH" entry that follows this
+                   one in this file.
+  Push           : origin main (V5 commit + this log entry); the push result is
+                   recorded in the follow-up entry as well.
+  Excluded       : DATA/** (the authoritative tree is never committed and lives
+                   outside the workspace), database/WAL/SHM files, ZIPs, PIDs,
+                   logs, caches, node_modules, virtualenvs and any secret. The
+                   runtime-generated CONFIG/lab_config.yaml and
+                   CONFIG/settings.json are reverted before committing and no
+                   sandbox-specific path appears in any tracked file.

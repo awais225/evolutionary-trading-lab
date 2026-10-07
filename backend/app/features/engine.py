@@ -170,7 +170,17 @@ class FeatureEngine:
                 return self._cache[(dataset_id, "price")]
 
         df = get_data_engine().get_frame(dataset_id)
-        produced = self._compute_family(df, dataset_id, library.feature_family(spec))
+        # V5: a requested spec can be an *output column* of a family
+        # (bb_pctb:20:2.5 -> bb, relvol:50 -> volume, macd_hist:8:21:5 -> macd ...).
+        # Computing the family with *default* parameters produced the default-parameter
+        # column instead (bb_pctb:20:2.0), so the requested spec was missing, the code
+        # fell through to parse_spec() — which only knows generator families — and the
+        # node died with "unknown feature spec". Every derived column with custom
+        # parameters was therefore untestable. Compute the family *with the requested
+        # parameters* and only fall back to a raw spec when the family does not produce it.
+        family = library.feature_family(spec)
+        family_spec = self._family_spec_for(spec, family)
+        produced = self._compute_family(df, dataset_id, family, spec=family_spec)
         if spec not in produced:
             produced = self._compute_spec(df, dataset_id, spec)
 
@@ -183,8 +193,25 @@ class FeatureEngine:
                 return self._cache[(dataset_id, "price")]
         raise KeyError(f"feature '{spec}' not produced for dataset {dataset_id}")
 
-    def _compute_family(self, df: pd.DataFrame, dataset_id: str, family: str) -> Dict[str, np.ndarray]:
-        """Compute the default-parameter version of a family."""
+    @staticmethod
+    def _family_spec_for(spec: str, family: str) -> Optional[str]:
+        """Rebuild the generator spec for a requested (possibly derived) column.
+
+        ``bb_pctb:20:2.5`` -> ``bb:20:2.5``; ``relvol:50`` -> ``volume:50``;
+        ``close`` -> ``price``. Returns None when the family needs the default spec.
+        """
+        if ":" not in spec:
+            alias = {"close": "price", "open": "price", "high": "price", "low": "price",
+                     "price": "price"}
+            return alias.get(spec, family if family != spec else None)
+        args = spec.split(":", 1)[1]
+        if family in ("price",):
+            return "price"
+        return f"{family}:{args}"
+
+    def _compute_family(self, df: pd.DataFrame, dataset_id: str, family: str,
+                        spec: Optional[str] = None) -> Dict[str, np.ndarray]:
+        """Compute a family's columns — with the requested parameters when given."""
         defaults = {"sma": "sma:20", "ema": "ema:20", "rsi": "rsi:14",
                     "macd": "macd:12:26:9", "roc": "roc:12", "momentum": "momentum:10",
                     "stoch": "stoch:14:3", "cci": "cci:20", "adx": "adx:14",
@@ -192,10 +219,12 @@ class FeatureEngine:
                     "volume": "volume:20", "vwap": "vwap", "prev_day": "prev_day",
                     "time": "time", "regime": "regime", "sessions": "sessions",
                     "price": "price"}
-        spec = defaults.get(family)
-        if spec is None:
+        base = spec if (spec and spec.split(":")[0] == family) else None
+        if base is None:
+            base = defaults.get(family)
+        if base is None:
             raise KeyError(f"unknown feature family {family}")
-        return self._compute_spec(df, dataset_id, spec)
+        return self._compute_spec(df, dataset_id, base)
 
     def _compute_spec(self, df: pd.DataFrame, dataset_id: str, spec: str) -> Dict[str, np.ndarray]:
         fn, args = library.parse_spec(spec)

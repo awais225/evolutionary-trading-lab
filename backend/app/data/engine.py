@@ -52,6 +52,10 @@ class DataEngine:
     def __init__(self):
         self._lock = threading.RLock()
         self._frames: Dict[str, pd.DataFrame] = {}   # in-memory dataset cache (dataset_id -> DataFrame)
+        # V5: feature-artifact validation results keyed by (path, mtime, size) so
+        # the eligibility contract stays cheap on the screening hot path.
+        self._feat_status_lock = threading.RLock()
+        self._feat_status_cache: Dict[tuple, tuple] = {}
 
     # ---------- master incremental sync (spec §4, §5, §6, §7) ----------
     def sync_master(self, symbol: str, timeframe: str, force_full: bool = False) -> Dict:
@@ -596,32 +600,121 @@ class DataEngine:
             return False, f"Failed to load dataset artifact from disk: {dataset_id} ({e})"
 
         if require_features:
-            cfg = get_config()
-            feat_simple = P.FEATURES_DIR / f"{dataset_id}.parquet"
-            feat_v27 = P.FEATURES_DIR / f"{dataset_id}__core_v1__schema_v2.parquet"
-            feat_cache = Path(cfg.data.cache_dir) / "features" / f"{dataset_id}.parquet"
+            # V5: the feature cache is a DERIVED accelerator. The engine computes
+            # any missing indicator family on demand from this very dataset
+            # frame and caches the result, so an absent artifact is not a reason
+            # to exclude real market data from research. A present-but-corrupt
+            # artifact is likewise rebuilt rather than allowed to block the run
+            # (its state is reported through dataset_diagnostics()).
+            feat_state, feat_reason, _feat_path = self.feature_artifact_status(
+                dataset_id, dataset_rows=len(df))
+            if feat_state == "corrupt":
+                log.warning("[DATASET ELIGIBILITY] %s: %s - the feature cache will be rebuilt", dataset_id, feat_reason)
 
-            target_feat = None
-            for fp in (feat_v27, feat_simple, feat_cache):
+        return True, "ELIGIBLE"
+
+    def feature_artifact_status(self, dataset_id: str, dataset_rows: Optional[int] = None
+                                ) -> Tuple[str, str, Optional[Path]]:
+        """V5: validate a *derived* feature artifact against its own contract.
+
+        The feature cache is an accelerator: it holds whichever engineered
+        feature columns were computed for a dataset (``momentum:10``,
+        ``prev_day_high``, ``regime:trending`` ...). The canonical OHLC lives in
+        the dataset artifact, which the caller validates separately.
+
+        The previous contract demanded a ``price``/``close`` column *inside the
+        feature cache*. The feature engine itself rewrites that file with only
+        the computed columns, so the cache invalidated the dataset it belonged
+        to: the first candidates of a run screened fine and every candidate after
+        the first cache write was rejected as "no eligible dataset" — which the
+        pipeline then recorded as a failed *strategy*.
+
+        The contract is now three-way, because the artifact is *derived*:
+          * ``present`` — an artifact exists, parses, has columns/rows and, when it
+            carries price/close, is row-aligned with the dataset;
+          * ``absent``  — no artifact; the feature engine computes and caches the
+            indicators on demand, so research may proceed;
+          * ``corrupt`` — an artifact exists but cannot be used; it is rebuilt on
+            demand and reported as a data-corruption diagnostic.
+
+        Only ``corrupt`` is an infrastructure *condition*; none of the three ever
+        turns a strategy into a failed strategy.
+        """
+        cfg = get_config()
+        # V5: resolve the artifact under the SAME name the writer uses. The writer
+        # (FeatureEngine._persist) builds "<id>__<feature_set>__<schema_version>"
+        # from its own constants; the gate used to hard-code a different schema
+        # version, so a freshly written artifact could never be found again. The
+        # canonical name is imported lazily (function scope) to avoid an import
+        # cycle between the data and feature engines; legacy names stay as fallbacks.
+        try:
+            from ..features.engine import DEFAULT_FEATURE_SET_ID as _FS
+            from ..features.engine import DEFAULT_SCHEMA_VERSION as _SV
+            canonical = P.FEATURES_DIR / f"{dataset_id}__{_FS}__{_SV}.parquet"
+        except Exception:  # pragma: no cover - defensive
+            canonical = P.FEATURES_DIR / f"{dataset_id}__core_v1__core_v1.parquet"
+        candidates = (
+            canonical,
+            P.FEATURES_DIR / f"{dataset_id}__core_v1__core_v1.parquet",
+            P.FEATURES_DIR / f"{dataset_id}__core_v1__schema_v2.parquet",
+            P.FEATURES_DIR / f"{dataset_id}.parquet",
+            Path(cfg.data.cache_dir) / "features" / f"{dataset_id}.parquet",
+        )
+        target_feat = None
+        for fp in candidates:
+            try:
                 if fp.exists() and fp.stat().st_size > 0:
                     target_feat = fp
                     break
+            except OSError:
+                continue
 
-            if not target_feat:
-                return False, f"Feature artifact missing on disk for dataset: {dataset_id}"
+        if not target_feat:
+            return "absent", f"Feature artifact not cached for dataset: {dataset_id}", None
 
-            try:
-                df_f = pd.read_parquet(target_feat)
-                if len(df_f) == 0:
-                    return False, f"Feature artifact has 0 rows: {dataset_id}"
-                f_cols = set(df_f.columns)
-                has_feat_price = "price" in f_cols or "close" in f_cols
-                if not has_feat_price:
-                    return False, f"Feature artifact missing price/close column: {dataset_id}"
-            except Exception as e:
-                return False, f"Feature artifact unreadable for {dataset_id}: {e}"
+        try:
+            stat = target_feat.stat()
+            key = (str(target_feat), int(stat.st_mtime), int(stat.st_size))
+        except OSError:
+            return "corrupt", f"Feature artifact is not readable from disk: {dataset_id}", target_feat
 
-        return True, "ELIGIBLE"
+        with self._feat_status_lock:
+            cached = self._feat_status_cache.get(key)
+        if cached is not None:
+            state, reason, _rows = cached
+            return state, reason, target_feat
+
+        try:
+            df_f = pd.read_parquet(target_feat)
+        except Exception as e:
+            reason = f"Feature artifact unreadable for {dataset_id}: {e}"
+            self._remember_feature_status(key, "corrupt", reason, 0)
+            return "corrupt", reason, target_feat
+
+        if len(df_f) == 0:
+            reason = f"Feature artifact has 0 rows: {dataset_id}"
+            self._remember_feature_status(key, "corrupt", reason, 0)
+            return "corrupt", reason, target_feat
+        if len(df_f.columns) == 0:
+            reason = f"Feature artifact has no columns: {dataset_id}"
+            self._remember_feature_status(key, "corrupt", reason, len(df_f))
+            return "corrupt", reason, target_feat
+
+        f_cols = set(df_f.columns)
+        if ({"price", "close"} & f_cols) and dataset_rows and len(df_f) != dataset_rows:
+            reason = (f"Feature artifact misaligned with dataset {dataset_id} "
+                      f"({len(df_f)} rows vs {dataset_rows} dataset rows)")
+            self._remember_feature_status(key, "corrupt", reason, len(df_f))
+            return "corrupt", reason, target_feat
+
+        self._remember_feature_status(key, "present", "cached feature artifact is readable", len(df_f))
+        return "present", f"cached feature artifact is readable ({len(df_f.columns)} columns, {len(df_f)} rows)", target_feat
+
+    def _remember_feature_status(self, key, state: str, reason: str, rows: int) -> None:
+        with self._feat_status_lock:
+            if len(self._feat_status_cache) > 512:
+                self._feat_status_cache.clear()
+            self._feat_status_cache[key] = (state, reason, rows)
 
     def get_available_timeframes(self, symbol: str = "XAUUSD") -> List[str]:
         """Return list of timeframes that physically exist and are research-eligible."""
