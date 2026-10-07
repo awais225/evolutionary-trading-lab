@@ -14,6 +14,9 @@ export default defineConfig({
     allowedHosts: true,
     proxy: {
       "/health": { target: "http://127.0.0.1:8787", changeOrigin: true },
+      // the dashboard's own build-identity endpoint is read by the Build chip; in
+      // production the same backend serves it, so the dev server must forward it too
+      "/system/build": { target: "http://127.0.0.1:8787", changeOrigin: true },
       "/api": { target: "http://127.0.0.1:8787", changeOrigin: true },
       "/ws": { target: "ws://127.0.0.1:8787", ws: true },
     },
