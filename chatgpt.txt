@@ -3141,3 +3141,37 @@ DECISIONS TAKEN
     changed by the theme work.
  6. The workspace preview is the real bundle rebuilt from the latest frontend/src
     against the live backend, with provenance recorded; it is not a mockup.
+
+================================================================================
+CORRECTION (V5.1a follow-up: the Live Testing status area and the remaining
+controls still looked like a different UI)
+================================================================================
+The operator re-tested through the normal launcher and reported that it was still
+possible to see parts of the four MT5 screens that did not match the rest of the
+V5 dashboard: specifically the Live Testing status area (the state/connection/
+safety block) and several control labels. The requirement was to make the whole
+screen consistent with the existing V5 language without redesigning anything and
+without inventing new components or icons.
+
+DECISIONS TAKEN
+ 1. The reported screen was traced to its exact cause instead of being restyled
+    from scratch: the status area was still written with one-off Tailwind-style
+    utility classes, and - more importantly - the theme generator only scanned
+    literal className attributes, so classes written inside conditional
+    expressions had NO CSS rule at all. That is why those rows rendered unstyled
+    while the rest of the page looked correct.
+ 2. Fix at the layer that was actually wrong: the status area was rebuilt on the
+    kit's own components (.kit-strip tiles, .status-pill, kit buttons) and the
+    generator was extended to scan conditional class strings, so the same defect
+    cannot come back unnoticed. No new visual design, no new icons, no emojis.
+ 3. Decorations that did not belong to the V5 language (play/pause/stop/refresh
+    pictographs and gear/shield glyphs on the two MT5 pages) were removed; the
+    remaining marks are the ones the dashboard already used.
+ 4. Nothing was removed from Live Testing: every value that was displayed before
+    is still displayed, only expressed with the shared components.
+ 5. The regime control was re-verified against a real running backend rather than
+    trusted: a real save, a rejected invalid value, and persistence across a real
+    backend restart were exercised against the DATA store and then cleaned up.
+ 6. Honesty rules unchanged: the bridge is still reported as SIMULATOR here, the
+    badge is derived from the backend payload (never assumed), and a real broker
+    execution is never claimed from simulator output.

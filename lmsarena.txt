@@ -4381,3 +4381,78 @@ VERIFICATION (all executed here, nothing inferred)
     (77 endpoints), 3,902,059 bytes.
   · NOT verified (no such environment here): a real Windows MT5 order, and
     browser-specific rendering (no Edge/Chrome in this sandbox) - jsdom + HTTP only.
+
+================================================================================
+V5.1a STATUS AREA + REMAINING CONTROLS ON THE SHARED V5 LANGUAGE (iteration log)
+================================================================================
+Commit: 866bd68   Date: 2026-10-07  (Asia/Karachi 17:20)
+Build:  src_hash=69166342e702fce1   index_sha256=2855c7f79177c4df
+        entry assets: index-vPIlddLU.js / index-DF42zOr6.css
+        BUILT_AT=2026-10-07T12:19:23Z   dist status FRESH
+
+§0 REAL CAUSE (found by reading the code, not by guessing)
+  · frontend/tools/gen_theme_layer.py scanned only literal className="..." attrs
+    AND my earlier version split on escaped quotes, so class strings built inside
+    conditionals were never tokenised: text-fuchsia-300, border-fuchsia-500,
+    border-emerald-600/50 had ZERO CSS rules. Those are exactly the stage-log and
+    message rows the operator saw unstyled - the rest of the page looked right.
+  · LiveTestingControl.jsx rendered its state block with the same one-off utility
+    classes instead of the kit's components, so even with a correct generator it
+    was the one area of the page not on the V5 language.
+
+§1-§4 FIX (additive, no redesign)
+  · LiveTestingControl.jsx rebuilt on the kit: the status block is now
+    `.kit-strip .item` label/value tiles (7 tiles: testing state, MT5 state, demo
+    safety, detail, active live test trades, positions/orders, counted from, risk
+    per trade), the state/safety badges are the shared .status-pill, and the
+    controls are the shared kit buttons. EVERY value that was shown before is
+    still shown - Testing state / MT5 state / Demo safety plus the actions
+    ACTIVATE LIVE TESTING / STOP LIVE TESTING / VERIFY WITH MT5 (text only).
+  · the bridge badge is read from the payload: isRealMt5 && connected -> "real",
+    source === "SIMULATOR" -> "sim", otherwise "bad". SIMULATOR is reported as
+    SIMULATOR, never as a broker connection.
+  · LiveTestingPanels.jsx: the manual panel polls mt5ExecutionState + the market
+    header every 5 s, so the entry price tracks the live ASK (BUY) / BID (SELL)
+    and the lots re-size with it without any button press.
+  · Mt5Backtest.jsx / Mt5DemoTrading.jsx: play/pause/stop/refresh pictographs and
+    the gear/shield glyphs removed (they were not part of the dashboard language);
+    the remaining check/star marks are the ones the kit already used.
+  · tools/gen_theme_layer.py: also scans conditional class strings, maps
+    fuchsia->var(--violet) and the emerald/cyan/rose 100/200 shades. styles.css
+    regenerated: used 418 / defined 178 / to generate 246 / unmapped 0.
+  · tests/test_v5_1a_ui_theme_and_regime_control.py: +2 assertions - the four
+    MT5 screens must not carry media-control pictographs, and the bridge badge
+    must be derived from the payload (isRealMt5 && connected).
+
+§5-§18 no behaviour change: no trading logic, no DATA, no APIs, no Power Button.
+
+VERIFICATION (all executed here)
+  · Live regime persistence against the RUNNING backend: node 837 saved
+    {"regimes":["trending","high_volatility"],days/sessions/timeframes} -> 200 and
+    stored exactly; unknown regime "sideways_unicorn" -> 422 SCHEDULE_INVALID
+    listing the 8 supported backend values; after a REAL backend restart (process
+    stopped and started again) the config was still there (DATA store); the test
+    row was then deleted - no 837 row existed before, 16 rows remain, DATA is
+    exactly as found.
+  · pytest tests/ : 548 passed, 0 failed, 1 warning in 112.50 s (the previously
+    environment-dependent launcher test passes because 8787 and 5173 are live).
+  · UI smoke v48_ui_smoke.mjs: 51/51 OK; theme suite: 31 passed.
+  · npm run build OK + stamp; guard --verify-served http://127.0.0.1:8787
+    --expect-token exit 0 ("the running instance serves this repository at the
+    current build, from the current code, with the current bundle");
+    dashboard_diagnostic --strict exit 0, RUNNING_DASHBOARD_MATCHES_GITHUB: PASS,
+    GIT MATCH / V5 UI SIGNATURE / BROWSER_CACHE_RISK_ABSENT: PASS.
+  · Workspace preview rebuilt from THIS commit (not a mockup): provenance
+    commit 866bd68, src 69166342e702fce1, entries index-vPIlddLU.js /
+    index-DF42zOr6.css, snapshot 2026-10-07T12:22:40Z, 77 endpoints, 3,903,242 B.
+    verify_preview.mjs PASS (18/18 nav, no console errors), nav_test PASS,
+    mt5_pages_theme_test.mjs: the four MT5 pages tables=2/2/1/1 all themed.
+    Rendered-DOM check of the status area itself: 10 .kit-strip groups / 52 tiles,
+    tiles read "Testing state INACTIVE | MT5 state SIMULATOR | Demo safety NOT
+    VERIFIED | Detail simulated quotes - no broker execution | ...", the three
+    action labels present, console errors none.
+  · Runtime truth unchanged and honest: /api/mt5/runtime -> SIMULATOR_ONLY /
+    PLATFORM_UNSUPPORTED (the MetaTrader5 package is not importable in this
+    interpreter; 0 terminals; platform linux).
+  · NOT verified (no such environment here): a real Windows MT5 order/fill, and
+    browser-specific rendering - verification is jsdom + HTTP.
