@@ -262,3 +262,82 @@ not committed     : DATA/**, frontend/dist/**, LOGS/*, runtime CONFIG, caches,
 * The packaged `.exe` path remains gated rather than rebuilt: packaging needs
   Windows + PyInstaller, and the packager now refuses to embed a bundle that
   does not match `frontend/src`.
+
+---
+
+## 10. Final verification pass (2026-10-07) — executed evidence
+
+The sandbox's temporary storage (`/opt/lmsarena-storage`) is outside the coding
+workspace and is not part of a workspace snapshot, so it was rebuilt with the
+documented recipe (pinned venv, git-lfs 3.5.1, DATA provisioned verbatim from
+`scripts/lmsarena_provision_data.sh` → 10,787 strategies = 10,000 USER_RESEARCH
++ 787 LEGACY_TEST, `npm install`). The Git remote was re-registered (`.git/config`
+is snapshot-excluded) and `origin/main` was confirmed with `git ls-remote`.
+
+**Schedule (§2), measured on the running backend.**
+
+| Step | Result |
+|---|---|
+| `POST /api/live-testing/schedule/877` (Mon/Wed, London, M15, `entry_short`, 07:00–16:00 UTC) | `200 ok=true persisted=true`; description `Mon/Wed, London, M15, conditions entry_short, 07:00–16:00 UTC`; `evaluation.allowed=true`, **10/10 rules ok** |
+| A condition the node does not have | `422 SCHEDULE_INVALID` — `this node has no such signal component(s) ['entry_long']; supported: ['entry_short']` — refused, nothing stored |
+| `GET` re-read | the saved values come back (`config.days [0,2]`, sessions, windows, conditions, `enabled true`, `schedule_version 2`), together with `options` (days/sessions/regimes/timeframes/timezones/`empty_list_means`/`window_semantics`) |
+| Node isolation | node 837 stays unconfigured — *"Mon–Fri (default), all sessions, no other restriction"* |
+| Backend restart | after killing and restarting the server the same `GET` returns the same values, 10/10 rules ok |
+
+**Deep Backtest (§3), same node/dataset/period, schedule ON vs OFF.**
+
+| | A — schedule saved | B — schedule disabled |
+|---|---|---|
+| Run | `HRUN-20261007-102556-BE97AE` | `HRUN-20261007-102558-7A73B8` |
+| Bars | **288 allowed / 1562 blocked** | **0 allowed / 1850 blocked** |
+| Trades | 4 | 0 |
+| Return / net | 0.0097 % / +97.35 | 0.0 / 0.0 |
+| PF / max DD / win | 2.369 / 0.0071 % / 50 % | — |
+| Balances | 10000.0 → 10097.35 | 10000.0 → 10000.0 |
+| Verdict | *Completed — 4 trade(s) evaluated by the engine.* | *Completed — no trades generated under this node's strategy/schedule for the selected period.* |
+
+Requested vs actual range comes from the run's own coverage block — requested
+`2026-09-07T00:00:00Z → 2026-10-05T23:59:59Z`, actual
+`2026-09-07T01:00:00Z → 2026-10-05T05:45:00Z`, dataset
+`XAUUSD_M15_MT5_Raw Trading Ltd_ICMarketsSC-Demo_v1` (MT5), completeness
+**68.316 %** (1850 of 2708 bars, 20 gaps). Metrics the engine cannot supply are
+listed in `results.unavailable[]` with a reason instead of a placeholder.
+
+**FROM SCRATCH isolation (§4).** `tests/test_v5_1a_fresh_run_isolation.py`
+(6 tests, now part of the suite) drives the real `Database` + `EvolutionEngine`
++ `lifecycle.reset_user_research` against a throwaway database and proves:
+the reset deletes only the current experiment (a LEGACY_TEST node and its
+backtest/live config survive); the next run numbers from 1 again and reuses no
+id; no node/backtest/live-config/generation-stat follows the new run; previous
+node ids are unreachable after the reset; the node limit is per run
+(10000 → 9997 remaining for the next experiment); the preview states the exact
+deletion/keep sets. Writing them exposed a real bug — `research_shortlist` is
+created lazily, so a brand-new database made the reset abort with
+`no such table`; `lifecycle._reset_statements` now takes the tables that
+actually exist (`existing_tables(db)`) and returns labels, so the reset works on
+a fresh install too (the restore path shares the helper).
+
+**Risk / MT5 (§6/§7) in this environment.** The sandbox bridge is the lab
+simulator with no quotes and no contract specs, so
+`POST /api/mt5-execution/preview` answers `INVALID_ENTRY_PRICE` (with
+`symbol_info.source = SIMULATOR`, null tick/volume specs) rather than inventing
+a volume, and `POST /api/mt5-execution/place` answers `409 CONFIRMATION_REQUIRED`
+without the phrase and `503 MT5_UNAVAILABLE` with it — *"the active market bridge
+is 'SIMULATOR', not a real MetaTrader 5 terminal"*. No fill is faked. The
+broker-spec maths and the full validation chain are covered by the 26 tests in
+`test_v5_1a_live_index_and_risk.py` (13) and `test_v5_manual_order.py` (13); a
+real DEMO order remains the one Windows-only step.
+
+**Static build (§8).** `--stamp` → `SRC_HASH 9431c59e85c85065`,
+`INDEX_SHA256 33162ab102f5598f`; `--verify-served` → `SERVED_STATUS=FRESH`,
+`SERVED_MATCHES_LOCAL_SRC=True`, `SERVED_DIST_MATCHES_SRC=True`,
+`SERVED_REASONS=[]`; `--identify` recognises the lab; `GET /system/build` →
+`dist_status FRESH`, `dist_matches_src true`, `reasons []`; `GET /` is
+`no-store, must-revalidate` with an ETag; hashed assets are
+`public, max-age=31536000, immutable`.
+
+**Tests (§9).** Full suite **443 passed / 0 failed** (1 StarletteDeprecation
+warning, 109.27 s) — 437 before this pass plus the 6 isolation tests. Core
+regression subset (schedule, qualified nodes, live index/risk, isolation,
+coverage, manual order, MT5 historical, MT5 execution, frontend serving):
+**205 passed**. `npm run build`: OK, 6.02 s. Render smoke: **50/50**.

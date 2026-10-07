@@ -3930,3 +3930,143 @@ V5.1a §9 / §40 / §42 / §46 — STATIC-BUILD CHECK, TEST INVENTORY, REPORT
   Not claimed   : no MT5 terminal in this environment (the bridge reports
                   platform_mode SIMULATOR), therefore no real DEMO order, no
                   real fill and no live session are reported anywhere.
+
+=============================================================
+V5.1a FINAL VERIFICATION PASS — SCHEDULE / DEEP BACKTEST / ISOLATION / STATIC BUILD
+=============================================================
+  Environment    : the sandbox had lost LMSArena temporary storage (it lives
+                   outside the coding workspace, so it is not part of a
+                   workspace snapshot). Rebuilt exactly as documented:
+                   /opt/lmsarena-storage/{venv,DATA} (sudo mkdir + chown),
+                   venv at the pinned path (fastapi 0.142.2, numpy 2.5.3,
+                   pandas 3.0.6, pyarrow, duckdb, psutil, httpx, websockets,
+                   pyyaml, pytest), git-lfs 3.5.1 -> /usr/local/bin, DATA
+                   re-provisioned verbatim with scripts/lmsarena_provision_data.sh
+                   (strategies 10787 = USER_RESEARCH 10000 + LEGACY_TEST 787),
+                   npm install in frontend/ (104 packages). Git remote restored
+                   (.git/config is snapshot-excluded) and origin/main confirmed.
+
+  Repository     : HEAD c1998a1 == origin/main c1998a1 at the start of this pass
+                   (verified with git ls-remote, not from a summary).
+
+  §2 schedule    : node 877 POST /api/live-testing/schedule/877 with
+                   {days [0,2], sessions [london], timeframes [M15],
+                    conditions {entry_short:true},
+                    windows [{07:00,16:00,enabled}], enabled true, UTC}
+                   -> 200 ok=true persisted=true,
+                      description "Mon/Wed, London, M15, conditions
+                      entry_short, 07:00-16:00 UTC",
+                      evaluation.allowed=true, 10/10 rules ok.
+                   A foreign condition is refused, not stored:
+                   conditions {entry_long:true} -> 422 SCHEDULE_INVALID
+                   ("this node has no such signal component(s) ['entry_long'];
+                     supported: ['entry_short']").
+                   GET re-read returns the saved values (config.days [0,2],
+                   sessions, windows, conditions, enabled true,
+                   schedule_version 2) + options {days, sessions, regimes,
+                   timeframes, timezones, empty_list_means, window_semantics}
+                   + the node's own conditions.
+                   ISOLATION: node 837 (unconfigured) still reports
+                   "Mon-Fri (default), all sessions, no other restriction".
+                   PERSISTENCE: after a full backend restart (kill + restart on
+                   127.0.0.1:8787) the same GET returns the same values and
+                   10/10 rules ok.
+
+  §3 deep bt     : A/B on the SAME node, dataset, timeframe and period
+                   (XAUUSD M15, 2026-09-07 -> 2026-10-05, MT5 bars):
+                     A scheduled  HRUN-20261007-102556-BE97AE COMPLETED
+                        schedule applied, 288 bars allowed / 1562 blocked,
+                        4 trades, return 0.0097 %, net 97.35, PF 2.369,
+                        maxDD 0.0071 %, win 50 %, expectancy 0.002434,
+                        balances 10000.0 -> 10097.35, avg win 84.234 /
+                        avg loss -35.56, dataset
+                        XAUUSD_M15_MT5_Raw Trading Ltd_ICMarketsSC-Demo_v1,
+                        source "MT5 (the terminal's own historical bars)",
+                        completeness 68.316 % (1850 of 2708 bars, 20 gaps),
+                        verdict "Completed - 4 trade(s) evaluated by the engine."
+                     B disabled   HRUN-20261007-102558-7A73B8 COMPLETED
+                        schedule applied, 0 bars allowed / 1850 blocked,
+                        0 trades, balances 10000.0 -> 10000.0,
+                        verdict "Completed - no trades generated under this
+                        node's strategy/schedule for the selected period."
+                     The operator schedule was restored afterwards
+                     (persisted=true).
+                   Requested vs actual range comes from the run's own coverage
+                   block: requested 2026-09-07T00:00:00Z -> 2026-10-05T23:59:59Z
+                   vs actual 2026-09-07T01:00:00Z -> 2026-10-05T05:45:00Z.
+                   Metrics the engine cannot supply are listed in
+                   results.unavailable[] with a reason (e.g. risk_amount) rather
+                   than filled with a placeholder.
+
+  §4 isolation   : tests/test_v5_1a_fresh_run_isolation.py (new, 6 tests) drives
+                   the real Database + EvolutionEngine + lifecycle reset against
+                   a throwaway database: reset deletes only the current
+                   experiment (LEGACY_TEST node and its backtest/live config
+                   survive), the next run numbers from 1 again and reuses no id
+                   (global ids stay immutable), no backtests/live configs/
+                   generation_stats/previous nodes follow the new run, the
+                   previous node ids are unreachable after the reset, the node
+                   limit is counted per run (10000 -> 9997 remaining for the new
+                   experiment), and the preview states the deletion/keep sets.
+                   ROOT CAUSE FIXED while writing them: research_shortlist is
+                   created lazily, so a brand-new database had no such table and
+                   the reset aborted; lifecycle._reset_statements now takes the
+                   set of tables that actually exist (existing_tables(db)) and
+                   reports labels, so the reset also works on a fresh install.
+                   The restore path uses the same helper.
+
+  §5 nodes       : GET /api/nodes?filter=qualified -> total 33 with
+                   filter_totals {qualified 33, alive 33, eligible 33,
+                   all 10787, failed 514, excluded 787, blocked 9453,
+                   unknown 0}; rows carry real persisted values only, e.g.
+                   node 877 (experiment node #63, VALID): fitness 0.60095,
+                   return 7.8 %, PF 1.324, maxDD 4.73 %, win 42.35 %,
+                   85 trades, survival evidence "Passed backtest criteria
+                   (PF=1.32, Return=7.8%)". The index states the experiment,
+                   its population, the node-number range [1,10000] and that
+                   numbering is experiment-local.
+
+  §6 risk        : POST /api/mt5-execution/preview on this host returns
+                   INVALID_ENTRY_PRICE with symbol_info.source SIMULATOR and
+                   null tick/volume specs - it refuses to size a trade instead
+                   of inventing a volume (the sandbox bridge has no real
+                   quotes). The broker-spec maths itself is covered by
+                   tests/test_v5_1a_live_index_and_risk.py (13) and
+                   tests/test_v5_manual_order.py (13) with real tick specs.
+
+  §7 MT5 demo    : POST /api/mt5-execution/place without confirmation -> 409
+                   CONFIRMATION_REQUIRED; with the correct phrase
+                   confirm='PLACE_DEMO_ORDER' on this host -> 503
+                   MT5_UNAVAILABLE ("the active market bridge is 'SIMULATOR',
+                   not a real MetaTrader 5 terminal"). No fill is faked and no
+                   order is sent. A real DEMO order therefore remains
+                   UNVERIFIED here and requires the Windows host with the
+                   terminal.
+
+  §8 static      : guard --stamp -> SRC_HASH 9431c59e85c85065,
+                   INDEX_SHA256 33162ab102f5598f, entry assets
+                   assets/index-SotJQRVQ.js + assets/index-DY0FUd-S.css;
+                   guard --verify-served -> SERVED_STATUS=FRESH,
+                   SERVED_MATCHES_LOCAL_SRC=True, SERVED_DIST_MATCHES_SRC=True;
+                   guard --identify -> "an Evolutionary Trading Research Lab
+                   backend"; GET /system/build -> serving static,
+                   dist_status FRESH, dist_matches_src true, reasons [];
+                   GET / -> cache-control "no-store, must-revalidate" + ETag;
+                   hashed assets -> cache-control "public, max-age=31536000,
+                   immutable".
+
+  §9 tests       : full suite (EVOLUTIONARY_LAB_DATA_ROOT=/opt/lmsarena-storage/DATA,
+                   -q -p no:cacheprovider) -> 443 passed, 1 warning
+                   (StarletteDeprecationWarning), 0 failed in 109.27 s
+                   (was 437 before the 6 new isolation tests).
+                   Core regression subset (schedule, qualified nodes, live
+                   index/risk, isolation, coverage, manual order, MT5
+                   historical, MT5 execution, frontend serving) -> 205 passed.
+                   frontend npm run build -> vite OK, 6.02 s.
+                   node tests/v48_ui_smoke.mjs -> 50/50 renders OK,
+                   114 stubbed API calls, no undefined/NaN/[object Object].
+
+  Not claimed    : no MT5 terminal exists in this environment, so no real DEMO
+                   order, no broker fill and no live session are claimed; the
+                   sandbox bridge is the lab simulator and the application
+                   refuses to execute against it (503 MT5_UNAVAILABLE).

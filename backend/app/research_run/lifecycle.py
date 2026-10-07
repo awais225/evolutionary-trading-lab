@@ -396,17 +396,42 @@ def verify_research_backup(path: str | Path, expected_user_nodes: Optional[int] 
 # --------------------------------------------------------------------------- #
 # Reset (USER_RESEARCH only) + fresh run
 # --------------------------------------------------------------------------- #
-def _reset_statements() -> List[Tuple[str, tuple]]:
-    stmts: List[Tuple[str, tuple]] = []
+def existing_tables(db) -> set:
+    """Table names that are actually present in this database.
+
+    Two of the tables the reset targets are created lazily by the feature that
+    first uses them (``research_shortlist``), so a *brand-new* installation can
+    legitimately be missing one. The reset must still be able to start that
+    installation fresh instead of failing with "no such table".
+    """
+    return {r["name"] for r in db.q("SELECT name FROM sqlite_master WHERE type='table'")}
+
+
+def _reset_statements(existing: Optional[set] = None) -> List[Tuple[str, str, tuple]]:
+    """``(label, sql, args)`` for every statement the research reset runs.
+
+    ``existing`` (from :func:`existing_tables`) limits the statements to tables
+    the database actually has; without it every configured statement is returned,
+    which is what a fully migrated installation looks like.
+    """
+    stmts: List[Tuple[str, str, tuple]] = []
     for tbl in STRATEGY_DEPENDENT_TABLES:
-        stmts.append(("DELETE FROM %s WHERE strategy_id IN "
+        if existing is not None and tbl not in existing:
+            continue
+        stmts.append((tbl,
+                      "DELETE FROM %s WHERE strategy_id IN "
                       "(SELECT id FROM strategies WHERE %s)" % (tbl, USER_ROWS), ()))
-    stmts.append(("DELETE FROM research_memory WHERE parent_id IN "
-                  "(SELECT id FROM strategies WHERE %s) OR child_id IN "
-                  "(SELECT id FROM strategies WHERE %s)" % (USER_ROWS, USER_ROWS), ()))
+    if existing is None or "research_memory" in existing:
+        stmts.append(("research_memory",
+                      "DELETE FROM research_memory WHERE parent_id IN "
+                      "(SELECT id FROM strategies WHERE %s) OR child_id IN "
+                      "(SELECT id FROM strategies WHERE %s)" % (USER_ROWS, USER_ROWS), ()))
     for tbl in UNSCOPED_RUN_TABLES:
-        stmts.append(("DELETE FROM %s" % tbl, ()))
-    stmts.append(("DELETE FROM strategies WHERE " + USER_ROWS, ()))
+        if existing is not None and tbl not in existing:
+            continue
+        stmts.append((tbl, "DELETE FROM %s" % tbl, ()))
+    if existing is None or "strategies" in existing:
+        stmts.append(("strategies", "DELETE FROM strategies WHERE " + USER_ROWS, ()))
     return stmts
 
 
@@ -414,12 +439,9 @@ def reset_user_research() -> Dict[str, Any]:
     """Atomically delete the USER_RESEARCH research state; LEGACY_TEST untouched."""
     db = get_db()
     before = counts()
-    stmts = _reset_statements()
-    rowcounts = db.transaction(stmts)
-    deleted_dependents = {t: c for (sql, _), c, t in zip(
-        stmts, rowcounts,
-        list(STRATEGY_DEPENDENT_TABLES) + ["research_memory"] + list(UNSCOPED_RUN_TABLES)
-        + ["strategies"])}
+    stmts = _reset_statements(existing_tables(db))
+    rowcounts = db.transaction([(sql, args) for _, sql, args in stmts])
+    deleted_dependents = {label: c for (label, _, _), c in zip(stmts, rowcounts)}
     after = counts()
     result = {
         "ok": True,
@@ -751,7 +773,8 @@ def restore_research_backup(path: str | Path, confirm: str) -> Dict[str, Any]:
                 # one atomic transaction: clear the current study, then put the
                 # archived study back exactly as it was (ids / numbering / statuses).
                 # `OR REPLACE` so archived rows stay authoritative for their keys.
-                statements = list(_reset_statements())
+                statements = [(sql, args) for _, sql, args
+                              in _reset_statements(existing_tables(db))]
                 inserted = {}
                 for tbl in restore_tables:
                     cols = [r[1] for r in src.execute("PRAGMA table_info(%s)" % tbl)]
