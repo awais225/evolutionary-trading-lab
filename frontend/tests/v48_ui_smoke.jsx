@@ -28,6 +28,7 @@ import DatasetAvailability from "../src/components/DatasetAvailability.jsx";
 import PopulationSummary from "../src/components/PopulationSummary.jsx";
 import LiveTradeCounter from "../src/components/LiveTradeCounter.jsx";
 import DemoAccountSafety from "../src/components/DemoAccountSafety.jsx";
+import Mt5AccountSelector from "../src/components/Mt5AccountSelector.jsx";
 import { RiskStrip, ManualOrderPanel, LiveMarketPanel, StageTimeline,
          LiveMarketHeader, ScheduleDialog } from "../src/components/LiveTestingPanels.jsx";
 import { LiveNodeTable } from "../src/components/LiveNodeIndex.jsx";
@@ -252,6 +253,19 @@ let EXEC_STATE_STUB = EXEC_STATE;
 export function setExecutionState(value) { EXEC_STATE_STUB = value; }
 
 let PREVIEW_RESPONSE = PREVIEW_OK;
+
+/* V5.1a-next §B — the honest sandbox truth by default: MetaTrader5 is not
+ * importable here, so no account can be probed. Tests may swap this for a payload
+ * that describes a real terminal, including a REAL account. */
+let ACCOUNTS_RESPONSE = {
+  probed: false, package_available: false,
+  reason: "the MetaTrader5 package is not importable in this interpreter, so no terminal can be probed",
+  terminals: [{ name: "MetaTrader 5", path: "C:\\Program Files\\MetaTrader 5\\terminal64.exe", origin: "discovery" }],
+  accounts: [],
+  active: { active_bridge: "simulator", source: "SIMULATOR", is_simulated: true, connected: true,
+            login: null, server: null, account_kind: "UNKNOWN", terminal_path: null, reason: "" },
+};
+export function setAccountsResponse(value) { ACCOUNTS_RESPONSE = value; }
 /** the most recent preview request body, so a stub can echo a real calculation */
 let LAST_PREVIEW_BODY = {};
 let PLACE_RESPONSE = { ok: true, order_ticket: 5512345, retcode: 10009,
@@ -287,6 +301,8 @@ export const shutdownCalls = [];
 /** §3/§5 — every risk/lot preview request body, so "recalculate on any input
  *  change, and never stale" is asserted against what was really sent. */
 export const previewPosts = [];
+/** V5.1a-next §B — every account-selection the UI actually sent. */
+export const accountSelectPosts = [];
 export const dataSyncCalls = [];
 export const seenUrls = [];
 export const shortlistToggles = [];
@@ -310,6 +326,18 @@ export function payloadFor(path, method = "GET") {
     }
     return PLACE_RESPONSE;
   }
+  if (path.includes("/api/mt5/accounts/select")) {
+    return { ok: true, status: { connected: true, account_kind: "DEMO", login: 50123456,
+                                 server: "ICMarketsSC-Demo", terminal: "MetaTrader 5",
+                                 path: "C:\\Program Files\\MetaTrader 5\\terminal64.exe" } };
+  }
+  if (path.includes("/api/mt5/accounts")) return ACCOUNTS_RESPONSE;
+  if (path.includes("/api/nodes/populations")) return {
+    ok: true, counts: { total: 10787, alive: 33, qualified: 33, final: 0, deep: 33, live: 0 },
+    definitions: { total: "every row", alive: "not a dead end", qualified: "cleared the gates",
+                   final: "furthest stage", deep: "union", live: "wired to a live layer" },
+    detail: {}, authority: "app.status.node_bucket", notes: [],
+  };
   if (path.includes("/api/mt5-execution/state")) return EXEC_STATE_STUB;
   if (path.includes("/api/mt5-execution/")) return EXEC_STATE_STUB;
   if (path.includes("/api/live-testing/market") && !path.includes("market-header")) return MARKET;
@@ -593,6 +621,11 @@ export async function runSmoke() {
       try { body = JSON.parse(opts.body || "{}"); } catch { body = {}; }
       shortlistToggles.push(body);
     }
+    if (urlStr.includes("/api/mt5/accounts/select")) {
+      let body = {};
+      try { body = JSON.parse(opts.body || "{}"); } catch { body = {}; }
+      accountSelectPosts.push({ url: urlStr, body });
+    }
     if (urlStr.includes("/api/data/sync")) {
       let body = {};
       try { body = JSON.parse(opts.body || "{}"); } catch { body = {}; }
@@ -677,6 +710,36 @@ export async function runSmoke() {
   await render("LiveTradeCounter", wrap(<LiveTradeCounter />));
   await render("DemoAccountSafety", wrap(<DemoAccountSafety />), (t) =>
     t.includes("DEMO ACCOUNT ONLY"));
+  // V5.1a-next §B — the account selector is honest when nothing can be probed:
+  // it names the reason instead of showing an invented account.
+  await render("Mt5AccountSelector", wrap(<Mt5AccountSelector />), (t) =>
+    t.includes("MT5 terminal & account") && t.includes("not importable in this interpreter")
+    && t.includes("choose a terminal") && t.includes("Detect accounts"));
+  // …and it shows a REAL account as REAL and refused, from the backend payload only.
+  setAccountsResponse({
+    probed: true, package_available: true, reason: "",
+    terminals: [{ name: "ICMarkets MT5", path: "C:\\Program Files\\ICMarkets MT5\\terminal64.exe", origin: "discovery" }],
+    accounts: [{ name: "ICMarkets MT5", path: "C:\\Program Files\\ICMarkets MT5\\terminal64.exe",
+                 initialized: true, connected: true, login: 50999999, server: "ICMarketsSC-Live",
+                 account_kind: "REAL", trade_mode: 2, demo: false, active: true }],
+    active: { active_bridge: "mt5_real", source: "MT5", is_simulated: false, connected: true,
+              login: 50999999, server: "ICMarketsSC-Live", account_kind: "REAL",
+              terminal_path: "C:\\Program Files\\ICMarkets MT5\\terminal64.exe", reason: "" },
+  });
+  try {
+    await render("Mt5AccountSelector:real-account", wrap(<Mt5AccountSelector />), (t) =>
+      t.includes("REAL ACCOUNT DETECTED — ORDERS ARE REFUSED.")
+      && t.includes("50999999") && !t.includes("[object Object]"));
+  } finally {
+    setAccountsResponse({
+      probed: false, package_available: false,
+      reason: "the MetaTrader5 package is not importable in this interpreter, so no terminal can be probed",
+      terminals: [{ name: "MetaTrader 5", path: "C:\\Program Files\\MetaTrader 5\\terminal64.exe", origin: "discovery" }],
+      accounts: [],
+      active: { active_bridge: "simulator", source: "SIMULATOR", is_simulated: true, connected: true,
+                login: null, server: null, account_kind: "UNKNOWN", terminal_path: null, reason: "" },
+    });
+  }
   await render("RiskStrip", wrap(<RiskStrip nodes={NODES} lab={{ risk: { risk_pct_default: 1.0, risk_pct_max: 5.0 } }} onChanged={() => {}} />));
   await render("ManualOrderPanel", wrap(<ManualOrderPanel />), (t) =>
     t.includes("money at risk") && t.includes("rounded"));
@@ -684,7 +747,8 @@ export async function runSmoke() {
   await render("StageTimeline", wrap(<StageTimeline nodes={NODES} />));
 
   // 5. the pages that carry the V4.8 safety wording
-  await render("page:LiveTesting-idle", wrap(<LiveTesting />), (t) => t.includes("IDLE ON ENTRY"));
+  await render("page:LiveTesting-idle", wrap(<LiveTesting />), (t) =>
+    t.includes("IDLE ON ENTRY") && t.includes("MT5 terminal & account (engine)"));
   await render("page:Mt5DemoTrading-demo-only", wrap(<Mt5DemoTrading />), (t) =>
     t.includes("DEMO ACCOUNT ONLY"));
   // V5.1a-next §7/§15 — the MT5 Demo Trading page must carry the manual trade
@@ -692,6 +756,9 @@ export async function runSmoke() {
   await render("page:Mt5DemoTrading-manual-calculator", wrap(<Mt5DemoTrading />), (t) =>
     t.includes("Amount / risk") && t.includes("Recalculate now") && t.includes("Lot size")
     && t.includes("money at risk"));
+  // V5.1a-next §B — both MT5 pages must offer the account selector.
+  await render("page:Mt5DemoTrading-account-selector", wrap(<Mt5DemoTrading />), (t) =>
+    t.includes("MT5 terminal & account") && t.includes("Detect accounts"));
   await render("page:Mt5Backtest-simulator", wrap(<Mt5Backtest />), (t) =>
     t.includes("REAL MT5 TRADING UNAVAILABLE") && t.includes("SIMULATOR MODE ACTIVE"));
   // 5c. V5.1a §6/§7/§32 — Deep Backtest lists qualified nodes with real metrics,

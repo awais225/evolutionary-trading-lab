@@ -5,6 +5,7 @@ import { NA_TEXT, numOrNull, rows as safeRows, txt } from "../lib/safe.js";
 import { useLab } from "../App.jsx";
 import StructuredError from "../components/StructuredError.jsx";
 import DemoOrderPanel from "../components/DemoOrderPanel.jsx";
+import Mt5AccountSelector from "../components/Mt5AccountSelector.jsx";
 import { ManualOrderPanel } from "../components/LiveTestingPanels.jsx";
 
 export default function Mt5DemoTrading() {
@@ -221,6 +222,11 @@ export default function Mt5DemoTrading() {
 
       {/* V4.8 — account type / connection / safety state */}
       <DemoAccountSafety />
+
+      {/* V5.1a-next §B — which terminal/account the backend is using, and the
+       * explicit switch. Read-only until the operator selects; a REAL account is
+       * shown as REAL and stays refused. */}
+      <Mt5AccountSelector />
 
       {/* V5.1a-next §7/§15 — the manual trade calculator. It opens with $10 of
        * money at risk, a 300-pip stop, the current live entry price and the lot

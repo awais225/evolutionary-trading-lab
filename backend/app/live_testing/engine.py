@@ -1089,7 +1089,11 @@ class LiveTestingEngine:
                                     "tp": tp_price, "price": entry, "magic": magic}})
             self.stats["orders_sent"] += 1
             try:
-                res = mt5_exec.place_demo_order(payload=payload)   # the ONE V4.2 execution path
+                # V5.1a-next §C — the ONE order path: the V4.2 executor, which runs
+                # mt5.order_check() and then bridge.send_market_order() ->
+                # mt5.order_send(). The legacy bridge.real_market_order() helper is
+                # NEVER used here (it speaks a different, unvalidated request shape).
+                res = mt5_exec.place_demo_order(payload=payload)
             except mt5_exec.MT5ExecutionError as e:
                 res = self._error_to_result(e)
             except Exception as e:                                 # unexpected -> UNKNOWN
@@ -1120,7 +1124,13 @@ class LiveTestingEngine:
                       "exec_price": execution.get("exec_price"),
                       "sl_broker": execution.get("sl_broker"), "tp_broker": execution.get("tp_broker"),
                       "sl_tp_verified": execution.get("sl_tp_verified"),
-                      "client_order_id": res.get("client_order_id"), "retries": 0}
+                      "client_order_id": res.get("client_order_id"), "retries": 0,
+                      # V5.1a-next §A/§C — the raw order_send facts travel with the
+                      # live-test trace too, so "UNKNOWN" always carries its reason.
+                      "result_class": res.get("result_class"),
+                      "order_send": res.get("order_send"),
+                      "diagnostic_phase": (res.get("diagnostic") or {}).get("phase"),
+                      "diagnostic": res.get("diagnostic")}
             self._stage({"stage": STAGE_BROKER, "node_id": sid, "symbol": symbol, "side": side,
                          "status": status, "detail": detail})
             row_status, local = self._record_result(node, payload, trace, res, status)
@@ -1190,12 +1200,16 @@ class LiveTestingEngine:
         stage = str(getattr(e, "stage", "") or "")
         message = str(getattr(e, "message", "") or e)
         posted = stage in ("SENDING", "INTERPRETING", "VERIFYING")
+        details = getattr(e, "details", None) or {}
         if posted:
             return {"ok": False, "status": "UNKNOWN", "sent": True,
                     "broker": {"message": message, "retcode": None, "safe_to_retry": False,
                                "comment": f"{code} at {stage}"},
                     "order": {"position_ticket": None, "ticket": None, "deal_ticket": None},
-                    "execution": {}}
+                    "execution": {},
+                    "result_class": details.get("result_class"),
+                    "order_send": details.get("order_send"),
+                    "diagnostic": details.get("diagnostic")}
         return {"ok": False, "status": "REJECTED", "sent": False, "blocked_code": code,
                 "blocked_stage": {"VALIDATION": STAGE_ORDER_VALIDATED,
                                   "ACCOUNT_SAFETY": STAGE_ORDER_VALIDATED,

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import time
+import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -145,6 +146,82 @@ class MT5RealBridge(MarketBridge):
         log.info("MT5 terminal connected: %s (Build %s, %s)",
                  self._terminal_name, self._terminal_build, self._terminal_company)
         return True
+
+    def switch_to_path(self, path: str, *, login: int = 0, password: str = "",
+                       server: str = "") -> Dict:
+        """V5.1a-next §B — move this bridge onto a specific terminal/account.
+
+        Shutdown the current session, initialize the requested terminal and probe
+        what it is logged into.  Read-only: nothing is ever sent to the broker.
+        The returned report names DEMO/REAL/CONTEST per the *probed* account, so
+        the UI can show an account selector without guessing.
+        """
+        requested = str(path or "").strip()
+        report: Dict = {"requested_path": requested, "connected": False,
+                        "login": None, "server": None, "trade_mode": None,
+                        "trade_mode_name": "UNKNOWN", "account_kind": "UNKNOWN",
+                        "demo": None, "terminal": None, "company": None,
+                        "build": None, "path": "", "last_error": self._last_error}
+        if not requested:
+            report["last_error"] = "no terminal path supplied"
+            return report
+        if not MT5_PACKAGE_AVAILABLE:
+            report["last_error"] = (f"MetaTrader5 python package not available "
+                                    f"({MT5_IMPORT_ERROR}). pip install MetaTrader5 on Windows.")
+            return report
+        # 1. tear down whatever we were using before switching
+        self.disconnect()
+        # 2. initialize exactly the requested terminal (never auto-discovery here:
+        #    the operator asked for *this* account)
+        self._path = requested
+        if login:
+            self._login, self._password, self._server = int(login), password, server
+        try:
+            ok = mt5.initialize(path=requested, timeout=self._timeout,
+                                **({"login": int(login), "password": password, "server": server}
+                                   if login else {}))
+        except Exception as e:
+            ok = False
+            self._last_error = f"initialize exception: {e}"
+        report["path"] = requested
+        if not ok:
+            try:
+                report["last_error"] = f"mt5.initialize failed: {mt5.last_error()}"
+                self._last_error = report["last_error"]
+            except Exception:
+                pass
+            self._connected = False
+            return report
+        self._connected = True
+        self._refresh_identity()
+        try:
+            ti = mt5.terminal_info()
+            if ti is not None:
+                report["terminal"] = str(getattr(ti, "name", "") or "")
+                report["company"] = str(getattr(ti, "company", "") or "")
+            ai = mt5.account_info()
+            if ai is not None:
+                mode = int(getattr(ai, "trade_mode", -1))
+                from .accounts import _trade_mode_name
+                report.update({"login": int(getattr(ai, "login", 0) or 0) or None,
+                               "server": str(getattr(ai, "server", "") or ""),
+                               "trade_mode": mode,
+                               "trade_mode_name": _trade_mode_name(mode),
+                               "account_kind": _trade_mode_name(mode),
+                               "demo": mode == 0})
+            else:
+                report["last_error"] = ("terminal initialized but no account is logged in "
+                                        "(account_info() returned None)")
+        except Exception as e:  # pragma: no cover - terminal specific
+            report["last_error"] = f"probe failed: {e}"
+        try:
+            ver = mt5.version()
+            if ver and len(ver) > 1:
+                report["build"] = int(ver[1])
+        except Exception:
+            pass
+        report["connected"] = True
+        return report
 
     def _refresh_identity(self) -> None:
         """Fill dynamic terminal info, build number, broker/server/account identity."""
@@ -496,36 +573,166 @@ class MT5RealBridge(MarketBridge):
         app.mt5.execution.
         """
         if not self._connected or not MT5_PACKAGE_AVAILABLE:
-            return {"ok": False, "unsupported": True, "retcode": None,
-                    "error": "MT5 terminal not connected"}
+            return {"ok": False, "unsupported": True, "retcode": None, "called": False,
+                    "error": "MT5 terminal not connected",
+                    "diagnostic": self._execution_diagnostic(request, called=False,
+                                                             phase="BRIDGE_NOT_CONNECTED")}
         check = self.check_market_order(request)
         if not check.get("unsupported") and not check.get("ok"):
             raw_check = check.get("raw") or {}
             return {"ok": False, "retcode": check.get("retcode"), "raw": raw_check,
-                    "check": check, "request": dict(request),
+                    "check": check, "request": dict(request), "called": False,
                     "refused_by": "mt5.order_check",
                     "error": (raw_check.get("comment")
-                              or f"order_check refused the order (retcode {check.get('retcode')})")}
+                              or f"order_check refused the order (retcode {check.get('retcode')})"),
+                    "diagnostic": self._execution_diagnostic(request, called=False,
+                                                             phase="ORDER_CHECK_REFUSED",
+                                                             check=check)}
         try:
             result = mt5.order_send(dict(request))
         except Exception as e:  # pragma: no cover - terminal dependent
             log.error("order_send raised: %s", e)
-            return {"ok": False, "exception": str(e), "retcode": None, "raw": None}
+            return {"ok": False, "exception": str(e), "exception_type": type(e).__name__,
+                    "retcode": None, "raw": None, "called": True, "call_count": 1,
+                    "last_error": self._last_error_safe(),
+                    "request": dict(request), "check": check,
+                    "diagnostic": self._execution_diagnostic(
+                        request, called=True, phase="ORDER_SEND_RAISED", check=check,
+                        exception={"type": type(e).__name__, "message": str(e),
+                                   "traceback_tail": traceback.format_exc().strip().splitlines()[-6:]})}
         if result is None:
-            err = None
-            try:
-                err = mt5.last_error()
-            except Exception:
-                pass
+            # The one case the operator must never see as a generic "UNKNOWN": the
+            # terminal accepted the call but produced no result object at all.
+            err = self._last_error_safe()
             log.error("order_send returned None (last_error=%s)", err)
-            return {"ok": False, "retcode": None, "raw": None,
-                    "exception": f"order_send returned None (mt5.last_error={err})"}
+            return {"ok": False, "retcode": None, "raw": None, "called": True, "call_count": 1,
+                    "last_error": err,
+                    "exception": f"order_send returned None (mt5.last_error={err})",
+                    "exception_type": "NoResult",
+                    "request": dict(request), "check": check,
+                    "diagnostic": self._execution_diagnostic(
+                        request, called=True, phase="ORDER_SEND_NO_RESULT", check=check,
+                        last_error=err)}
         raw = _result_to_dict(result)
         log.info("[V4.2] mt5.order_send retcode=%s order=%s deal=%s price=%s vol=%s sl=%s tp=%s comment=%r",
                  raw.get("retcode"), raw.get("order"), raw.get("deal"), raw.get("price"),
                  raw.get("volume"), raw.get("sl"), raw.get("tp"), raw.get("comment"))
         return {"ok": bool(raw.get("retcode")), "retcode": raw.get("retcode"), "raw": raw,
-                "check": check, "request": dict(request)}
+                "check": check, "request": dict(request), "called": True, "call_count": 1,
+                "last_error": self._last_error_safe(),
+                "diagnostic": self._execution_diagnostic(request, called=True,
+                                                         phase="ORDER_SEND_RETURNED_RESULT",
+                                                         check=check)}
+
+    # ---------- execution diagnostics (V5.1a-next §A) ----------
+    @staticmethod
+    def _last_error_safe():
+        """mt5.last_error() as a list, or None when it cannot be read."""
+        try:
+            err = mt5.last_error()
+            if err is None:
+                return None
+            try:
+                return list(err)
+            except TypeError:
+                return [str(err)]
+        except Exception:
+            return None
+
+    def _execution_diagnostic(self, request: Dict, *, called: bool, phase: str,
+                              check: Optional[Dict] = None,
+                              last_error: Any = None,
+                              exception: Optional[Dict] = None) -> Dict:
+        """Everything needed to explain an order_send outcome without guessing.
+
+        Read-only: re-reads the terminal/account/symbol state and returns it
+        beside the request that was (or was not) sent. It never sends anything and
+        never retries — the caller decides, the operator verifies in MT5.
+        """
+        diag: Dict = {
+            "phase": phase,
+            "order_send_called": bool(called),
+            "call_count": 1 if called else 0,
+            "request": dict(request or {}),
+            "last_error": last_error,
+            "exception": exception,
+            "check": ({"ok": check.get("ok"), "retcode": check.get("retcode"),
+                       "unsupported": check.get("unsupported"),
+                       "comment": ((check.get("raw") or {}).get("comment")
+                                   if isinstance(check.get("raw"), dict) else None)}
+                      if isinstance(check, dict) else None),
+        }
+        # terminal identity + flags
+        try:
+            ti = mt5.terminal_info() if MT5_PACKAGE_AVAILABLE else None
+        except Exception as e:
+            ti = None
+            diag["terminal_info_error"] = f"{type(e).__name__}: {e}"
+        if ti is not None:
+            diag["terminal"] = {
+                "name": getattr(ti, "name", None), "company": getattr(ti, "company", None),
+                "path": getattr(ti, "path", None), "build": getattr(ti, "build", None),
+                "connected": getattr(ti, "connected", None),
+                "trade_allowed": getattr(ti, "trade_allowed", None),
+                "tradeapi_disabled": getattr(ti, "tradeapi_disabled", None),
+                "dlls_allowed": getattr(ti, "dlls_allowed", None),
+            }
+        diag["bridge"] = {"name": self.name, "source": self.source,
+                          "connected": bool(self._connected),
+                          "package_importable": bool(MT5_PACKAGE_AVAILABLE),
+                          "package_error": MT5_IMPORT_ERROR or None,
+                          "login": self._login or getattr(self, "account_id", "") or None}
+        # account (safe fields only)
+        try:
+            acct = mt5.account_info() if MT5_PACKAGE_AVAILABLE else None
+        except Exception:
+            acct = None
+        if acct is not None:
+            diag["account"] = {
+                "login": getattr(acct, "login", None), "server": getattr(acct, "server", None),
+                "trade_mode": getattr(acct, "trade_mode", None),
+                "trade_mode_name": {0: "DEMO", 1: "CONTEST", 2: "REAL"}.get(
+                    getattr(acct, "trade_mode", None), "unknown"),
+                "currency": getattr(acct, "currency", None),
+                "balance": getattr(acct, "balance", None),
+                "equity": getattr(acct, "equity", None),
+                "margin_free": getattr(acct, "margin_free", None),
+                "leverage": getattr(acct, "leverage", None),
+                "trade_allowed": getattr(acct, "trade_allowed", None),
+                "trade_expert": getattr(acct, "trade_expert", None),
+            }
+        # symbol state (the request's own symbol)
+        symbol = str((request or {}).get("symbol") or "")
+        try:
+            mt5.symbol_select(symbol, True)
+            si = mt5.symbol_info(symbol) if MT5_PACKAGE_AVAILABLE else None
+        except Exception as e:
+            si = None
+            diag["symbol_error"] = f"{type(e).__name__}: {e}"
+        if si is not None:
+            diag["symbol"] = {
+                "symbol": symbol, "visible": getattr(si, "visible", None),
+                "digits": getattr(si, "digits", None), "point": getattr(si, "point", None),
+                "trade_tick_size": getattr(si, "trade_tick_size", None),
+                "trade_tick_value": getattr(si, "trade_tick_value", None),
+                "volume_min": getattr(si, "volume_min", None),
+                "volume_max": getattr(si, "volume_max", None),
+                "volume_step": getattr(si, "volume_step", None),
+                "trade_stops_level": getattr(si, "trade_stops_level", None),
+                "freeze_level": getattr(si, "freeze_level", None),
+                "trade_mode": getattr(si, "trade_mode", None),
+                "trade_mode_name": {0: "DISABLED", 1: "LONG_ONLY", 2: "SHORT_ONLY",
+                                    3: "CLOSE_ONLY", 4: "FULL"}.get(
+                    getattr(si, "trade_mode", None), "unknown"),
+                "trade_allowed": getattr(si, "trade_allowed", None),
+                "fill_modes": _filling_modes(si),
+            }
+            req_fill = (request or {}).get("type_filling")
+            diag["fill_mode_used"] = req_fill
+            diag["fill_mode_supported"] = (req_fill in _filling_modes(si)) if req_fill is not None else None
+        else:
+            diag["symbol"] = {"symbol": symbol, "available": False}
+        return diag
 
     def positions_get(self, ticket: Optional[int] = None, symbol: Optional[str] = None) -> List[Dict]:
         """Open positions from the terminal (used to verify an executed order)."""
@@ -610,11 +817,18 @@ class MT5RealBridge(MarketBridge):
         try:
             result = mt5.order_send(request)
         except Exception as e:
-            return OrderResult(ok=False, comment=f"order_send exception: {e}",
+            return OrderResult(ok=False,
+                               comment=(f"order_send exception {type(e).__name__}: {e} "
+                                        f"| mt5.last_error={self._last_error_safe()}"),
                                rejected_by="BRIDGE", source=self.source)
         exec_ts = time.time()
         if result is None:
-            return OrderResult(ok=False, comment="order_send returned None",
+            # never a bare "returned None": the terminal's own last_error is the
+            # diagnostic, and the outcome is uncertain (the order may exist).
+            return OrderResult(ok=False,
+                               comment=(f"order_send returned no result object "
+                                        f"(mt5.last_error={self._last_error_safe()}) — "
+                                        f"verify open positions/orders in MT5"),
                                rejected_by="BRIDGE", source=self.source)
         ok = result.retcode == mt5.TRADE_RETCODE_DONE
         ep = float(result.price or 0)

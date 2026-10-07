@@ -277,7 +277,17 @@ def declaration(cls: str):
             if fam is None:
                 continue
             if fam in ("white", "black") and shade is None:
-                base = "#ffffff" if fam == "white" else "#000000"
+                if fam == "white":
+                    # V5.1a-next §G — a *background* utility must never paint
+                    # literal white in the dark V5 theme: that is exactly how a
+                    # panel ends up as a white block with unreadable text (and
+                    # how a native control's popup does the same). `bg-white`
+                    # therefore resolves to the V5 elevated surface, while
+                    # `text-white` keeps #fff — that one is meant for text on the
+                    # coloured buttons and stays as written.
+                    base = "var(--panel2)" if prefix == "bg" else "#ffffff"
+                else:
+                    base = "#000000"
             else:
                 base = ACCENT_SHADES.get(fam, {}).get(str(shade))
             if base is None:

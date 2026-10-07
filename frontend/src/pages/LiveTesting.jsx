@@ -3,6 +3,7 @@ import { api } from "../api.js";
 import { useLab } from "../App.jsx";
 import StructuredError from "../components/StructuredError.jsx";
 import LiveTestingControl from "../components/LiveTestingControl.jsx";
+import Mt5AccountSelector from "../components/Mt5AccountSelector.jsx";
 import LiveTradeCounter from "../components/LiveTradeCounter.jsx";
 import {
   LiveMarketHeader, LiveMarketPanel, ManualOrderPanel, RiskStrip, StageTimeline,
@@ -155,6 +156,10 @@ export default function LiveTesting() {
         Safety &amp; connection
       </SectionTitle>
       <LiveTestingControl />
+
+      {/* V5.1a-next §B — the same account selector as MT5 Demo Trading, so both
+       * pages report (and can change) the one account the engine orders from. */}
+      <Mt5AccountSelector title="MT5 terminal & account (engine)" />
 
       {/* ---------------------------------------------------------- 3 */}
       <SectionTitle

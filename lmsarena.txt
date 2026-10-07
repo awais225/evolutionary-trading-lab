@@ -4557,3 +4557,96 @@ Runtime: token LAB-MT5DIAG-06685CB, serving the current build (guard exit 0)
     MT5 PLATFORM UNSUPPORTED (Linux, package not importable, 0 terminals).
     NO real demo order was placed or verified here - that requires the operator's
     Windows terminal and the diagnostic output.
+
+================================================================================
+V5.1a-next (§A-§K): MT5 EXECUTION TRACE + ACCOUNT SELECTOR + LIVE/DEEP TESTING
+Implementation + testing log (2026-10-07)
+================================================================================
+Reported defect (§A): a real Windows run returned {"status":"UNKNOWN"} with no
+explanation. Root cause found in code: the price actually sent (4090.04) was not
+the entry reference (4092.77) and `deviation` was 20 - on a 2-digit XAUUSD symbol
+that is 2.0 USD, i.e. far too tight for a live market open; the bridge then turned
+"order_send returned nothing" into a bare UNKNOWN with no last_error/terminal
+state. Fixed at the layer that was wrong (§A): every order_send outcome now carries
+`called`/`call_count`/`last_error`/`result_class`/`diagnostic`.
+
+§A  backend/app/mt5/mt5_real.py
+    - send_market_order(): every path (not connected, order_check refused,
+      order_send raised, order_send returned None, normal result) returns
+      called/call_count/last_error/exception_type + a `diagnostic`.
+    - NEW MT5RealBridge._execution_diagnostic(): phases BRIDGE_NOT_CONNECTED,
+      ORDER_CHECK_REFUSED, ORDER_SEND_RAISED, ORDER_SEND_NO_RESULT,
+      ORDER_SEND_RETURNED_RESULT with terminal/bridge/account/symbol snapshots
+      (volume min/max/step, stops level, filling modes + which one was used),
+      the exact request, last_error and exception traceback tail.
+    - NEW MT5RealBridge.switch_to_path() (§B): shutdown -> initialize(path) ->
+      probe the account that terminal is logged into (DEMO/REAL/CONTEST).
+    backend/app/mt5/execution.py
+    - place_demo_order(): dedicated NO_RESULT branch evaluated before the generic
+      exception branch -> status UNKNOWN, result_class NO_RESULT, the raw
+      order_send facts + diagnostic attached, safe_to_retry false, NO retry.
+    - normal results now carry result_class BROKER_RESULT + order_send + diagnostic.
+§B  NEW backend/app/mt5/accounts.py: terminals_from_config() (saved path first,
+    then discovery, deduped), probe_terminal()/probe_all() (read-only: initialize ->
+    terminal_info -> account_info -> shutdown; never order_check/order_send),
+    list_accounts() (counts every terminal, marks the active account, reports the
+    honest "package not importable" state instead of inventing rows),
+    select_account() (validates the path, switches, persists only non-sensitive
+    fields - set_saved_terminal_path + selected_login; the password is used for the
+    attempt and never stored).
+    routes: GET /api/mt5/accounts (probe=false by default), POST
+    /api/mt5/accounts/select (names INVALID_TERMINAL_PATH / MT5_PACKAGE_MISSING).
+    UI: NEW frontend/src/components/Mt5AccountSelector.jsx, rendered by BOTH
+    Mt5DemoTrading and LiveTesting; a REAL account still shows
+    "REAL ACCOUNT DETECTED - ORDERS ARE REFUSED." (DemoAccountSafety untouched).
+§C  backend/app/live_testing/engine.py: the live order goes through
+    execution.place_demo_order -> MT5RealBridge.send_market_order (order_check =>
+    order_send) and never through bridge.real_market_order(); the trace/database
+    record now carries result_class / order_send / diagnostic_phase / diagnostic,
+    so an UNKNOWN live order names its reason instead of saying nothing.
+§D  NEW backend/app/research/populations.py + GET /api/nodes/populations:
+    total/alive/qualified/final/deep/live derived from status.node_bucket, with the
+    definition of each number shipped in the payload. One real defect found by the
+    tests: status.is_alive() maps an unrecognised stored status to NOT_TESTED, i.e.
+    it counted as alive; is_alive_user_node() refuses to inflate the number
+    (unknown/excluded are neither alive nor failed).
+    Live DATA right now (read-only): 10,795 rows = 10,008 USER_RESEARCH + 787
+    LEGACY_TEST; buckets qualified 35 / failed / blocked (infrastructure) / excluded
+    787; alive 38; final 0; deep 35; live 0 (the 16 active live-test configs and the
+    1 demo config point at LEGACY_TEST rows, so they are not counted as live user
+    nodes).
+§E  deep_universe(): the Deep Backtest population is the UNION of qualified +
+    live-eligible + already-deep-tested, legacy excluded, each member naming *why*
+    it is in the union and whether it has a usable genome+entry. Exposed by
+    GET /api/nodes/deep-testing/plan (members + the union rule).
+§F  estimate_bars(timeframe, start, end) and run_progress(): a run whose bar count
+    is known uses it, otherwise the timeframe estimate, otherwise pct: null - never
+    a fabricated percentage. The plan endpoint returns one progress row per recent
+    mt5-historical run.
+§G  White-background CSS: the generated utility layer can no longer paint literal
+    white (`bg-white` resolves to the V5 elevated surface, `text-white` stays for
+    the coloured buttons), and every form control (select/option/optgroup/input) is
+    pinned to the theme surfaces so a native select popup cannot render white on
+    dark. tools/gen_theme_layer.py re-run: used 418 / defined 180 / generated 246 /
+    unmapped 0. No redesign, no new icons.
+§H  Nothing weakened: no test was relaxed, no DATA row was modified by this work.
+§I  NEW tests (82): tests/test_v5_1a_mt5_order_diagnostics.py (12) runs the REAL
+    MT5RealBridge against a fake MetaTrader5 package (normal result / None result /
+    exception / refused order_check / fill-mode decoding / demo guard / duplicate
+    gate); tests/test_v5_1a_mt5_account_selector.py (20) two terminals, one DEMO one
+    REAL, probe + list + switch + persistence + API refusals; 
+    tests/test_v5_1a_live_test_order_path.py (11) the engine's own order path;
+    tests/test_v5_1a_node_populations.py (26) counts/union/progress; 
+    tests/test_v5_1a_next_ui_contract.py (13) theme + selector contracts.
+§J  Executed here: tests/ 680 passed, 0 failed, 1 warning in 118.57 s (with the
+    live stack up; without a listener the two launcher tests fail by design and pass
+    with one - verified: 13 passed with the servers running).
+    frontend smoke: 56/56 renders OK (new: Mt5AccountSelector honest-unavailable,
+    Mt5AccountSelector:real-account refused, page selectors on both MT5 pages).
+    theme/regime suite 31 passed. Build: npm run build + guard stamp, SRC
+    df2088fd4aaf0f87, INDEX 8ae67c1db86ff177, dist FRESH, guard --verify-served
+    exit 0.
+§K  Honesty: the MetaTrader5 package is still NOT importable on this Linux host
+    (0 terminals) -> SIMULATOR_ONLY / MT5 PLATFORM UNSUPPORTED is the correct
+    report; NO real demo order was placed or verified here. That remains a Windows
+    task with CHECK_MT5_WINDOWS.bat + the account selector.

@@ -3208,3 +3208,45 @@ DECISIONS TAKEN
     and the exact reason no lot can be sized - it never invents a broker number.
     Recalculate now stays as a manual refresh performing the same valid
     calculation (it was never dead; it is not removed).
+
+================================================================================
+REQUEST (NEXT PHASE §A-§K: EXECUTION TRACE + ACCOUNT SELECTOR + POPULATIONS)
+================================================================================
+The operator's Windows run placed an order and got {"status":"UNKNOWN"} with no
+reason. The phase asked for: the real order_send facts on every path (what was
+called, what the terminal answered, last_error), a way to choose WHICH terminal/
+account the backend uses instead of guessing the single auto-discovered one, the
+live-testing loop to send through the validated path only, ONE authoritative
+population counter (total/alive/qualified/final/deep/live), a deep-testing
+population that is a real union with a real progress denominator, and no white
+background anywhere in the dark theme.
+
+DECISIONS TAKEN
+ 1. The reported None was NOT papered over with a retry: the code now records what
+    actually happened (called/call_count/last_error/exception/diagnostic) and
+    reports UNKNOWN with its reason. The numbers in the report point at the real
+    cause: the sent price differed from the entry reference and deviation=20 is
+    2.0 USD on a 2-digit XAUUSD symbol - too tight at a live open. Nothing is
+    retried automatically; the operator decides.
+ 2. Account selection is discovery-driven, not assumption-driven: every terminal
+    found (config + scan) is probed read-only and labelled DEMO/REAL/CONTEST. A REAL
+    account is shown as REAL and stays refused - selecting an account never changes
+    the demo-only rule. Passwords are never persisted (mt5.config strips them).
+ 3. The live-testing loop keeps the ONE validated order path (order_check then
+    order_send inside send_market_order) and its 778000-range magic, so live orders
+    stay distinguishable from manual 777000-range orders in MT5.
+ 4. Populations are derived from the single classifier the node filters already
+    use, with the definitions shipped in the payload. A real inflation defect was
+    found and fixed: an unrecognised stored status fell through to NOT_TESTED and
+    was counted as alive; unknown rows now count as neither alive nor failed.
+    LEGACY_TEST rows are counted in `total` (labelled) but never as live user nodes.
+ 5. The deep population is the UNION (qualified + live-eligible + already deep
+    tested) because a narrower accidental subset is what makes an operator believe
+    a node cannot be deep-tested. Progress uses the recorded bar count, else a
+    timeframe estimate, else null - never an invented percentage.
+ 6. Theme: the generator no longer emits literal white backgrounds and form
+    controls are pinned to the theme, because a native <select> is painted white by
+    the browser and that was the one place the dark theme could break.
+ 7. Honesty unchanged: on this Linux host MetaTrader5 is not importable and there
+    are no terminals, so SIMULATOR_ONLY / MT5 PLATFORM UNSUPPORTED is still the
+    correct report and NO real demo order was placed or verified here.

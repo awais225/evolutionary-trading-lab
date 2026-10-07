@@ -350,6 +350,11 @@ export const api = {
   mt5Status: () => req("/api/mt5/status"),
   mt5Terminals: () => req("/api/mt5/terminals"),
   mt5Config: () => req("/api/mt5/config"),
+  // V5.1a-next §B — account discovery / explicit selection (read-only until select)
+  mt5Accounts: (probe = false) => req(`/api/mt5/accounts${probe ? "?probe=true" : ""}`),
+  mt5AccountSelect: (body) => req("/api/mt5/accounts/select", { method: "POST", body }),
+  // V5.1a-next §D — the one authoritative population counter
+  nodePopulations: () => req("/api/nodes/populations"),
   mt5Connect: (body = {}) => req("/api/mt5/connect", { method: "POST", body }),
   mt5Disconnect: () => req("/api/mt5/disconnect", { method: "POST" }),
   backup: () => req("/api/backup", { method: "POST" }),

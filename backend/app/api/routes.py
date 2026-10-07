@@ -1941,6 +1941,42 @@ def get_mt5_config() -> Dict:
     return load_mt5_config()
 
 
+@router.get("/mt5/accounts")
+def get_mt5_accounts(probe: bool = False) -> Dict:
+    """V5.1a-next §B — terminals/accounts available for the account selector.
+
+    Read-only. ``?probe=true`` starts each terminal just long enough to read its
+    account (server/login/trade mode); without it only the paths on disk are
+    returned. An account whose trade mode is not DEMO is reported as REAL and
+    stays blocked by the execution guard — it is never presented as tradable.
+    """
+    from ..mt5.accounts import list_accounts
+    return list_accounts(probe=bool(probe))
+
+
+@router.post("/mt5/accounts/select")
+def post_mt5_account_select(body: Dict = Body(default_factory=dict)) -> Dict:
+    """V5.1a-next §B — switch the backend onto a chosen terminal/account.
+
+    The password is used for this connect attempt only and is never persisted
+    (``mt5.config`` strips sensitive keys). Refusals name the exact layer.
+    """
+    from ..mt5.accounts import select_account
+    path = str((body or {}).get("path") or "").strip()
+    if not path:
+        raise HTTPException(400, "path is required")
+    try:
+        login = int((body or {}).get("login") or 0)
+    except Exception:
+        login = 0
+    result = select_account(path, login=login,
+                            password=str((body or {}).get("password") or ""),
+                            server=str((body or {}).get("server") or ""))
+    if not result.get("connected"):
+        return {"ok": False, "status": result}
+    return {"ok": True, "status": result}
+
+
 @router.post("/mt5/connect")
 def post_mt5_connect(body: Dict = Body(default={})) -> Dict:
     from ..mt5.factory import connect_mt5_terminal
@@ -4163,6 +4199,62 @@ def live_testing_market_header(symbol: Optional[str] = None,
         out["condition_error"] = f"{type(e).__name__}: {e}"[:200]
 
     return out
+
+
+@router.get("/nodes/populations")
+def nodes_populations() -> Dict:
+    """V5.1a-next §D — the ONE authoritative population counter.
+
+    Returns total / alive / qualified / final / deep / live, each derived with
+    ``app.status.node_bucket`` (the same classifier the node filters use), plus
+    the definition of every number and the raw detail behind it. Read-only.
+    """
+    from ..research.populations import populations
+    return populations()
+
+
+@router.get("/nodes/deep-testing/plan")
+def nodes_deep_testing_plan() -> Dict:
+    """V5.1a-next §E/§F — the deep-testing union and its progress shape.
+
+    ``members`` is the union the Deep Backtest picker must offer (qualified +
+    live-eligible + already deep-tested, legacy infrastructure excluded), each
+    member naming *why* it is in the union. ``progress`` reports the bar estimate
+    for the most recent runs so the UI can show real denominators; a run whose
+    denominator is unknown reports ``pct: null`` instead of a fabricated number.
+    """
+    from ..research.populations import deep_universe, estimate_bars, run_progress
+    from ..db.database import get_db
+    db = get_db()
+    members = deep_universe(db)
+    runs: List[Dict] = []
+    try:
+        rows = db.q("""SELECT run_id, strategy_id, symbol, timeframe, status, bars,
+                              start_ts, end_ts, created_at
+                       FROM mt5_historical_runs ORDER BY COALESCE(created_at,0) DESC LIMIT 25""")
+    except Exception:
+        rows = []
+    processed: Dict[str, int] = {}
+    try:
+        for r in db.q("""SELECT run_id, COUNT(*) n FROM mt5_historical_trades
+                         GROUP BY run_id""") or []:
+            processed[str(r["run_id"])] = int(r["n"])
+    except Exception:
+        processed = {}
+    for r in rows or []:
+        d = dict(r)
+        runs.append(run_progress(d, processed_bars=processed.get(str(d.get("run_id"))),
+                                 tf_seconds=None))
+    return {
+        "ok": True,
+        "union": {
+            "count": len(members),
+            "rule": "qualified ∪ live-eligible ∪ already-deep-tested (LEGACY_TEST excluded)",
+            "members": members[:2000],
+        },
+        "progress": runs,
+        "estimate_helper": "research.populations.estimate_bars(timeframe, start, end)",
+    }
 
 
 @router.get("/nodes")

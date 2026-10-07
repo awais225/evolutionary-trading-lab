@@ -855,15 +855,85 @@ def place_demo_order(payload: Dict[str, Any], bridge=None) -> Dict[str, Any]:
             {k: v for k, v in request.items()}, default=str))
         raw = bridge.send_market_order(request)
         raw_result = raw.get("raw") if isinstance(raw, dict) else None
+        # V5.1a-next §A — the bridge always carries the underlying facts, so a
+        # failure is never collapsed into a bare UNKNOWN.
+        diagnostic = raw.get("diagnostic") if isinstance(raw, dict) else None
+        order_send_called = bool(raw.get("called")) if isinstance(raw, dict) else False
+        order_send_last_error = raw.get("last_error") if isinstance(raw, dict) else None
+        order_send_phase = (diagnostic or {}).get("phase") if isinstance(diagnostic, dict) else None
         if raw_result is None and isinstance(raw, dict) and raw.get("unsupported"):
             raise MT5ExecutionError("MT5_UNAVAILABLE",
                                     "The active bridge does not support order execution "
                                     "(no real MT5 terminal).",
-                                    stage="SENDING", details={"raw": raw}, http_status=503)
-        if raw_result is None and isinstance(raw, dict) and raw.get("exception"):
+                                    stage="SENDING",
+                                    details={"raw": raw, "diagnostic": diagnostic}, http_status=503)
+        no_result = (raw_result is None and isinstance(raw, dict)
+                     and order_send_phase == "ORDER_SEND_NO_RESULT")
+        if raw_result is None and isinstance(raw, dict) and raw.get("exception") and not no_result:
             raise MT5ExecutionError("MT5_EXCEPTION",
                                     f"mt5.order_send raised: {raw.get('exception')}",
-                                    stage="SENDING", details={"raw": raw}, http_status=502)
+                                    stage="SENDING",
+                                    details={"raw": raw, "diagnostic": diagnostic,
+                                             "last_error": order_send_last_error}, http_status=502)
+
+        if no_result:
+            # mt5.order_send WAS called and returned no result object. The outcome
+            # is genuinely unknown (the request may have reached the broker), so
+            # the status stays UNKNOWN — but the response now carries the terminal's
+            # own last_error, the state of the terminal/account/symbol and the exact
+            # request, so the layer can be identified instead of guessed. Nothing is
+            # retried and nothing is claimed as success.
+            interp = interpret_retcode(None, "")
+            detail_msg = (
+                "mt5.order_send was called once and returned no result object. "
+                f"mt5.last_error()={order_send_last_error}. "
+                "The outcome is UNKNOWN: the request may have reached the broker. "
+                "Verify open positions/orders in MT5 before doing anything else.")
+            try:
+                mt5_log = mt5_module()
+                if mt5_log is not None:
+                    ti = mt5_log.terminal_info()
+                    if ti is not None:
+                        detail_msg += (f" Terminal: build {getattr(ti, 'build', '?')}, "
+                                       f"connected={getattr(ti, 'connected', '?')}, "
+                                       f"trade_allowed={getattr(ti, 'trade_allowed', '?')}, "
+                                       f"tradeapi_disabled={getattr(ti, 'tradeapi_disabled', '?')}.")
+            except Exception:
+                pass
+            result = {
+                "ok": False,
+                "status": "UNKNOWN",
+                "result_class": "NO_RESULT",
+                "label": "RESULT UNKNOWN — mt5.order_send RETURNED NO RESULT",
+                "client_order_id": client_order_id,
+                "broker": {"retcode": None, "comment": "",
+                           "message": detail_msg, "category": "UNKNOWN",
+                           "warning": interp.get("warning"),
+                           "safe_to_retry": False},
+                "order_send": {"called": True, "call_count": raw.get("call_count", 1),
+                               "last_error": order_send_last_error,
+                               "exception": raw.get("exception"),
+                               "raw_result": None},
+                "diagnostic": diagnostic,
+                "order": {"ticket": None, "deal_ticket": None,
+                          "position_ticket": None, "pending_ticket": None},
+                "request": request,
+                "execution": {"symbol": symbol, "side": side, "volume": norm["volume"],
+                              "requested_volume": norm["volume"], "executed_volume": None,
+                              "requested_price": exec_price, "exec_price": None,
+                              "sl_requested": norm["sl"], "tp_requested": norm["tp"],
+                              "sl_broker": None, "tp_broker": None, "sl_tp_verified": None,
+                              "time": None},
+                "account": guard.get("account"),
+                "source": getattr(bridge, "source", "MT5"),
+                "duration_ms": round((time.time() - t0) * 1000.0, 1),
+                "verification": {},
+            }
+            _record(db, result, strategy_id=payload.get("strategy_id"), t0=t0)
+            _gate.finish(result)
+            log.error("[V5.1a-next] mt5.order_send returned NO RESULT (last_error=%s) — "
+                      "status UNKNOWN, nothing retried", order_send_last_error)
+            return result
 
         _gate.stage("INTERPRETING")
         interp = interpret_retcode(raw.get("retcode") if isinstance(raw, dict) else None,
@@ -891,6 +961,15 @@ def place_demo_order(payload: Dict[str, Any], bridge=None) -> Dict[str, Any]:
                        "message": interp["message"], "category": interp["category"],
                        "warning": interp.get("warning"),
                        "safe_to_retry": interp["safe_to_retry"]},
+            # V5.1a-next §A — the raw order_send facts travel with every result,
+            # so a reviewer never has to guess whether the call happened.
+            "result_class": "BROKER_RESULT",
+            "order_send": {"called": order_send_called,
+                           "call_count": (raw.get("call_count") if isinstance(raw, dict) else None),
+                           "last_error": order_send_last_error,
+                           "exception": (raw.get("exception") if isinstance(raw, dict) else None),
+                           "raw_result": raw_result},
+            "diagnostic": diagnostic,
             "order": {"ticket": ticket, "deal_ticket": deal,
                       "position_ticket": verification.get("position_ticket"),
                       "pending_ticket": verification.get("pending_ticket")},
