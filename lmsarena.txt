@@ -3707,3 +3707,73 @@ LAUNCHER FIX — PACKAGING FOLLOW-UP: PUSH RESULT
                    LAUNCHER_FIX_REPORT.md with HTTP 200.
 
 =============================================================
+
+=============================================================
+V5.1a — LIVE TESTING NODE INDEX + BROKER-AWARE RISK RECALC (COMMIT 21f7ae9)
+=============================================================
+  Scope          : Live Testing now reads the qualified-node index instead of
+                   the legacy nodes-table projection; the manual order panel
+                   recalculates on every input change and never substitutes a
+                   zero for a missing value; the index's schedule block is sent
+                   decoded. No trading/MT5/evolution logic changed.
+  Root causes    : 1. `frontend/src/lib/safe.js::numOrNull` used `Number(v)` -
+                      `Number(null)`, `Number("")` and `Number(false)` are 0, so
+                      a missing entry price rendered as 0.00 and a missing risk
+                      as $0 ("live: 0" was observed in the panel's placeholder).
+                   2. `backend/app/api/routes.py::nodes_index` built the schedule
+                      block from the raw `live_test_configs` columns, which are
+                      JSON *text*: the browser received `"days": "[0, 2]"` and
+                      rendered an empty group for a saved schedule.
+                   3. `_key()` read only top-level row fields, so sorting by
+                      return/PF/drawdown/win rate/trades/robustness ordered
+                      nothing (the values live in `metrics`/`robustness`); after
+                      aliasing, the missing-value tuple inverted the order for
+                      descending sorts, putting all 10,000 value-less nodes first.
+                   4. Bucket counts were accumulated only over the rows fetched
+                      for the requested filter, so Excluded read 0 and All read
+                      10,008 instead of 10,787/10,803.
+  Changes        : backend/app/api/routes.py (alias sort + missing-last, decoded
+                   schedule in /api/nodes and /api/live-testing/nodes-table,
+                   whole-index bucket counts, filter_totals, sort echo);
+                   frontend/src/components/LiveNodeIndex.jsx (new - the node
+                   table on GET /api/nodes, default filter qualified, server
+                   counts, sort dropdown, START/STOP, per-row ScheduleDialog,
+                   expandable research record);
+                   frontend/src/components/LiveTestingPanels.jsx (LiveNodeTable
+                   moved out; ManualOrderPanel entry field, immediate
+                   recalculation, dependent-field-only write-back, broker spec
+                   strip, risk/reward distances);
+                   frontend/src/lib/safe.js (numOrNull never coerces a missing
+                   value to 0; arr()/objOrNull() decode JSON text);
+                   frontend/src/pages/LiveTesting.jsx (imports the index table);
+                   frontend/tests/v48_ui_smoke.jsx (index-backed node table case,
+                   recompute-without-quote case, value-safety case);
+                   tests/test_v5_1a_live_index_and_risk.py (new, 13 tests).
+  Environment    : fresh sandbox - venv rebuilt at /opt/lmsarena-storage/venv
+                   (fastapi/uvicorn/numpy/pandas/pyarrow/duckdb/pytest),
+                   git-lfs 3.5.1 reinstalled to /usr/local/bin, DATA
+                   re-provisioned verbatim from scripts/lmsarena_provision_data.sh
+                   (10,787 strategies / 10,000 USER_RESEARCH / 787 LEGACY_TEST),
+                   npm install in frontend/ (104 packages).
+  Tests          : EVOLUTIONARY_LAB_DATA_ROOT=/opt/lmsarena-storage/DATA
+                   python -m pytest tests/ -q -p no:cacheprovider
+                   -> 429 passed, 1 warning (StarletteDeprecationWarning), 0 failed.
+                   pytest tests/test_v5_1a_live_index_and_risk.py -> 13 passed.
+                   node tests/v48_ui_smoke.mjs (from frontend/) -> 50/50 renders OK,
+                   113 stubbed API calls, no undefined/NaN/[object Object].
+                   npm run build -> vite build OK (5.52s).
+  Live check     : backend on 127.0.0.1:8787 -
+                   GET /api/nodes?filter=qualified&sort_by=return&sort_desc=true
+                     -> sort_key return_pct, total 35, top Node_10009 0.8066,
+                        filter_totals {qualified 35, alive 38, eligible 38,
+                        all 10803, failed 523, excluded 787, blocked 9455};
+                   every filter's `total` equals its `filter_totals` entry;
+                   GET /api/live-testing/nodes-table -> schedule.days is null
+                   (not a string) and the description is present.
+  Not claimed    : no Windows terminal was available in this environment, so no
+                   real MT5 DEMO order was placed here; the sizing refusal for
+                   $10/300 pips (0.0033 lots below the 0.01 minimum) is verified
+                   against the broker-spec fixtures, and the preview is the exact
+                   call the place path validates against.
+
+=============================================================
