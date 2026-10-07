@@ -4070,3 +4070,125 @@ V5.1a FINAL VERIFICATION PASS — SCHEDULE / DEEP BACKTEST / ISOLATION / STATIC 
                    order, no broker fill and no live session are claimed; the
                    sandbox bridge is the lab simulator and the application
                    refuses to execute against it (503 MT5_UNAVAILABLE).
+
+=============================================================
+2026-10-07  PERMANENT RUNTIME, FRONTEND, LIVE TESTING & DEEP TESTING FIX
+             commit a57a17485f8906d8c4393e8dd183a638aa6e1221
+             message: "fix: permanently synchronize V5 runtime and testing workflows"
+             parent 39bf2a2e9ff404354a8b889bdd5ec001a4d7ac42 (V5.1a complete)
+             remote:  git ls-remote origin refs/heads/main = a57a174...  MATCH
+=============================================================
+
+  Root cause     : the launcher's reuse decision was filesystem-only
+                   (frontend_build_guard.cmd_verify_served -> check_dist(root)).
+                   A backend started BEFORE a rebuild kept executing its old
+                   Python and kept serving the index.html it loaded at start,
+                   while the check printed SERVED_STATUS=FRESH, so start.bat
+                   re-used it and the operator kept the old Live Testing UI.
+                   Re-proved this session on the real server: append a comment
+                   to backend/app/status.py under a running backend ->
+                   SAME_ROOT / SERVED_MATCHES_LOCAL_SRC / SERVED_DIST_MATCHES_SRC
+                   all True (the old criteria) while PROCESS_CODE_IS_CURRENT
+                   False -> guard exit 15 "the answering process was started
+                   from different backend code (a10e4797218bd97c) than the
+                   checkout on disk (1f05348e5d467015) - a stale process, not a
+                   stale bundle".
+
+  Fix            : runtime identity + build-unique URL (no cache workaround):
+                   backend/app/runtime_identity.py (code_fingerprint over
+                   backend/app/**/*.py; snapshot at import; process_identity;
+                   identity_report merged into /system/build), start.bat mints
+                   LAB-<RANDOM>-... per launch, :SERVE_VERIFY replaces a
+                   non-matching instance exactly once and opens
+                   http://127.0.0.1:8787/?v=<LAB_BUILD_STAMP>, RUN_BACKEND.bat /
+                   scripts/run_backend.bat print the same identity, guard
+                   --verify-served --expect-token (exit 15: stale code, changed
+                   bundle, wrong token; 11 different checkout; 13 pre-identity
+                   instance; 14 nothing listening), guard --scan names the
+                   physical dist + index + entry assets per port, check_port.py
+                   identifies the occupant through /system/build (never
+                   "/health 200"), frontend shows V5.1a / build / frontend hash
+                   in a diagnostic chip with a reload action when this tab is
+                   older than what the server serves. No machine-specific path
+                   (grep: no C:\ in start.bat, RUN_BACKEND.bat,
+                   scripts/run_backend.bat, guard, check_port, runtime_identity,
+                   BuildIdentityChip).
+
+  Scheduling     : NEW BUG FOUND AND FIXED. schedule.normalize_config was not
+                   idempotent: its own output carries "enabled", so re-reading
+                   an already-normalised config (which describe(), bar_mask(),
+                   evaluate() and the run builder all do) turned "not
+                   configured" into "explicitly switched off" -> bar_mask
+                   returned all-False -> the Deep Backtest reported COMPLETED
+                   with 0 trades while a saved schedule existed. A node's live
+                   arming flag (is_active) is likewise live state, not a
+                   schedule rule. Proven on the real system (node 877, XAUUSD
+                   M15 MT5, 2026-09-07..2026-10-05, 1850 bars):
+                     schedule ON  (Mon/Wed, London, 07:00-16:00, M15)
+                        HRUN-20261007-105432-627E0D -> allowed 288 / blocked
+                        1562, 4 trades, PF 2.369, return +0.97 %, DD 0.71 %
+                     unrestricted (all days, all sessions)
+                        HRUN-20261007-105439-5B5E3B -> allowed 1620 / blocked
+                        230, 25 trades, PF 0.994, return -0.04 %
+                   Schedule persists across a backend restart (re-read after
+                   restart: days [0, 2], london, M15, 07:00-16:00, entry_short,
+                   schedule_version 2) and a timeframe the schedule does not
+                   allow is refused: node 877 + M5 -> HTTP 422 "node 877 is
+                   scheduled for M15 only; running M5 would ignore its saved
+                   schedule".
+
+  Deep Testing   : /api/nodes?filter=qualified -> 33 qualified of 10787
+                   ({"qualified":33,"alive":33,"eligible":33,"all":10787,
+                   "failed":514,"excluded":787,"blocked":9453}), experiment
+                   RUN-20261005-055251; rows carry the real metrics the table
+                   renders (node 1908: return_pct 0.4447, PF 1.715, DD 6.63 %,
+                   win 39.53 %, 172 trades, sharpe 4.153, qualification
+                   "QUALIFIED", robustness {score 1.0, passed 1},
+                   backtest_coverage XAUUSD_M15_MT5..., signal_logic,
+                   schedule.description). The page now selects the stored data
+                   source explicitly (MT5 default; the lab dataset on request)
+                   and can run a node on another timeframe; a scope that does
+                   not store the symbol/timeframe is refused with the exact
+                   dataset name instead of a contradictory message
+                   ("no MT5 dataset for XAUUSD H1; this installation stores
+                   that symbol/timeframe as SIMULATOR (XAUUSD_H1_..._SIMULATOR,
+                   6192 bars) - run with data_scope=SIMULATOR").
+                   Timeframe changes the test: node 837 M15/MT5 1850 bars ->
+                   9 trades PF 2.207 vs H1/SIMULATOR 346 bars -> 1 trade
+                   PF 10.0 (HRUN-20261007-105613-A92D2C / -105615-0FF930).
+
+  Live Testing   : UI unchanged except a side selector that makes the §11 rule
+                   checkable (BUY sizes from the live ask, SELL from the live
+                   bid); the panel already asks the backend on every input
+                   change (250 ms debounce), writes back only the dependent
+                   field and sends the backend's own volume/levels with
+                   confirm=PLACE_DEMO_ORDER. Live endpoints in this sandbox:
+                   POST /api/mt5-execution/preview -> HTTP 200 {ok:false,
+                   blocked INVALID_ENTRY_PRICE, "Entry price unavailable for
+                   XAUUSD"} with symbol_info {digits 2, point 0.01, source
+                   SIMULATOR} and pip_size 0.1 / points_per_pip 10;
+                   POST /api/mt5-execution/place -> HTTP 503 MT5_UNAVAILABLE
+                   (SIMULATOR bridge). No MT5 terminal here -> no DEMO fill and
+                   no broker response can be claimed.
+
+  Tests          : full backend suite 459 passed, 0 failed, 115.03 s
+                   (was 443; +13 launcher identity, +3 schedule round trip).
+                   Named suites: launcher identity 13, frontend serving 15,
+                   schedule/live 28, qualified nodes 25, MT5 historical 42,
+                   FROM-SCRATCH isolation 6, live index + risk 13, MT5
+                   execution 58, manual order 13 -> 213 passed together.
+                   frontend npm run build -> vite OK 5.66 s; guard --stamp ->
+                   SRC_HASH b7b7caac8001ea24, INDEX_SHA256 274c24d4c324801d,
+                   assets index-BZ2211ap.js + index-DY0FUd-S.css,
+                   BUILT_AT 2026-10-07T10:55:47Z; guard --check exit 0;
+                   guard --verify-served --expect-token exit 0
+                   (PROCESS_CODE_IS_CURRENT / PROCESS_BUNDLE_IS_CURRENT True);
+                   node tests/v48_ui_smoke.mjs -> 51/51 renders OK (new case:
+                   broker-spec sizing round trip, no zero values, BUY ask /
+                   SELL bid, risk -> volume recomputation).
+
+  Not claimed    : the NORMAL launcher was not executed here (Linux sandbox, no
+                   Windows, no Edge/Chrome, no MT5 terminal). The launcher-level
+                   proof is the guard/identity contract plus the launcher suite;
+                   the browser identity check (§20) and the DEMO order + broker
+                   verification (§12) must be run on the Windows host.

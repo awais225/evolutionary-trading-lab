@@ -3047,3 +3047,40 @@ the source of truth with the production build in frontend/dist, nothing
 generated or secret committed. Evidence, hashes and the real test results are in
 lmsarena.txt ("LAUNCHER FIX" entry).
 =============================================================
+
+=============================================================
+2026-10-07  REQUEST/DECISION — permanent runtime, frontend, live
+             testing & deep testing fix
+=============================================================
+Request : the operator still saw the OLD Live Testing UI through the normal
+          launcher; only an architecture-level permanent fix is acceptable.
+
+Decisions:
+ 1. Reuse of a running instance is decided by the PROCESS, not by the files on
+    disk. New runtime identity (code fingerprint + pid/token/start time) is
+    reported by /system/build, minted per launch in start.bat, and checked by
+    the guard (exit 15 = stale process / wrong token / changed bundle). A stale
+    instance is replaced exactly once and the browser is opened on a
+    build-unique URL so no cache can mask the build; unrelated software on 8787
+    is never stopped (identify first, 20/3 = refuse).
+ 2. The frontend build id is diagnostics only - no dashboard redesign.
+ 3. Deep Testing always asks the backend for nodes and metrics; the stored data
+    source is chosen explicitly (MT5 default, lab dataset on request) and the
+    refusal names exactly what is missing. A different timeframe must produce a
+    different test - proven, not asserted.
+ 4. A saved schedule is a rule, and the live arming flag is not: normalize_config
+    was made idempotent after a scheduled node was found reporting COMPLETED
+    with 0 trades because its own normalised config was re-read as "switched
+    off". The schedule must affect Deep Backtest and Live Testing, persist
+    across restarts, and a disallowed timeframe must be refused.
+ 5. FROM SCRATCH isolation stays enforced by the backend/domain; the UI is not
+    the guard.
+ 6. Manual DEMO orders keep using the real MT5 execution path; when no terminal
+    is present the operator sees the exact reason (503 MT5_UNAVAILABLE) - no
+    fake success, no simulator trade presented as a broker trade.
+ 7. Not claimed here: the Windows launcher run, Edge/Chrome identity and any
+    DEMO fill/broker response - none can be executed in this sandbox. They must
+    be confirmed on the host.
+
+Evidence and hashes: lmsarena.txt, entry "PERMANENT RUNTIME, FRONTEND, LIVE
+TESTING & DEEP TESTING FIX" (commit a57a174, == origin/main).
