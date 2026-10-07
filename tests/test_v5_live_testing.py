@@ -637,3 +637,75 @@ def test_25_trading_info_endpoint_uses_the_real_node(client):
     assert "no entry rule" not in body["text"] or flat.get("Entry"), body["text"][:400]
     assert body.get("text")
     assert body.get("strategy_id") == row["id"]
+
+
+# ===========================================================================
+# 5. §8 (V5.2.1) — the order Live Testing sends is the NODE's own strategy
+# ===========================================================================
+def test_29_the_live_order_carries_the_nodes_own_config_not_a_panel_default(
+        db, live_cfg, mt5_env, term):
+    """The engine must trade the node's stored genome: its symbol and timeframe,
+    its own entry rule (which side), its exit model (sl_atr_mult/tp_atr_mult on
+    the ATR of the last CLOSED bar) and its own risk percentage — never a generic
+    BUY/SELL probe with a hard-coded lot.
+    """
+    from app.mt5.execution import live_test_magic, _magic_for
+
+    # the node is enrolled with ITS OWN risk percentage and a genome whose exit
+    # model is 2.0 / 4.0 ATR — deliberately unlike the panel defaults (300/600 pips)
+    sid = _v43.add_node(db, 77, sl_mult=2.0, tp_mult=4.0)      # BUY-only node
+    _v43.enable_node(db, sid, risk_pct=0.5)
+    engine = fresh_engine()
+    node = next(n for n in engine.eligible_nodes() if n["id"] == sid)
+    genome = node["genome"]
+    assert genome["symbol"] == SYMBOL and genome["timeframe"] == "M15"
+    assert genome["entry_long"] and genome["entry_short"] is None
+    assert genome["exit"]["sl_atr_mult"] == 2.0 and genome["exit"]["tp_atr_mult"] == 4.0
+
+    engine.activate(confirmed=True)
+    try:
+        engine._cycle()
+    finally:
+        engine.stop(interrupted=False)
+
+    assert term.sent, "the engine placed no order — nothing to inspect"
+    req = term.sent[-1]
+
+    # 1. the node's own symbol and the node's own side (long-only rule -> BUY)
+    assert req["symbol"] == genome["symbol"]
+    assert req["type"] == 0, req          # ORDER_TYPE_BUY, from entry_long
+
+    # 2. the stop/target are the node's exit multiples on the bar's ATR: the ratio
+    #    is exactly sl_atr_mult : tp_atr_mult, so a default 300/600 pip panel pair
+    #    cannot be what produced them
+    dist_sl = abs(float(req["price"]) - float(req["sl"]))
+    dist_tp = abs(float(req["tp"]) - float(req["price"]))
+    assert dist_sl > 0 and dist_tp > 0
+    assert abs((dist_tp / dist_sl) - (4.0 / 2.0)) < 1e-6, (dist_sl, dist_tp)
+
+    # 3. the size is the node's risk percentage of the demo balance, converted with
+    #    the live quote's tick value, then floored to the symbol's volume step — so
+    #    it can be slightly under the risk amount but never over it, and never a
+    #    fixed panel lot. (0.01 lot steps on XAUUSD: 1 price unit = 100 USD/lot.)
+    tick_size = 0.01
+    tick_value = 1.0
+    step = 0.01
+    money_per_lot_per_price_unit = tick_value / tick_size
+    risk_amount = 10000.0 * 0.5 / 100.0                 # balance x node risk_pct
+    implied = float(req["volume"]) * dist_sl * money_per_lot_per_price_unit
+    step_value = step * dist_sl * money_per_lot_per_price_unit
+    exact_lots = risk_amount / (dist_sl * money_per_lot_per_price_unit)
+    assert 0.0 <= risk_amount - implied < step_value + 1e-6, (req["volume"], implied, risk_amount)
+    assert abs(float(req["volume"]) - (int(exact_lots / step) * step)) < 1e-9, (req["volume"], exact_lots)
+    assert float(req["volume"]) >= step, req["volume"]           # never zero-lot "successful" orders
+
+    # 4. the node's live-test magic (778xxx), never the manual panel's (777xxx)
+    assert int(req["magic"]) == live_test_magic(sid) != _magic_for(sid)
+
+    # 5. and the order reached the SAME authoritative path the manual panel uses,
+    #    with the position verified from the terminal afterwards
+    assert engine.stats["orders_sent"] == 1
+    assert any(ev["stage"] == "ORDER SENT" for ev in engine.recent_events)
+    assert any(ev["stage"] == "POSITION VERIFIED" for ev in engine.recent_events)
+    cfg = db.get_live_test_config(sid)
+    assert cfg is not None

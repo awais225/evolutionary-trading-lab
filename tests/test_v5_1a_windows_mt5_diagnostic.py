@@ -56,7 +56,8 @@ class _FakeMT5:
     ORDER_FILLING_RETURN = 2
 
     def __init__(self, *, initialize=True, terminal=True, account=True, symbol=True,
-                 tick=True, trade_allowed=True, symbol_trade_mode=4, check_retcode=10009):
+                 tick=True, trade_allowed=True, symbol_trade_mode=4, check_retcode=10009,
+                 check_comment=None, check_margin=30.0):
         self.calls: list = []
         self._initialize = initialize
         self._terminal = terminal
@@ -66,6 +67,8 @@ class _FakeMT5:
         self._trade_allowed = trade_allowed
         self._symbol_trade_mode = symbol_trade_mode
         self._check_retcode = check_retcode
+        self._check_comment = check_comment
+        self._check_margin = check_margin
         self._initialized_paths: list = []
 
     def initialize(self, path=None, **kw):
@@ -121,8 +124,10 @@ class _FakeMT5:
 
     def order_check(self, request):
         self.calls.append(("order_check", dict(request)))
+        comment = (self._check_comment if self._check_comment is not None
+                   else ("Done" if self._check_retcode == 10009 else "Invalid stops"))
         return _Info(retcode=self._check_retcode, balance=10000.0, equity=10012.5, profit=12.5,
-                     margin=30.0, margin_free=9800.0, comment="Done" if self._check_retcode == 10009 else "Invalid stops",
+                     margin=self._check_margin, margin_free=9800.0, comment=comment,
                      request=dict(request))
 
     def order_send(self, request):                                   # must never run
@@ -306,7 +311,57 @@ def test_14_a_refused_order_check_is_the_last_layer_and_sends_nothing(windows_ho
     text = windows_host.format_diagnostic(rep)
     assert "CLASSIFICATION: MT5 ORDER VALIDATION FAILED" in text
     assert "order_send is NEVER called" in text
-    assert "retcode          : 10016 (REFUSED)" in text
+    # V5.2.1 §11 — the verdict is a labelled sentence, not the old "(REFUSED)"
+    assert "ORDER CHECK: FAILED" in text
+    assert "retcode          : 10016" in text
+    assert "comment='Invalid stops'" in text
+
+
+def test_14b_the_operators_exact_windows_output_is_a_pass_and_the_report_says_so(windows_host):
+    """The operator's own Windows run printed, verbatim:
+
+        retcode : 0 (REFUSED) comment='Done' margin=8.21
+
+    ``retcode 0`` with comment ``Done`` is a PASSING MqlTradeCheckResult (MQL5
+    reference: 'Retcode: OK (0) ... Comment: Done'); it was mislabelled REFUSED and
+    the whole run was classified MT5 ORDER VALIDATION FAILED. This regression pins
+    the corrected reading on the exact numbers from that machine.
+    """
+    fake = _FakeMT5(check_retcode=0, check_comment="Done", check_margin=8.21)
+    rep = _full_probe(windows_host, fake)
+    assert rep["environment"] == "MT5 READY", rep["classification"]
+    oc = rep["mt5"]["order_check"]
+    assert oc["ok"] is True and oc["retcode"] == 0 and oc["comment"] == "Done"
+    assert oc["margin"] == 8.21
+    assert "order_check" in (oc["rule"] or "").lower() or "retcode 0" in (oc["rule"] or "")
+    assert [c[0] for c in fake.calls if c[0] == "order_send"] == []
+
+    text = windows_host.format_diagnostic(rep)
+    assert "ORDER CHECK: PASSED" in text
+    assert "order_check passed basic validation." in text
+    assert "No order was sent by this diagnostic." in text
+    assert "(REFUSED)" not in text, "a passing check must never be printed as REFUSED"
+
+
+def test_14c_the_report_states_a_failure_with_its_broker_comment(windows_host):
+    fake = _FakeMT5(check_retcode=10016, check_comment="Invalid stops")
+    rep = _full_probe(windows_host, fake)
+    assert rep["environment"] == "MT5 ORDER VALIDATION FAILED"
+    text = windows_host.format_diagnostic(rep)
+    assert "ORDER CHECK: FAILED" in text
+    assert "Invalid stops" in text
+    assert "No order was sent by this diagnostic." in text
+    assert "ORDER CHECK: PASSED" not in text
+
+
+def test_14d_when_the_check_could_not_run_the_report_says_not_attempted(windows_host, monkeypatch):
+    wd = windows_host
+    real = wd._order_check_probe if hasattr(wd, "_order_check_probe") else None
+    rep = _full_probe(wd, _FakeMT5(symbol=False))          # no symbol -> no request to check
+    assert rep["mt5"]["order_check"]["attempted"] is False
+    text = wd.format_diagnostic(rep)
+    assert "ORDER CHECK: NOT ATTEMPTED" in text
+    assert "No order was sent by this diagnostic." in text
 
 
 def test_15_terminal_info_and_account_fields_are_safe(windows_host, fake_mt5):

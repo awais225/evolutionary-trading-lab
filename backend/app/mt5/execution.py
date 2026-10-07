@@ -926,7 +926,8 @@ def place_demo_order(payload: Dict[str, Any], bridge=None) -> Dict[str, Any]:
                 "order_send": {"called": True, "call_count": raw.get("call_count", 1),
                                "last_error": order_send_last_error,
                                "exception": raw.get("exception"),
-                               "raw_result": None},
+                               "retcode": None, "comment": None, "raw_result": None},
+                "order_check": _order_check_facts(raw),
                 "diagnostic": diagnostic,
                 "order": {"ticket": None, "deal_ticket": None,
                           "position_ticket": None, "pending_ticket": None},
@@ -983,7 +984,12 @@ def place_demo_order(payload: Dict[str, Any], bridge=None) -> Dict[str, Any]:
                            "call_count": (raw.get("call_count") if isinstance(raw, dict) else None),
                            "last_error": order_send_last_error,
                            "exception": (raw.get("exception") if isinstance(raw, dict) else None),
+                           "retcode": (raw_result or {}).get("retcode")
+                                      if isinstance(raw_result, dict) else None,
+                           "comment": (raw_result or {}).get("comment")
+                                      if isinstance(raw_result, dict) else None,
                            "raw_result": raw_result},
+            "order_check": _order_check_facts(raw),
             "diagnostic": diagnostic,
             "order": {"ticket": ticket, "deal_ticket": deal,
                       "position_ticket": verification.get("position_ticket"),
@@ -1026,6 +1032,37 @@ def place_demo_order(payload: Dict[str, Any], bridge=None) -> Dict[str, Any]:
         _gate.fail(err)
         log.exception("[V4.2] unexpected execution error")
         raise err
+
+
+def _order_check_facts(raw: Any) -> Dict[str, Any]:
+    """§2 — the terminal's own ``order_check`` verdict, stated explicitly.
+
+    ``order_send`` is only ever called after this check; the panel used to show
+    ``order_send: {called: false, ...}`` without saying *why*. The facts are now
+    carried on the response itself, straight from
+    :mod:`app.mt5.order_semantics` (retcode 0 + 'Done' = PASSED, see the MQL5
+    reference) — never re-interpreted here.
+    """
+    check = raw.get("check") if isinstance(raw, dict) else None
+    if not isinstance(check, dict):
+        return {"called": False, "passed": None, "retcode": None, "retcode_name": None,
+                "comment": None, "margin": None, "unsupported": None,
+                "rule": "mt5.order_check was not reached — see the diagnostic phase"}
+    verdict = check.get("verdict") or {}
+    rc = check.get("retcode")
+    passed = check.get("ok")
+    return {
+        "called": True,
+        "passed": (None if check.get("unsupported") else bool(passed)),
+        "unsupported": bool(check.get("unsupported")),
+        "retcode": rc,
+        "retcode_name": verdict.get("retcode_name"),
+        "comment": verdict.get("comment"),
+        "margin": verdict.get("margin"),
+        "rule": verdict.get("rule"),
+        "raw": verdict.get("raw") or check.get("raw"),
+        "error": check.get("error") or check.get("exception"),
+    }
 
 
 def _final_status(interp: Dict[str, Any], verification: Dict[str, Any]) -> str:

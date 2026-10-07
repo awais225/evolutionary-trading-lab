@@ -105,6 +105,10 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
   const [scheduleFor, setScheduleFor] = useState(null);
   const [riskDraft, setRiskDraft] = useState("");
   const [detail, setDetail] = useState(null);
+  /* §7 — when the index is empty the page must say WHY, with the authoritative
+   * numbers, instead of showing a blank table that looks broken. */
+  const [pop, setPop] = useState(null);
+  const [popErr, setPopErr] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null);
@@ -122,6 +126,22 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
   }, [filter, search, timeframe, starredOnly, sortBy, sortDesc, limit, offset]);
 
   useEffect(() => { load(); }, [load]);
+
+  // §7 — the population authority is fetched whenever the table is empty (or the
+  // index failed), so the explanation always carries real backend numbers.
+  useEffect(() => {
+    if (loading || (safeRows(rows).length > 0 && !err)) return undefined;
+    let live = true;
+    api.nodePopulations()
+      .then((d) => {
+        if (!live) return;
+        if (d && d.ok === false) { setPopErr(txt(d.error, "the population endpoint refused")); return; }
+        setPop(d || null);
+        setPopErr(null);
+      })
+      .catch((e) => { if (live) setPopErr(String((e && e.message) || e)); });
+    return () => { live = false; };
+  }, [loading, rows, err]);
   useEffect(() => {
     setRiskDraft(globalRisk === undefined || globalRisk === null ? "" : String(globalRisk));
   }, [globalRisk]);
@@ -362,10 +382,52 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
             })}
             {rows.length === 0 && !loading && (
               <tr>
-                <td colSpan={17} className="muted">
-                  {isPostReset
-                    ? "This experiment has no nodes yet — a FROM SCRATCH reset cleared the previous population. Start the research loop, or switch to the All filter to inspect excluded/legacy records."
-                    : `No node matches the "${filter}" filter with the current search.`}
+                <td colSpan={17}>
+                  {/* §7 — an explicit, truthful empty state: the authoritative
+                      population numbers, the eligibility reason and the next step.
+                      Never a blank table, never an invented node. */}
+                  <div style={{ border: "1px solid var(--border, #2a2f3a)", borderRadius: 8,
+                                padding: 10, background: "rgba(255,255,255,0.02)" }}>
+                    <div style={{ fontWeight: 700, marginBottom: 4 }}>
+                      {err
+                        ? "THE NODE INDEX COULD NOT BE READ"
+                        : (filter === "qualified" ? "NO LIVE-TESTING-ELIGIBLE NODE YET"
+                                                  : `NO NODE IN THE "${filter}" FILTER`)}
+                    </div>
+                    <div className="muted" style={{ fontSize: 11.5, marginBottom: 6 }}>
+                      {err
+                        ? "The node index returned an error, so no row is shown. This is a read failure, not an empty population."
+                        : isPostReset
+                          ? "This experiment has no nodes yet — a FROM SCRATCH reset cleared the previous population. Start the research loop, or switch to the All filter to inspect excluded/legacy records."
+                          : `No node matches the "${filter}" filter with the current search / timeframe / starred setting.`}
+                    </div>
+                    {popErr && <div className="kit-inline-err">node populations unavailable — {popErr}</div>}
+                    {pop && pop.state && (
+                      <div className="kit-strip" style={{ marginBottom: 6 }}>
+                        {["TOTAL", "ALIVE", "QUALIFIED", "FINAL_TESTING_ELIGIBLE",
+                          "DEEP_TESTING_ELIGIBLE", "LIVE_TESTING_ELIGIBLE"].map((k) => (
+                          <div className="item" key={k}>
+                            <span className="k">{k.replace(/_/g, " ")}</span>
+                            <span className="v mono">
+                              {pop.state[k] === undefined || pop.state[k] === null
+                                ? "–" : Number(pop.state[k]).toLocaleString()}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {pop && pop.state && (
+                      <div className="muted" style={{ fontSize: 11.5 }}>
+                        Every value above is the backend's own classification
+                        (<span className="mono">{txt(pop.authority, "populations.py")}</span>).
+                        A node becomes live-testing eligible by being QUALIFIED; dead, failed,
+                        blocked, legacy and infrastructure-blocked nodes are never offered here.
+                        {Number(pop.state.QUALIFIED || 0) > 0 && total === 0
+                          ? " The index reports 0 rows while the population authority reports qualified nodes — press Reload; if it persists this is a defect, not an empty population."
+                          : ""}
+                      </div>
+                    )}
+                  </div>
                 </td>
               </tr>
             )}

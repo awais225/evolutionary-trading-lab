@@ -944,10 +944,34 @@ def format_diagnostic(rep: Dict[str, Any]) -> str:
     add("## ORDER CHECK (order_send is NEVER called)")
     if oc.get("attempted"):
         add(f"  request          : {oc.get('request')}")
-        add(f"  retcode          : {oc.get('retcode')} {'(DONE)' if oc.get('ok') else '(REFUSED)'}"
-            f" comment={oc.get('comment')!r} margin={oc.get('margin')}")
+        add(f"  retcode          : {oc.get('retcode')} comment={oc.get('comment')!r} "
+            f"margin={oc.get('margin')}")
+        # V5.2 §11 — MQL5 semantics: a PASSING MqlTradeCheckResult reports retcode 0
+        # (or an explicit done/placed code) with comment 'Done' and a computed
+        # margin. "retcode != 10009 -> refused" was wrong and mislabelled a healthy
+        # request; the verdict is printed as a sentence the operator can act on.
+        if oc.get("filling_source"):
+            add(f"  filling source   : {oc.get('filling_source')}")
+        if oc.get("filling_candidates"):
+            add(f"  filling tried    : {oc.get('filling_candidates')}")
+        if oc.get("ok"):
+            add("")
+            add("  ORDER CHECK: PASSED")
+            add("  order_check passed basic validation.")
+            add("  No order was sent by this diagnostic.")
+        else:
+            add("")
+            add("  ORDER CHECK: FAILED")
+            add(f"  the terminal refused the project's own request — "
+                f"retcode {oc.get('retcode')} ({oc.get('retcode_name') or 'unnamed'}), "
+                f"comment {oc.get('comment')!r}.")
+            add(f"  Rule applied: {oc.get('rule') or 'n/a'}")
+            add("  No order was sent by this diagnostic.")
     else:
         add(f"  not attempted    : {oc.get('error') or oc.get('note') or mt5.get('error') or 'unknown'}")
+        add("")
+        add("  ORDER CHECK: NOT ATTEMPTED — order_check could not be run (see the line above).")
+        add("  No order was sent by this diagnostic.")
     add("")
 
     lf = rep.get("layer_facts", {})
