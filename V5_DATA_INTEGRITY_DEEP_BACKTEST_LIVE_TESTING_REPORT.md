@@ -307,8 +307,14 @@ monkeypatches time on the heartbeat reader.
 ## 12. Git
 
 * Base: `e11ec95` (V4.8) == `origin/main`.
-* V5 commit: `________________________________________` (recorded in `lmsarena.txt`
-  together with the push result as soon as it exists).
+* V5 commit: **`6d025ae9663d7203631a4bb3c4866c92886772d5`** — "V5: data integrity,
+  deep backtest, live testing, MT5 integration and dashboard shutdown"
+  (previous HEAD `e11ec95854498a666f0a96be92a72fc0b6f3d1c7`, 54 files changed,
+  9,849 insertions(+), 1,072 deletions(-)).
+* Push: `origin main e11ec95..6d025ae`, local HEAD == `origin/main` verified after
+  the push. The sandbox reset had removed the remote configuration, so `origin`
+  was re-added and the push authenticated from the workspace secret store; the
+  token is never written into the repository, the log or any commit.
 * Excluded from the commit by construction: `DATA/**` (the authoritative tree lives
   outside the workspace and is never committed), database/WAL/SHM files, ZIPs, PIDs,
   logs, caches, `node_modules`, virtualenvs and any secret or credential. The

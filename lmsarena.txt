@@ -3393,3 +3393,32 @@ VERSION: V5 — DATA INTEGRITY, DEEP BACKTEST, LIVE TESTING,
                    runtime-generated CONFIG/lab_config.yaml and
                    CONFIG/settings.json are reverted before committing and no
                    sandbox-specific path appears in any tracked file.
+
+=============================================================
+V5 GIT HASH / PUSH RESULT
+=============================================================
+  Commit         : 6d025ae9663d7203631a4bb3c4866c92886772d5
+                   "V5: data integrity, deep backtest, live testing, MT5
+                   integration and dashboard shutdown"
+                   previous HEAD e11ec95854498a666f0a96be92a72fc0b6f3d1c7
+                   (V4.8); 54 files changed, 9,849 insertions(+), 1,072
+                   deletions(-)
+  Push           : origin main e11ec95..6d025ae  main -> main
+                   (https://github.com/awais225/evolutionary-trading-lab.git);
+                   the repository had no remote configured after the sandbox
+                   reset, so origin was re-added and the push was authenticated
+                   from the workspace secret store (the token is never written
+                   into the repository, this log or any commit).
+  Local/remote   : git rev-parse HEAD == git rev-parse origin/main ==
+                   6d025ae9663d7203631a4bb3c4866c92886772d5 after the push.
+  Not committed  : DATA/** (authoritative tree, 11,370 files untouched and still
+                   present in /opt/lmsarena-storage/DATA), database/WAL/SHM,
+                   ZIPs, PIDs, runtime logs (LOGS/* now ignored), caches,
+                   node_modules, virtualenvs, CONFIG/lab_config.yaml and
+                   CONFIG/settings.json (reverted to their committed form before
+                   the commit because they carry runtime paths) and any secret.
+                   `git diff --cached --name-only` was checked before committing
+                   and contained no DATA, LOGS, CONFIG or binary path.
+  This entry     : a commit cannot contain its own hash, so this follow-up commit
+                   records it; the V5 implementation commit above is the one that
+                   contains all V5 code, tests and documentation.
