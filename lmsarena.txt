@@ -4305,3 +4305,79 @@ V5.1a FINAL VERIFICATION PASS — SCHEDULE / DEEP BACKTEST / ISOLATION / STATIC 
                    verified by jsdom + HTTP, not by a real browser. The BAT has
                    not been run on the operator's Windows machine - that is
                    precisely what it is for.
+
+================================================================================
+V5.1a UI CONSISTENCY + REGIME FILTERING + MT5 EXECUTION TRUTH  (iteration log)
+================================================================================
+Commit: 0a0ba3e   Date: 2026-10-07  (Asia/Karachi 17:10)
+Build:  src_hash=657a6ca77b1fcf5c  index_sha256=09968863269ec1cd
+        entry assets: index-DCmqsT16.js / index-DrZnC67j.css
+        BUILT_AT=2026-10-07T12:06:22Z   dist status FRESH
+
+§1 INSPECTION (before any change)
+  · HEAD 2e2e913 == origin/main; 8 call sites used class "table compact" while
+    styles.css defined ONLY `table.tbl` - so every research/live table had no CSS
+    at all.  Audit: 410 classes used in JSX, 178 defined in CSS -> 232 class names
+    rendered with no styling; Mt5Backtest had 159 utility attrs vs 1 kit attr,
+    Mt5DemoTrading 76 vs 0 (Tailwind is not in package.json and not installed).
+  · Regime filtering already existed end to end: schedule.supported_regimes() is
+    the engine's REGIME_NAMES, unknown regimes rejected (validate_config), rule
+    trace, bar_mask mask, live engine current_regime()->schedule_state(). Kept.
+  · Manual panel already auto-calculated (250 ms debounce) and the "Recalculate"
+    button called the same runPreview(); it only looked dead because the value
+    appears without a press. No behaviour change, label + timestamp added.
+
+§2-§4 UI  frontend/tools/gen_theme_layer.py (new, generated + idempotent)
+  · one shared table theme: `table.tbl, table.table` (header, row separation,
+    padding, numeric alignment, hover/selected, compact) so future tables inherit
+    it; classes .input/.btn-sm/.btn-xs/.btn-subtle/.field/.stack/.row-bar/
+    .status-pill/.table-wrap/.kit-grid/... now defined with the existing V5 tokens.
+  · tests/test_v5_1a_ui_theme_and_regime_control.py proves every used class is
+    mapped or explicitly dynamic and that the four MT5 screens carry a themed
+    table (18 assertions incl. no pictographic emoji).
+
+§3 Live Testing reorganised into labelled sections, all content kept: primary
+  live status / safety & connection / action controls / account & risk /
+  active-test statistics / broker & market state / status & warnings.
+
+§5-§7 regime: multi-select from backend options, empty = "no restriction" (stated
+  in the editor), unknown rejected, normalize_config idempotent, enforced in
+  evaluate() + bar_mask() + engine.schedule_state(); persistence across
+  save->reload->restart proven (tests/test_v5_1a_regime_filtering.py, 18 tests).
+
+§8-§10 MT5 root cause (this host): the MetaTrader5 package is not importable in
+  the interpreter running the backend and the host is Linux; the ACTUAL cause on
+  the operator's Windows machine is recorded in DATA config as
+  "C:\Program Files\MetaTrader 5 IC Markets Global", last seen Raw Trading Ltd
+  build 6230 - i.e. a terminal exists; what must exist in the venv that START.BAT
+  launches is the wheel. Verified against PyPI 2026-10-07: MetaTrader5 5.0.6231
+  ships cp36..cp314 win_amd64 wheels => Python 3.13 is NOT required; the repo's
+  old "install Python 3.11 or 3.12" guidance was corrected.
+  New: app/mt5/runtime_report.py + GET /api/mt5/runtime + tools/
+  mt5_runtime_diagnostic.py (--preflight for the launcher) reporting interpreter
+  (running vs launcher, probed in a subprocess), package import, wheel range,
+  terminal discovery, account, and the FIRST blocking fact. The simulator's own
+  connected flag can no longer pass a real-terminal check.
+
+§15 execution: mt5_real.MT5RealBridge now runs mt5.order_check on the identical
+  request and refuses to send when it is not DONE (retcode + comment from the
+  terminal). Nothing simulated; nothing claimed.
+
+§9 launcher: RUN_BACKEND.bat + scripts/run_backend.bat resolve the interpreter in
+  the same order as start.bat (root/.venv, backend/.venv, venv, PATH) and print
+  the MT5 preflight; start.bat prints the REAL strategy count from the database
+  (10,787) instead of the hard-coded "371".
+
+VERIFICATION (all executed here, nothing inferred)
+  · pytest tests/ : 535 passed, 1 failed = test_v5_1a_launcher_identity::
+    test_11_scan_reports_the_physical_bundle_of_a_lab_listener, which needs a LIVE
+    lab listener (ports were free). Re-run with the backend+vite up: 13 passed.
+  · npm run build OK (6.37 s) + stamp; guard --verify-served --expect-token exit 0;
+    dashboard_diagnostic --strict exit 0, RUNNING_DASHBOARD_MATCHES_GITHUB: PASS.
+  · UI smoke 51/51; preview render PASS 18/18 nav + nav_test 7/7; a rendered-DOM
+    check of the four MT5 pages: tables=2/2/1/1 all themed, body rows 51/47/34/34,
+    headers uppercase, console errors none.
+  · Preview provenance: commit 0a0ba3e, src 657a6ca7, snapshot 2026-10-07T12:09:25Z
+    (77 endpoints), 3,902,059 bytes.
+  · NOT verified (no such environment here): a real Windows MT5 order, and
+    browser-specific rendering (no Edge/Chrome in this sandbox) - jsdom + HTTP only.

@@ -3112,3 +3112,32 @@ Decisions:
     UI can be inspected without network or Windows.
  5. Nothing was redesigned, and no preview artefact or workspace tooling is
     committed to the product repository.
+
+================================================================================
+REQUEST (V5.1a UI consistency + regime filtering + MT5 execution fix)
+================================================================================
+The operator reported that the four MT5-related screens (MT5 Backtest, Live
+Testing, Live Test Results, MT5 Demo Trading) do not look like the rest of the V5
+dashboard: tables had no header/row styling, buttons and icons were inconsistent,
+the schedule editor's regime control could not be trusted, the manual order
+panel's "Recalculate" appeared dead, and MT5 real execution was never possible.
+
+DECISIONS TAKEN
+ 1. Inspect first, then change: the real cause was found (class names with no CSS
+    rule at all, because Tailwind is not installed) instead of guessing, and the
+    regime filter was found to be already implemented in the domain layer - so it
+    was verified and tested rather than rewritten.
+ 2. No new design: the missing classes were mapped onto the existing V5 tokens and
+    the existing kit components. The generator is committed so the mapping is
+    reproducible and a new unstyled class fails a test.
+ 3. Regime semantics preserved: an empty selection still means "no restriction" -
+    it must never silently block every trade - and the editor now says so.
+ 4. MT5 honesty over convenience: the simulator stays supported but is always
+    reported with its reason; the terminal's own mt5.order_check now runs before
+    order_send; the launcher prints a preflight naming the interpreter and the
+    package state. The claim that Python 3.13 is required was checked against PyPI
+    and rejected (wheels exist for 3.6-3.14; 3.13 is not required).
+ 5. The Power Button was not touched, as instructed, and no trading logic was
+    changed by the theme work.
+ 6. The workspace preview is the real bundle rebuilt from the latest frontend/src
+    against the live backend, with provenance recorded; it is not a mockup.
