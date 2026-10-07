@@ -41,6 +41,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional, Tuple
 
+import numpy as np
 import pandas as pd
 
 from .. import paths as P
@@ -928,6 +929,141 @@ def _trade_derived(df: Optional[pd.DataFrame]) -> Dict[str, Any]:
     return out
 
 
+#: how many gaps the coverage report lists before it summarises the rest
+MAX_LISTED_GAPS = 12
+
+#: bar duration of every timeframe the lab stores/serves, in seconds
+TF_SECONDS: Dict[str, int] = {"M1": 60, "M5": 300, "M15": 900, "M30": 1800,
+                              "H1": 3600, "H4": 14400, "D1": 86400}
+
+
+def _coverage_report(cfg: Dict[str, Any], metrics: Dict[str, Any]) -> Dict[str, Any]:
+    """§32 — what data the run actually used, stated explicitly.
+
+    The operator asked for a period; the run used a slice of a stored dataset.
+    This reports both, the bar count, the completeness of the slice against the
+    timeframe it claims, the gaps that really exist between the stored bars, and
+    the source (MT5 or lab simulator) — so a small subset can never be presented
+    as the whole period, and a missing bar is never filled in silently.
+    """
+    from ..data.engine import get_data_engine
+
+    tf = str(cfg.get("timeframe") or "").upper()
+    tf_s = TF_SECONDS.get(tf)
+    window = cfg.get("window") or [0, 0]
+    w0, w1 = int(window[0] or 0), int(window[1] or 0)
+    bars_used = max(0, w1 - w0)
+
+    out: Dict[str, Any] = {
+        "requested": {"start": _iso(cfg.get("requested_start_ts")),
+                      "end": _iso(cfg.get("requested_end_ts")),
+                      "start_date": cfg.get("start_date"), "end_date": cfg.get("end_date")},
+        "actual": {"start": _iso(cfg.get("start_ts")), "end": _iso(cfg.get("end_ts")),
+                   "bars": bars_used, "window": [w0, w1]},
+        "dataset": {"id": cfg.get("dataset_id"), "source": cfg.get("dataset_source"),
+                    "scope": cfg.get("data_scope"), "fingerprint": cfg.get("dataset_fingerprint"),
+                    "version": cfg.get("dataset_version"), "broker": cfg.get("dataset_broker"),
+                    "server": cfg.get("dataset_server"), "bars": cfg.get("dataset_bars"),
+                    "first_ts": _iso(cfg.get("dataset_first_ts")),
+                    "last_ts": _iso(cfg.get("dataset_last_ts"))},
+        "symbol": cfg.get("symbol"), "timeframe": tf,
+        "period_adjusted": bool(cfg.get("period_adjusted")),
+        "bars_used": bars_used,
+        "expected_bars": None, "completeness_pct": None, "complete": None,
+        "missing_periods": [], "missing_periods_truncated": False,
+        "gaps_checked": False, "quality": {},
+        "note": ("Bars are the stored dataset's own bars for the requested window; "
+                 "no bar is interpolated and no missing bar is filled in."),
+    }
+
+    span = None
+    if cfg.get("start_ts") is not None and cfg.get("end_ts") is not None:
+        span = float(cfg["end_ts"]) - float(cfg["start_ts"])
+    if tf_s and span is not None and span >= 0:
+        out["expected_bars"] = int(span // tf_s) + 1
+        if bars_used:
+            out["completeness_pct"] = round(100.0 * bars_used / out["expected_bars"], 3)
+            out["complete"] = bars_used >= out["expected_bars"]
+
+    # The gaps are read from the dataset itself (it is in the data engine's memory
+    # cache during the run) — never inferred from the row count alone.
+    try:
+        df = get_data_engine().get_frame(cfg["dataset_id"])
+        ts = np.asarray(df["ts"].to_numpy()[w0:w1], dtype="float64")
+        if ts.size:
+            out["gaps_checked"] = True
+            quality: Dict[str, Any] = {
+                "bars": int(ts.size),
+                "monotonic_increasing": bool(np.all(np.diff(ts) > 0)),
+                "duplicate_timestamps": int(ts.size - np.unique(ts).size),
+                "first_bar_iso": _iso(float(ts[0])), "last_bar_iso": _iso(float(ts[-1])),
+            }
+            if tf_s and ts.size > 1:
+                step = np.diff(ts)
+                idx = np.where(step > 1.5 * tf_s)[0]
+                gaps = [{"after": _iso(float(ts[i])), "before": _iso(float(ts[i + 1])),
+                         "missing_bars": int(round(float(step[i]) / tf_s)) - 1}
+                        for i in idx[:MAX_LISTED_GAPS]]
+                quality["gaps"] = int(idx.size)
+                quality["missing_bars_total"] = int(sum(
+                    int(round(float(step[i]) / tf_s)) - 1 for i in idx))
+                out["missing_periods"] = gaps
+                out["missing_periods_truncated"] = bool(idx.size > len(gaps))
+                # completeness measured against the bars that SHOULD exist between
+                # the first and the last bar of the slice that was really used
+                exp_slice = int((float(ts[-1]) - float(ts[0])) // tf_s) + 1
+                out["expected_bars_in_slice"] = exp_slice
+                out["completeness_pct"] = round(100.0 * int(ts.size) / exp_slice, 3)
+                out["complete"] = int(ts.size) >= exp_slice and int(idx.size) == 0
+            out["quality"] = quality
+    except Exception as e:                                  # pragma: no cover - defensive
+        out["gaps_error"] = f"{type(e).__name__}: {e}"[:200]
+
+    src = str(cfg.get("dataset_source") or "").upper()
+    out["source_label"] = ("MT5 (the terminal's own historical bars)" if src == "MT5"
+                           else "lab SIMULATOR data (not MT5)" if src else None)
+    out["is_mt5_data"] = src == "MT5"
+    # Completeness is measured against a continuous 24/7 bar grid for the
+    # timeframe. XAUUSD trades roughly 23h/day and closes at the weekend, so a
+    # number below 100% whose gaps line up with the session calendar is normal
+    # stored data — the gaps are listed above so the operator can check them
+    # instead of having to trust the percentage.
+    if out.get("gaps_checked") and out.get("completeness_pct") is not None:
+        out["interpretation"] = (
+            "completeness is measured against a continuous 24/7 grid for this "
+            "timeframe; the bars themselves are the stored dataset's own bars and "
+            f"{int(out['quality'].get('gaps', 0))} gap(s) are listed for inspection")
+    else:
+        out["interpretation"] = ("the dataset's timestamps could not be re-read for "
+                                 "this run; bar count and range come from the run's "
+                                 "own record only")
+    return out
+
+
+def _apply_balances(cfg: Dict[str, Any], metrics: Dict[str, Any]) -> Dict[str, Any]:
+    """§33 — state the account balance the run started and ended with.
+
+    The engine reports money P&L and the final equity; the starting balance is
+    the run's own configured balance. Both are stated explicitly instead of
+    leaving the reader to subtract them, and neither is invented when the run
+    has no money figures at all.
+    """
+    init = _as_float(cfg.get("initial_balance"))
+    final = _as_float(metrics.get("final_equity"))
+    net = _as_float(metrics.get("net_profit"))
+    if init is not None:
+        metrics.setdefault("start_balance", round(init, 2))
+    if final is not None:
+        metrics.setdefault("end_balance", round(final, 2))
+    elif init is not None and net is not None:
+        metrics.setdefault("end_balance", round(init + net, 2))
+    metrics.setdefault("balance_source",
+                       ("initial_balance from the run's own config; final equity from the engine"
+                        if final is not None else
+                        "initial_balance from the run's own config plus the engine's net profit"))
+    return metrics
+
+
 def _unavailable(metrics: Dict[str, Any], derived: Dict[str, Any]) -> List[Dict[str, str]]:
     out: List[Dict[str, str]] = []
     checks = (
@@ -1105,7 +1241,9 @@ def _execute(run_id: str, db: Any) -> None:
         artifacts = _write_artifacts(run_id, cfg, metrics, trades, equity, provenance)
         tdf = _trades_frame(run_id)
         derived = _trade_derived(tdf)
-        stored_metrics = {"metrics": metrics, "derived": derived,
+        coverage = _coverage_report(cfg, metrics)
+        _apply_balances(cfg, metrics)
+        stored_metrics = {"metrics": metrics, "derived": derived, "coverage": coverage,
                           "unavailable": _unavailable(metrics, derived)}
         status = "COMPLETED"
         note = None
@@ -1254,9 +1392,13 @@ def _row_to_run(row: Dict[str, Any], db: Any, *, with_metrics: bool = True) -> D
                               "strategy/schedule for the selected period.")
         elif isinstance(n_trades, int) and n_trades > 0:
             out["verdict"] = f"Completed — {n_trades} trade(s) evaluated by the engine."
+    # §32 — the data-loading report travels with the run: what was requested, what
+    # was actually used, how complete it is and which gaps exist.
+    out["coverage"] = stored.get("coverage") or None
     if with_metrics:
         out["results"] = {"metrics": metrics_all,
                           "derived": stored.get("derived") or {},
+                          "coverage": out["coverage"],
                           "unavailable": stored.get("unavailable") or []}
     else:
         out["results"] = {"metrics": {"trades": metrics_all.get("trades"),

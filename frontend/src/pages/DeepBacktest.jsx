@@ -17,6 +17,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { api } from "../api";
 import { Card, StateBlock, Progress, ConfirmModal, Badge } from "../components/ui";
 import StrategyDrawer from "../components/StrategyDrawer";
+import { fmt } from "../api";
+import { arr, txt } from "../lib/safe.js";
 
 /* §7 — the node filters the operator chooses from. ``qualified`` is the default
  * (spec §6): Deep Backtest lists every qualified node, and the wider research
@@ -43,8 +45,9 @@ const RUN_METRIC_FIELDS = [
   ["Win rate", (m) => (m.win_rate == null ? null : `${(m.win_rate * 100).toFixed(2)}%`)],
   ["Trades", (m) => m.trades],
   ["Avg trade", (m) => m.avg_trade],
-  ["Avg win", (m) => m.avg_win],
-  ["Avg loss", (m) => m.avg_loss],
+  // avg win/loss are derived from the run's own persisted trades by the backend
+  ["Avg win", (m, d) => m.avg_win ?? d.avg_win],
+  ["Avg loss", (m, d) => m.avg_loss ?? d.avg_loss],
   ["Expectancy", (m) => m.expectancy],
   ["Sharpe", (m) => (m.sharpe == null ? null : Number(m.sharpe).toFixed(3))],
   ["Robustness", (m) => m.robustness_score],
@@ -55,8 +58,10 @@ const RUN_METRIC_FIELDS = [
   ["Runtime ms", (m) => m.runtime_ms],
 ];
 
-export function RunMetrics({ metrics, schedule, coverage, verdict, error, status }) {
+export function RunMetrics({ metrics, derived, schedule, coverage, verdict, error, status }) {
   const m = metrics || {};
+  const d = derived || {};
+  const cov = coverage || {};
   return (
     <div style={{ fontSize: 11.5 }}>
       {verdict && <div style={{ marginBottom: 4 }}><b>{verdict}</b></div>}
@@ -68,15 +73,53 @@ export function RunMetrics({ metrics, schedule, coverage, verdict, error, status
         <div className="item"><span className="k">Bars allowed / blocked</span>
           <span className="v mono">{schedule?.bars_allowed ?? "—"} / {schedule?.bars_blocked ?? "—"}</span></div>
         <div className="item"><span className="k">Data</span>
-          <span className="v mono">{coverage?.source || "—"} {coverage?.dataset_id ? `· ${coverage.dataset_id}` : ""}</span></div>
+          <span className="v mono">{cov.source_label || cov.dataset?.source || coverage?.source || "—"}
+            {cov.dataset?.id || coverage?.dataset_id ? ` · ${cov.dataset?.id || coverage?.dataset_id}` : ""}</span></div>
+        {cov.bars_used !== undefined && (
+          <div className="item"><span className="k">Bars used</span>
+            <span className="v mono">{txt(cov.bars_used, "—")}{cov.expected_bars ? ` / ${cov.expected_bars} expected` : ""}</span></div>
+        )}
+        {cov.completeness_pct !== undefined && cov.completeness_pct !== null && (
+          <div className="item"><span className="k">Completeness</span>
+            <span className="v mono">{fmt.num(cov.completeness_pct, 2)} %{cov.complete === false ? " (gaps present)" : ""}</span></div>
+        )}
+        {cov.quality?.gaps !== undefined && (
+          <div className="item"><span className="k">Gaps / missing bars</span>
+            <span className="v mono">{txt(cov.quality.gaps, "—")} / {txt(cov.quality.missing_bars_total, "—")}</span></div>
+        )}
       </div>
+      {/* §32 — the data-loading report: requested vs actual, never a silent subset */}
+      {(cov.requested || cov.actual) && (
+        <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+          requested {txt(cov.requested?.start_iso || cov.requested?.start, "—")} → {txt(cov.requested?.end_iso || cov.requested?.end, "—")}
+          {" · "}used {txt(cov.actual?.start, "—")} → {txt(cov.actual?.end, "—")}
+          {cov.period_adjusted ? " (adjusted to the dataset's own range)" : ""}
+        </div>
+      )}
+      {cov.interpretation && (
+        <div className="muted" style={{ fontSize: 10.5, marginTop: 2 }}>{cov.interpretation}</div>
+      )}
+      {arr(cov.missing_periods).length > 0 && (
+        <details style={{ marginTop: 4 }}>
+          <summary className="muted" style={{ fontSize: 11, cursor: "pointer" }}>
+            missing periods ({arr(cov.missing_periods).length}{cov.missing_periods_truncated ? "+" : ""})
+          </summary>
+          <ul style={{ margin: "4px 0 0 16px", fontSize: 11 }}>
+            {arr(cov.missing_periods).slice(0, 12).map((g, i) => (
+              <li key={i} className="mono">
+                {txt(g.after, "?")} → {txt(g.before, "?")} · {txt(g.missing_bars, "?")} bar(s)
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
       {schedule?.description && (
         <div className="muted" style={{ fontSize: 11 }}>schedule: {schedule.description}</div>
       )}
       <table className="tbl" style={{ marginTop: 6 }}>
         <tbody>
           {RUN_METRIC_FIELDS.map(([label, get]) => {
-            const v = get(m);
+            const v = get(m, d);
             return (
               <tr key={label}>
                 <td className="muted" style={{ width: 130 }}>{label}</td>
@@ -615,8 +658,9 @@ export default function DeepBacktest() {
                             <RunMetrics
                               status={runDetail[run.run_id].status}
                               metrics={(runDetail[run.run_id].results?.metrics) || m}
+                              derived={runDetail[run.run_id].results?.derived}
                               schedule={runDetail[run.run_id].schedule || run.schedule}
-                              coverage={runDetail[run.run_id].data}
+                              coverage={runDetail[run.run_id].coverage || runDetail[run.run_id].data}
                               verdict={runDetail[run.run_id].verdict}
                               error={runDetail[run.run_id].error}
                             />

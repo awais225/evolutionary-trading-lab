@@ -497,9 +497,28 @@ export function payloadFor(path, method = "GET") {
       schedule: { configured: true, applied_to_bars: true, bars_allowed: 288, bars_blocked: 1562,
                   description: "Mon/Wed, London, M15" },
       verdict: "Completed — 2 trade(s) evaluated by the engine.",
+      /* §32 — the run's own data-loading report, as the API returns it */
+      coverage: { requested: { start: "2026-09-07T00:00:00+00:00", end: "2026-10-05T23:59:59+00:00",
+                               start_date: "2026-09-07", end_date: "2026-10-05" },
+                  actual: { start: "2026-09-07T01:00:00+00:00", end: "2026-10-05T05:45:00+00:00",
+                            bars: 1850, window: [0, 1850] },
+                  dataset: { id: "XAUUSD_M15_MT5_v1", source: "MT5", bars: 1850 },
+                  bars_used: 1850, expected_bars: 2708, completeness_pct: 68.316, complete: false,
+                  source_label: "MT5 (the terminal's own historical bars)", is_mt5_data: true,
+                  period_adjusted: false,
+                  quality: { bars: 1850, gapgaps: 0, gaps: 20, missing_bars_total: 858,
+                             monotonic_increasing: true, duplicate_timestamps: 0 },
+                  missing_periods: [{ after: "2026-09-07T21:15:00+00:00",
+                                      before: "2026-09-08T01:00:00+00:00", missing_bars: 14 },
+                                    { after: "2026-09-08T23:45:00+00:00",
+                                      before: "2026-09-09T01:00:00+00:00", missing_bars: 4 }],
+                  interpretation: "completeness is measured against a continuous 24/7 grid for this timeframe; the bars themselves are the stored dataset's own bars and 20 gap(s) are listed for inspection" },
       results: { metrics: { trades: 2, total_return_pct: -0.0008, profit_factor: 0.687,
                             max_drawdown_pct: 0.0025, win_rate: 0.5, net_profit: -0.83,
-                            avg_trade: -0.41, expectancy: -0.0001 } },
+                            avg_trade: -0.41, expectancy: -0.0001,
+                            start_balance: 10000.0, end_balance: 9999.17 },
+                 derived: { avg_win: 12.5, avg_loss: -6.25, largest_win: 18.0, largest_loss: -7.0 },
+                 coverage: null, unavailable: [] },
     };
   }
   if (path.includes("/api/mt5-historical/runs")) return {
@@ -702,6 +721,29 @@ export async function runSmoke() {
       if (!/applied · 288/.test(text)) {
         throw new Error(`the applied schedule is not reported … "${text.slice(0, 400)}"`);
       }
+
+      /* §32/§33 — opening a run's details must show the data-loading report
+       * (requested vs used, bars, completeness, gaps, source) and the balance
+       * fields, with the derived avg win/loss coming from the backend. */
+      /* the node rows also carry a "Details" button (which opens the drawer), so
+       * the runs table's own action is the last one on the page */
+      const detailsBtns = Array.from(container.querySelectorAll("button"))
+        .filter((b) => (b.textContent || "").trim() === "Details");
+      const open = detailsBtns[detailsBtns.length - 1];
+      if (!open) throw new Error("a run row has no Details action");
+      await act(async () => { open.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+      await act(async () => { await new Promise((r) => setTimeout(r, 120)); });
+      const det = container.textContent || "";
+
+      if (!/Bars used/.test(det) || !/1850/.test(det)) throw new Error("the run details do not show the bar count actually used");
+      if (!/Completeness/.test(det) || !/68\.32/.test(det)) throw new Error("the completeness of the loaded data is not shown");
+      if (!/requested/i.test(det) || !/used 2026-09-07/.test(det)) {
+        throw new Error(`the requested vs used range is not shown … "${det.slice(0, 300)}"`);
+      }
+      if (!/missing periods/i.test(det)) throw new Error("the missing periods of the loaded data are not offered");
+      if (!det.includes("MT5 (the terminal's own historical bars)")) throw new Error("the data source is not named");
+      if (!det.includes("12.5")) throw new Error("avg win from the backend's derived block is not shown");
+      if (!det.includes("10000")) throw new Error("the start balance is not shown");
       results.push({ label: "page:DeepBacktest-qualified", ok: true });
     } catch (e) {
       results.push({ label: "page:DeepBacktest-qualified", ok: false, error: e.message || String(e) });
