@@ -4,3 +4,9 @@
 *.db filter=lfs diff=lfs merge=lfs -text
 *.sqlite filter=lfs diff=lfs merge=lfs -text
 *.sqlite3 filter=lfs diff=lfs merge=lfs -text
+# Windows launchers and probes must keep CRLF endings in every checkout, so a
+# cloned repository is runnable by double-clicking regardless of the client's
+# autocrlf setting.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
