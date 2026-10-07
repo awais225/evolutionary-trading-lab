@@ -3024,3 +3024,26 @@ did not compute, and never weaken a validation gate to make a number look better
 Status: V5 requested and finished; what was implemented, tested and pushed is
 recorded in lmsarena.txt and the §27 report named above.
 =============================================================
+
+
+=============================================================
+REQUEST (2026-10-07): "launcher must serve the current frontend"
+=============================================================
+The user reported that the normal launcher showed the old interface while
+`npm run dev` on :5173 showed the V5 interface, and asked for the startup path
+to be traced and the root cause fixed - not explained - then tested, committed
+and pushed as "fix: serve current frontend from normal launcher".
+
+Decision: the missing piece was that frontend/dist (a generated, untracked
+artifact) was never tied to frontend/src, and the launcher accepted any process
+answering /health as "up to date". The fix therefore makes the build identity
+provable (source fingerprint + build stamp + /system/build) and makes the
+launcher act on it: rebuild before serving, verify before reusing a running
+instance, and replace only an instance it can identify as this lab.
+
+Constraints honoured: no machine-specific path, no UI redesign, no V5 source
+reverted, no trading/backend/DB/MT5/research logic changed, frontend/src stays
+the source of truth with the production build in frontend/dist, nothing
+generated or secret committed. Evidence, hashes and the real test results are in
+lmsarena.txt ("LAUNCHER FIX" entry).
+=============================================================

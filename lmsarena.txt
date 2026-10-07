@@ -3422,3 +3422,147 @@ V5 GIT HASH / PUSH RESULT
   This entry     : a commit cannot contain its own hash, so this follow-up commit
                    records it; the V5 implementation commit above is the one that
                    contains all V5 code, tests and documentation.
+
+
+=============================================================
+LAUNCHER FIX — THE NORMAL LAUNCHER MUST SERVE THE CURRENT FRONTEND
+=============================================================
+  Reported       : the manual route (npm install && npm run build, npm run dev on
+                   :5173) showed the V5 interface, while the normal launcher
+                   showed the old interface; the backend itself was healthy
+                   (C:\EvolutionaryTradingV5\.venv\Scripts\python.exe -m uvicorn
+                   app.main:app --host 127.0.0.1 --port 8787 -> /health V3.6,
+                   bridge mt5_real, mt5 CONNECTED, data_feed LIVE).
+  Root cause     : frontend/dist is a generated artifact and is not tracked
+                   (.gitignore:5 `dist/`), so it is never updated by git pull and
+                   is absent after a fresh clone. START.bat (old STAGE 4) only
+                   checked that frontend\dist\index.html existed - never whether
+                   it had been built from the frontend\src currently on disk -
+                   and when an instance was already answering on port 8787
+                   (check_port.py exit 10 is returned for ANY process serving
+                   /health 200) it just opened the browser. The already-running
+                   process therefore kept serving the older bundle: the source
+                   was V5, the served dashboard was not. This was a launcher /
+                   static-serving defect, not a Git problem: commit 6d025ae,
+                   GitHub main and the working tree all contained the V5 source.
+  Not the cause  : GitHub/branch state, the build pipeline itself, Vite config,
+                   package.json, the backend API, DATA, MT5/bridge logic.
+  Files changed  : backend/app/frontend_build.py            (new, 271 lines)
+                   backend/tools/frontend_build_guard.py     (new, 387 lines)
+                   tests/test_frontend_serving.py            (new, 321 lines)
+                   start.bat                                 (+165/-50)
+                   backend/app/main.py                       (+52/-4)
+                   backend/app/doctor.py                     (+27/-9)
+                   Prerequisite.bat, pre-requisite.bat, repair.bat (+12)
+                   9 files changed, 1,185 insertions(+), 50 deletions(-)
+  Fix            : (1) backend/app/frontend_build.py computes a SHA-256
+                   fingerprint over frontend/src + index.html + package.json +
+                   vite.config.js + package-lock.json + tsconfig files, and
+                   records it in frontend/dist/build-info.json when the bundle is
+                   built. check_dist() classifies frontend/dist as
+                   FRESH / STALE / UNSTAMPED / CORRUPT / BROKEN / MISSING; an
+                   UNSTAMPED bundle (built by hand, origin unprovable) counts as
+                   "rebuild required", so an unverifiable bundle is never
+                   presented as current.
+                   (2) backend/tools/frontend_build_guard.py is the launcher CLI:
+                   --check (exit 0 fresh, 10 rebuild required, 20 broken),
+                   --stamp, --summary, --verify-served, --identify, --stop.
+                   --verify-served compares the repository root and source hash
+                   that the *running* instance reports through /system/build
+                   (new endpoint) with the local checkout, so "some lab answers
+                   /health" is no longer accepted as "up to date".
+                   (3) start.bat: STAGE 4 runs --check and, when the bundle is
+                   stale or missing, does npm install (only if node_modules is
+                   absent) + npm run build + --stamp + --check again; STAGE 5
+                   verifies an occupied port before reusing it and replaces an
+                   instance that serves another repository (11) or an older
+                   build (12) or predates /system/build (13) via the lab's own
+                   graceful shutdown; a post-start --verify-served asserts the
+                   dashboard being served was built from frontend/src.
+                   (4) backend/app/main.py serves index.html with
+                   Cache-Control: no-store (a rebuilt dashboard can never be
+                   masked by the browser cache) while hashed assets stay
+                   immutable; startup logs the bundle identity and warns when the
+                   bundle does not match the source.
+                   (5) Prerequisite.bat / pre-requisite.bat / repair.bat stamp
+                   the bundle after building it; repair.bat fails loudly instead
+                   of leaving an unverifiable bundle when npm is unavailable.
+                   (6) doctor.py reports the bundle identity instead of only the
+                   file size.
+  Safety kept    : --stop first asks the lab's own POST /api/power/shutdown and
+                   only signals a process whose PID actually owns the listening
+                   socket after the app identified itself; an unrelated program
+                   on the port is left untouched (`--stop` -> exit 3,
+                   `--identify` -> exit 1, verified: the unrelated stub was still
+                   running afterwards). No broad or pattern-based kill, no OS
+                   shutdown, no DATA/DB/config/MT5 change. Trading, research,
+                   evolution, backtest and DATA logic are untouched: the diff is
+                   limited to build identity, static serving, launchers and the
+                   doctor.
+  Test evidence  : guard on a bundle-less tree -> MISSING (exit 10); after
+                   `npx vite build` -> UNSTAMPED (exit 10); after --stamp ->
+                   FRESH (exit 0); after editing frontend/src/pages/
+                   DeepBacktest.jsx -> STALE (exit 10), src hash
+                   ebb1c6cb47bc48ca -> bb254a5873bc4e94; rebuild + --stamp ->
+                   FRESH again.
+                   Live instance (uvicorn app.main:app, 127.0.0.1:8787):
+                   --verify-served -> SERVED_STATUS=FRESH, SAME_ROOT=True,
+                   SERVED_MATCHES_LOCAL_SRC=True (exit 0); with the running
+                   instance's dist no longer matching the source -> exit 12
+                   ("serves an older/different frontend build"); a lab instance
+                   started from another checkout (/tmp/other_checkout) -> exit
+                   11; a stub without /system/build -> exit 13; nothing listening
+                   -> exit 14; an unrelated local web service -> --identify exit
+                   1 and --stop exit 3 with the process still alive.
+                   /system/build: {"serving":"static","dist_status":"FRESH",
+                   "dist_matches_src":true,"src_hash":"ebb1c6cb47bc48ca...",
+                   "src_file_count":55,"entry_assets":["assets/index-Dn4Yw0Ji.js",
+                   "assets/index-DY0FUd-S.css"], "reasons":[]}.
+                   Served over HTTP by the running instance: index.html served
+                   no-store and byte-identical to frontend/dist/index.html;
+                   24 lazy chunks / 643 kB fetched; the entry bundle contains
+                   "Deep Backtest" and the pages contain "Show Failed",
+                   "Are you sure you want to close the dashboard?",
+                   "SHUTDOWN DASHBOARD", "Prop-firm monitor",
+                   "DEMO ACCOUNT ONLY", "IDLE ON ENTRY".
+                   Bug reproduction end-to-end (the reported symptom): with the
+                   old instance still running, a source change made --check
+                   report STALE and --verify-served report exit 12; the launcher
+                   flow (launcher_flow_test.sh, same stages as START.bat)
+                   rebuilt the bundle, re-verified and the *already running*
+                   instance then served the new chunk (a temporary marker string
+                   injected into DeepBacktest.jsx appeared in
+                   assets/DeepBacktest-Qh0FA4L4.js served over HTTP; the marker
+                   was reverted afterwards and the repository source is
+                   byte-identical to the committed V5 source).
+                   Port arbitration: lab instance on the same port from another
+                   root -> verified (exit 11) -> replaced through the lab's own
+                   graceful shutdown (STOP_METHOD=power_api, STOPPED=True).
+                   Fresh clone (git clone of this commit -> no frontend/dist):
+                   STAGE 4 MISSING -> npm install -> npm run build (4.86 s) ->
+                   --stamp -> FRESH, STAGE 5 free port, STAGE 7 /health OK,
+                   STAGE 8 --verify-served FRESH, SAME_ROOT=True; health:
+                   status ok, V3.6, mt5 CONNECTED, data_feed LIVE, ready true.
+                   Full suite: 391 passed, 1 warning in 59.36 s
+                   (EVOLUTIONARY_LAB_DATA_ROOT=/opt/lmsarena-storage/v5_testdata,
+                   DATA provisioned verbatim by scripts/lmsarena_provision_data.sh:
+                   10,787 strategies / 10,000 USER_RESEARCH / 787 LEGACY_TEST).
+                   Render smoke: node frontend/tests/v48_ui_smoke.mjs -> 47/47.
+                   The 15 new tests are tests/test_frontend_serving.py.
+  Acceptance     : normal launcher starts the correct backend from the repo root;
+                   the current frontend is built before it is served; no machine
+                   specific path is hardcoded (everything resolves from %ROOT% /
+                   the script's own location); frontend/src remains the source of
+                   truth and the production build still lands in frontend/dist;
+                   stale bundles cannot be served unnoticed; no UI or V5 source
+                   was redesigned or reverted; backend/trading/DB/MT5/research
+                   logic unchanged; no node_modules, generated files, secrets,
+                   credentials, .venv, DATA or machine-specific file committed.
+  Commit         : ab2c18f2df06d7083006d24ec5e590511c97b98a
+                   "fix: serve current frontend from normal launcher"
+                   previous HEAD 97cbf90d90d37cc965347eabe4802a70d79ff023
+  This entry     : committed right after the fix; the push result and the final
+                   HEAD/origin comparison are recorded in the follow-up entry
+                   below (a commit cannot contain its own hash).
+
+=============================================================
