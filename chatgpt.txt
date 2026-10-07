@@ -3084,3 +3084,31 @@ Decisions:
 
 Evidence and hashes: lmsarena.txt, entry "PERMANENT RUNTIME, FRONTEND, LIVE
 TESTING & DEEP TESTING FIX" (commit a57a174, == origin/main).
+
+=============================================================
+2026-10-07  REQUEST/DECISION - runtime identity diagnostic + live
+             workspace dashboard
+=============================================================
+Request : the operator still cannot be sure the dashboard opened by the normal
+          Windows launcher is the current V5.1a one; make it provable from one
+          copied console window, and make the current dashboard inspectable here.
+
+Decisions:
+ 1. GitHub was re-checked first instead of assuming the previously reported
+    commit: origin/main was ead8593 (39bf2a2 was two commits behind).
+ 2. One BAT, read-only, no typing: CHECK_RUNNING_DASHBOARD.bat drives a Windows
+    probe (machine/toolchain/port owner, never secrets) and a portable Python
+    diagnostic (git, frontend source+dist identity via the project's own tooling,
+    complete /health and /system/build, the real HTTP-served index.html and its
+    script references, the served fingerprint comparison, the V5 UI signature
+    measured on served bytes, service worker/cache analysis, every frontend copy,
+    every launcher) and ends with RUNNING_DASHBOARD_MATCHES_GITHUB: PASS/FAIL.
+ 3. It must be able to say FAIL: seven staleness scenarios are covered by tests
+    and were also demonstrated live (a src edit flips the verdict to FAIL with
+    the reason, restoring it flips back to PASS).
+ 4. The workspace dashboard is the real frontend, not a mock: the repo's own dev
+    server against the real backend, plus a self-contained single-file build of
+    the same frontend/src with a clearly labelled read-only data snapshot, so the
+    UI can be inspected without network or Windows.
+ 5. Nothing was redesigned, and no preview artefact or workspace tooling is
+    committed to the product repository.

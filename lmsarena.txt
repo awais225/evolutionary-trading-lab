@@ -4192,3 +4192,116 @@ V5.1a FINAL VERIFICATION PASS — SCHEDULE / DEEP BACKTEST / ISOLATION / STATIC 
                    proof is the guard/identity contract plus the launcher suite;
                    the browser identity check (§20) and the DEMO order + broker
                    verification (§12) must be run on the Windows host.
+
+=============================================================
+2026-10-07  RUNTIME IDENTITY DIAGNOSTIC + LIVE WORKSPACE DASHBOARD
+             commits 5000113 (diagnostic), ccaa661 (.gitattributes eol),
+                     6f8a3ed (dev proxy /system/build)
+             base ead8593e0f0938395438bbc858cf512db62eb182
+             remote main verified with git ls-remote at every step
+=============================================================
+
+  §1 GitHub      : NOT assumed to be 39bf2a2 any more. fetch + rev-parse showed
+                   local HEAD == origin/main == remote main
+                   ead8593e0f0938395438bbc858cf512db62eb182 (39bf2a2 is 2 commits
+                   behind). Every following step used that.
+
+  §2-§15 BAT     : NEW CHECK_RUNNING_DASHBOARD.bat (repo root, 107 lines, pure
+                   ASCII, CRLF) - double-click and copy the window. It runs
+                   scripts/dashboard_probe.ps1 (Windows side, read-only: machine,
+                   Windows version, paths, python/node/npm/git + versions, and the
+                   port-8787 owner from netstat/tasklist/CIM: PID, name,
+                   executable, full command line, parent, "looks like
+                   app.main:app") and backend/tools/dashboard_diagnostic.py
+                   (portable side). Sections printed: Git identity
+                   (local HEAD / origin/main / remote main / HEAD==origin/main /
+                   branch / working tree), frontend source identity through the
+                   project's own backend/app/frontend_build.py (source hash, dist
+                   hash, build stamp, age, status, dist-matches-source), the port
+                   owner, the COMPLETE /health and /system/build JSON, the actual
+                   HTTP-served index.html (status, content-type, ETag,
+                   Last-Modified, Content-Length, cache-control, sha256, its real
+                   script references), the served fingerprint comparison
+                   (local source commit/hash, local dist hash, running backend
+                   commit/source hash, running frontend hash, HTTP index asset,
+                   and every individual check), the V5 UI signature measured on
+                   the SERVED bytes, service-worker/PWA + cache-header analysis,
+                   every index.html under the repo, every launcher with tracked
+                   status + sha256, and the final human summary ending in
+                   RUNNING_DASHBOARD_MATCHES_GITHUB: PASS|FAIL.
+                   Read-only: the file inventory of the BAT is set/if/title/color/
+                   pause plus exactly two commands (powershell -File probe,
+                   "%PY%" diagnostic). It starts nothing, stops nothing, rebuilds
+                   nothing, writes nothing in the repo (the served shell is
+                   written to %TEMP% and deleted).
+
+  Proof it can   : tests/test_dashboard_diagnostic.py, 14 tests, drives the tool
+  tell PASS from   against real HTTP servers: current dashboard PASS; then FAIL for
+  FAIL            (1) stale bundle, (2) stale process (older backend code),
+                   (3) old served index (an old dashboard answered the URL),
+                   (4) different checkout, (5) nothing listening, (6) served JS
+                   without the V5 UI, (7) registered service worker; plus
+                   read-only proof (repository tree byte-identical before/after)
+                   and kills-nothing proof (the inspected server still answers).
+                   Live re-proof on the real app: current state -> PASS; append a
+                   comment to frontend/src/App.jsx -> DIST STATUS STALE,
+                   FRONTEND_BUILD_MATCH FAIL, RUNNING_DASHBOARD_MATCHES_GITHUB
+                   FAIL (reason "frontend/src ... changed after this bundle was
+                   built"); restore + rebuild + stamp -> PASS again (--strict
+                   exit 0).
+
+  §16-§19 LMS    : The workspace dashboard is the REAL frontend - no mock-up, no
+  dashboard      redesign:
+                   (A) live process on 5173: the repository's own vite dev server
+                       serving frontend/src verbatim, proxying /api, /health and
+                       /system/build to the real backend on 8787 with the
+                       provisioned DATA (verified: /, /api/nodes, /health,
+                       /system/build all 200 through the proxy; identity
+                       V5.1a / ead8593 through it);
+                   (B) /home/user/dashboard_preview/DASHBOARD_PREVIEW.html - the
+                       production build of the same frontend/src inlined into one
+                       self-contained file (works with no network) with a
+                       read-only in-page data layer (77 real endpoints recorded
+                       from the live backend + read-only query POSTs; every other
+                       mutation refused 409 WORKSPACE_PREVIEW_READ_ONLY) and a
+                       clearly labelled banner (real frontend @ commit, snapshot
+                       data, read-only).
+                   Verified by rendering the built file in jsdom: React mounted,
+                   all 18 navigation sections, build chip shows
+                   "BUILD: V5.1a · 6f8a3ed · FE 1c789a53" (values read from the
+                   served identity, never typed), banner present, no undefined /
+                   NaN / [object Object], no console errors, and the pages switch:
+                   Deep Backtest (node table, FROM SCRATCH/Custom, run period +
+                   data source) and Live Testing (manual order panel, Amount/risk,
+                   BUY sized from live ask / SELL from live bid, schedule) all
+                   rendered from the recorded snapshot (bid 2966.409 / ask
+                   2966.686 visible).
+                   Workspace tooling lives OUTSIDE the repository
+                   (/home/user/dashboard_preview) - no product file was added for
+                   the preview, and no preview artefact is committed.
+
+  §21 tests      : full backend suite 473 passed, 0 failed, 116.56 s (was 459;
+                   +14 diagnostic tests). Named: dashboard diagnostic 14,
+                   launcher identity 13, frontend serving 15, live testing +
+                   schedule 28, qualified nodes 25, FROM-SCRATCH isolation 6,
+                   MT5 execution 58, MT5 historical 42, manual order 13.
+                   frontend npm run build OK 6.66 s; build guard --stamp ->
+                   SRC_HASH 1c789a53f9956f33, INDEX_SHA256 274c24d4c324801d,
+                   assets index-BZ2211ap.js + index-DY0FUd-S.css;
+                   guard --verify-served --expect-token -> exit 0;
+                   ui smoke 51/51 renders; diagnostic --strict -> exit 0 (PASS).
+
+  §22 git        : committed only the four diagnostic files + the two small
+                   support changes (.gitattributes eol rule for .bat/.cmd/.ps1,
+                   dev-proxy line for /system/build). Not committed: DATA, LOGS,
+                   node_modules, dist, secrets. A fresh clone was made and checked:
+                   CHECK_RUNNING_DASHBOARD.bat and scripts/dashboard_probe.ps1
+                   arrive with CRLF (107/147 lines, no lone LF).
+
+  Not claimed    : PowerShell/Windows not available in this environment, so the
+                   Windows-side probe was not executed against a real Windows
+                   process table; the Python half of the BAT ran here (exit 0,
+                   PASS). No Edge/Chrome exists here, so browser rendering was
+                   verified by jsdom + HTTP, not by a real browser. The BAT has
+                   not been run on the operator's Windows machine - that is
+                   precisely what it is for.
