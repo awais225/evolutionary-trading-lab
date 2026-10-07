@@ -207,6 +207,20 @@ export const api = {
   mt5StrategyBacktests: (sid) => req(`/api/mt5-backtest/strategies/${sid}`),
 
   // V4.6 — MT5 historical backtest execution (research; never places an order)
+  // V5.2 §11–§14 — Deep Testing data requirements / suggested data / GET MT5 DATA /
+  // readiness, all derived from the real deep-eligible nodes on the backend.
+  // V5.2 §16 — the same schedule system on MT5 Demo Trading.
+  mt5DemoSchedule: (sid) => req(`/api/mt5-demo/schedule/${sid}`),
+  mt5DemoSaveSchedule: (sid, body) => req(`/api/mt5-demo/schedule/${sid}`, { method: "POST", body }),
+  mt5DemoClearSchedule: (sid) => req(`/api/mt5-demo/schedule/${sid}`, { method: "DELETE" }),
+  deepTestingState: () => req("/api/nodes/deep-testing/state"),
+  deepTestingRequirements: () => req("/api/nodes/deep-testing/requirements"),
+  deepTestingSuggested: () => req("/api/nodes/deep-testing/suggested-data"),
+  deepTestingReadiness: () => req("/api/nodes/deep-testing/readiness"),
+  deepTestingPlan: () => req("/api/nodes/deep-testing/plan"),
+  deepTestingGetDataStart: (body = {}) => req("/api/nodes/deep-testing/get-data", { method: "POST", body }),
+  deepTestingGetDataStatus: () => req("/api/nodes/deep-testing/get-data/status"),
+  deepTestingGetDataCancel: () => req("/api/nodes/deep-testing/get-data/cancel", { method: "POST" }),
   mt5HistoricalCapabilities: (refresh = false) => req(`/api/mt5-historical/capabilities${refresh ? "?refresh=1" : ""}`),
   mt5HistoricalStartRun: (body) => req("/api/mt5-historical/runs", { method: "POST", body }),
   // §6 — several nodes in one action (a single run path per node, fanned out)

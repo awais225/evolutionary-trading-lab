@@ -10,6 +10,8 @@ import {
 } from "../components/LiveTestingPanels.jsx";
 // §8 — the node table is the qualified-node index (the same payload Deep Backtest reads).
 import { LiveNodeTable } from "../components/LiveNodeIndex.jsx";
+// §9 — the actual execution event (broker retcode/tickets/volumes/prices/SL-TP).
+import LiveExecutionEvent from "../components/LiveExecutionEvent.jsx";
 import { arr, NA_TEXT, objOrNull, rows as safeRows, txt } from "../lib/safe.js";
 import { Badge, Kpi, SectionTitle, StateBlock, useInterval } from "../components/ui.jsx";
 
@@ -147,6 +149,9 @@ export default function LiveTesting() {
   return (
     <div className="page">
       {primaryStatus}
+
+      {/* §9 — the most recent real order attempt, before any control. */}
+      <LiveExecutionEvent engine={engine} trades={results} />
 
       {/* ---------------------------------------------------------- 2 */}
       <SectionTitle

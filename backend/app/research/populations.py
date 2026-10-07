@@ -201,6 +201,57 @@ def deep_universe(db: Any = None, rows: Optional[Iterable[Dict[str, Any]]] = Non
     return union
 
 
+#: §10 — the explicit lifecycle names every page must agree on. They are the
+#: SAME six numbers as ``populations()``; the longer names exist so no page has to
+#: invent its own meaning for "alive"/"eligible"/"final".
+POPULATION_STATE_KEYS: Dict[str, str] = {
+    "TOTAL": "total",
+    "ALIVE": "alive",
+    "QUALIFIED": "qualified",
+    "FINAL_TESTING_ELIGIBLE": "final",
+    "DEEP_TESTING_ELIGIBLE": "deep",
+    "LIVE_TESTING_ELIGIBLE": "live",
+}
+
+POPULATION_STATE_DEFINITIONS: Dict[str, str] = {
+    "TOTAL": POPULATION_DEFINITIONS["total"],
+    "ALIVE": POPULATION_DEFINITIONS["alive"],
+    "QUALIFIED": POPULATION_DEFINITIONS["qualified"],
+    "FINAL_TESTING_ELIGIBLE": (
+        "Qualified nodes at the furthest research stage — the nodes Final Testing may "
+        "select (final candidate / live-completed / MT5-demo)."),
+    "DEEP_TESTING_ELIGIBLE": (
+        "The deep-testing union: qualified ∪ live-eligible ∪ already deep-tested nodes "
+        "(LEGACY_TEST infrastructure excluded)."),
+    "LIVE_TESTING_ELIGIBLE": (
+        "Nodes actually wired into a live layer (LIVE_TESTING status, an active live-test "
+        "config or an MT5-demo configuration) — the nodes the live engine can act on."),
+}
+
+
+def population_state(db: Any = None) -> Dict[str, Any]:
+    """§10 — the single authoritative status model, under explicit names.
+
+    Returns a flat dict of the six counts plus the definitions, the authority and
+    the notes, so the Dashboard, MT5 Demo Trading, Final Testing and Deep Testing
+    all read the same numbers from one place. ``counts`` keeps its original keys
+    for backwards compatibility; ``state`` carries the explicit names.
+    """
+    data = populations(db=db)
+    counts = data.get("counts") or {}
+    state = {name: int(counts.get(key) or 0) for name, key in POPULATION_STATE_KEYS.items()}
+    return {
+        "ok": bool(data.get("ok")),
+        "state": state,
+        "state_order": list(POPULATION_STATE_KEYS.keys()),
+        "definitions": POPULATION_STATE_DEFINITIONS,
+        "counts": counts,
+        "detail": data.get("detail"),
+        "authority": data.get("authority"),
+        "notes": data.get("notes"),
+    }
+
+
 def populations(db: Any = None) -> Dict[str, Any]:
     """§D — the authoritative counts, with their definitions attached."""
     rows = load_rows(db)

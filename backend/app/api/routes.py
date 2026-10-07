@@ -3417,6 +3417,21 @@ def mt5_demo_status() -> Dict:
     bridge = get_bridge()
     mon = get_connection_monitor().status_details()
     configs = db.q("SELECT * FROM mt5_demo_configs WHERE enabled=1")
+    # §16 — every enabled node carries its stored schedule and the evaluator's
+    # verdict for right now, so the page can show exactly why a node is running
+    # or blocked (the same evaluator Live Testing enforces).
+    from ..mt5.demo_schedule import status_rows as _demo_schedule_rows
+    try:
+        sched_rows = _demo_schedule_rows(db)
+    except Exception:
+        sched_rows = {}
+    for c in configs or []:
+        sr = sched_rows.get(int(c.get("strategy_id") or 0)) or {}
+        c["schedule"] = sr.get("schedule")
+        c["schedule_configured"] = sr.get("configured")
+        c["schedule_description"] = sr.get("description")
+        c["schedule_allowed"] = sr.get("allowed")
+        c["schedule_reason"] = sr.get("reason")
     trades = db.get_mt5_demo_trades()
     open_trades = [t for t in trades if t.get("status") == "OPEN"]
     today_pnl = sum(t.get("pnl", 0.0) for t in trades if t.get("open_ts", 0) >= time.time() - 86400)
@@ -3439,6 +3454,9 @@ def mt5_demo_status() -> Dict:
         "today_pnl": round(today_pnl, 2),
         "total_pnl": round(total_pnl, 2),
         "active_strategies": [c["strategy_id"] for c in configs],
+        "active_configs": [{k: v for k, v in c.items()} for c in (configs or [])],
+        "schedule_authority": ("app.live_testing.schedule — the same evaluator the Live Testing "
+                               "engine enforces; empty groups mean no restriction"),
     }
 
 
@@ -3462,12 +3480,28 @@ def toggle_mt5_demo(sid: int, payload: Dict = Body(default_factory=dict)) -> Dic
     cfg["enabled"] = new_enabled
     cfg["confirmed_demo_only"] = confirmed
     cfg["status"] = "RUNNING" if new_enabled else "STOPPED"
+    gate = None
+    if new_enabled:
+        # §16 — the node's own schedule decides whether it may actually act now.
+        from ..mt5.demo_schedule import gate as _schedule_gate
+        try:
+            gate = _schedule_gate(sid, db=db)
+        except Exception as e:
+            gate = {"allowed": False,
+                    "reason": f"the demo schedule could not be evaluated ({type(e).__name__}) — "
+                              "refusing to run until it is readable"}
+        if not gate.get("allowed"):
+            cfg["status"] = "SCHEDULE_BLOCKED"
     db.set_mt5_demo_config(sid, cfg)
 
     if new_enabled:
         db.set_pipeline_stage(sid, "MT5_DEMO", "Activated on MT5 Demo Account")
 
-    return {"ok": True, "strategy_id": sid, "enabled": new_enabled, "status": cfg["status"]}
+    return {"ok": True, "strategy_id": sid, "enabled": new_enabled, "status": cfg["status"],
+            "schedule": (gate or {}).get("schedule"), "schedule_allowed": (gate or {}).get("allowed"),
+            "schedule_reason": (gate or {}).get("reason"),
+            "note": ("the schedule is enforced by app.live_testing.schedule (the same evaluator "
+                     "Live Testing uses)")}
 
 
 @router.post("/mt5-demo/start-all")
@@ -3478,6 +3512,7 @@ def mt5_demo_start_all(payload: Dict = Body(...)) -> Dict:
     db = get_db()
     qualified = db.get_qualified_strategies()
     count = 0
+    blocked: List[Dict] = []
     for s in qualified:
         sid = s["id"]
         cfg = db.get_mt5_demo_config(sid) or {
@@ -3490,10 +3525,20 @@ def mt5_demo_start_all(payload: Dict = Body(...)) -> Dict:
         cfg["enabled"] = True
         cfg["confirmed_demo_only"] = True
         cfg["status"] = "RUNNING"
+        from ..mt5.demo_schedule import gate as _schedule_gate
+        g = _schedule_gate(sid, db=db)
+        blocked_reason = None
+        if not g.get("allowed"):
+            cfg["status"] = "SCHEDULE_BLOCKED"
+            blocked_reason = g.get("reason")
         db.set_mt5_demo_config(sid, cfg)
         db.set_pipeline_stage(sid, "MT5_DEMO", "Batch activated on MT5 Demo")
         count += 1
-    return {"ok": True, "activated_count": count}
+        if blocked_reason:
+            blocked.append({"strategy_id": sid, "reason": blocked_reason})
+    return {"ok": True, "activated_count": count,
+            "schedule_blocked": blocked, "schedule_blocked_count": len(blocked),
+            "note": "a schedule-blocked node is enabled but will not act outside its schedule"}
 
 
 @router.post("/mt5-demo/start-shortlist")
@@ -3519,6 +3564,30 @@ def mt5_demo_start_shortlist(payload: Dict = Body(...)) -> Dict:
         db.set_pipeline_stage(sid, "MT5_DEMO", "Shortlist activated on MT5 Demo")
         count += 1
     return {"ok": True, "activated_count": count, "shortlist_size": len(sids)}
+
+
+@router.get("/mt5-demo/schedule/{sid}")
+def mt5_demo_get_schedule(sid: int) -> Dict:
+    """§16 — a demo node's stored schedule + its evaluation right now (read-only)."""
+    from ..mt5.demo_schedule import get_schedule
+    return get_schedule(sid)
+
+
+@router.post("/mt5-demo/schedule/{sid}")
+def mt5_demo_save_schedule(sid: int, payload: Dict = Body(default_factory=dict)) -> Dict:
+    """§16 — save a demo node's schedule (same validator the Live Testing engine uses)."""
+    from ..mt5.demo_schedule import save_schedule
+    out = save_schedule(sid, payload)
+    if not out.get("ok"):
+        raise HTTPException(400, detail={"error": out.get("error"), "errors": out.get("errors"),
+                                         "options": out.get("options")})
+    return out
+
+
+@router.delete("/mt5-demo/schedule/{sid}")
+def mt5_demo_clear_schedule(sid: int) -> Dict:
+    from ..mt5.demo_schedule import clear_schedule
+    return clear_schedule(sid)
 
 
 @router.post("/mt5-demo/stop-all")
@@ -4209,8 +4278,79 @@ def nodes_populations() -> Dict:
     ``app.status.node_bucket`` (the same classifier the node filters use), plus
     the definition of every number and the raw detail behind it. Read-only.
     """
-    from ..research.populations import populations
-    return populations()
+    from ..research.populations import population_state, populations
+    # V5.2 §10 — ``counts`` keeps its original keys; ``state`` adds the explicit
+    # lifecycle names every page must agree on (TOTAL / ALIVE / QUALIFIED /
+    # FINAL_TESTING_ELIGIBLE / DEEP_TESTING_ELIGIBLE / LIVE_TESTING_ELIGIBLE).
+    data = populations()
+    data["state"] = population_state().get("state")
+    data["state_order"] = ["TOTAL", "ALIVE", "QUALIFIED", "FINAL_TESTING_ELIGIBLE",
+                           "DEEP_TESTING_ELIGIBLE", "LIVE_TESTING_ELIGIBLE"]
+    return data
+
+
+# ---------------------------------------------------------------------------
+# V5.2 §11–§14 — Deep Testing data requirements, suggested data, GET MT5 DATA
+# ---------------------------------------------------------------------------
+def _deep_data():
+    from ..research import deep_data
+    return deep_data
+
+
+@router.get("/nodes/deep-testing/requirements")
+def nodes_deep_testing_requirements() -> Dict:
+    """§11 — the Data Requirements block, computed over ALL deep-eligible nodes."""
+    return _deep_data().requirements()
+
+
+@router.get("/nodes/deep-testing/suggested-data")
+def nodes_deep_testing_suggested_data() -> Dict:
+    """§12 — SUGGESTED DATA: the union of every deep-eligible node's requirement."""
+    return _deep_data().suggested_data()
+
+
+@router.post("/nodes/deep-testing/get-data")
+def nodes_deep_testing_get_data(payload: Dict = Body(default_factory=dict)) -> Dict:
+    """§13 — start GET MT5 DATA over the suggested package (existing infra only)."""
+    dd = _deep_data()
+    selection = payload.get("selection")
+    force_full = bool(payload.get("force_full"))
+    return dd.get_data_job().start(selection=selection, force_full=force_full)
+
+
+@router.get("/nodes/deep-testing/get-data/status")
+def nodes_deep_testing_get_data_status() -> Dict:
+    """§13 — staged progress of the running/last GET MT5 DATA job."""
+    return _deep_data().get_data_job().status()
+
+
+@router.post("/nodes/deep-testing/get-data/cancel")
+def nodes_deep_testing_get_data_cancel() -> Dict:
+    return _deep_data().get_data_job().cancel()
+
+
+@router.get("/nodes/deep-testing/readiness")
+def nodes_deep_testing_readiness() -> Dict:
+    """§14 — DATA READY + X/Y NODES READY, each node READY or NOT READY + reason."""
+    return _deep_data().readiness()
+
+
+@router.get("/nodes/deep-testing/state")
+def nodes_deep_testing_state() -> Dict:
+    """One call for the Deep Testing page: populations + readiness + job status."""
+    from ..research.populations import population_state
+    dd = _deep_data()
+    try:
+        ready = dd.readiness()
+    except Exception as e:
+        ready = {"ok": False, "error": f"{type(e).__name__}: {e}"}
+    return {
+        "ok": True,
+        "populations": population_state(),
+        "readiness": ready,
+        "get_data": dd.get_data_job().status(),
+        "stages": list(dd.GET_DATA_STAGES),
+    }
 
 
 @router.get("/nodes/deep-testing/plan")

@@ -6,7 +6,7 @@ import { useLab } from "../App.jsx";
 import StructuredError from "../components/StructuredError.jsx";
 import DemoOrderPanel from "../components/DemoOrderPanel.jsx";
 import Mt5AccountSelector from "../components/Mt5AccountSelector.jsx";
-import { ManualOrderPanel } from "../components/LiveTestingPanels.jsx";
+import { ManualOrderPanel, ScheduleDialog } from "../components/LiveTestingPanels.jsx";
 
 export default function Mt5DemoTrading() {
   const { shortlist, toggleShortlist, setSelectedStrategyId, navigateTab } = useLab() || {};
@@ -25,6 +25,9 @@ export default function Mt5DemoTrading() {
   const [demoStarred, setDemoStarred] = useState(false);
   const [demoStatusFilter, setDemoStatusFilter] = useState("");
   const [demoDetail, setDemoDetail] = useState(null);
+  /* §16 — the SAME schedule editor Live Testing uses, pointed at the MT5 Demo
+   * endpoints: persisted, restart-proof and enforced by the one evaluator. */
+  const [scheduleFor, setScheduleFor] = useState(null);
 
   const loadDemoState = useCallback(async () => {
     setLoading(true);
@@ -429,6 +432,12 @@ export default function Mt5DemoTrading() {
                       >
                         {isRunning ? "Stop Demo" : "Start Demo"}
                       </button>
+                      <button type="button"
+                              className="ml-2 px-2 py-1 rounded text-[11px] font-mono border border-slate-700 text-slate-300 hover:text-white"
+                              title="the node's own schedule (days, sessions, windows, regime filters) — enforced before any demo order"
+                              onClick={() => setScheduleFor(strat.node_id)}>
+                        Schedule
+                      </button>
                     </td>
                   </tr>
                 );
@@ -437,7 +446,17 @@ export default function Mt5DemoTrading() {
           </table>
         </div>
 
-        {demoDetail && (
+        {scheduleFor != null && (
+        <ScheduleDialog
+          nodeId={scheduleFor}
+          loadFn={api.mt5DemoSchedule}
+          saveFn={api.mt5DemoSaveSchedule}
+          onClose={() => setScheduleFor(null)}
+          onSaved={() => { setActionMsg({ ok: true, text: `Node_${scheduleFor}: demo schedule saved and enforced by the same evaluator Live Testing uses` }); loadDemoState(); }}
+        />
+      )}
+
+      {demoDetail && (
           <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-[11px] font-mono">
             <div className="flex items-center justify-between mb-2">
               <span className="text-cyan-300 font-bold">Node_{demoDetail.node_id} — details</span>
@@ -459,10 +478,15 @@ export default function Mt5DemoTrading() {
               <span>Live P/L: <b>{txt(demoDetail.total_live_pnl, NA_TEXT)}</b></span>
               <span>Magic: <b>{Number.isFinite(Number(demoDetail.node_id))
                 ? `#${100000 + Number(demoDetail.node_id)}` : NA_TEXT}</b></span>
-              <span>Schedule: <b>{demoDetail.schedule?.start_time
-                ? `${demoDetail.schedule.start_time}–${demoDetail.schedule.end_time} ${txt(demoDetail.schedule.timezone, "")}`
-                : "no window set"}</b></span>
-              <span>Schedule active: <b>{demoDetail.schedule?.active ? "yes" : "no"}</b></span>
+              {(() => {
+                const cfg = (demoStatus?.active_configs || []).find((c) => Number(c.strategy_id) === Number(demoDetail.node_id));
+                return (
+                  <>
+                    <span>Schedule: <b>{txt(cfg?.schedule_description, "no schedule saved — product default (Mon–Fri, all sessions)")}</b></span>
+                    <span>Schedule now: <b>{cfg ? (cfg.schedule_allowed ? "allowed" : `blocked — ${txt(cfg.schedule_reason, "outside the schedule")}`) : "node not enabled"}</b></span>
+                  </>
+                );
+              })()}
             </div>
             <div className="flex gap-2 mt-2">
               <button type="button" className="underline text-cyan-300"

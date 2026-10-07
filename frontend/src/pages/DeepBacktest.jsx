@@ -17,6 +17,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { api } from "../api";
 import { Card, StateBlock, Progress, ConfirmModal, Badge } from "../components/ui";
 import StrategyDrawer from "../components/StrategyDrawer";
+import DeepDataPanel from "../components/DeepDataPanel";
 import { fmt } from "../api";
 import { arr, txt } from "../lib/safe.js";
 
@@ -233,6 +234,15 @@ export default function DeepBacktest() {
   const [confirm, setConfirm] = useState(null);
   const [batchReport, setBatchReport] = useState(null);
   const [drawerId, setDrawerId] = useState(null);
+  /* §14 — the readiness verdict per node, from the ONE backend authority. A node
+   * whose data is not there yet must not be offered a deep run that would only
+   * report "data unavailable". */
+  const [readiness, setReadiness] = useState(null);
+  const readyById = useMemo(() => {
+    const m = new Map();
+    for (const n of arr(readiness?.nodes)) m.set(Number(n.node_id), n);
+    return m;
+  }, [readiness]);
   const pollRef = useRef(null);
 
   const range = useMemo(() => presetRange(preset, from, to), [preset, from, to]);
@@ -511,6 +521,8 @@ export default function DeepBacktest() {
         )}
       </Card>
 
+      <DeepDataPanel onReadiness={setReadiness} />
+
       <Card title={`NODES — ${NODE_FILTERS.find((f) => f.key === nodeFilter)?.label || nodeFilter}`}
             right={<span className="muted" style={{ fontSize: 10 }}>
               {total} match · page {page + 1}/{pages}
@@ -601,7 +613,11 @@ export default function DeepBacktest() {
                       <div className="row" style={{ gap: 4 }}>
                         <button className="btn ghost" style={{ fontSize: 10 }}
                                 onClick={() => setDrawerId(r.node_id)}>Details</button>
-                        <button className="btn" style={{ fontSize: 10 }} disabled={!!busy}
+                        <button className="btn" style={{ fontSize: 10 }}
+                                disabled={!!busy || (readyById.size > 0 && readyById.get(Number(r.node_id))?.ready === false)}
+                                title={readyById.get(Number(r.node_id))?.ready === false
+                                  ? `NOT READY: ${readyById.get(Number(r.node_id))?.reason || "required data is missing"} — fetch it with GET MT5 DATA first`
+                                  : "run the existing deep backtest engine on the stored history"}
                                 onClick={() => runOne(r)}>Deep test</button>
                       </div>
                     </td>

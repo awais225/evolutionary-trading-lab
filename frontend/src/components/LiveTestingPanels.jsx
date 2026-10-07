@@ -946,7 +946,10 @@ export function LiveMarketHeader({ symbol, nodeId, onSymbolChange, onNodeChange,
 }
 
 /* ------------------------------------------- V5 §11/§12 node table + schedule */
-export function ScheduleDialog({ nodeId, onClose, onSaved }) {
+// V5.2 §16 — the SAME dialog serves MT5 Demo Trading: pass `loadFn`/`saveFn`
+// to point it at another endpoint. The evaluator behind it is identical, so a
+// demo schedule is enforced by the very code the Live Testing engine uses.
+export function ScheduleDialog({ nodeId, onClose, onSaved, loadFn, saveFn, subtitle }) {
   /* §11 §12 §13 §17 — the fully editable per-node schedule.
 
    * Every group the engine actually enforces is editable here (days, sessions,
@@ -1000,14 +1003,14 @@ export function ScheduleDialog({ nodeId, onClose, onSaved }) {
   const load = useCallback(async () => {
     setErr(null);
     try {
-      const res = await api.liveTestingSchedule(nodeId);
+      const res = await (loadFn || api.liveTestingSchedule)(nodeId);
       setState(res);
       const d = fromServer(res);
       setDraft(d);
       setSaved(d);
       setDirty(false);
     } catch (e) { setErr(e); }
-  }, [nodeId, fromServer]);
+  }, [nodeId, fromServer, loadFn]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -1031,11 +1034,12 @@ export function ScheduleDialog({ nodeId, onClose, onSaved }) {
         spread_limit_points: draft.spread_limit_points === "" ? null : Number(draft.spread_limit_points),
         max_positions: draft.max_positions === "" ? null : Number(draft.max_positions),
       };
-      const res = await api.saveLiveTestingSchedule(nodeId, body);
+      const res = await (saveFn || api.saveLiveTestingSchedule)(nodeId, body);
       const d = fromServer(res);
       setDraft(d); setSaved(d); setDirty(false);
       setState({ ...(state || {}), ...objOrNull(res?.evaluation), config: res?.config,
                  options: res?.options || state?.options, description: res?.description });
+      /* the demo endpoints return the evaluation instead of embedding it */
       setMsg(`Saved — the engine now enforces: ${txt(res?.description, "saved")}`);
       if (onSaved) onSaved();
     } catch (e) {
