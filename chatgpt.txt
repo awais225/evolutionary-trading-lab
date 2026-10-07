@@ -3250,3 +3250,38 @@ DECISIONS TAKEN
  7. Honesty unchanged: on this Linux host MetaTrader5 is not importable and there
     are no terminals, so SIMULATOR_ONLY / MT5 PLATFORM UNSUPPORTED is still the
     correct report and NO real demo order was placed or verified here.
+
+
+================================================================================
+REQUEST / DECISION HISTORY — V5.2.1   2026-10-07 15:41 UTC
+================================================================================
+OPERATOR (2026-10-07):
+  1. "CHECK_RUNNING_DASHBOARD.bat closes very fast — it must stay open until I
+     press a key so I can copy the data and know which version is running."
+  2. "Live testing tab still has no node data!"
+  3. "It still isn't able to place the manual demo trade" — pasted the panel
+     answer: status UNKNOWN, result_class BROKER_RESULT, order_send called=false,
+     raw_result OrderCheckResult(retcode=0, comment='Done', margin=24.62, request
+     TradeRequest(... volume=0.03, price=4103.97, sl=4074.51, tp=4164.51,
+     deviation=20, type_filling=1)). "In the working version it hooked with python
+     3.13 and the trade went through, so just do it."
+  4. Pasted CHECK_MT5_WINDOWS.bat output: "CLASSIFICATION: MT5 ORDER VALIDATION
+     FAILED ... mt5.order_check refused the project's own request (retcode 0)"
+     with "retcode : 0 (REFUSED) comment='Done' margin=8.21".
+DECISIONS:
+  * retcode 0 + comment 'Done' is a PASS (MQL5 semantics) — the diagnostic text and
+    every project-side gate follow that, and the verdict is now printed as a
+    sentence ("ORDER CHECK: PASSED / FAILED / NOT ATTEMPTED").
+  * The panel must never answer "UNKNOWN" for a request that was never sent: the
+    result now carries the terminal's own order_check facts beside the order_send
+    facts, and a genuine no-result from order_send is the only UNKNOWN.
+  * No retry, no second send, no success claim without the broker's result — and
+    the Windows acceptance stays with the operator (account 53071066, one 0.01
+    XAUUSD DEMO order, position verified in the terminal).
+  * Live Testing must keep working when the population is genuinely empty: an
+    explicit empty state with the six authoritative numbers and the reason, never
+    invented nodes and never a blank table.
+  * Python 3.13 is NOT required (3.14.6 64-bit is proven on the operator's box);
+    the fix is in the order path, not in the interpreter.
+  * The operator was running 5642b1d. The order-check fix lives in 5cd8eba and is
+    only visible after a `git pull` of main — 7d9cc7f is now on origin/main.

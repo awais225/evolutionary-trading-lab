@@ -4661,3 +4661,94 @@ state. Fixed at the layer that was wrong (§A): every order_send outcome now car
   verify_preview PASS (18/18 nav, no console errors); the four MT5 pages themed;
   a jsdom probe on the preview found the account selector on both MT5 pages
   (select#mt5-account-select, 2 options) with no missing strings and no errors.
+
+
+================================================================================
+LMSARENA IMPLEMENTATION LOG — V5.2.1 (order-check gate, runtime identity, Live
+Testing population)   2026-10-07 15:41 UTC   HEAD 7d9cc7f
+================================================================================
+§A  THE ORDER-CHECK GATE (the blocker the operator hit on Windows)
+    The operator's own Windows diagnostic printed:  retcode : 0 (REFUSED)
+    comment='Done' margin=8.21, classified "MT5 ORDER VALIDATION FAILED", and the
+    manual panel answered with  order_send {called:false, ...}  and status UNKNOWN.
+    Root cause: order_check retcode 0 with comment 'Done' is a PASSING
+    MqlTradeCheckResult (MQL5 reference), and the project treated retcode 0 as a
+    refusal — so nothing was ever sent.
+    Fixed in 5cd8eba (order_semantics.py: interpret_check_result / CHECK_PASS_RETCODES,
+    filling_candidates/resolve_filling, mt5_real._resolve_request_filling) and made
+    visible in 7d9cc7f:
+      * execution._order_check_facts(raw)  ->  every result now carries
+        order_check {called, passed, retcode, retcode_name, comment, margin, rule}
+        next to order_send {called, call_count, last_error, exception, retcode,
+        comment, raw_result}, so order_send:{called:false} always names its reason;
+      * app/mt5/windows_diagnostic.py prints a labelled verdict line:
+        "ORDER CHECK: PASSED" + "order_check passed basic validation." +
+        "No order was sent by this diagnostic." (or FAILED with the broker comment,
+        or NOT ATTEMPTED), and the request's type_filling is still derived from
+        symbol_info() metadata, never hard-coded.
+      * regression: tests/test_v5_1a_windows_mt5_diagnostic.py
+        ::test_14b_the_operators_exact_windows_output_is_a_pass_and_the_report_says_so
+        pins the operator's exact numbers (retcode 0, comment 'Done', margin 8.21)
+        to MT5 READY + "ORDER CHECK: PASSED"; test_14c pins a genuine refusal (10016
+        "Invalid stops") to "ORDER CHECK: FAILED"; test_14d pins NOT ATTEMPTED.
+§B  §8 — the live order is the NODE's own strategy (verified, not asserted)
+    tests/test_v5_live_testing.py::test_29 drives a full engine cycle on a node whose
+    stored genome is sl_atr_mult=2.0 / tp_atr_mult=4.0 and whose live config carries
+    risk_pct=0.5, then inspects the request the bridge actually received:
+      symbol == genome symbol, type == 0 (the node's long-only entry rule),
+      tp/sl distance ratio == 4.0/2.0 exactly (so no 300/600-pip panel default),
+      volume == floor(risk_amount / (sl_distance * tick_value/tick_size), 0.01 step)
+      (so no fixed lot), magic == live_test_magic(sid) (778xxx) and != the manual
+      777xxx magic, and the cycle ends with ORDER SENT + POSITION VERIFIED.
+§C  §7 — Live Testing population
+    Backend (already in 2fe3653/9e9d25b): GET /api/nodes (qualified index) and
+    GET /api/nodes/populations agree on QUALIFIED by construction; the six
+    authoritative names are TOTAL/ALIVE/QUALIFIED/FINAL_TESTING_ELIGIBLE/
+    DEEP_TESTING_ELIGIBLE/LIVE_TESTING_ELIGIBLE and are now rendered on every page
+    by NodePopulationStrip. LiveNodeIndex.jsx gained an explicit empty state that
+    fetches the real numbers and states the reason, distinguishes a read failure
+    from an empty population, and never fabricates a row.
+    On this host with the real DATA tree: /api/nodes?filter=qualified -> 33 rows
+    (Node_1094 XAUUSD M15 fitness 0.77523 first), populations -> TOTAL 10,787 /
+    ALIVE 33 / QUALIFIED 33 / DEEP 33 / LIVE 0.
+    Rendered proof: the built dashboard in jsdom, Live Testing page — population
+    strip present, node table with Node_ rows, START buttons, header row, and
+    0 console errors (7/7 checks PASS).
+§D  §6 — CHECK_RUNNING_DASHBOARD.bat stays open and identifies the build
+    Rewritten (CRLF, ASCII): the body now runs inside a keep-alive console
+    (start "" cmd /k call "%~f0" --stay), the last line waits for a key, and
+    SECTION 1 prints working directory, interpreter, git HEAD/branch/commit/
+    origin/origin-main (with a HEAD == origin/main verdict), python --version and
+    the 8787 listener + owning PID/task before SECTION 2 runs the deep read-only
+    probe (scripts/dashboard_probe.ps1 + backend/tools/dashboard_diagnostic.py
+    --json-out). Everything is tee'd to LOGS\RUNTIME_IDENTITY_<stamp>.txt so the
+    identity survives a closed window. It stops/starts/trades nothing.
+§E  Executed here
+    Full suite: 753 passed, 0 failed, 1 warning in 161.20 s
+      (736 + 17 new: 13 in tests/test_v5_2_1_gate_identity_and_live_population.py,
+       3 in tests/test_v5_1a_windows_mt5_diagnostic.py, 1 in tests/test_v5_live_testing.py)
+    Build: npm install + npx vite build, guard stamp SRC 72fa9506a777fcb6 /
+      INDEX 725f45455c4bf209, entries assets/index-CKw8dVNR.js +
+      assets/index-Bpzv1Dzq.css, dist FRESH, git_head 7d9cc7f.
+    Runtime identity: backend pid 5708, token LAB-V521-7D9CC7F, code hash
+      6266586e3fc025a7 == local, PROCESS_BUNDLE_IS_CURRENT True,
+      PROCESS_BUNDLE_CHANGED_SINCE_START False, --verify-served exit 0.
+    DATA: re-provisioned verbatim through scripts/lmsarena_provision_data.sh
+      (git-lfs 3.5.1 reinstalled; the LFS batch endpoint returned HTTP 502 for
+      several objects and the checkout needed 4 attempts) -> 11,370 files,
+      10,787 strategies (10,000 USER_RESEARCH + 787 LEGACY_TEST), schema 3.
+§F  Honesty (unchanged)
+    MetaTrader5 is NOT importable on this Linux host and there are 0 terminals, so
+    /api/mt5/runtime is SIMULATOR_ONLY / MT5 PLATFORM UNSUPPORTED and NO real demo
+    order was placed or verified here. The Windows acceptance (one 0.01 XAUUSD DEMO
+    order on account 53071066, position verified inside the terminal) remains a
+    Windows task with CHECK_RUNNING_DASHBOARD.bat + CHECK_MT5_WINDOWS.bat.
+§GIT (recorded after the push)
+  commit 7d9cc7f46bbb684f06196a2077b75f68ee124c4a "V5.2.1 order-check gate, runtime-identity launcher, Live Testing
+  population ..." pushed to origin/main (2fe3653..7d9cc7f), verified with
+  git ls-remote origin refs/heads/main == 7d9cc7f46bbb684f06196a2077b75f68ee124c4a.
+  This push also carried the V5.2 parts that were still local: 5cd8eba (order
+  semantics), 2fe3653 (deep-testing data layer / one population model / demo
+  schedules / execution-event UI) and 9e9d25b (population strip on every page +
+  shortlist schedule gate). The operator's failing run was on 5642b1d, i.e. before
+  the order-check fix existed — pulling main is what removes the UNKNOWN panel.
