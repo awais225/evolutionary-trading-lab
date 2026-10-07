@@ -205,6 +205,23 @@ goto :STARTUP_FAILED
 echo [OK] Dashboard bundle verified against frontend\src.
 echo [OK] Frontend bundle verified against frontend\src. >> "%STARTUP_LOG%"
 "%VENV_PYTHON%" "%GUARD%" --root "%ROOT%" --summary >> "%STARTUP_LOG%" 2>&1
+
+REM The build identity this launch will insist on serving. It is printed so the
+REM operator can compare it, character for character, with what the dashboard
+REM shows in its Build chip and with /system/build in the browser.
+set "LAB_BUILD_STAMP="
+for /f "tokens=2 delims==" %%A in ('"%VENV_PYTHON%" "%GUARD%" --root "%ROOT%" --summary ^| findstr /b "SRC_HASH="') do set "LAB_BUILD_STAMP=%%A"
+if not defined LAB_BUILD_STAMP set "LAB_BUILD_STAMP=unknown"
+echo [OK] Build identity this launch will serve: %LAB_BUILD_STAMP%
+echo [OK] Build identity this launch will serve: %LAB_BUILD_STAMP% >> "%STARTUP_LOG%"
+
+REM A per-launch nonce. It is inherited by the backend process and reported by
+REM /system/build, so "the process I just started" can be proven - a process that
+REM survived from an earlier launch cannot know it.
+set "LAB_START_TOKEN=LAB-%RANDOM%-%RANDOM%-%RANDOM%"
+set "EVOLUTIONARY_LAB_START_TOKEN=%LAB_START_TOKEN%"
+set "EVOLUTIONARY_LAB_START_MODE=start.bat"
+echo [INFO] Launch token: %LAB_START_TOKEN% >> "%STARTUP_LOG%"
 echo.
 
 REM ---------------------------------------------------------------------------
@@ -219,7 +236,7 @@ goto :PORT_FREE
 
 :PORT_IN_USE
 echo [..] Port 8787 already has an Evolutionary Trading Research Lab backend.
-echo [..] Checking that it serves THIS repository at the CURRENT build...
+echo [..] Checking that it serves THIS repository, from THIS code, with THIS bundle...
 "%VENV_PYTHON%" "%GUARD%" --root "%ROOT%" --verify-served http://127.0.0.1:8787
 set "SRV_RC=%ERRORLEVEL%"
 if "%SRV_RC%"=="0" goto :REUSE_EXISTING
@@ -234,7 +251,7 @@ goto :PORT_FREE
 :REUSE_EXISTING
 echo [OK] The running dashboard already serves this repository at the current build.
 echo [OK] Reusing the running instance: verified to serve the current build. >> "%STARTUP_LOG%"
-start http://127.0.0.1:8787/
+start "" "http://127.0.0.1:8787/?v=%LAB_BUILD_STAMP%"
 echo [OK] Browser launched for the verified instance. >> "%STARTUP_LOG%"
 goto :LAB_RUNNING_DISPLAY
 
@@ -282,15 +299,51 @@ if errorlevel 1 (
 echo [OK] Backend readiness confirmed. >> "%STARTUP_LOG%"
 echo.
 
-REM Prove that the running backend really serves the bundle built in STAGE 4.
-"%VENV_PYTHON%" "%GUARD%" --root "%ROOT%" --verify-served http://127.0.0.1:8787
-if errorlevel 1 (
-    echo [WARN] The running backend does not report the expected frontend build.
-    echo [%DATE% %TIME%] [WARN] verify-served failed after start; check LOGS\startup.log >> "%STARTUP_LOG%"
+REM Prove that the backend answering on 8787 is the process THIS launch started,
+REM running THIS code, serving THIS bundle. Anything else is replaced, once.
+set "START_ATTEMPT=1"
+
+:SERVE_VERIFY
+"%VENV_PYTHON%" "%GUARD%" --root "%ROOT%" --verify-served http://127.0.0.1:8787 --expect-token "%LAB_START_TOKEN%"
+set "SRV2_RC=%ERRORLEVEL%"
+if "%SRV2_RC%"=="0" goto :SERVE_OK
+
+echo [ACTION] The dashboard on port 8787 is not the instance this launch started
+echo          (verify exit %SRV2_RC%). Replacing it with the current build.
+echo [%DATE% %TIME%] [ACTION] post-start verify failed (exit %SRV2_RC%); replacing instance. >> "%STARTUP_LOG%"
+"%VENV_PYTHON%" "%GUARD%" --root "%ROOT%" --stop http://127.0.0.1:8787 --port 8787
+if errorlevel 1 goto :SERVE_REPLACE_FAILED
+if "%START_ATTEMPT%"=="2" goto :SERVE_REPLACE_FAILED
+
+set "START_ATTEMPT=2"
+echo [..] Starting the backend again from %ROOT%...
+if exist "%ROOT%\RUN_BACKEND.bat" (
+    start "EVOLAB Backend Server" cmd.exe /k "call "%ROOT%\RUN_BACKEND.bat""
 ) else (
-    echo [OK] Confirmed: the dashboard being served was built from this frontend\src.
-    echo [OK] Serving frontend\dist built from the current frontend\src. >> "%STARTUP_LOG%"
+    start "EVOLAB Backend Server" cmd.exe /k "call "%ROOT%\scripts\run_backend.bat""
 )
+call "%VENV_PYTHON%" "%ROOT%\backend\tools\wait_ready.py" http://127.0.0.1:8787/health 30
+if errorlevel 1 (
+    set "FAILED_REASON=The restarted backend did not become ready within 30 seconds."
+    set "FAILED_CMD=%VENV_PYTHON% backend\tools\wait_ready.py http://127.0.0.1:8787/health 30"
+    goto :STARTUP_FAILED
+)
+goto :SERVE_VERIFY
+
+:SERVE_REPLACE_FAILED
+echo [ERROR] Could not put the current build in front of the operator:
+echo         port 8787 is held by a process that is not this launch, and it could
+echo         not be replaced safely (unrelated software is never killed).
+echo To see exactly what is running, use:
+echo    "%VENV_PYTHON%" "%ROOT%\backend\tools\frontend_build_guard.py" --scan
+set "FAILED_REASON=Port 8787 is answered by a process that is not this launch's backend and could not be replaced safely. Run the guard --scan for the identity of every listener, close the conflicting instance, and launch again."
+set "FAILED_CMD=%VENV_PYTHON% backend\tools\frontend_build_guard.py --root . --scan"
+goto :STARTUP_FAILED
+
+:SERVE_OK
+echo [OK] Confirmed: the dashboard is served by this launch's backend, from this code.
+echo [OK] Serving frontend\dist built from the current frontend\src (token %LAB_START_TOKEN%).
+echo [OK] post-start identity confirmed: token %LAB_START_TOKEN%, build %LAB_BUILD_STAMP%. >> "%STARTUP_LOG%"
 echo.
 
 REM ---------------------------------------------------------------------------
@@ -302,8 +355,13 @@ echo Dashboard:
 echo http://127.0.0.1:8787
 echo.
 echo [OK] Dashboard available at: http://127.0.0.1:8787 >> "%STARTUP_LOG%"
-start http://127.0.0.1:8787/
-echo [OK] Browser launched. >> "%STARTUP_LOG%"
+REM The launcher always opens a URL that this exact build has never been opened
+REM with before. index.html is served no-store, but a browser that cached the
+REM shell before that rule existed would otherwise keep using it (with its old
+REM hashed assets) without ever asking this server. A build-unique query makes
+REM such a stale entry unreachable, so a normal launch is always the new build.
+start "" "http://127.0.0.1:8787/?v=%LAB_BUILD_STAMP%"
+echo [OK] Browser launched on build %LAB_BUILD_STAMP%. >> "%STARTUP_LOG%"
 
 :LAB_RUNNING_DISPLAY
 echo.

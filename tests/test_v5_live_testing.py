@@ -164,6 +164,81 @@ def test_10_describe_names_every_active_restriction():
 
 
 # ===========================================================================
+# 1b. the schedule the *run* applies is the schedule the operator saved
+# ===========================================================================
+def _m15_bars(start_iso: str, days: int, per_day: int = 96):
+    """Synthetic M15 bars for `days` consecutive days from midnight, 4/hour."""
+    import numpy as np
+    base = int(dt.datetime.fromisoformat(start_iso).replace(tzinfo=dt.timezone.utc).timestamp())
+    ts = base + np.arange(days * per_day, dtype=np.float64) * 900.0
+    down = ((ts // 86400).astype(np.int64) + 3) % 7
+    return ts, down
+
+
+def test_26_normalize_config_is_idempotent_for_the_enabled_flag():
+    """A config that has passed through normalize_config carries the
+    `enabled_explicit` marker; its `enabled` value is *derived*. Re-reading that
+    derived False as an explicit switch turns "not configured" into "switched
+    off" and silently zeroes every historical bar — the deep-backtest defect
+    where a scheduled node reported COMPLETED with 0 trades."""
+    raw = {"days": [0, 2], "sessions": ["london"], "start_time": "07:00", "end_time": "16:00"}
+    once = sched.normalize_config(raw)
+    twice = sched.normalize_config(once)
+    thrice = sched.normalize_config(twice)
+    assert once["enabled_explicit"] is False, once
+    assert twice == once, (once, twice)
+    assert thrice == once, (once, thrice)
+
+    # an explicit switch-off is still an explicit switch-off
+    off = sched.normalize_config({**raw, "enabled": False})
+    assert off["enabled_explicit"] is True and off["enabled"] is False
+    assert sched.normalize_config(off)["enabled_explicit"] is True
+
+    # legacy rows that only carry is_active are not explicit either
+    legacy = sched.normalize_config({**raw, "is_active": 1})
+    assert legacy["enabled_explicit"] is False and legacy["enabled"] is True
+
+
+def test_27_a_stored_schedule_still_restricts_the_historical_bars_after_a_round_trip():
+    """The exact run path: the schedule stored on the run is the normalised one,
+    and bar_mask() normalises again. The saved rules must still apply — 288 of
+    1850 bars for Mon/Wed + London, not 0."""
+    import numpy as np
+    saved = {"days": [0, 2], "sessions": ["london"], "timeframes": ["M15"],
+             "windows": [{"start": "07:00", "end": "16:00"}], "timezone": "UTC"}
+    rounded = sched.normalize_config(saved)                  # what the run stores
+    ts, down = _m15_bars("2026-09-07", days=21)              # Mon 2026-09-07, three weeks
+    session = np.array(["london"] * len(ts), dtype=object)
+    mask = sched.bar_mask(rounded, ts=ts, dow=down, session=session, regime=None)
+    assert int(mask.sum()) > 0, "a saved schedule blocked every bar (the double-normalisation defect)"
+    # every allowed bar is a Monday or a Wednesday inside the London window
+    allowed_days = down[mask]
+    assert set(allowed_days.tolist()) <= {0, 2}, set(allowed_days.tolist())
+    hours = ((ts[mask] // 3600) % 24).astype(int)
+    assert hours.min() >= 7 and hours.max() < 16, (hours.min(), hours.max())
+    # and the same call on the raw row gives the identical mask
+    assert np.array_equal(mask, sched.bar_mask(saved, ts=ts, dow=down, session=session, regime=None))
+
+    # a genuinely switched-off schedule blocks everything, before and after a round trip
+    for cfg in ({"days": [0, 2], "enabled": False}, sched.normalize_config({"days": [0, 2], "enabled": False})):
+        blocked = sched.bar_mask(cfg, ts=ts, dow=down, session=session, regime=None)
+        assert int(blocked.sum()) == 0, cfg
+
+
+def test_28_describe_and_evaluate_read_the_same_round_tripped_schedule():
+    """describe()/evaluate() are the UI's and the engine's readers of the same
+    dict; a round-tripped schedule must not read as "OFF" in either."""
+    saved = sched.normalize_config({"days": [0, 2], "sessions": ["london"],
+                                    "start_time": "07:00", "end_time": "16:00"})
+    text = sched.describe(saved)
+    assert not text.startswith("OFF"), text
+    assert "Mon" in text and "Wed" in text and "London" in text, text
+    verdict = sched.evaluate(saved, now=ts(2, 10))     # Wednesday 10:00 UTC
+    assert verdict["allowed"] is True, verdict
+    assert verdict["reason"] is None, verdict
+
+
+# ===========================================================================
 # 2. the engine consults the schedule (and the API exposes the same answer)
 # ===========================================================================
 @pytest.fixture

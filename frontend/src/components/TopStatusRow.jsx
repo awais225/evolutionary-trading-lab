@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { api } from "../api.js";
+import BuildIdentityChip from "./BuildIdentityChip.jsx";
 
 export default function TopStatusRow({ onOpenMt5Modal, onToggleGpu }) {
   const [data, setData] = useState(null);
@@ -198,6 +199,9 @@ export default function TopStatusRow({ onOpenMt5Modal, onToggleGpu }) {
           <span style={{ color: "var(--accent)" }}>{progress.fill_percentage?.toFixed(0) || 0}%</span>
           <span className="muted" style={{ fontSize: "10px" }}>({progress.milestone || "Ready"})</span>
         </button>
+
+        {/* 10. BUILD IDENTITY — which exact build this browser is running */}
+        <BuildIdentityChip />
       </div>
 
       {/* Popover Card */}

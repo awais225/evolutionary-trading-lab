@@ -523,10 +523,25 @@ def _resolve_dataset(db: Any, symbol: str, timeframe: str, scope: str,
         if (ds["source"] or "").upper() != wanted:
             continue
         return ds, ""
-    why = [f"{d['dataset_id']} ({d['source']}): {d['eligibility_reason']}"
-           for d in cat["datasets"] if d["symbol"] == symbol and d["timeframe"] == timeframe]
-    reason = (f"no eligible {wanted} dataset for {symbol} {timeframe}"
-              + (f" — checked: {'; '.join(why)}" if why else " — no stored dataset for that symbol/timeframe"))
+    # Nothing in the requested scope. Say precisely what IS available and, when
+    # the other scope has usable data, how to run against it deliberately —
+    # never substitute one source for another inside a run.
+    same_tf = [d for d in cat["datasets"] if d["symbol"] == symbol and d["timeframe"] == timeframe]
+    other = [d for d in effective_datasets(cat)
+             if d["symbol"] == symbol and d["timeframe"] == timeframe
+             and (d["source"] or "").upper() != wanted]
+    timeframes_here = sorted({d["timeframe"] for d in effective_datasets(cat) if d["symbol"] == symbol})
+    if other:
+        alt = other[0]
+        reason = (f"no {wanted} dataset for {symbol} {timeframe}; this installation stores that "
+                  f"symbol/timeframe as {alt['source']} ({alt['dataset_id']}, {alt.get('bars')} bars) — "
+                  f"run with data_scope={alt['source']} to test it explicitly")
+    elif same_tf:
+        why = "; ".join(f"{d['dataset_id']} ({d['source']}): {d['eligibility_reason']}" for d in same_tf)
+        reason = f"no eligible {wanted} dataset for {symbol} {timeframe} — checked: {why}"
+    else:
+        reason = (f"no stored dataset for {symbol} {timeframe} in any scope"
+                  + (f" — stored {symbol} timeframes: {', '.join(timeframes_here)}" if timeframes_here else ""))
     return None, reason
 
 

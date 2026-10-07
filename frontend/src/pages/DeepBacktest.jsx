@@ -207,6 +207,13 @@ export default function DeepBacktest() {
   const [sortBy, setSortBy] = useState("total_return_pct");
   const [sortDesc, setSortDesc] = useState(true);
   const [nodeFilter, setNodeFilter] = useState("qualified"); // §6: qualified by default
+  /* §15 — which stored history a run uses. MT5 (the terminal's own bars) is the
+   * default and is never substituted silently: when a symbol/timeframe only
+   * exists in the lab's own dataset, the run is refused with the exact reason
+   * and the operator picks the source here. ``runTf`` overrides the node's own
+   * timeframe for a run, so a different timeframe really is a different test. */
+  const [dataScope, setDataScope] = useState("MT5");
+  const [runTf, setRunTf] = useState("");
   const [counts, setCounts] = useState({});
   const [experiment, setExperiment] = useState(null);
   const [openRun, setOpenRun] = useState(null);
@@ -270,6 +277,15 @@ export default function DeepBacktest() {
     return () => clearInterval(pollRef.current);
   }, [loadRuns]);
 
+  /* The timeframes this installation actually stores (plus the standard set, so
+   * the operator can ask for one and be told precisely what is missing). */
+  const runTfOptions = useMemo(() => {
+    const set = new Set();
+    for (const d of arr(caps?.datasets)) { if (d?.timeframe) set.add(String(d.timeframe)); }
+    for (const t of ["M1", "M5", "M15", "M30", "H1", "H4", "D1"]) set.add(t);
+    return [...set].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  }, [caps]);
+
   // the backend already filtered by bucket; only the local "starred" toggle applies
   const visible = starredOnly ? rows.filter((r) => r.starred) : rows;
 
@@ -287,7 +303,8 @@ export default function DeepBacktest() {
       const res = await api.mt5HistoricalStartRun({
         strategy_id: row.node_id,
         symbol: row.symbol,
-        timeframe: row.timeframe,
+        timeframe: runTf || row.timeframe,
+        data_scope: dataScope,
         start_date: range.start_date,
         end_date: range.end_date,
         schedule_at: schedule.mode === "at" && schedule.at ? new Date(schedule.at).toISOString() : undefined,
@@ -311,6 +328,8 @@ export default function DeepBacktest() {
     try {
       const res = await api.mt5HistoricalStartBatch({
         strategy_ids: ids,
+        data_scope: dataScope,
+        timeframe: runTf || undefined,
         start_date: range.start_date,
         end_date: range.end_date,
         schedule_at: schedule.mode === "at" && schedule.at ? new Date(schedule.at).toISOString() : undefined,
@@ -412,8 +431,29 @@ export default function DeepBacktest() {
               <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
             </>
           )}
+          <label className="field" style={{ width: 190 }}>
+            <span>Data source</span>
+            <select value={dataScope} onChange={(e) => setDataScope(e.target.value)}>
+              {arr(caps?.scope?.options).length > 0
+                ? arr(caps.scope.options).map((o) => (
+                    <option key={o} value={o}>{o === "MT5" ? "MT5 — terminal's own bars" : "Lab simulator dataset"}</option>
+                  ))
+                : [<option key="MT5" value="MT5">MT5 — terminal's own bars</option>,
+                   <option key="SIM" value="SIMULATOR">Lab simulator dataset</option>]}
+            </select>
+          </label>
+          <label className="field" style={{ width: 170 }}>
+            <span>Run timeframe</span>
+            <select value={runTf} onChange={(e) => setRunTf(e.target.value)}>
+              <option value="">node's own (auto)</option>
+              {runTfOptions.map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+          </label>
           <span className="muted" style={{ fontSize: 10 }}>
-            runs will request {range.start_date || "—"} → {range.end_date || "—"} (MT5 history for this node's timeframe)
+            runs will request {range.start_date || "—"} → {range.end_date || "—"} from {dataScope}
+            {runTf ? ` on ${runTf}` : " on each node's own timeframe"}
             {range.valid ? "" : " — invalid range"}
           </span>
         </div>

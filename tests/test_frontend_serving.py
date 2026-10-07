@@ -235,14 +235,54 @@ def test_system_build_flags_a_stale_bundle(tmp_path):
     assert body["reasons"], "a stale bundle must say why"
 
 
+def _as_process_payload(root, *, token="LAB-PYTEST-1", code_hash=None, pid=1234,
+                        bundle_changed=None):
+    g = _guard()
+    """A /system/build payload from a *running* instance: the bundle fields the
+    filesystem check uses, plus the runtime identity the process states about
+    itself (this is what makes the launch decision about the process, not just
+    about the files on disk)."""
+    sys_payload = fb.served_payload(root)
+    local_code = g_code_hash(root)
+    payload = dict(sys_payload)
+    payload["process"] = {
+        "pid": pid, "started_iso": "2026-01-01T00:00:00Z", "uptime_s": 5.0,
+        "start_token": token, "code_hash": code_hash or local_code,
+        "cwd": str(root), "python": "pytest",
+    }
+    changed = (sys_payload.get("src_hash") is None) if bundle_changed is None else bundle_changed
+    payload["served"] = {
+        "root": str(root), "src_hash": sys_payload.get("src_hash"),
+        "status": sys_payload.get("dist_status"),
+        "index_sha256": sys_payload.get("index_sha256"),
+        "entry_assets": sys_payload.get("entry_assets") or [],
+        "dist_matches_src": sys_payload.get("dist_matches_src"),
+        "changed_since_start": bool(changed),
+        "code_changed_since_start": False,
+    }
+    return payload
+
+
+def g_code_hash(root):
+    """The guard's own view of the backend code fingerprint (must agree with
+    app.runtime_identity.code_fingerprint for a reported instance to be reused)."""
+    return _guard().local_code_hash(root)
+
+
 def test_verify_served_compares_root_and_source_hash(tmp_path, capsys):
-    """The launcher's decision: reuse the running instance, or replace it."""
+    """The launcher's decision: reuse the running instance, or replace it.
+
+    The identity of the *process* is part of the decision, not only the identity
+    of the files on disk: a payload without runtime identity comes from a backend
+    started before this mechanism existed and must be replaced (15), and a process
+    that reports the current code + bundle + this launch's token is reused (0).
+    """
     g = _guard()
     fe = _make_app(tmp_path)
     _make_dist(tmp_path, fe)
     fb.write_stamp(tmp_path, built_by="pytest")
 
-    served = fb.served_payload(tmp_path)                 # what the instance would answer
+    served = _as_process_payload(tmp_path)               # what the instance would answer
     payload = json.dumps(served)
 
     # nothing listening -> unreachable (the launcher then just starts its own)
@@ -262,13 +302,30 @@ def test_verify_served_compares_root_and_source_hash(tmp_path, capsys):
         urllib.request.urlopen = lambda req, timeout=3.0: _Resp(payload)
         assert g.cmd_verify_served(tmp_path, "http://127.0.0.1:8787") == 0
 
+        # the same files, but the answering process runs different code -> 15
+        stale = _as_process_payload(tmp_path, code_hash="0" * 64)
+        urllib.request.urlopen = lambda req, timeout=3.0: _Resp(json.dumps(stale))
+        assert g.cmd_verify_served(tmp_path, "http://127.0.0.1:8787") == 15
+
+        # a payload with no runtime identity at all (pre-identity backend) -> 15
+        legacy = dict(fb.served_payload(tmp_path))
+        urllib.request.urlopen = lambda req, timeout=3.0: _Resp(json.dumps(legacy))
+        assert g.cmd_verify_served(tmp_path, "http://127.0.0.1:8787") == 15
+
+        # an expected token from another launch -> 15 (not the instance we started)
+        urllib.request.urlopen = lambda req, timeout=3.0: _Resp(payload)
+        assert g.cmd_verify_served(tmp_path, "http://127.0.0.1:8787", expect_token="LAB-OTHER") == 15
+
         # same repository, older build -> 12 (replace)
-        older = dict(served); older["src_hash"] = "0" * 64; older["dist_matches_src"] = False
+        older = _as_process_payload(tmp_path)
+        older["src_hash"] = "0" * 64; older["dist_matches_src"] = False
+        older["served"] = dict(older["served"], src_hash="0" * 64, dist_matches_src=False)
         urllib.request.urlopen = lambda req, timeout=3.0: _Resp(json.dumps(older))
         assert g.cmd_verify_served(tmp_path, "http://127.0.0.1:8787") == 12
 
         # a different repository -> 11 (never silently reused)
-        foreign = dict(served); foreign["backend_root"] = str(tmp_path / "elsewhere")
+        foreign = _as_process_payload(tmp_path)
+        foreign["backend_root"] = str(tmp_path / "elsewhere")
         urllib.request.urlopen = lambda req, timeout=3.0: _Resp(json.dumps(foreign))
         assert g.cmd_verify_served(tmp_path, "http://127.0.0.1:8787") == 11
     finally:

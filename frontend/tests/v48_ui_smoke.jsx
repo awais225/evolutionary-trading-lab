@@ -252,6 +252,8 @@ let EXEC_STATE_STUB = EXEC_STATE;
 export function setExecutionState(value) { EXEC_STATE_STUB = value; }
 
 let PREVIEW_RESPONSE = PREVIEW_OK;
+/** the most recent preview request body, so a stub can echo a real calculation */
+let LAST_PREVIEW_BODY = {};
 let PLACE_RESPONSE = { ok: true, order_ticket: 5512345, retcode: 10009,
                        result_message: "Request executed", volume: 0.06, symbol: "XAUUSD", side: "BUY" };
 let PLACE_OK = true;
@@ -297,7 +299,7 @@ export function payloadFor(path, method = "GET") {
   if (path.includes("/api/live-testing/nodes/")) { nodesTablePosts.push(path); return { ok: true, is_active: true, status: "RUNNING" }; }
   if (path.includes("/api/power/shutdown")) { return { ok: true, dry_run: true, steps: [], backend_stopping: false }; }
   if (path.includes("/api/mt5-execution/preview")) {
-    return typeof PREVIEW_RESPONSE === "function" ? PREVIEW_RESPONSE() : PREVIEW_RESPONSE;
+    return typeof PREVIEW_RESPONSE === "function" ? PREVIEW_RESPONSE(LAST_PREVIEW_BODY) : PREVIEW_RESPONSE;
   }
   if (path.includes("/api/mt5-execution/place")) {
     if (!PLACE_OK) {
@@ -579,6 +581,7 @@ export async function runSmoke() {
       let body = {};
       try { body = JSON.parse(opts.body || "{}"); } catch { body = {}; }
       previewPosts.push({ url: urlStr, body });
+      LAST_PREVIEW_BODY = body;      // lets a stub answer *what was actually asked*
     }
     if (urlStr.includes("/api/live-testing/schedule/") && String(opts.method || "GET").toUpperCase() === "POST") {
       let body = {};
@@ -912,6 +915,130 @@ export async function runSmoke() {
     } finally {
       try { await act(async () => { root.unmount(); }); } catch {}
       setExecutionState(EXEC_STATE);          // back to the honest simulator state
+    }
+  }
+
+  {
+    /* V5.1a §11 — a broker-spec sizing round trip in the DOM.
+     *
+     * The stub answers the way the *backend* answers (the maths itself lives in
+     * app/live_testing/risk.py and is covered by the Python broker-spec tests):
+     * entry = ask for BUY / bid for SELL, stop and target from pips, and a
+     * volume that depends on the money at risk. What is verified here is the
+     * panel: it must ask on every input change, must carry the risk amount and
+     * the correct side's entry price, and must show what the backend returned —
+     * never a stale number and never a zero. */
+    const marketSnapshot = snapshotMarket();
+    const brokerMarket = { symbol: "XAUUSD", source: "MT5", bid: 2400.0, ask: 2400.3,
+                           spread: 3, session_status: "london", trading_available: true,
+                           reasons: [], tick_age_s: 0.4, market_open: true,
+                           indicators: null, bar_close_in: 12 };
+    setMarket(brokerMarket);
+    const PIP = 0.1;                     // broker spec: 1 pip = 10 points = 0.10
+    setPreviewResponse((body) => {
+      const side = String(body.side || "BUY").toUpperCase();
+      const entry = Number(body.entry);
+      const slPips = Number(body.sl_pips || 0);
+      const tpPips = Number(body.tp_pips || 0);
+      const sl = side === "BUY" ? entry - slPips * PIP : entry + slPips * PIP;
+      const tp = side === "BUY" ? entry + tpPips * PIP : entry - tpPips * PIP;
+      const risk = Number(body.risk_amount || 0);
+      const volume = risk > 0 ? Number((risk / 100).toFixed(2)) : null;   // 1 lot risks $100/300 pips
+      return {
+        ok: true, mode: "risk_to_lot",
+        symbol_info: { symbol: "XAUUSD", digits: 2, point: 0.01, tick_size: 0.01, tick_value: 1.0,
+                       volume_min: 0.01, volume_max: 100, volume_step: 0.01, source: "MT5" },
+        quote: { bid: 2400.0, ask: 2400.3, ts: Date.now() / 1000, source: "MT5" },
+        levels: { entry, sl, tp, sl_pips: slPips, tp_pips: tpPips, pip_size: PIP,
+                  points_per_pip: 10, sl_from_pips: true, tp_from_pips: true, warnings: [] },
+        sizing: { volume, actual_risk: risk, risk_per_lot: 100, rounded_down: true },
+        estimate: { loss_at_sl: -risk, profit_at_tp: risk * 2, reward_risk: 2,
+                    basis: "broker tick size/value" },
+        blocked: null,
+      };
+    });
+    previewPosts.length = 0;
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    try {
+      await act(async () => { root.render(wrap(<ManualOrderPanel />)); });
+      await act(async () => { await new Promise((r) => setTimeout(r, 400)); });
+
+      const first = previewPosts[previewPosts.length - 1];
+      if (!first) throw new Error("the panel never asked for a preview");
+      if (Number(first.body.risk_amount) !== 10) {
+        throw new Error(`the default target amount was not sent as the risk amount: ${JSON.stringify(first.body)}`);
+      }
+      if (Number(first.body.sl_pips) !== 300) {
+        throw new Error(`the default stop distance was not sent: ${JSON.stringify(first.body)}`);
+      }
+      if (Number(first.body.entry) !== 2400.3) {
+        throw new Error(`a BUY must be sized from the live ASK (2400.3), sent ${first.body.entry}`);
+      }
+      let text = container.textContent || "";
+      if (!text.includes("0.1")) {
+        throw new Error(`the broker-spec volume is not shown … "${text.slice(0, 240)}"`);
+      }
+
+      // changing the target amount recalculates immediately, from the new value
+      const setField = async (labelText, value) => {
+        const labels = Array.from(container.querySelectorAll("label"));
+        const label = labels.find((l) => (l.textContent || "").includes(labelText));
+        const input = label && label.querySelector("input, select");
+        if (!input) {
+          throw new Error(`no input for "${labelText}" (labels: ${labels.map((l) => (l.textContent || "").trim()).join(" | ")})`);
+        }
+        await act(async () => {
+          const proto = input.tagName === "SELECT" ? window.HTMLSelectElement.prototype : window.HTMLInputElement.prototype;
+          Object.getOwnPropertyDescriptor(proto, "value").set.call(input, String(value));
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+          input.dispatchEvent(new Event("change", { bubbles: true }));
+          await Promise.resolve();
+        });
+      };
+      const beforeRisk = previewPosts.length;
+      await setField("Amount / risk", "20");
+      await act(async () => { await new Promise((r) => setTimeout(r, 400)); });
+      if (previewPosts.length <= beforeRisk) {
+        throw new Error("changing the target amount did not trigger a recalculation");
+      }
+      const second = previewPosts[previewPosts.length - 1];
+      if (Number(second.body.risk_amount) !== 20) {
+        throw new Error(`the new target amount was not sent: ${JSON.stringify(second.body)}`);
+      }
+      text = container.textContent || "";
+      if (!text.includes("0.2")) {
+        throw new Error(`the volume did not follow the target amount (expected 0.2) … "${text.slice(0, 240)}"`);
+      }
+
+      // a SELL must be sized from the live BID, and its levels mirrored
+      const beforeSide = previewPosts.length;
+      await setField("Side", "SELL");
+      await act(async () => { await new Promise((r) => setTimeout(r, 400)); });
+      const sidePost = previewPosts.slice(beforeSide).find((p) => String(p.body.side).toUpperCase() === "SELL")
+        || previewPosts[previewPosts.length - 1];
+      if (String(sidePost.body.side).toUpperCase() !== "SELL") {
+        throw new Error(`switching to SELL did not reach the backend: ${JSON.stringify(sidePost.body)}`);
+      }
+      if (Number(sidePost.body.entry) !== 2400.0) {
+        throw new Error(`a SELL must be sized from the live BID (2400.0), sent ${sidePost.body.entry}`);
+      }
+
+      // and nothing in the panel reports a zero for a size the backend gave
+      const zeros = Array.from(container.querySelectorAll(".mono"))
+        .map((n) => (n.textContent || "").trim())
+        .filter((t) => /^(0|0\.0+|\$0(\.00)?)$/.test(t));
+      if (zeros.length) {
+        throw new Error(`the panel shows a zero where a real value is expected: ${zeros.join(", ")}`);
+      }
+      results.push({ label: "ManualOrderPanel:broker-spec-sizing", ok: true });
+    } catch (e) {
+      results.push({ label: "ManualOrderPanel:broker-spec-sizing", ok: false, error: e.message || String(e) });
+    } finally {
+      try { await act(async () => { root.unmount(); }); } catch {}
+      restoreMarketSnapshot(marketSnapshot);
+      setPreviewResponse(PREVIEW_OK);
     }
   }
 

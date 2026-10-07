@@ -252,9 +252,21 @@ def normalize_config(config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         windows = [{"start": str(cfg["start_time"]), "end": str(cfg["end_time"]),
                     "enabled": True}]
 
-    enabled_raw = cfg.get("enabled", cfg.get("is_active"))
+    # "enabled" is only *explicit* when the input actually says so. A config that
+    # has already passed through here carries the `enabled_explicit` marker; its
+    # `enabled` key is then a derived value, and re-reading it as an explicit
+    # switch would flip "not configured" into "switched off" — which silently
+    # zeroes every bar of a historical run. This function must be idempotent
+    # because its own output is re-normalised by describe(), bar_mask(), evaluate()
+    # and the run builder.
+    # Only the schedule's own switch counts as explicit. ``is_active`` is the
+    # node's live *arming* state (START/STOP), not a rule: reading it as an
+    # explicit switch-off would make a deep backtest of a not-currently-armed node
+    # block every bar and report COMPLETED with 0 trades.
+    enabled_raw = cfg.get("enabled")
+    if cfg.get("enabled_explicit") is False:
+        enabled_raw = None
     if enabled_raw is None:
-        # legacy rows carry is_active only; an already-enabled node keeps working
         enabled = bool(cfg.get("is_active"))
         enabled_explicit = False
     else:

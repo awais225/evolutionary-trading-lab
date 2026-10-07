@@ -342,6 +342,16 @@ export function ManualOrderPanel({ defaultSymbol = "XAUUSD" }) {
           <label className="fld">Symbol
             <input value={form.symbol} onChange={(e) => up("symbol", e.target.value.toUpperCase())} className="mono" />
           </label>
+          {/* §11 — the side is part of the calculation, not just of the order:
+              a BUY is sized from the live ASK, a SELL from the live BID. The
+              operator can therefore check both directions here even while the
+              send buttons are blocked; sending still requires the gates. */}
+          <label className="fld">Side <span className="muted">(BUY sizes from ask, SELL from bid)</span>
+            <select value={form.side} onChange={(e) => up("side", e.target.value)} className="mono">
+              <option value="BUY">BUY — sized from the live ask</option>
+              <option value="SELL">SELL — sized from the live bid</option>
+            </select>
+          </label>
           <label className="fld">Amount / risk (money)
             <input value={form.risk} onChange={(e) => { setSizeMode("risk"); up("risk", e.target.value); }} className="mono" placeholder="e.g. 10" />
           </label>

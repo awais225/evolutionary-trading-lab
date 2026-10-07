@@ -365,11 +365,16 @@ def test_unknown_dataset_in_a_request_is_rejected_before_queueing(db):
     - rather than an environment-dependent artifact state.
     """
     cfg, errors = hb.validate_request(valid_body(symbol="NOSUCHSYM", timeframe="M99"), db=db)
-    assert cfg is None and "no eligible" in errors[0]["error"]
+    # V5.1a wording: the refusal names the symbol/timeframe and states that no
+    # scope stores it, instead of a generic "no eligible dataset".
+    assert cfg is None, errors
+    assert "no stored dataset" in errors[0]["error"], errors
+    assert "NOSUCHSYM" in errors[0]["error"] and "M99" in errors[0]["error"], errors
 
     cfg2, errors2 = hb.validate_request(valid_body(symbol="XAUUSD", timeframe="M15"), db=db)
     assert cfg2 is None and errors2, "an out-of-range period must be refused"
-    assert any(("period" in e["error"]) or ("no eligible" in e["error"]) for e in errors2), errors2
+    assert any(("period" in e["error"]) or ("no eligible" in e["error"]) or ("no MT5 dataset" in e["error"])
+               for e in errors2), errors2
 
 
 def test_stale_running_rows_are_reconciled(db):
@@ -545,8 +550,13 @@ def test_historical_backtest_never_calls_any_order_path(db, monkeypatch):
 
 def test_simulator_scope_never_claims_mt5(db):
     # no SIMULATOR dataset for this symbol exists in the fixture -> honest refusal
+    # that names the scope which *does* store it, so the operator can choose it
+    # explicitly (the two scopes are never silently substituted for one another).
     cfg, errors = hb.validate_request(valid_body(data_scope="SIMULATOR"), db=db)
-    assert cfg is None and "no eligible SIMULATOR dataset" in errors[0]["error"]
+    assert cfg is None, errors
+    text = errors[0]["error"]
+    assert "no SIMULATOR dataset" in text, text
+    assert "MT5" in text and "data_scope=MT5" in text, text
 
 
 def test_diagnostic_legacy_run_is_marked_and_excluded_by_default(db):

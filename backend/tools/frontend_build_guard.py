@@ -11,12 +11,16 @@ Exit codes
   ``--check``            0 = fresh, 10 = stale/missing/unstamped (build needed),
                          20 = broken bundle
   ``--stamp``            0 = stamp written, 1 = nothing to stamp
-  ``--verify-served URL``0 = the running instance serves THIS repository at the
-                         CURRENT source hash
+  ``--verify-served URL``0 = the running instance serves THIS repository, from
+                         THIS source, with THIS bundle, by the process the
+                         launcher started (when --expect-token is given)
                          11 = different repository/root
                          12 = same repository, but an older/different build
                          13 = instance is an older lab build without /system/build
                          14 = nothing answering on that URL
+                         15 = the answering PROCESS is stale — started from
+                              different code, or before the current bundle was
+                              built, or it is not the process we just started
   ``--identify URL``     0 = it is this lab answering, 1 = not this lab
   ``--stop URL``         0 = a lab instance identified and stopped (port freed),
                          3 = occupant is not this lab (nothing was touched),
@@ -39,7 +43,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Sequence, Tuple
 
 ROOT_DEFAULT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT_DEFAULT / "backend"))
@@ -254,8 +258,18 @@ def _served(url: str) -> Tuple[int, Dict[str, Any]]:
     return 14, {}
 
 
-def cmd_verify_served(root: Path, url: str) -> int:
+def local_code_hash(root: Path) -> str:
+    """The code fingerprint of the checkout on disk (same function the backend uses)."""
+    try:
+        from app.runtime_identity import code_fingerprint
+        return str(code_fingerprint(Path(root))["code_hash"])
+    except Exception:                                                 # pragma: no cover - defensive
+        return ""
+
+
+def cmd_verify_served(root: Path, url: str, expect_token: Optional[str] = None) -> int:
     local = fb.check_dist(root)
+    local_code = local_code_hash(root)
     code, served = _served(url)
     if code == 13:
         emit({"SERVED_STATUS": "LEGACY_INSTANCE",
@@ -272,6 +286,19 @@ def cmd_verify_served(root: Path, url: str) -> int:
     served_root = str(served.get("backend_root") or "")
     same_root = os.path.normcase(os.path.abspath(served_root)) == os.path.normcase(os.path.abspath(str(root)))
     served_hash = str(served.get("src_hash") or "")
+    proc = served.get("process") or {}
+    loaded = served.get("loaded") or {}
+    serving = served.get("served") or {}
+
+    proc_code = str(proc.get("code_hash") or "")
+    proc_token = str(proc.get("start_token") or "")
+    proc_stale_code = bool(local_code and proc_code and proc_code != local_code)
+    proc_no_code = not proc_code                      # a build that predates identity
+    bundle_changed = bool(serving.get("changed_since_start"))
+    token_mismatch = bool(expect_token and proc_token != expect_token)
+    loaded_index = str(loaded.get("index_sha256") or "")
+    local_index = str(local.get("index_sha256") or "")
+
     emit({
         "SERVED_STATUS": served.get("dist_status"),
         "SERVED_ROOT": served_root,
@@ -282,7 +309,18 @@ def cmd_verify_served(root: Path, url: str) -> int:
         "SERVED_MATCHES_LOCAL_SRC": served_hash == local["src_hash"],
         "SERVED_DIST_MATCHES_SRC": bool(served.get("dist_matches_src")),
         "SERVED_REASONS": served.get("reasons"),
+        "PROCESS_PID": proc.get("pid"),
+        "PROCESS_STARTED": proc.get("started_iso"),
+        "PROCESS_UPTIME_S": proc.get("uptime_s"),
+        "PROCESS_TOKEN": proc_token or None,
+        "PROCESS_CODE_HASH": proc_code[:16] or None,
+        "LOCAL_CODE_HASH": local_code[:16] or None,
+        "PROCESS_CODE_IS_CURRENT": (proc_code == local_code) if (proc_code and local_code) else None,
+        "PROCESS_BUNDLE_IS_CURRENT": (loaded_index == local_index) if (loaded_index and local_index) else None,
+        "PROCESS_BUNDLE_CHANGED_SINCE_START": bundle_changed,
+        "EXPECTED_TOKEN": expect_token or None,
     })
+
     if not same_root:
         print(f"[ACTION] the instance on this port serves a different repository "
               f"({served_root or 'unknown'}), not {root}.", flush=True)
@@ -290,8 +328,75 @@ def cmd_verify_served(root: Path, url: str) -> int:
     if served_hash != local["src_hash"] or not served.get("dist_matches_src"):
         print("[ACTION] the instance on this port serves an older/different frontend build.", flush=True)
         return 12
-    print("[OK] the running instance serves this repository at the current build.", flush=True)
+
+    # ---- the filesystem agrees; now prove the PROCESS agrees -----------------
+    if expect_token and token_mismatch:
+        print(f"[ACTION] the process answering on this port is not the instance this launcher "
+              f"started (start token {proc_token or 'absent'} != {expect_token}).", flush=True)
+        return 15
+    if proc_no_code:
+        print("[ACTION] the answering process predates runtime identity, so it cannot be proven "
+              "to run the current code; it must be restarted.", flush=True)
+        return 15
+    if proc_stale_code:
+        print(f"[ACTION] the answering process was started from different backend code "
+              f"({proc_code[:16]}) than the checkout on disk ({local_code[:16]}) - "
+              f"a stale process, not a stale bundle.", flush=True)
+        return 15
+    if bundle_changed:
+        print("[ACTION] the answering process survived a rebuild: it was started with bundle "
+              f"{loaded_index[:16]}, the current bundle is {local_index[:16]}.", flush=True)
+        return 15
+    print("[OK] the running instance serves this repository at the current build, "
+          "from the current code, with the current bundle.", flush=True)
     return 0
+
+
+def cmd_scan(root: Path, ports: Sequence[int] = (8787, 5173)) -> int:
+    """Report every lab-ish listener and the identity it presents.
+
+    This answers, from the machine itself, "which physical index.html is my
+    application serving?" — including the trap where a browser was opened on a
+    dev server, or on a second checkout's backend.
+    """
+    found = 0
+    local_src = fb.check_dist(root)["src_hash"][:16]
+    emit({"SCAN_LOCAL_ROOT": str(root), "SCAN_LOCAL_SRC_HASH": local_src,
+          "SCAN_PORTS": list(ports)})
+    for port in ports:
+        if not port_listening("127.0.0.1", port):
+            emit({f"PORT_{port}": "free"})
+            continue
+        pid = pid_on_port(port)
+        base = f"http://127.0.0.1:{port}"
+        code, body = _get_json(f"{base}/system/build", timeout=2.5)
+        if code == 200 and isinstance(body, dict):
+            proc = body.get("process") or {}
+            found += 1
+            emit({f"PORT_{port}": "lab-backend",
+                  f"PORT_{port}_PID": pid or proc.get("pid"),
+                  f"PORT_{port}_ROOT": body.get("backend_root"),
+                  f"PORT_{port}_SRC_HASH": str(body.get("src_hash") or "")[:16],
+                  f"PORT_{port}_DIST": body.get("frontend_dist"),
+                  f"PORT_{port}_INDEX_HTML": str(Path(str(body.get("frontend_dist") or "")) / "index.html"),
+                  f"PORT_{port}_SERVED_INDEX": str((body.get("served") or {}).get("index_sha256") or "")[:16],
+                  f"PORT_{port}_ENTRY_ASSETS": (body.get("served") or {}).get("entry_assets"),
+                  f"PORT_{port}_TOKEN": (proc.get("start_token") or None),
+                  f"PORT_{port}_STARTED": proc.get("started_iso")})
+            continue
+        code, health = _get_json(f"{base}/health", timeout=2.5)
+        if is_this_lab(base) or (isinstance(health, dict) and "startup" in health):
+            found += 1
+            emit({f"PORT_{port}": "lab-backend-legacy", f"PORT_{port}_PID": pid,
+                  f"PORT_{port}_NOTE": "predates /system/build: identity cannot be read, "
+                                       "this instance must not be reused"})
+            continue
+        kind = "possibly-frontend-dev-server" if port == 5173 else "foreign"
+        emit({f"PORT_{port}": kind, f"PORT_{port}_PID": pid,
+              f"PORT_{port}_NOTE": ("a browser opened on this port shows whatever that process "
+                                    "serves - it is not the launcher's dashboard" if kind != "foreign"
+                                    else "unrelated software: never touched by this lab")})
+    return 0 if found else 1
 
 
 def cmd_identify(url: str) -> int:
@@ -363,6 +468,11 @@ def main(argv: Optional[list] = None) -> int:
     ap.add_argument("--summary", action="store_true", help="print a JSON summary of the bundle identity")
     ap.add_argument("--print-summary", dest="summary", action="store_true", help=argparse.SUPPRESS)
     ap.add_argument("--verify-served", metavar="URL", help="compare a running instance with this root/build")
+    ap.add_argument("--expect-token", metavar="TOKEN",
+                    help="require the answering process to present this start token (proves it is "
+                         "the process this launch started)")
+    ap.add_argument("--scan", action="store_true",
+                    help="report every lab-ish listener (8787/5173) and the identity it presents")
     ap.add_argument("--identify", metavar="URL", help="is the instance on URL this lab?")
     ap.add_argument("--stop", metavar="URL", help="stop a lab instance on URL (graceful, else exact PID)")
     ap.add_argument("--port", type=int, default=8787, help="dashboard port (default 8787)")
@@ -375,7 +485,9 @@ def main(argv: Optional[list] = None) -> int:
     if args.summary:
         return cmd_summary(root)
     if args.verify_served:
-        return cmd_verify_served(root, args.verify_served)
+        return cmd_verify_served(root, args.verify_served, expect_token=args.expect_token)
+    if args.scan:
+        return cmd_scan(root)
     if args.identify:
         return cmd_identify(args.identify)
     if args.stop:

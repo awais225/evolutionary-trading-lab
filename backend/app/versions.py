@@ -18,6 +18,13 @@ APP_VERSION = "3.6"
 APP_NAME = "EVOLUTIONARY TRADING RESEARCH LAB V3.6"
 FULL_VERSION_STRING = "EVOLUTIONARY TRADING RESEARCH LAB V3.6"
 
+#: Product release the operator is running (V5.1a). This is a *label*, kept
+#: deliberately outside ``manifest()`` so that the engine-generation digests in
+#: stored experiments and backtest fingerprints cannot change because a release
+#: was named. It is what ``/system/build`` and the dashboard's Build chip show,
+#: next to the commit and the frontend fingerprint.
+PRODUCT_RELEASE = "V5.1a"
+
 # Schema versions — bump when the corresponding structure/semantics change.
 DB_SCHEMA_VERSION = 3          # SQLite migration target (PRAGMA user_version)
 DATA_SCHEMA_VERSION = 3        # V3.6 authoritative persistent DATA root + node ledger

@@ -33,7 +33,14 @@ echo [LAUNCHER] Launcher execution confirmed
 echo Root Directory:    %ROOT%
 echo Working Directory: %CD%
 echo Python:            %PYTHON_EXE%
+echo Launch token:      %EVOLUTIONARY_LAB_START_TOKEN%
 echo.
+REM Name the exact build this process is about to serve: the dashboard's Build
+REM chip and /system/build report the same values, so what is running is never
+REM a matter of opinion.
+if exist "%ROOT%\backend\tools\frontend_build_guard.py" (
+    "%PYTHON_EXE%" "%ROOT%\backend\tools\frontend_build_guard.py" --root "%ROOT%" --summary
+)
 
 "%PYTHON_EXE%" -m uvicorn app.main:app --host 127.0.0.1 --port 8787
 

@@ -75,6 +75,19 @@ async def startup() -> None:
     background bootstrap is the DATA scanning work that used to delay the
     listening socket by over a second.
     """
+    # Runtime identity: state out loud which build this process was born with,
+    # so the launcher's log and the operator's console always name it.
+    try:
+        from .runtime_identity import snapshot, process_identity
+        _snap = snapshot()
+        _proc = process_identity()
+        log.info("runtime identity: pid=%s started=%s token=%s code=%s bundle_index=%s",
+                 _proc["pid"], _proc["started_iso"], _proc["start_token"] or "-",
+                 str(_snap.get("code_hash"))[:16],
+                 str((_snap.get("bundle") or {}).get("index_sha256"))[:16])
+    except Exception as e:                                        # pragma: no cover - defensive
+        log.warning("runtime identity could not be established: %s", e)
+
     # Frontend bundle identity: never let a stale dashboard be served silently.
     try:
         from .frontend_build import check_dist
@@ -404,15 +417,29 @@ def root_system_status():
 def system_build():
     """What this backend is *actually* serving on ``/`` and from where.
 
-    The launcher (``start.bat``) reads this to decide whether an instance that is
-    already listening serves *this* repository at the *current* build, instead of
-    assuming that any process answering ``/health`` is up to date. It also lets
-    an operator see at a glance whether ``frontend/dist`` was built from the
-    ``frontend/src`` currently on disk.
+    Two independent statements are reported, because they can disagree:
+
+    * the **filesystem** — which ``frontend/src`` is on disk, whether
+      ``frontend/dist`` was built from it (``dist_status``);
+    * the **process** — which source and which bundle *this* process was born
+      with (``process`` / ``loaded``), plus what it would serve right now
+      (``served``).
+
+    A backend that survived a rebuild has ``loaded.index_sha256`` different from
+    ``served.index_sha256``, and one started from older code has a
+    ``process.code_hash`` that no longer matches the tree on disk. The launcher
+    uses exactly those two facts to decide whether the instance answering on the
+    dashboard port is the current one or must be replaced — "it answered
+    ``/health``" is never enough.
     """
     from .frontend_build import served_payload
+    from .runtime_identity import identity_report
     serving = "static" if (FRONTEND_DIST / "index.html").exists() else "fallback"
-    return served_payload(ROOT, serving=serving)
+    payload = served_payload(ROOT, serving=serving)
+    payload.update(identity_report(serving, root=ROOT))
+    # the filesystem verdict stays authoritative for the bundle on disk
+    payload["dist_status"] = served_payload(ROOT, serving=serving)["dist_status"]
+    return payload
 
 
 # ---- serve built frontend (single-port mode) ----
