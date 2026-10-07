@@ -4,6 +4,7 @@ import { useLab } from "../App.jsx";
 import { Metric, Pill, EventFeed, SignedNum, ErrorNote } from "../components/common.jsx";
 import NewResearchRunModal from "../components/NewResearchRunModal.jsx";
 import PowerButton from "../components/PowerButton.jsx";
+import NodePopulationStrip from "../components/NodePopulationStrip.jsx";
 
 export default function Overview() {
   const { status, events, connected, refreshStatus, openStrategy } = useLab();
@@ -416,6 +417,9 @@ export default function Overview() {
         />
       )}
       <div className="flex justify-between items-center" style={{ marginBottom: "0.5rem" }}>
+      {/* V5.2 §10 — the one node-population authority, shown identically on every page */}
+      <NodePopulationStrip />
+
         {/* V5 §10 — Power sits top-left: closing the DASHBOARD only, after a Yes/No confirmation */}
         <PowerButton />
         <div style={{ flex: "1 1 auto", textAlign: "center" }}>

@@ -12,6 +12,7 @@ import {
 import { LiveNodeTable } from "../components/LiveNodeIndex.jsx";
 // §9 — the actual execution event (broker retcode/tickets/volumes/prices/SL-TP).
 import LiveExecutionEvent from "../components/LiveExecutionEvent.jsx";
+import NodePopulationStrip from "../components/NodePopulationStrip.jsx";
 import { arr, NA_TEXT, objOrNull, rows as safeRows, txt } from "../lib/safe.js";
 import { Badge, Kpi, SectionTitle, StateBlock, useInterval } from "../components/ui.jsx";
 
@@ -149,6 +150,9 @@ export default function LiveTesting() {
   return (
     <div className="page">
       {primaryStatus}
+      {/* V5.2 §10 — same node-population authority as every other page */}
+      <NodePopulationStrip />
+
 
       {/* §9 — the most recent real order attempt, before any control. */}
       <LiveExecutionEvent engine={engine} trades={results} />

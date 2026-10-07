@@ -7,6 +7,7 @@ import { api, fmt } from "../api.js";
 import { useLab } from "../App.jsx";
 import { Pill, SignedNum, ErrorNote, Spinner } from "../components/common.jsx";
 import PopulationSummary from "../components/PopulationSummary.jsx";
+import NodePopulationStrip from "../components/NodePopulationStrip.jsx";
 
 const AXIS_OPTIONS = [
   ["total_return_pct", "Return %"], ["max_drawdown_pct", "Max DD %"],
@@ -56,6 +57,9 @@ export default function Population() {
                          setStatusFilter={setStatusFilter} search={search} setSearch={setSearch} />
 
       <h2 className="page-title">Population</h2>
+      {/* V5.2 §10 — the authoritative six names, above the legacy detailed view */}
+      <NodePopulationStrip />
+
       <div className="page-sub">
         Live population visualization — diversity is preserved via species (timeframe + direction +
         indicator families); a lower-profit but structurally different strategy can survive.

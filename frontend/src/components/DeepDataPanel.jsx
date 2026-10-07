@@ -19,7 +19,7 @@
 // backend cannot compute is rendered as "unknown".
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
-import { Card, Progress, Badge } from "./ui";
+import { Card, Progress } from "./ui";
 import { arr, txt } from "../lib/safe.js";
 
 const TONE = {

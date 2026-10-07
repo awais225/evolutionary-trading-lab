@@ -18,6 +18,7 @@ import { api } from "../api";
 import { Card, StateBlock, Progress, ConfirmModal, Badge } from "../components/ui";
 import StrategyDrawer from "../components/StrategyDrawer";
 import DeepDataPanel from "../components/DeepDataPanel";
+import NodePopulationStrip from "../components/NodePopulationStrip.jsx";
 import { fmt } from "../api";
 import { arr, txt } from "../lib/safe.js";
 
@@ -372,6 +373,8 @@ export default function DeepBacktest() {
 
   return (
     <div className="stack">
+      {/* V5.2 §10 — same node-population authority as every other page */}
+      <NodePopulationStrip />
       <Card title="DEEP BACKTEST" right={
         <span className="muted" style={{ fontSize: 10 }}>
           full-cost backtest on stored MT5 history for the node's own timeframe · never places an order

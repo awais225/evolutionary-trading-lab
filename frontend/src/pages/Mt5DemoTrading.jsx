@@ -7,6 +7,7 @@ import StructuredError from "../components/StructuredError.jsx";
 import DemoOrderPanel from "../components/DemoOrderPanel.jsx";
 import Mt5AccountSelector from "../components/Mt5AccountSelector.jsx";
 import { ManualOrderPanel, ScheduleDialog } from "../components/LiveTestingPanels.jsx";
+import NodePopulationStrip from "../components/NodePopulationStrip.jsx";
 
 export default function Mt5DemoTrading() {
   const { shortlist, toggleShortlist, setSelectedStrategyId, navigateTab } = useLab() || {};
@@ -160,6 +161,9 @@ export default function Mt5DemoTrading() {
 
   return (
     <div className="mt5-demo-page p-6 max-w-7xl mx-auto space-y-6 animate-in fade-in duration-300">
+      {/* V5.2 §10 — same node-population authority as every other page */}
+      <NodePopulationStrip />
+
       {/* Prominent Safety Banner (Spec §18) */}
       <div className="bg-purple-950/60 border border-purple-500/50 p-4 rounded-xl shadow-lg flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">

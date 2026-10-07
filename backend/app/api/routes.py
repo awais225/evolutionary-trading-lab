@@ -3526,7 +3526,12 @@ def mt5_demo_start_all(payload: Dict = Body(...)) -> Dict:
         cfg["confirmed_demo_only"] = True
         cfg["status"] = "RUNNING"
         from ..mt5.demo_schedule import gate as _schedule_gate
-        g = _schedule_gate(sid, db=db)
+        try:
+            g = _schedule_gate(sid, db=db)
+        except Exception as e:
+            g = {"allowed": False,
+                 "reason": f"the demo schedule could not be evaluated ({type(e).__name__}) — "
+                           "refusing to run until it is readable"}
         blocked_reason = None
         if not g.get("allowed"):
             cfg["status"] = "SCHEDULE_BLOCKED"
@@ -3549,6 +3554,7 @@ def mt5_demo_start_shortlist(payload: Dict = Body(...)) -> Dict:
     db = get_db()
     sids = db.get_shortlist()
     count = 0
+    blocked: List[Dict] = []
     for sid in sids:
         cfg = db.get_mt5_demo_config(sid) or {
             "strategy_id": sid,
@@ -3560,10 +3566,25 @@ def mt5_demo_start_shortlist(payload: Dict = Body(...)) -> Dict:
         cfg["enabled"] = True
         cfg["confirmed_demo_only"] = True
         cfg["status"] = "RUNNING"
+        from ..mt5.demo_schedule import gate as _schedule_gate
+        try:
+            g = _schedule_gate(sid, db=db)
+        except Exception as e:
+            g = {"allowed": False,
+                 "reason": f"the demo schedule could not be evaluated ({type(e).__name__}) — "
+                           "refusing to run until it is readable"}
+        blocked_reason = None
+        if not g.get("allowed"):
+            cfg["status"] = "SCHEDULE_BLOCKED"
+            blocked_reason = g.get("reason")
         db.set_mt5_demo_config(sid, cfg)
         db.set_pipeline_stage(sid, "MT5_DEMO", "Shortlist activated on MT5 Demo")
         count += 1
-    return {"ok": True, "activated_count": count, "shortlist_size": len(sids)}
+        if blocked_reason:
+            blocked.append({"strategy_id": sid, "reason": blocked_reason})
+    return {"ok": True, "activated_count": count, "shortlist_size": len(sids),
+            "schedule_blocked": blocked, "schedule_blocked_count": len(blocked),
+            "note": "a schedule-blocked node is enabled but will not act outside its schedule"}
 
 
 @router.get("/mt5-demo/schedule/{sid}")

@@ -5,6 +5,7 @@ import { Badge, Kpi } from "../components/ui.jsx";
 import { NA_TEXT, numOrNull, objOrNull, txt as stxt } from "../lib/safe.js";
 import { Pill, SignedNum, ErrorNote } from "../components/common.jsx";
 import StructuredError from "../components/StructuredError.jsx";
+import NodePopulationStrip from "../components/NodePopulationStrip.jsx";
 
 export default function FinalTesting() {
   const { openStrategy, shortlist, toggleShortlist, setSelectedStrategyId, navigateTab } = useLab() || {};
@@ -296,6 +297,9 @@ export default function FinalTesting() {
 
   return (
     <div className="final-testing-page">
+      {/* V5.2 §10 — same node-population authority as every other page */}
+      <NodePopulationStrip />
+
       {/* Page Header */}
       <div className="flex justify-between items-center" style={{ marginBottom: "0.75rem", flexWrap: "wrap", gap: "10px" }}>
         <div>
