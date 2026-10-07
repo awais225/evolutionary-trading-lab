@@ -158,7 +158,7 @@ export default function Mt5DemoTrading() {
       {/* Prominent Safety Banner (Spec §18) */}
       <div className="bg-purple-950/60 border border-purple-500/50 p-4 rounded-xl shadow-lg flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <span className="text-2xl">🛡️</span>
+          <span className="status-pill" title="demo account only">DEMO</span>
           <div>
             <div className="text-white font-bold text-sm tracking-wide flex items-center gap-2">
               <span>DEMO ACCOUNT ONLY — NO REAL MONEY AT RISK</span>
@@ -320,21 +320,21 @@ export default function Mt5DemoTrading() {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs font-mono">
+          <table className="table w-full text-left text-xs font-mono">
             <thead>
               <tr className="border-b border-slate-800 text-slate-400 uppercase text-[10px]">
-                <th className="py-2.5 px-2">⭐</th>
-                <th className="py-2.5 px-3">Node</th>
-                <th className="py-2.5 px-3">Symbol / TF</th>
-                <th className="py-2.5 px-3">Magic #</th>
-                <th className="py-2.5 px-3">Status</th>
-                <th className="py-2.5 px-3 text-right">IS Return</th>
-                <th className="py-2.5 px-3 text-right">PF</th>
-                <th className="py-2.5 px-3 text-right">Risk / trade</th>
-                <th className="py-2.5 px-3 text-right">Live P/L</th>
-                <th className="py-2.5 px-3 text-right">Today P/L</th>
-                <th className="py-2.5 px-3 text-right">Details</th>
-                <th className="py-2.5 px-3 text-right">Action</th>
+                <th className="">⭐</th>
+                <th className="">Node</th>
+                <th className="">Symbol / TF</th>
+                <th className="">Magic #</th>
+                <th className="">Status</th>
+                <th className="text-right">IS Return</th>
+                <th className="text-right">PF</th>
+                <th className="text-right">Risk / trade</th>
+                <th className="text-right">Live P/L</th>
+                <th className="text-right">Today P/L</th>
+                <th className="text-right">Details</th>
+                <th className="text-right">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
@@ -346,7 +346,7 @@ export default function Mt5DemoTrading() {
 
                 return (
                   <tr key={strat.node_id} className="hover:bg-slate-800/40 transition-colors">
-                    <td className="py-2.5 px-2">
+                    <td className="">
                       <button
                         type="button"
                         onClick={() => toggleShortlist && toggleShortlist(strat.node_id)}
@@ -356,7 +356,7 @@ export default function Mt5DemoTrading() {
                         {isStar ? "⭐" : "☆"}
                       </button>
                     </td>
-                    <td className="py-2.5 px-3">
+                    <td className="">
                       <button
                         type="button"
                         onClick={() => setDemoDetail(strat)}
@@ -365,44 +365,44 @@ export default function Mt5DemoTrading() {
                         Node_{txt(strat.node_id)}
                       </button>
                     </td>
-                    <td className="py-2.5 px-3 text-slate-300">
+                    <td className="text-slate-300">
                       {txt(strat.market, NA_TEXT)} · {txt(strat.timeframe, NA_TEXT)}
                     </td>
-                    <td className="py-2.5 px-3 text-slate-400">
+                    <td className="text-slate-400">
                       {magic === null ? NA_TEXT : `#${magic}`}
                     </td>
-                    <td className="py-2.5 px-3">
+                    <td className="">
                       <span className={`text-[10px] px-2 py-0.5 rounded font-bold border ${isRunning ? "bg-purple-500/20 text-purple-300 border-purple-500/40" : "bg-slate-800 text-slate-400 border-slate-700"}`}
                             title={txt(strat.v5_status || strat.status, "")}>
                         {isRunning ? "RUNNING" : txt(strat.v5_status || strat.status, "STOPPED")}
                       </span>
                     </td>
-                    <td className="py-2.5 px-3 text-right text-cyan-300 font-semibold">
+                    <td className="text-right text-cyan-300 font-semibold">
                       {strat.is_return_pct === null || strat.is_return_pct === undefined
                         ? NA_TEXT : `${fmt.num(strat.is_return_pct, 2)} %`}
                     </td>
-                    <td className="py-2.5 px-3 text-right text-slate-200">
+                    <td className="text-right text-slate-200">
                       {strat.profit_factor === null || strat.profit_factor === undefined
                         ? NA_TEXT : fmt.num(strat.profit_factor, 3)}
                     </td>
-                    <td className="py-2.5 px-3 text-right text-slate-300">
+                    <td className="text-right text-slate-300">
                       {strat.risk_pct === null || strat.risk_pct === undefined
                         ? NA_TEXT : `${strat.risk_pct} %`}
                       <span className="text-slate-600"> {strat.risk_source === "CUSTOM" ? "(node)" : "(global)"}</span>
                     </td>
-                    <td className="py-2.5 px-3 text-right font-bold text-slate-300">
+                    <td className="text-right font-bold text-slate-300">
                       {strat.total_live_pnl === null || strat.total_live_pnl === undefined
                         ? NA_TEXT : fmt.pnl(strat.total_live_pnl)}
                     </td>
-                    <td className="py-2.5 px-3 text-right text-slate-300">
+                    <td className="text-right text-slate-300">
                       {strat.today_pnl === null || strat.today_pnl === undefined
                         ? NA_TEXT : fmt.pnl(strat.today_pnl)}
                     </td>
-                    <td className="py-2.5 px-3 text-right">
+                    <td className="text-right">
                       <button type="button" className="text-slate-300 hover:text-white underline"
                               onClick={() => setDemoDetail(strat)}>details</button>
                     </td>
-                    <td className="py-2.5 px-3 text-right">
+                    <td className="text-right">
                       <button
                         type="button"
                         onClick={() => handleToggleSingle(strat.node_id)}
@@ -472,7 +472,7 @@ export default function Mt5DemoTrading() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm animate-in fade-in duration-150">
           <div className="bg-slate-900 border border-purple-500/50 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 text-xs font-mono">
             <div className="flex items-center gap-2 text-purple-400 font-bold text-sm">
-              <span>🛡️ MT5 Demo Safety Confirmation</span>
+              <span>MT5 Demo Safety Confirmation</span>
             </div>
             <div className="text-white font-bold text-sm">
               {confirmModal.title}

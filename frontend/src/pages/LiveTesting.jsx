@@ -15,17 +15,24 @@ import { Badge, Kpi, SectionTitle, StateBlock, useInterval } from "../components
 /**
  * V5 §11-§16 — Live Testing.
  *
- * The page is built around what the engine actually does, in this order:
+ * V5.1a §3 — the page keeps every value it always showed, but the layout now
+ * follows the reading order an operator needs, in labelled sections:
  *
- *   1. the live MT5 market header (bid/ask/spread/price/time and the selected
- *      node's own indicator values, resolved by the engine against real bars);
- *   2. the manual order panel, which places real demo orders through the same
- *      execution path the backend exposes (pips or prices, risk or lots);
- *   3. the combined node table: research metrics + live P/L + effective risk +
- *      schedule + START/STOP that really enrols/un-enrols the node;
- *   4. the engine activation panel (nothing runs until the operator confirms);
- *   5. the live activity: condition truth table, trade counter, stage timeline;
- *   6. the forward-test statistics that really exist (null when they do not).
+ *   1. primary live status      engine state, activation banner, node counters
+ *   2. safety & connection      MT5 / SIMULATOR mode, DEMO safety gate, VERIFY WITH MT5,
+ *                              activation, engine limits + per-node overrides, stage log
+ *   3. action controls          the manual order panel (same MT5 execution path as the
+ *                              engine) and the node enrolment / START / STOP / schedule
+ *   4. account & risk           demo balance, live P/L, risk per trade (global + per node)
+ *   5. active-test statistics   profit factor / win rate / drawdown, engine cycle counter,
+ *                              stage timeline, recorded trades, unavailable statistics
+ *   6. broker & market state    symbol, bid/ask, spread, tick age, session, tick time,
+ *                              point, digits, tradable
+ *   7. status & warnings        prop-firm monitor, broker warnings, page capabilities
+ *
+ * Nothing is filtered, renamed away or invented: each block below is the same
+ * component/payload as before, only grouped. The engine is idle until the
+ * operator activates it and starts a node (spec §12).
  */
 export default function LiveTesting() {
   const { shortlist, toggleShortlist, setSelectedStrategyId, navigateTab } = useLab() || {};
@@ -72,8 +79,9 @@ export default function LiveTesting() {
     if (navigateTab) navigateTab("StrategyLab", nodeId);
   };
 
-  return (
-    <div className="page">
+  /* ------------------------------------------------------------------ 1 */
+  const primaryStatus = (
+    <>
       <SectionTitle
         right={
           <div className="btn-row" style={{ margin: 0 }}>
@@ -103,46 +111,58 @@ export default function LiveTesting() {
 
       <div className="kit-strip">
         <Kpi label="Enrolled nodes" value={txt(engine?.node_count ?? summary?.active_strategies, "0")}
-             sub={`${txt(engine?.excluded_count, "0")} excluded`} />
+             sub="started by the operator" />
+        <Kpi label="Excluded nodes" value={txt(engine?.excluded_count, "0")}
+             sub="not enrolled (reported by the engine)" />
         <Kpi label="Open positions" value={txt(summary?.open_positions, "0")} />
+      </div>
+    </>
+  );
+
+  /* ------------------------------------------------------------------ 4 */
+  const accountRisk = (
+    <>
+      <SectionTitle
+        hint="Demo account, live P/L and the risk the next order would take — global and per node."
+      >
+        Account &amp; risk
+      </SectionTitle>
+
+      <div className="kit-strip">
+        <Kpi label="Balance" value={txt(stats.current_balance, NA_TEXT)} sub={`start ${txt(stats.starting_balance, "—")}`} />
         <Kpi label="Today P/L" value={txt(summary?.today_pnl ?? stats.current_daily_pnl, NA_TEXT)}
              tone={Number(summary?.today_pnl) > 0 ? "pos" : Number(summary?.today_pnl) < 0 ? "neg" : undefined} />
         <Kpi label="Total live P/L" value={txt(summary?.total_pnl ?? stats.net_profit, NA_TEXT)}
              tone={Number(summary?.total_pnl) > 0 ? "pos" : Number(summary?.total_pnl) < 0 ? "neg" : undefined} />
-        <Kpi label="Balance" value={txt(stats.current_balance, NA_TEXT)} sub={`start ${txt(stats.starting_balance, "—")}`} />
-        <Kpi label="Profit factor" value={txt(stats.profit_factor, NA_TEXT)}
-             sub={stats.profit_factor === null ? "not enough closed trades" : "closed trades only"} />
-        <Kpi label="Win rate" value={stats.win_rate === null || stats.win_rate === undefined ? NA_TEXT : `${stats.win_rate} %`} />
-        <Kpi label="Max drawdown" value={stats.max_drawdown_pct === null || stats.max_drawdown_pct === undefined ? NA_TEXT : `${stats.max_drawdown_pct} %`} />
         <Kpi label="Global risk / trade" value={risk?.global_risk_pct === undefined || risk?.global_risk_pct === null ? NA_TEXT : `${risk.global_risk_pct} %`}
              sub={`${txt(risk?.override_count, "0")} node override(s)`} />
       </div>
 
-      {prop.verdict && (
-        <div className={"kit-banner " + (prop.verdict === "BREACHED" ? "danger" : prop.verdict === "TARGET_REACHED" ? "real" : "sim")}>
-          <b>Prop-firm monitor: {txt(prop.verdict)}</b>
-          <div className="muted" style={{ fontSize: 12, marginTop: 3 }}>
-            account {txt(prop.account_size, "—")} · daily loss limit {txt(prop.daily_loss_limit, "—")}
-            {" "}(used {txt(prop.daily_loss_used, "—")}) · max loss {txt(prop.max_loss_limit, "—")} ·
-            profit target {txt(prop.profit_target, "—")} · {txt(prop.trading_days, "0")} of{" "}
-            {txt(prop.min_trading_days, "—")} trading day(s)
-            {arr(prop.rule_violations).length > 0 ? ` · violations: ${arr(prop.rule_violations).join(", ")}` : ""}
-          </div>
-        </div>
-      )}
-
-      <LiveMarketHeader
-        symbol={marketSymbol}
-        nodeId={selectedNode}
-        nodes={enrolled.map((n) => ({ node_id: n.node_id ?? n.strategy_id, market: n.symbol ?? n.market, timeframe: n.timeframe })).filter((n) => n.node_id !== undefined && n.node_id !== null)}
-        onSymbolChange={setMarketSymbol}
-        onNodeChange={setSelectedNode}
-      />
-
-      <ManualOrderPanel defaultSymbol={marketSymbol} />
-
       <RiskStrip nodes={enrolled} onChanged={load}
                  lab={{ equity: stats.current_balance ?? prop.equity }} />
+    </>
+  );
+
+  return (
+    <div className="page">
+      {primaryStatus}
+
+      {/* ---------------------------------------------------------- 2 */}
+      <SectionTitle
+        hint="MT5 / SIMULATOR mode, the DEMO-safety gate, the connection check and the engine's own limits."
+        right={<Badge tone="warn">orders require a verified DEMO terminal</Badge>}
+      >
+        Safety &amp; connection
+      </SectionTitle>
+      <LiveTestingControl />
+
+      {/* ---------------------------------------------------------- 3 */}
+      <SectionTitle
+        hint="The manual order panel uses the same MT5 execution path as the engine; START/STOP really enrols the node."
+      >
+        Action controls
+      </SectionTitle>
+      <ManualOrderPanel defaultSymbol={marketSymbol} />
 
       <LiveNodeTable
         onOpenNode={openNode}
@@ -151,10 +171,22 @@ export default function LiveTesting() {
         onRiskChanged={load}
       />
 
-      <LiveTestingControl />
+      {/* ---------------------------------------------------------- 4 */}
+      {accountRisk}
 
-      <LiveMarketPanel nodes={enrolled} engineRunning={active} />
+      {/* ---------------------------------------------------------- 5 */}
+      <SectionTitle
+        hint="Computed from the recorded live-test trades only. A value that cannot be computed is reported as unavailable, never as zero."
+      >
+        Active-test statistics
+      </SectionTitle>
 
+      <div className="kit-strip">
+        <Kpi label="Profit factor" value={txt(stats.profit_factor, NA_TEXT)}
+             sub={stats.profit_factor === null ? "not enough closed trades" : "closed trades only"} />
+        <Kpi label="Win rate" value={stats.win_rate === null || stats.win_rate === undefined ? NA_TEXT : `${stats.win_rate} %`} />
+        <Kpi label="Max drawdown" value={stats.max_drawdown_pct === null || stats.max_drawdown_pct === undefined ? NA_TEXT : `${stats.max_drawdown_pct} %`} />
+      </div>
 
       <LiveTradeCounter />
 
@@ -185,7 +217,7 @@ export default function LiveTesting() {
             <b>Recent live trades</b>
             <Badge tone="mute">{arr(results.trades).length} shown · read-only</Badge>
           </div>
-          <div style={{ overflowX: "auto" }}>
+          <div className="table-wrap">
             <table className="table compact">
               <thead>
                 <tr><th>Node</th><th>Symbol</th><th>Side</th><th>Lots</th><th>Entry</th>
@@ -212,6 +244,41 @@ export default function LiveTesting() {
           </div>
           <div className="muted" style={{ fontSize: 11.5 }}>
             {txt(results?.trade_sample_note, "read-only view of the recorded live-test trades")}
+          </div>
+        </div>
+      )}
+
+      {/* ---------------------------------------------------------- 6 */}
+      <SectionTitle
+        hint="Live quote and the symbol's own trading rules for the selected symbol/node."
+      >
+        Broker &amp; market state
+      </SectionTitle>
+
+      <LiveMarketHeader
+        symbol={marketSymbol}
+        nodeId={selectedNode}
+        nodes={enrolled.map((n) => ({ node_id: n.node_id ?? n.strategy_id, market: n.symbol ?? n.market, timeframe: n.timeframe })).filter((n) => n.node_id !== undefined && n.node_id !== null)}
+        onSymbolChange={setMarketSymbol}
+        onNodeChange={setSelectedNode}
+      />
+
+      <LiveMarketPanel nodes={enrolled} engineRunning={active} />
+
+      {/* ---------------------------------------------------------- 7 */}
+      <SectionTitle hint="Prop-firm monitor, broker warnings and what this page can and cannot do.">
+        Status &amp; warnings
+      </SectionTitle>
+
+      {prop.verdict && (
+        <div className={"kit-banner " + (prop.verdict === "BREACHED" ? "danger" : prop.verdict === "TARGET_REACHED" ? "real" : "sim")}>
+          <b>Prop-firm monitor: {txt(prop.verdict)}</b>
+          <div className="muted" style={{ fontSize: 12, marginTop: 3 }}>
+            account {txt(prop.account_size, "—")} · daily loss limit {txt(prop.daily_loss_limit, "—")}
+            {" "}(used {txt(prop.daily_loss_used, "—")}) · max loss {txt(prop.max_loss_limit, "—")} ·
+            profit target {txt(prop.profit_target, "—")} · {txt(prop.trading_days, "0")} of{" "}
+            {txt(prop.min_trading_days, "—")} trading day(s)
+            {arr(prop.rule_violations).length > 0 ? ` · violations: ${arr(prop.rule_violations).join(", ")}` : ""}
           </div>
         </div>
       )}

@@ -1916,6 +1916,19 @@ def get_mt5_monitor_status() -> Dict:
     return {**mon, "bridge_status": bs}
 
 
+@router.get("/mt5/runtime")
+def get_mt5_runtime_report() -> Dict:
+    """V5.1a §8-§10 — the exact reason real MT5 is or is not usable here.
+
+    Reports the interpreter the backend is actually running, the interpreter the
+    launcher would pick, whether MetaTrader5 imports in each of them, terminal
+    discovery/connection state and the ordered list of failing checks. Read-only:
+    it never places an order and never substitutes a simulated result.
+    """
+    from ..mt5.runtime_report import mt5_runtime_report
+    return mt5_runtime_report()
+
+
 @router.get("/mt5/terminals")
 def get_discovered_terminals() -> List[Dict]:
     from ..mt5.discovery import discover_terminals

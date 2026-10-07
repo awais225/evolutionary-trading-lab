@@ -29,6 +29,36 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 
+def print_strategy_count() -> int:
+    """V5.1a §9 — print the real strategy count (nothing else) for the launcher.
+
+    `start.bat` used to echo a hard-coded number; a launcher that prints a
+    fabricated node count is exactly the kind of unverifiable claim this project
+    forbids. The launcher now prints this value instead.
+    """
+    db_path = None
+    try:
+        from app.config import get_config
+        cfg = get_config()
+        if getattr(cfg, "database_path", None):
+            db_path = Path(cfg.database_path)
+    except Exception:
+        db_path = None
+    if db_path is None or not db_path.exists():
+        db_path = ROOT_DIR / "DATABASE" / "lab_state.db"
+    try:
+        conn = sqlite3.connect(str(db_path))
+        try:
+            row = conn.execute("SELECT COUNT(*) FROM strategies").fetchone()
+        finally:
+            conn.close()
+        print(int(row[0]) if row else 0)
+        return 0
+    except Exception as e:
+        print(f"[ERROR] could not read the strategy count: {e}", file=sys.stderr)
+        return 1
+
+
 def verify_database() -> int:
     try:
         # 1. Resolve database path from application config with fallback to default
@@ -101,4 +131,6 @@ def verify_database() -> int:
 
 
 if __name__ == "__main__":
+    if "--print-count" in sys.argv:
+        sys.exit(print_strategy_count())
     sys.exit(verify_database())

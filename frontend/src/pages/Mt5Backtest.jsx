@@ -178,7 +178,7 @@ export default function Mt5Backtest() {
       <div className="flex flex-wrap items-center justify-between gap-4 bg-slate-900/80 p-4 rounded-xl border border-slate-800 shadow-md">
         <div>
           <h2 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
-            <span>⚙️ MT5 STRATEGY TESTER & BACKTEST ENGINE</span>
+            <span>MT5 STRATEGY TESTER &amp; BACKTEST ENGINE</span>
             <span className="text-xs px-2 py-0.5 rounded font-mono bg-indigo-950 text-indigo-400 border border-indigo-800">
               V4.0 LEGACY RECORDS
             </span>
@@ -269,15 +269,15 @@ export default function Mt5Backtest() {
 
         {pickerErr && <div className="text-[11px] font-mono text-rose-300">{pickerErr.message || String(pickerErr)}</div>}
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-[11px] font-mono">
+          <table className="table w-full text-left text-[11px] font-mono">
             <thead>
               <tr className="border-b border-slate-800 text-slate-400 uppercase text-[10px]">
-                <th className="py-1.5 px-2">★</th><th className="py-1.5 px-2">ID</th>
-                <th className="py-1.5 px-2">Status</th><th className="py-1.5 px-2">Symbol</th>
-                <th className="py-1.5 px-2">TF</th><th className="py-1.5 px-2 text-right">IS return</th>
-                <th className="py-1.5 px-2 text-right">PF</th><th className="py-1.5 px-2 text-right">Trades</th>
-                <th className="py-1.5 px-2 text-right">Max DD</th><th className="py-1.5 px-2 text-right">Sharpe</th>
-                <th className="py-1.5 px-2">Last tested</th><th className="py-1.5 px-2">Action</th>
+                <th className="">★</th><th className="">ID</th>
+                <th className="">Status</th><th className="">Symbol</th>
+                <th className="">TF</th><th className="text-right">IS return</th>
+                <th className="text-right">PF</th><th className="text-right">Trades</th>
+                <th className="text-right">Max DD</th><th className="text-right">Sharpe</th>
+                <th className="">Last tested</th><th className="">Action</th>
               </tr>
             </thead>
             <tbody>
@@ -287,14 +287,14 @@ export default function Mt5Backtest() {
                 const lastTested = numOrNull(n.updated_at);
                 return (
                   <tr key={sid ?? n.node_id} className={"border-b border-slate-800/60 " + (pSel === sid ? "bg-slate-800/50" : "")}>
-                    <td className="py-1.5 px-2">
+                    <td className="">
                       <button type="button" title={n.shortlisted ? "remove from shortlist" : "add to shortlist"}
                               onClick={() => toggleStar(sid)} className="text-[13px] leading-none">
                         {n.shortlisted ? "⭐" : "☆"}
                       </button>
                     </td>
-                    <td className="py-1.5 px-2 text-cyan-300">{txt(n.node_id, sid ?? NA_TEXT)}</td>
-                    <td className="py-1.5 px-2">
+                    <td className="text-cyan-300">{txt(n.node_id, sid ?? NA_TEXT)}</td>
+                    <td className="">
                       <Badge tone={String(n.status).toUpperCase() === "FAILED" ? "bad"
                         : String(n.status).toUpperCase() === "QUALIFIED" ? "ok" : "mute"}>
                         {txt(n.status, NA_TEXT)}
@@ -303,19 +303,19 @@ export default function Mt5Backtest() {
                         <span className="ml-1 text-[10px] text-amber-300" title="excluded from research scope">excluded</span>
                       )}
                     </td>
-                    <td className="py-1.5 px-2">{txt(n.symbol, NA_TEXT)}</td>
-                    <td className="py-1.5 px-2">{txt(n.timeframe, NA_TEXT)}</td>
-                    <td className="py-1.5 px-2 text-right">{r.return_pct === undefined || r.return_pct === null
+                    <td className="">{txt(n.symbol, NA_TEXT)}</td>
+                    <td className="">{txt(n.timeframe, NA_TEXT)}</td>
+                    <td className="text-right">{r.return_pct === undefined || r.return_pct === null
                       ? NA_TEXT : `${(r.return_pct * 100).toFixed(2)} %`}</td>
-                    <td className="py-1.5 px-2 text-right">{txt(r.profit_factor, NA_TEXT)}</td>
-                    <td className="py-1.5 px-2 text-right">{txt(r.trades, NA_TEXT)}</td>
-                    <td className="py-1.5 px-2 text-right">{r.max_drawdown_pct === undefined || r.max_drawdown_pct === null
+                    <td className="text-right">{txt(r.profit_factor, NA_TEXT)}</td>
+                    <td className="text-right">{txt(r.trades, NA_TEXT)}</td>
+                    <td className="text-right">{r.max_drawdown_pct === undefined || r.max_drawdown_pct === null
                       ? NA_TEXT : `${(r.max_drawdown_pct * 100).toFixed(1)} %`}</td>
-                    <td className="py-1.5 px-2 text-right">{txt(r.sharpe, NA_TEXT)}</td>
-                    <td className="py-1.5 px-2 text-slate-400">
+                    <td className="text-right">{txt(r.sharpe, NA_TEXT)}</td>
+                    <td className="text-slate-400">
                       {lastTested === null ? NA_TEXT : new Date(lastTested * 1000).toISOString().slice(0, 16).replace("T", " ")}
                     </td>
-                    <td className="py-1.5 px-2">
+                    <td className="">
                       <div className="flex items-center gap-2">
                         <button type="button" onClick={() => { setPSel(sid); setNodeIdInput(String(sid)); loadStrategy(sid); loadHistory(sid); loadHistoricalRuns(sid); }}
                                 className="px-2 py-0.5 rounded border border-indigo-700 text-indigo-300 hover:bg-indigo-950">
@@ -385,13 +385,13 @@ export default function Mt5Backtest() {
                 {txt(caps.bridge?.note, "")}
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-[11px] font-mono">
+                <table className="table w-full text-left text-[11px] font-mono">
                   <thead>
                     <tr className="border-b border-slate-800 text-slate-400 uppercase text-[10px]">
-                      <th className="py-1.5 px-2">Symbol</th>
-                      <th className="py-1.5 px-2">Timeframes with stored data</th>
-                      <th className="py-1.5 px-2">Datasets</th>
-                      <th className="py-1.5 px-2">Rejected / unusable</th>
+                      <th className="">Symbol</th>
+                      <th className="">Timeframes with stored data</th>
+                      <th className="">Datasets</th>
+                      <th className="">Rejected / unusable</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -399,10 +399,10 @@ export default function Mt5Backtest() {
                       const shown = Array.from(new Set(tfs.map((t) => t.toUpperCase())));
                       return (
                         <tr key={sym} className="border-b border-slate-800/60">
-                          <td className="py-1.5 px-2 text-cyan-300">{sym}</td>
-                          <td className="py-1.5 px-2">{shown.join(", ") || NA_TEXT}</td>
-                          <td className="py-1.5 px-2">{tfs.length}</td>
-                          <td className="py-1.5 px-2">
+                          <td className="text-cyan-300">{sym}</td>
+                          <td className="">{shown.join(", ") || NA_TEXT}</td>
+                          <td className="">{tfs.length}</td>
+                          <td className="">
                             {(caps.rejected_datasets || []).filter((d) => (d.symbol || "").toUpperCase() === sym).length}
                           </td>
                         </tr>
@@ -760,28 +760,28 @@ export default function Mt5Backtest() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs font-mono">
+            <table className="table w-full text-left text-xs font-mono">
               <thead>
                 <tr className="border-b border-slate-800 text-slate-400 uppercase text-[10px]">
-                  <th className="py-2.5 px-3">Date</th>
-                  <th className="py-2.5 px-3">Node</th>
-                  <th className="py-2.5 px-3">Symbol / TF</th>
-                  <th className="py-2.5 px-3 text-right">Init Cap</th>
-                  <th className="py-2.5 px-3 text-right">Final Cap</th>
-                  <th className="py-2.5 px-3 text-right">Net Profit</th>
-                  <th className="py-2.5 px-3 text-right">PF</th>
-                  <th className="py-2.5 px-3 text-right">Win Rate</th>
-                  <th className="py-2.5 px-3 text-right">Trades</th>
-                  <th className="py-2.5 px-3 text-right">Max DD</th>
-                  <th className="py-2.5 px-3 text-right">Sharpe</th>
-                  <th className="py-2.5 px-3">Status</th>
+                  <th className="">Date</th>
+                  <th className="">Node</th>
+                  <th className="">Symbol / TF</th>
+                  <th className="text-right">Init Cap</th>
+                  <th className="text-right">Final Cap</th>
+                  <th className="text-right">Net Profit</th>
+                  <th className="text-right">PF</th>
+                  <th className="text-right">Win Rate</th>
+                  <th className="text-right">Trades</th>
+                  <th className="text-right">Max DD</th>
+                  <th className="text-right">Sharpe</th>
+                  <th className="">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
                 {historyResults.map((row) => (
                   <tr key={row.id} className="hover:bg-slate-800/40 transition-colors">
-                    <td className="py-2 px-3 text-slate-400">{fmt.dt(row.created_at)}</td>
-                    <td className="py-2 px-3">
+                    <td className="text-slate-400">{fmt.dt(row.created_at)}</td>
+                    <td className="">
                       <button
                         type="button"
                         onClick={() => loadStrategy(row.strategy_id)}
@@ -790,18 +790,18 @@ export default function Mt5Backtest() {
                         Node_{row.strategy_id}
                       </button>
                     </td>
-                    <td className="py-2 px-3 text-slate-300">{row.symbol} · {row.timeframe}</td>
-                    <td className="py-2 px-3 text-right text-slate-400">{fmt.currency(row.initial_capital, 0)}</td>
-                    <td className="py-2 px-3 text-right text-white font-bold">{fmt.currency(row.final_capital, 0)}</td>
+                    <td className="text-slate-300">{row.symbol} · {row.timeframe}</td>
+                    <td className="text-right text-slate-400">{fmt.currency(row.initial_capital, 0)}</td>
+                    <td className="text-right text-white font-bold">{fmt.currency(row.final_capital, 0)}</td>
                     <td className={`py-2 px-3 text-right font-bold ${row.net_profit >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
                       {fmt.pnl(row.net_profit)}
                     </td>
-                    <td className="py-2 px-3 text-right text-slate-200">{fmt.ratio(row.profit_factor)}</td>
-                    <td className="py-2 px-3 text-right text-slate-200">{fmt.pct(row.win_rate)}</td>
-                    <td className="py-2 px-3 text-right text-slate-300">{row.trade_count}</td>
-                    <td className="py-2 px-3 text-right text-rose-400">{fmt.pct(row.max_drawdown_pct)}</td>
-                    <td className="py-2 px-3 text-right text-slate-300">{fmt.num(row.sharpe)}</td>
-                    <td className="py-2 px-3">
+                    <td className="text-right text-slate-200">{fmt.ratio(row.profit_factor)}</td>
+                    <td className="text-right text-slate-200">{fmt.pct(row.win_rate)}</td>
+                    <td className="text-right text-slate-300">{row.trade_count}</td>
+                    <td className="text-right text-rose-400">{fmt.pct(row.max_drawdown_pct)}</td>
+                    <td className="text-right text-slate-300">{fmt.num(row.sharpe)}</td>
+                    <td className="">
                       <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
                         {row.status}
                       </span>

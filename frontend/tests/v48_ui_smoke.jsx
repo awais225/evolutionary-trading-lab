@@ -828,7 +828,7 @@ export async function runSmoke() {
       await act(async () => { root.render(wrap(<ManualOrderPanel />)); await Promise.resolve(); });
       await setValue("Stop loss", "2405");          // the pips field (300 by default)
       await setValue("Amount / risk", "300");
-      await clickText("Recalculate (backend)");
+      await clickText("Recalculate now");
       await act(async () => { await Promise.resolve(); await Promise.resolve(); });
       const text = container.textContent || "";
       if (!text.includes("0.06")) throw new Error(`the preview answer was not rendered … "${text.slice(0, 180)}"`);
@@ -1167,6 +1167,22 @@ export async function runSmoke() {
       if (!/unsaved changes/.test(container.textContent || "")) {
         throw new Error("the summary must say the changes are unsaved");
       }
+      /* V5.1a §5/§6 — the regime control is a real multi-select driven by the
+       * backend's own vocabulary, and its empty-selection meaning is stated in
+       * the dialog rather than left to guesswork. */
+      if (!/No regime restriction|engine checks this rule before every order/.test(text)) {
+        throw new Error("the regimes group must state what its selection means");
+      }
+      const regimeBoxes = boxes.filter((b) => /trending|ranging|breakout/.test(labelOfBox(b)));
+      if (regimeBoxes.length < 2) throw new Error("the regimes group is not a multi-select");
+      const trendingBox = regimeBoxes.find((b) => labelOfBox(b).includes("trending"));
+      const rangingBox = regimeBoxes.find((b) => labelOfBox(b).includes("ranging"));
+      if (!trendingBox?.checked) throw new Error("the stored regime (trending) is not shown as selected");
+      if (rangingBox.checked) throw new Error("an unselected regime must not start checked");
+      await act(async () => { rangingBox.dispatchEvent(new MouseEvent("click", { bubbles: true })); await Promise.resolve(); });
+      if (!rangingBox.checked) throw new Error("selecting a second regime did not check it");
+      if (!trendingBox.checked) throw new Error("adding a regime must not clear the first one");
+
       // Select all must restore the whole group
       const selectAll = Array.from(container.querySelectorAll("button")).find((b) => (b.textContent || "").trim() === "Select all");
       if (!selectAll) throw new Error("no Select all control for the day group");
@@ -1184,6 +1200,9 @@ export async function runSmoke() {
       }
       if (sent.body.enabled !== true) throw new Error("the Enabled switch was not sent");
       if (!(sent.body.regimes || []).includes("trending")) throw new Error("the regimes selection was not sent");
+      if (!(sent.body.regimes || []).includes("ranging")) {
+        throw new Error(`the multi-select regime selection was not sent: ${JSON.stringify(sent.body.regimes)}`);
+      }
 
       results.push({ label: "LiveNodeTable:start+schedule", ok: true });
     } catch (e) {

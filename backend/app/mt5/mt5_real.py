@@ -445,16 +445,67 @@ class MT5RealBridge(MarketBridge):
                            comment="paper fill on real MT5 quote", source="MT5_DEMO_QUOTE")
 
     # ---------- V4.2 execution primitives ----------
-    def send_market_order(self, request: Dict) -> Dict:
-        """Send a fully-built MT5 order request (market order with real SL/TP).
+    def check_market_order(self, request: Dict) -> Dict:
+        """V5.1a §15 — `mt5.order_check` on the *same* request before it is sent.
 
-        Returns {"ok", "retcode", "raw": <result as dict>, "unsupported",
-        "exception"}. This is the ONLY place an order leaves the application.
-        Interpretation of the retcode is done by app.mt5.execution.
+        The terminal answers whether the order would be accepted (margin,
+        volume step, stop distance, filling mode, market state) and returns its
+        own retcode. A non-DONE check is a refusal with the broker's reason —
+        the order is then never sent. Nothing is interpreted locally: the
+        retcode and comment come straight from the terminal.
+
+        Returns {"ok", "retcode", "raw", "unsupported", "error"}.
         """
         if not self._connected or not MT5_PACKAGE_AVAILABLE:
             return {"ok": False, "unsupported": True, "retcode": None,
                     "error": "MT5 terminal not connected"}
+        order_check = getattr(mt5, "order_check", None)
+        if order_check is None:                      # older/variant builds
+            return {"ok": True, "unsupported": True, "retcode": None,
+                    "error": "this MetaTrader5 build exposes no order_check"}
+        try:
+            checked = order_check(dict(request))
+        except Exception as e:  # pragma: no cover - terminal dependent
+            log.error("order_check raised: %s", e)
+            return {"ok": False, "exception": str(e), "retcode": None, "raw": None}
+        if checked is None:
+            err = None
+            try:
+                err = mt5.last_error()
+            except Exception:
+                pass
+            return {"ok": False, "retcode": None, "raw": None,
+                    "exception": f"order_check returned None (mt5.last_error={err})"}
+        raw = _result_to_dict(checked)
+        done = getattr(mt5, "TRADE_RETCODE_DONE", 10009)
+        ok = raw.get("retcode") == done
+        log.info("[V5.1a] mt5.order_check retcode=%s margin=%s comment=%r",
+                 raw.get("retcode"), raw.get("margin"), raw.get("comment"))
+        return {"ok": bool(ok), "retcode": raw.get("retcode"), "raw": raw}
+
+    def send_market_order(self, request: Dict) -> Dict:
+        """Send a fully-built MT5 order request (market order with real SL/TP).
+
+        V5.1a §15 — the request is first put through the terminal's own
+        `order_check`. When that check refuses, nothing is sent and the refusal
+        is returned with the terminal's retcode and comment.
+
+        Returns {"ok", "retcode", "raw": <result as dict>, "unsupported",
+        "exception", "check": <order_check result>}. This is the ONLY place an
+        order leaves the application. Interpretation of the retcode is done by
+        app.mt5.execution.
+        """
+        if not self._connected or not MT5_PACKAGE_AVAILABLE:
+            return {"ok": False, "unsupported": True, "retcode": None,
+                    "error": "MT5 terminal not connected"}
+        check = self.check_market_order(request)
+        if not check.get("unsupported") and not check.get("ok"):
+            raw_check = check.get("raw") or {}
+            return {"ok": False, "retcode": check.get("retcode"), "raw": raw_check,
+                    "check": check, "request": dict(request),
+                    "refused_by": "mt5.order_check",
+                    "error": (raw_check.get("comment")
+                              or f"order_check refused the order (retcode {check.get('retcode')})")}
         try:
             result = mt5.order_send(dict(request))
         except Exception as e:  # pragma: no cover - terminal dependent
@@ -474,7 +525,7 @@ class MT5RealBridge(MarketBridge):
                  raw.get("retcode"), raw.get("order"), raw.get("deal"), raw.get("price"),
                  raw.get("volume"), raw.get("sl"), raw.get("tp"), raw.get("comment"))
         return {"ok": bool(raw.get("retcode")), "retcode": raw.get("retcode"), "raw": raw,
-                "request": dict(request)}
+                "check": check, "request": dict(request)}
 
     def positions_get(self, ticket: Optional[int] = None, symbol: Optional[str] = None) -> List[Dict]:
         """Open positions from the terminal (used to verify an executed order)."""

@@ -124,7 +124,9 @@ def verify_metatrader5() -> None:
         if v.major == 3 and v.minor >= 14:
             log_msg("WARN", f"MetaTrader5 binary wheel is not available for Python {v.major}.{v.minor} on PyPI.")
             log_msg("INFO", "The lab will automatically operate with the built-in SIMULATOR bridge.")
-            log_msg("INFO", "To connect to live MT5 terminals, install Python 3.11 or 3.12.")
+            log_msg("INFO", "To connect to live MT5 terminals, use a 64-bit Windows Python that has a "
+                            "published MetaTrader5 wheel (verified 2026-10-07: 3.6-3.14 for "
+                            "MetaTrader5 5.0.6231). Python 3.13 is not specifically required.")
         else:
             log_msg("WARN", "MetaTrader5 Python package is missing on Windows.")
             log_msg("ACTION", "Attempting self-repair: pip install MetaTrader5>=5.0.45...")

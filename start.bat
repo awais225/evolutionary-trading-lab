@@ -127,7 +127,9 @@ if errorlevel 1 (
 )
 echo [OK] Database verified.
 echo     Schema version: 3
-echo     Strategies: 371
+set "STRATEGY_COUNT=unknown"
+for /f "usebackq delims=" %%c in (`"%VENV_PYTHON%" "%ROOT%\backend\tools\verify_database.py" --print-count`) do set "STRATEGY_COUNT=%%c"
+echo     Strategies in the database: %STRATEGY_COUNT%
 echo.
 
 REM ---------------------------------------------------------------------------

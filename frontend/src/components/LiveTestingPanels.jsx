@@ -187,6 +187,9 @@ export function ManualOrderPanel({ defaultSymbol = "XAUUSD" }) {
   const [result, setResult] = useState(null);
   const [confirming, setConfirming] = useState(null);
   const [sizeMode, setSizeMode] = useState("risk");     // "risk" | "lots"
+  // when the backend preview was last computed — makes the automatic refresh
+  // (and the optional manual "Recalculate now") observable instead of invisible
+  const [previewAt, setPreviewAt] = useState("");
   const up = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
   /* §3 — the entry reference is the operator's when they type one, otherwise the
@@ -236,6 +239,7 @@ export function ManualOrderPanel({ defaultSymbol = "XAUUSD" }) {
       }
       const res = await api.mt5ExecutionPreview(payload);
       setPreview(res);
+      setPreviewAt(new Date().toISOString().slice(11, 19) + "Z");
       /* Only the *dependent* field is filled in. Writing the result back into
        * the field the operator is editing would make the value drift away from
        * what they typed (10 -> 9.94 -> 9.88 …) — the input stays theirs. */
@@ -416,8 +420,9 @@ export function ManualOrderPanel({ defaultSymbol = "XAUUSD" }) {
       )}
 
       <div className="btn-row">
-        <button className="btn" disabled={busy === "preview"} onClick={() => runPreview()}>
-          {busy === "preview" ? "calculating…" : "Recalculate (backend)"}
+        <button className="btn" disabled={busy === "preview"} onClick={() => runPreview()}
+                title="Runs exactly the same backend preview the panel already runs automatically (250 ms after any change).">
+          {busy === "preview" ? "calculating…" : "Recalculate now"}
         </button>
         <button className="btn success" disabled={busy === "place" || !executionAllowed}
                 onClick={() => { up("side", "BUY"); setConfirming({ side: "BUY" }); }}
@@ -430,6 +435,7 @@ export function ManualOrderPanel({ defaultSymbol = "XAUUSD" }) {
           SELL
         </button>
         <span className="muted" style={{ alignSelf: "center", fontSize: 11.5 }}>
+          {previewAt ? `calculated ${previewAt} · ` : ""}
           {executionAllowed ? "Execution path is ALLOWED."
             : `Execution blocked by the backend: ${txt(state?.blocked_code, "MT5_UNAVAILABLE")} — ${txt(state?.blocked_reason, "no real demo terminal is connected")}`}
         </span>
@@ -1044,7 +1050,7 @@ export function ScheduleDialog({ nodeId, onClose, onSaved }) {
   const tzOpts = arr(state?.options?.timezones).map(String);
   const nodeTf = txt(state?.options?.node_timeframe, "");
 
-  const group = (label, key, opts, valueOf = (o) => o.value, labelOf = (o) => o.label) => (
+  const group = (label, key, opts, valueOf = (o) => o.value, labelOf = (o) => o.label, hint = null) => (
     <div className="kit-col" style={{ marginBottom: 10 }}>
       <div className="row-bar">
         <div className="muted" style={{ fontSize: 11.5, fontWeight: 600 }}>{label}</div>
@@ -1066,6 +1072,7 @@ export function ScheduleDialog({ nodeId, onClose, onSaved }) {
           );
         })}
       </div>
+      {hint && <div className="muted" style={{ fontSize: 11, marginTop: 3 }}>{hint}</div>}
       {fieldErrs[key] && <div className="kit-inline-err" style={{ fontSize: 11.5 }}>{fieldErrs[key]}</div>}
     </div>
   );
@@ -1130,7 +1137,11 @@ export function ScheduleDialog({ nodeId, onClose, onSaved }) {
 
           {group("Active days", "days", dayNames)}
           {group("Sessions", "sessions", sessionOpts)}
-          {group("Market regimes", "regimes", regimeOpts)}
+          {group("Market regimes (values defined by the research engine)", "regimes", regimeOpts,
+                 (o) => o.value, (o) => o.label,
+                 arr(draft.regimes).length
+                   ? `Only trades while this node's current regime is one of the ${arr(draft.regimes).length} selected value(s); the engine checks this rule before every order.`
+                   : "No regime restriction — an empty selection means the engine does not filter by regime (it never blocks every trade).")}
           {group("Timeframes", "timeframes", tfOpts)}
           {group("Signal conditions (from this node's own genome)", "conditions", condOpts,
                  (o) => o.value, (o) => `${o.label}`)}

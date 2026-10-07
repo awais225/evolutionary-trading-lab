@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 import threading
 from typing import Dict, Optional
 
@@ -32,8 +33,18 @@ def build_bridge(cfg=None, explicit_path: Optional[str] = None) -> MarketBridge:
         if mode == "real":
             log.warning("Real MT5 requested but unavailable: %s", real.status())
             return real
-        log.warning("MT5 unavailable (%s) -> falling back to SIMULATOR",
-                    real.status().get("last_error"))
+        # V5.1a §8 - the fallback is a reported, explained mode, never a silent one:
+        # name the actual blocking fact instead of logging an empty reason.
+        st = real.status() or {}
+        reason = st.get("last_error") or ""
+        if not reason and not MT5_PACKAGE_AVAILABLE:
+            from .mt5_real import MT5_IMPORT_ERROR
+            reason = (f"the MetaTrader5 package is not importable in this interpreter "
+                      f"({sys.executable}): {MT5_IMPORT_ERROR or 'not installed'}")
+        if not reason:
+            reason = "the MetaTrader5 package is present but no terminal could be connected"
+        log.warning("MT5 unavailable (%s) -> SIMULATOR mode (explicitly reported, not used for "
+                    "real execution)", reason)
     return SimulatorBridge()
 
 
