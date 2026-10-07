@@ -3566,3 +3566,43 @@ LAUNCHER FIX — THE NORMAL LAUNCHER MUST SERVE THE CURRENT FRONTEND
                    below (a commit cannot contain its own hash).
 
 =============================================================
+
+=============================================================
+LAUNCHER FIX — PUSH RESULT AND FINAL HASHES
+=============================================================
+  Commit         : ab2c18f2df06d7083006d24ec5e590511c97b98a
+                   "fix: serve current frontend from normal launcher"
+                   (9 files changed, 1,185 insertions(+), 50 deletions(-))
+  Push           : origin main 97cbf90..aca89ba  main -> main
+                   aca89ba4c77b38f515fb17d07f60ae59d3e63356 includes the fix
+                   commit above plus this log entry (a commit cannot contain its
+                   own hash, hence the two-step record).
+  Local/remote   : git rev-parse HEAD == git rev-parse origin/main ==
+                   aca89ba4c77b38f515fb17d07f60ae59d3e63356 after the push.
+  Cross-checked  : GitHub API /repos/awais225/evolutionary-trading-lab/commits/
+                   ab2c18f2df06d7083006d24ec5e590511c97b98a lists exactly the nine
+                   files above (three added: backend/app/frontend_build.py,
+                   backend/tools/frontend_build_guard.py,
+                   tests/test_frontend_serving.py); raw.githubusercontent.com
+                   main returns HTTP 200 for all three new files.
+  Not committed  : DATA/** (never staged; the authoritative tree stays outside
+                   the repository), database/WAL/SHM, LOGS/*, CONFIG runtime
+                   files, frontend/dist and frontend/dist/build-info.json
+                   (generated, ignored by .gitignore `dist/`), node_modules,
+                   virtualenvs and any secret or credential. `git diff --cached
+                   --name-only` was checked before each commit: only the launcher,
+                   static-serving, build-identity, doctor, test and log files
+                   were staged. frontend/src was byte-identical to the committed
+                   V5 source at commit time (the temporary test marker injected
+                   into DeepBacktest.jsx during the end-to-end reproduction was
+                   reverted and the bundle rebuilt before the commit).
+  Operator notes : On the user's machine the fix takes effect on the next normal
+                   launch: START.bat rebuilds frontend/dist from frontend/src if
+                   it does not match, replaces a running instance that serves an
+                   older build or another repository (never an unrelated
+                   program), and verifies the served dashboard afterwards. If
+                   npm is not on PATH, START.bat stops with an explicit message
+                   instead of serving a stale dashboard. No manual npm step is
+                   required, and the same flow works from a fresh clone.
+
+=============================================================
