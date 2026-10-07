@@ -4650,3 +4650,14 @@ state. Fixed at the layer that was wrong (§A): every order_send outcome now car
     (0 terminals) -> SIMULATOR_ONLY / MT5 PLATFORM UNSUPPORTED is the correct
     report; NO real demo order was placed or verified here. That remains a Windows
     task with CHECK_MT5_WINDOWS.bat + the account selector.
+
+§GIT (recorded after the push)
+  commit 15ec794 "feat: MT5 execution trace, account selector and authoritative
+  populations (V5.1a next §A-§D)" pushed to origin/main (5341799..15ec794); proved
+  with `git ls-remote origin refs/heads/main` == 15ec79438230ff73e83df022120ff297778838de.
+  Build identity at that commit: src df2088fd4aaf0f87, index 8ae67c1db86ff177,
+  entries assets/index-BPfS2Hae.js + assets/index-CAT5VClr.css, dist FRESH.
+  Workspace preview rebuilt from 15ec794: 4,052,256 bytes, 81 endpoints;
+  verify_preview PASS (18/18 nav, no console errors); the four MT5 pages themed;
+  a jsdom probe on the preview found the account selector on both MT5 pages
+  (select#mt5-account-select, 2 options) with no missing strings and no errors.
