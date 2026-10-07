@@ -1069,6 +1069,195 @@ export async function runSmoke() {
     }
   }
 
+  // 4b. V5.1a-next §7-§11 — the manual calculator's exact user flow.
+  {
+    /* The stub answers like the real endpoint: it sizes from the *request body*
+     * with the broker's own spec (tick_size 0.01, tick_value 1.0, step 0.01,
+     * min 0.01) and returns the same shape `POST /api/mt5-execution/preview`
+     * returns, including the honest refusal when the money is below one minimum
+     * lot. So the assertions below are about the component's real behaviour.
+     */
+    const SPEC = { symbol: "XAUUSD", digits: 2, point: 0.01, tick_size: 0.01, tick_value: 1.0,
+                   volume_min: 0.01, volume_max: 100, volume_step: 0.01, source: "MT5" };
+    /* the same live quote the panel reads from the market-header feed */
+    const ASK = 2400.3, BID = 2400.1;
+    const previewFromRequest = (body) => {
+      const side = String(body.side || "BUY").toUpperCase();
+      const quoted = side === "BUY" ? ASK : BID;
+      const entry = (body.entry === null || body.entry === undefined) ? quoted : Number(body.entry);
+      const slPips = Number(body.sl_pips);
+      const sl = Number((entry + (side === "BUY" ? -1 : 1) * slPips * 0.10).toFixed(2));
+      const riskPerLot = slPips * 10.0;                 // 1 pip = 0.10 / 0.01 x 1.0 = $10 per lot
+      const levels = { entry, sl, tp: null, sl_pips: slPips, pip_size: 0.10, points_per_pip: 10,
+                       sl_from_pips: true, tp_from_pips: false, warnings: [] };
+      const base = { ok: true, levels, symbol_info: SPEC, quote: { bid: BID, ask: ASK },
+                     risk_limits: { risk_pct_default: 1, risk_pct_max: 2 }, estimate: {},
+                     defaults: { sl_pips: 300, risk_amount: 10, symbol: "XAUUSD" },
+                     orders_placed: false, read_only: true };
+      if (body.volume === undefined || body.volume === "" || body.volume === null) {
+        const raw = Number(body.risk_amount) / riskPerLot;
+        const vol = Math.floor(raw / 0.01 + 1e-9) * 0.01;
+        if (vol < 0.01 - 1e-12) {
+          return { ...base, ok: false, mode: "risk_to_lot", sizing: null, blocked: {
+            code: "VOLUME_BELOW_MINIMUM",
+            message: `Risk ${Number(body.risk_amount).toFixed(2)} needs ${raw.toFixed(4)} lots below the `
+                     + `broker minimum 0.01 lots for XAUUSD`,
+            detail: { risk_amount: Number(body.risk_amount), risk_per_lot: riskPerLot,
+                      raw_volume: raw, volume_min: 0.01, volume_step: 0.01 } } };
+        }
+        const volume = Number(vol.toFixed(4));
+        return { ...base, mode: "risk_to_lot", sizing: {
+          ...SPEC, entry, sl, risk_per_lot: riskPerLot, raw_volume: raw, volume,
+          actual_risk: Number((volume * riskPerLot).toFixed(2)),
+          stop_distance: Number(Math.abs(entry - sl).toFixed(6)) } };
+      }
+      const volume = Number(body.volume);
+      return { ...base, mode: "lot_to_risk", sizing: {
+        ...SPEC, entry, sl, risk_per_lot: riskPerLot, raw_volume: volume, volume,
+        actual_risk: Number((volume * riskPerLot).toFixed(2)),
+        stop_distance: Number(Math.abs(entry - sl).toFixed(6)) } };
+    };
+
+    const marketSnapshot = snapshotMarket();
+    setExecutionState({
+      ...EXEC_STATE, execution_allowed: true, blocked_code: null, blocked_reason: null,
+      account_safety: { ...EXEC_STATE.account_safety, demo_verified: true, is_simulated: false,
+                        blocked_code: null, blocked_reason: null,
+                        account: { login: 51234567, type: "DEMO", trade_mode: 0 } },
+      bridge: { name: "mt5", source: "MT5", is_simulated: false, connected: true },
+    });
+    setPreviewResponse(previewFromRequest);
+    previewPosts.length = 0;
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const flush = async () => { await act(async () => { await new Promise((r) => setTimeout(r, 400)); }); };
+    /* this block renders into its own container, so it needs its own input
+     * helpers (the shared setValue/clickText above are bound to the earlier one) */
+    const setFieldIn = async (labelText, value) => {
+      const labels = Array.from(container.querySelectorAll("label"));
+      const label = labels.find((l) => (l.textContent || "").includes(labelText));
+      const input = label && label.querySelector("input, select");
+      if (!input) {
+        throw new Error(`no input for "${labelText}" (labels: `
+          + labels.map((l) => (l.textContent || "").trim().slice(0, 40)).join(" | ") + ")");
+      }
+      await act(async () => {
+        const proto = input.tagName === "SELECT" ? window.HTMLSelectElement.prototype : window.HTMLInputElement.prototype;
+        Object.getOwnPropertyDescriptor(proto, "value").set.call(input, String(value));
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+        await Promise.resolve();
+      });
+    };
+    const clickIn = async (text) => {
+      const btn = Array.from(container.querySelectorAll("button")).find((b) => (b.textContent || "").includes(text));
+      if (!btn) throw new Error(`no button labelled "${text}"`);
+      await act(async () => { btn.dispatchEvent(new MouseEvent("click", { bubbles: true })); await Promise.resolve(); });
+      return btn;
+    };
+    const lastPost = () => previewPosts[previewPosts.length - 1] || {};
+    try {
+      await act(async () => { root.render(wrap(<ManualOrderPanel />)); });
+      await flush();
+
+      /* (1) the form opens with $10 / 300 pips / the live quote, and the lot is
+       *     calculated without any button press. For $10 at a 300-pip XAUUSD stop
+       *     the honest answer is the broker-minimum refusal ($10 < $30). */
+      const open = lastPost();
+      if (Number(open.body.risk_amount) !== 10) throw new Error(`the default amount is not $10: ${JSON.stringify(open.body)}`);
+      if (Number(open.body.sl_pips) !== 300) throw new Error(`the default stop is not 300 pips: ${JSON.stringify(open.body)}`);
+      if (Number(open.body.entry) !== ASK) throw new Error(`a BUY must open on the live ASK (${ASK}), sent ${open.body.entry}`);
+      let text = container.textContent || "";
+      if (!text.includes("VOLUME_BELOW_MINIMUM")) {
+        throw new Error(`the $10 default must be answered with the broker's own refusal … "${text.slice(0, 240)}"`);
+      }
+      if (!text.includes("minimum required risk")) {
+        throw new Error("the refusal must tell the operator the minimum risk a legal lot needs");
+      }
+
+      /* (2) amount -> lot: $300 -> $600 doubles the lot, with no button press */
+      await setFieldIn("Amount / risk", "300"); await flush();
+      text = container.textContent || "";
+      if (!text.includes("CALCULATED BY BACKEND")) throw new Error("the panel did not report the backend calculation");
+      const LOT_RE = (v) => new RegExp("Lot size \\(rounded down\\)\\s*" + v + "(?![0-9.])");
+      if (!LOT_RE("0\\.1").test(text)) throw new Error(`$300 at 300 pips must be a 0.1 lot … "${text.slice(0, 300)}"`);
+      await setFieldIn("Amount / risk", "600"); await flush();
+      text = container.textContent || "";
+      if (!LOT_RE("0\\.2").test(text)) throw new Error(`$600 must double the lot to 0.2 … "${text.slice(0, 300)}"`);
+      if (Number(lastPost().body.risk_amount) !== 600) throw new Error("the new amount never reached the backend");
+      if (lastPost().body.volume !== undefined) throw new Error("the amount edit must still be an amount -> lot request");
+
+      /* (3) lot -> amount: editing the lot size updates the money at risk */
+      await setFieldIn("Lot size", "0.20"); await flush();
+      const lotPost = lastPost();
+      if (Number(lotPost.body.volume) !== 0.2) throw new Error(`the lot edit was not sent as a lot: ${JSON.stringify(lotPost.body)}`);
+      if (lotPost.body.risk_amount !== undefined) throw new Error("the lot edit must not send an amount as well");
+      await setFieldIn("Lot size", "0.10"); await flush();
+      text = container.textContent || "";
+      if (!/Monetary risk \(actual\)\s*300(?![0-9.])/.test(text)) {
+        throw new Error(`0.1 lot at 300 pips must show the $300 it risks … "${text.slice(0, 300)}"`);
+      }
+
+      /* (4) the stop distance drives the dependent values.
+       *     With the lot held at 0.10, 300 pips -> 500 pips must raise the money
+       *     at risk from $300 to $500 … */
+      const beforeSl = container.textContent || "";
+      await setFieldIn("Stop loss (pips", "500"); await flush();
+      const afterSl = container.textContent || "";
+      if (Number(lastPost().body.sl_pips) !== 500) throw new Error("the new stop distance never reached the backend");
+      if (!/Monetary risk \(actual\)\s*500(?![0-9.])/.test(afterSl)) {
+        throw new Error("0.1 lot at 500 pips must show the $500 it risks; tail=" + afterSl.slice(-400));
+      }
+      if (beforeSl === afterSl) throw new Error("the dependent values did not change with the stop distance");
+
+      /* … and with the amount fixed instead, the same stop change re-sizes the lot:
+       *     $150 at 500 pips = 0.03, $300 at 500 pips = 0.06 (no button press). */
+      await setFieldIn("Amount / risk", "150"); await flush();
+      let sized = container.textContent || "";
+      if (!LOT_RE("0\\.03").test(sized)) {
+        throw new Error("$150 at 500 pips must be a 0.03 lot; tail=" + sized.slice(-400));
+      }
+      await setFieldIn("Amount / risk", "300"); await flush();
+      sized = container.textContent || "";
+      if (!LOT_RE("0\\.06").test(sized)) {
+        throw new Error("$300 at 500 pips must be a 0.06 lot; tail=" + sized.slice(-400));
+      }
+      if (Number(lastPost().body.risk_amount) !== 300) throw new Error("the amount -> lot request was not sent");
+
+      /* (5) BUY is sized from the ASK, SELL from the BID */
+      await setFieldIn("Side", "SELL"); await flush();
+      if (Number(lastPost().body.entry) !== BID) {
+        throw new Error(`a SELL must be sized from the live BID (${BID}), sent ${lastPost().body.entry}`);
+      }
+      await setFieldIn("Side", "BUY"); await flush();
+      if (Number(lastPost().body.entry) !== ASK) {
+        throw new Error(`switching back to BUY must use the live ASK (${ASK}), sent ${lastPost().body.entry}`);
+      }
+
+      /* (6) "Recalculate now" is not a dead button: it repeats the identical,
+       *     valid calculation and changes nothing else. */
+      const bodyBefore = JSON.stringify(lastPost().body);
+      const countBefore = previewPosts.length;
+      await clickIn("Recalculate now"); await flush();
+      if (previewPosts.length <= countBefore) throw new Error("Recalculate now did not ask the backend for anything");
+      if (JSON.stringify(lastPost().body) !== bodyBefore) {
+        throw new Error("Recalculate now must repeat the same valid calculation");
+      }
+      if (!LOT_RE("0\\.06").test(container.textContent || "")) {
+        throw new Error("the manual refresh changed the displayed calculation");
+      }
+      results.push({ label: "ManualOrderPanel:exact-user-flow", ok: true });
+    } catch (e) {
+      results.push({ label: "ManualOrderPanel:exact-user-flow", ok: false, error: e.message || String(e) });
+    } finally {
+      try { await act(async () => { root.unmount(); }); } catch {}
+      restoreMarketSnapshot(marketSnapshot);
+      setPreviewResponse(PREVIEW_OK);
+      setExecutionState(EXEC_STATE);
+    }
+  }
+
   // 5b. V5 — the live node table, the schedule dialog, START/STOP, the market
   // header, the Power button and the Trading Info tab
   {

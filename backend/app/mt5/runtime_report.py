@@ -261,9 +261,36 @@ def mt5_runtime_report(root: Optional[Path] = None, *, probe_launcher: bool = Tr
                        f"({launcher_probe.get('interpreter')}) — the backend is running a different "
                        f"interpreter than the launcher picks")
 
+    # V5.1a-next §5 — the exact failing *layer* (spec vocabulary), computed from
+    # the same measured facts. `verdict`/`reason` above stay unchanged for
+    # compatibility; this is the finer-grained answer, never a guess: facts this
+    # report did not measure stay None and cannot produce a failure.
+    from .windows_diagnostic import classify_layers
+    pkg_elsewhere = ""
+    if launcher_probe.get("importable") and not launcher_probe.get("same_as_running"):
+        pkg_elsewhere = str(launcher_probe.get("interpreter") or "")
+    layer = classify_layers({
+        "platform_supported": _host_is_windows(),
+        "python_found": True,
+        "wheel_supported": interp.get("wheel_supported"),
+        "package_importable": bool(package.get("importable")),
+        "package_importable_somewhere": pkg_elsewhere,
+        "package_error": package.get("error") or "",
+        "terminals_found": terminal.get("discovered_count", 0),
+        "terminal_process_running": None,          # not measured by this report
+        "initialized": bridge.get("source") == "MT5" and bool(bridge.get("connected")),
+        "account_available": bool(bridge.get("account")) if bridge.get("source") == "MT5" else False,
+        "symbol_available": None,                  # not measured by this report
+        "market_data_available": None,             # not measured by this report
+        "trading_permissions_ok": bridge.get("trade_allowed"),
+        "order_check_attempted": False,
+    })
+
     return {
         "verdict": verdict,
         "reason": reason,
+        "environment_class": layer["environment"],
+        "environment_reason": layer["reason"],
         "python": interp,
         "launcher_python": launcher,
         "launcher_package_probe": launcher_probe,

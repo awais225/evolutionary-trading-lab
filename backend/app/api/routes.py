@@ -3639,15 +3639,23 @@ def mt5_execution_preview(payload: Dict = Body(default_factory=dict)) -> Dict:
 
     sizing = None
     blocked = None
+    # V5.1a-next §7-§9: sizing uses the *resolved* entry price — the operator's own
+    # price when they typed one, otherwise the live quote for the side (BUY->ask,
+    # SELL->bid) that this endpoint already resolved into levels["entry"]. Before
+    # this, a caller that relied on the live quote got correct levels but an
+    # INVALID_ENTRY_PRICE refusal from the sizing maths, so "the live price drives
+    # the lot" was only true if the caller re-sent the price. The broker spec and
+    # the maths are unchanged; only the price they are run against is the one shown.
+    entry_for_sizing = levels["entry"]
     if mode == "risk_to_lot":
         try:
-            sizing = compute_volume(symbol=symbol, side=side, entry=entry, sl=sl,
+            sizing = compute_volume(symbol=symbol, side=side, entry=entry_for_sizing, sl=sl,
                                     risk_amount=risk_amount, spec=spec)
         except RiskBlock as e:
             blocked = {"code": e.code, "message": e.message, "detail": e.detail or {}}
     else:
         try:
-            sizing = risk_for_volume(symbol=symbol, side=side, entry=entry, sl=sl,
+            sizing = risk_for_volume(symbol=symbol, side=side, entry=entry_for_sizing, sl=sl,
                                      volume=volume, spec=spec)
         except RiskBlock as e:
             blocked = {"code": e.code, "message": e.message, "detail": e.detail or {}}
