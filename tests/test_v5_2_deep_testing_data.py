@@ -85,13 +85,19 @@ def test_01_population_state_names_match_the_counts(db):
     counts = data["counts"]
     st = state["state"]
     assert list(st.keys()) == ["TOTAL", "ALIVE", "QUALIFIED", "FINAL_TESTING_ELIGIBLE",
-                               "DEEP_TESTING_ELIGIBLE", "LIVE_TESTING_ELIGIBLE"]
+                               "DEEP_TESTING_ELIGIBLE", "LIVE_TESTING_ELIGIBLE",
+                               "LIVE_TESTING_ACTIVE"]
     assert st["TOTAL"] == counts["total"] == 4
     assert st["ALIVE"] == counts["alive"]
     assert st["QUALIFIED"] == counts["qualified"] == 2      # the two VALID user nodes
     assert st["DEEP_TESTING_ELIGIBLE"] == counts["deep"] == 2
     assert st["FINAL_TESTING_ELIGIBLE"] == counts["final"] == 0
-    assert st["LIVE_TESTING_ELIGIBLE"] == counts["live"] == 0
+    # V5.2.2 — LIVE_TESTING_ELIGIBLE is CAPABILITY: the two VALID user nodes are
+    # qualified and pass the engine's tradeability predicate, so they are eligible
+    # even though nothing has been started.  LIVE_TESTING_ACTIVE (enrolment) is the
+    # separate number and is legitimately 0 here.
+    assert st["LIVE_TESTING_ELIGIBLE"] == counts["live"] == 2
+    assert st["LIVE_TESTING_ACTIVE"] == counts["live_active"] == 0
     assert state["authority"] == data["authority"]
     assert "deep-testing union" in state["definitions"]["DEEP_TESTING_ELIGIBLE"]
 
@@ -107,14 +113,35 @@ def test_02_the_legacy_row_is_never_alive_or_qualified_or_deep(db):
     assert legacy_id not in members and failed_id not in members
 
 
-def test_03_live_eligibility_counts_only_nodes_that_are_actually_wired(db):
+def test_03_live_eligibility_is_capability_and_activity_is_enrolment(db):
+    """V5.2.2 §10 — the two questions are answered by two numbers.
+
+    ELIGIBLE answers "what CAN the live layer act on?" (capability, derived from the
+    engine's own predicate) and ACTIVE answers "what IS enrolled right now?"
+    (enrolment).  Before V5.2.2 the enrolment count was published under the word
+    "eligible", so a lab where nobody had pressed START reported 0 eligible nodes
+    even with qualified nodes on the page.
+    """
     ids = _ids(db)
+    state = P.population_state(db=db)["state"]
+    assert state["QUALIFIED"] == 2
+    assert state["LIVE_TESTING_ELIGIBLE"] == 2, "qualified + tradeable = eligible, before any START"
+    assert state["LIVE_TESTING_ACTIVE"] == 0, "nothing has been enrolled yet"
+
+    # enrolling both nodes is a DIFFERENT number: it must not change eligibility
     db.set_mt5_demo_config(ids[0], {"strategy_id": ids[0], "enabled": True,
                                     "confirmed_demo_only": True, "status": "RUNNING"})
     db.set_live_test_config(ids[1], {"strategy_id": ids[1], "is_active": 1})
     state = P.population_state(db=db)["state"]
-    assert state["LIVE_TESTING_ELIGIBLE"] == 2
+    assert state["LIVE_TESTING_ELIGIBLE"] == 2, "enrolment never inflates eligibility"
+    assert state["LIVE_TESTING_ACTIVE"] == 2, "both enrolments are real and counted"
     assert state["TOTAL"] == 4                                # nothing else moved
+
+    # and the detail behind the number is exposed, never just the total
+    live_inputs = P.populations(db=db)["detail"]["live_inputs"]
+    assert live_inputs["eligible"] == 2 and live_inputs["active"] == 2
+    assert live_inputs["active_configs_total"] == 2
+    assert {e["id"] for e in live_inputs["eligible_detail"]["eligible"]} == set(ids[:2])
 
 
 def test_04_the_endpoint_serves_the_same_numbers(db, monkeypatch):

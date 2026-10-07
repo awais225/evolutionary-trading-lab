@@ -115,9 +115,9 @@ export default function LiveTesting() {
 
       <div className="kit-strip">
         <Kpi label="Enrolled nodes" value={txt(engine?.node_count ?? summary?.active_strategies, "0")}
-             sub="started by the operator" />
+             sub="= LIVE TESTING ACTIVE (enrolled/started by the operator)" />
         <Kpi label="Excluded nodes" value={txt(engine?.excluded_count, "0")}
-             sub="not enrolled (reported by the engine)" />
+             sub="enrolled but rejected by the engine (not a candidate)" />
         <Kpi label="Open positions" value={txt(summary?.open_positions, "0")} />
       </div>
     </>

@@ -31,7 +31,7 @@ NODE_INDEX = REPO / "frontend" / "src" / "components" / "LiveNodeIndex.jsx"
 STRIP = REPO / "frontend" / "src" / "components" / "NodePopulationStrip.jsx"
 
 POP_NAMES = ["TOTAL", "ALIVE", "QUALIFIED", "FINAL_TESTING_ELIGIBLE",
-             "DEEP_TESTING_ELIGIBLE", "LIVE_TESTING_ELIGIBLE"]
+             "DEEP_TESTING_ELIGIBLE", "LIVE_TESTING_ELIGIBLE", "LIVE_TESTING_ACTIVE"]
 
 
 # ===========================================================================

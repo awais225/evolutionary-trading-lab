@@ -17,8 +17,19 @@ and the live engine use), so:
     deep       the deep-backtest universe: the UNION of everything the operator
                can legitimately deep-test (qualified + live-eligible + already
                deep-tested) — see :func:`deep_universe`
-    live       nodes actually wired into the live layer (LIVE_TESTING status,
-               an active live-test config, or an MT5-demo config)
+    live       §10-eligible: nodes the live layer can actually act on — the
+               qualified nodes that PASS the engine's own tradeability predicate
+               (:mod:`app.live_testing.eligibility`: not LEGACY_TEST, not
+               dead/blocked, genome with a symbol and at least one entry rule).
+               "Eligible" means CAPABILITY, not enrolment.
+    live_active the nodes the live layer is ACTUALLY running right now: enrolled
+               (an active live-test config, an enabled MT5-demo config or
+               LIVE_TESTING status) AND accepted by the same tradeability
+               predicate — i.e. exactly the set the engine would trade.  Kept as
+               a SEPARATE number: before V5.2.2 the enrolment count was reported
+               under the word "eligible", which made a lab where nobody had
+               pressed START look like a lab where nothing qualifies.  Enrolled
+               rows the engine refuses stay visible in ``detail.live_inputs``.
 
 Nothing here writes to the database and nothing here invents rows: a value that
 cannot be computed is reported as 0 with a reason in ``notes``.
@@ -43,8 +54,13 @@ POPULATION_DEFINITIONS: Dict[str, str] = {
              "or MT5-demo nodes.",
     "deep": "The deep-backtest universe: the union of qualified nodes, live-eligible nodes and "
             "nodes that already have a deep (mt5-historical) run.",
-    "live": "Nodes actually wired into a live layer: LIVE_TESTING status, an active live-test "
-            "config, or an MT5-demo configuration.",
+    "live": "Live-testing ELIGIBLE (capability): qualified nodes that pass the engine's own "
+            "tradeability predicate (not LEGACY_TEST, not dead/blocked, genome with a symbol and "
+            "at least one entry rule) — the nodes the START path can enrol.",
+    "live_active": "Live-testing ACTIVE (enrolment): nodes the live layer is actually running right "
+                   "now — enrolled (active live-test config, enabled MT5-demo configuration or "
+                   "LIVE_TESTING status) AND accepted by the tradeability predicate. Enrolled rows "
+                   "the engine refuses are reported separately, never counted here.",
 }
 
 #: research stages that count as "final"
@@ -201,6 +217,41 @@ def deep_universe(db: Any = None, rows: Optional[Iterable[Dict[str, Any]]] = Non
     return union
 
 
+def live_eligibility(rows: Optional[Iterable[Dict[str, Any]]] = None,
+                     db: Any = None) -> Dict[str, Any]:
+    """§10/V5.2.2 — how many nodes are LIVE-TESTING ELIGIBLE, and why not.
+
+    Eligibility is CAPABILITY: a node is eligible when it is *qualified by
+    research* AND the live engine's own tradeability predicate would accept it
+    (:func:`app.live_testing.eligibility.tradeability`).  A qualified node does
+    not need to be enrolled first — pressing START on the Live Testing page is
+    what enrols it — so a fresh lab reports a real, non-zero candidate count
+    instead of the enrolment count dressed up as eligibility.
+
+    Returns the eligible ids plus a per-reason histogram of the qualified nodes
+    that were rejected, so the UI can explain the number instead of printing it.
+    """
+    from ..live_testing.eligibility import tradeability
+
+    rows = [dict(r) for r in (rows if rows is not None else load_rows(db))]
+    eligible: List[Dict[str, Any]] = []
+    rejected: Dict[str, int] = {}
+    for row in rows:
+        if str(row.get("data_source") or "").strip().upper() == "LEGACY_TEST":
+            continue                                   # infrastructure, never a candidate
+        if node_bucket(row)["bucket"] != "qualified":
+            continue                                   # research gate not cleared yet
+        verdict = tradeability(row)
+        if verdict["ok"]:
+            eligible.append({"id": int(row["id"]), "symbol": row.get("symbol"),
+                             "timeframe": row.get("timeframe"), "status": v5_status(row)})
+        else:
+            key = verdict["reason"] or verdict["code"]
+            rejected[key] = rejected.get(key, 0) + 1
+    eligible.sort(key=lambda r: r["id"])
+    return {"eligible": eligible, "count": len(eligible), "rejected": rejected}
+
+
 #: §10 — the explicit lifecycle names every page must agree on. They are the
 #: SAME six numbers as ``populations()``; the longer names exist so no page has to
 #: invent its own meaning for "alive"/"eligible"/"final".
@@ -211,6 +262,7 @@ POPULATION_STATE_KEYS: Dict[str, str] = {
     "FINAL_TESTING_ELIGIBLE": "final",
     "DEEP_TESTING_ELIGIBLE": "deep",
     "LIVE_TESTING_ELIGIBLE": "live",
+    "LIVE_TESTING_ACTIVE": "live_active",
 }
 
 POPULATION_STATE_DEFINITIONS: Dict[str, str] = {
@@ -224,8 +276,16 @@ POPULATION_STATE_DEFINITIONS: Dict[str, str] = {
         "The deep-testing union: qualified ∪ live-eligible ∪ already deep-tested nodes "
         "(LEGACY_TEST infrastructure excluded)."),
     "LIVE_TESTING_ELIGIBLE": (
-        "Nodes actually wired into a live layer (LIVE_TESTING status, an active live-test "
-        "config or an MT5-demo configuration) — the nodes the live engine can act on."),
+        "Nodes the live layer CAN act on (capability): qualified nodes that pass the engine's "
+        "own tradeability predicate — not LEGACY_TEST, not dead/blocked, with a genome carrying "
+        "a symbol and at least one entry rule. These are the nodes the Live Testing START path "
+        "can enrol; being eligible does not mean the node is running."),
+    "LIVE_TESTING_ACTIVE": (
+        "Nodes the live layer is ACTUALLY running RIGHT NOW (enrolment + acceptance): an active "
+        "live-test config, an enabled MT5-demo configuration or LIVE_TESTING status, AND accepted "
+        "by the same tradeability predicate — exactly the nodes the engine would trade. A fresh "
+        "lab is legitimately 0 here; enrolled rows the engine refuses are reported separately as "
+        "excluded."),
 }
 
 
@@ -280,12 +340,37 @@ def populations(db: Any = None) -> Dict[str, Any]:
         notes.append(f"deep universe could not be computed: {e}")
         deep = 0
 
-    # ``live`` is only ever counted over nodes that were actually read: a stray
-    # config row for a node that is not in this database must not inflate it.
-    present = {int(r["id"]) for r in user_rows}
-    live_configured = _live_ids(db) & present
+    # ``live`` (V5.2.2) = CAPABILITY: qualified nodes the engine's own predicate
+    # accepts — i.e. exactly the nodes the Live Testing START path can enrol.
+    try:
+        elig = live_eligibility(rows=rows)
+    except Exception as e:                         # pragma: no cover - defensive
+        notes.append(f"live eligibility could not be computed: {e}")
+        elig = {"eligible": [], "count": 0, "rejected": {}}
+    live = int(elig["count"])
+
+    # ``live_active`` = ENROLMENT blocked through the SAME predicate: the nodes the
+    # live layer is actually running (enrolled AND accepted by the engine's rule).
+    # Only ever counted over nodes that were actually read: a stray config row for a
+    # node that is not in this database must not inflate it.
+    from ..live_testing.eligibility import tradeability
+
+    row_by_id = {int(r["id"]): r for r in user_rows}
+    present = set(row_by_id)
+    active_configs = _live_ids(db)
+    live_configured = active_configs & present
     live_direct = {int(r["id"]) for r in user_rows if v5_status(r) == "LIVE_TESTING"}
-    live = len(live_configured | live_direct)
+    enrolled = live_configured | live_direct
+    active_rejected: Dict[str, int] = {}
+    live_active_ids: Set[int] = set()
+    for sid in sorted(enrolled):
+        verdict = tradeability(row_by_id[sid])
+        if verdict["ok"]:
+            live_active_ids.add(sid)
+        else:
+            key = verdict["reason"] or verdict["code"]
+            active_rejected[key] = active_rejected.get(key, 0) + 1
+    live_active = len(live_active_ids)
 
     by_source: Dict[str, int] = {}
     for r in rows:
@@ -295,14 +380,27 @@ def populations(db: Any = None) -> Dict[str, Any]:
     return {
         "ok": True,
         "counts": {"total": len(rows), "alive": alive, "qualified": qualified,
-                   "final": final, "deep": deep, "live": live},
+                   "final": final, "deep": deep, "live": live,
+                   "live_active": live_active},
         "definitions": POPULATION_DEFINITIONS,
         "detail": {
             "user_research_total": len(user_rows),
             "legacy_excluded": legacy,
             "buckets": buckets,
             "alive_statuses": list(ALIVE_STATUSES),
-            "live_inputs": {"configured": len(live_configured), "live_testing_status": len(live_direct)},
+            "live_inputs": {
+                # capability (LIVE_TESTING_ELIGIBLE)
+                "eligible": live,
+                "eligible_detail": elig,
+                # enrolment (LIVE_TESTING_ACTIVE) — kept separate on purpose
+                "active": live_active,
+                "active_ids": sorted(live_active_ids),
+                "enrolled_total": len(enrolled),
+                "enrolled_rejected": active_rejected,
+                "active_configs_total": len(active_configs),
+                "configured": len(live_configured),
+                "live_testing_status": len(live_direct),
+            },
             "by_data_source": by_source,
         },
         "authority": "app.status.node_bucket (single classifier used by the node filters)",

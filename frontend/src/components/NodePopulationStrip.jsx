@@ -10,13 +10,19 @@
  *
  * The strip never invents a number: when the endpoint cannot answer it says so
  * and shows nothing for the values (fail-visible, never zero-filled).
+ *
+ * V5.2.2 — the last two chips answer two DIFFERENT questions and must not be
+ * confused: LIVE ELIGIBLE = capability (qualified nodes the engine's own
+ * tradeability predicate accepts — the nodes the START path can enrol), and
+ * LIVE ACTIVE = enrolment (nodes wired into the live layer right now). A fresh
+ * lab legitimately shows candidates > 0 and active = 0.
  */
 import React, { useEffect, useState } from "react";
 import { api } from "../api.js";
 import { Badge } from "./ui.jsx";
 
 const ORDER = ["TOTAL", "ALIVE", "QUALIFIED", "FINAL_TESTING_ELIGIBLE",
-               "DEEP_TESTING_ELIGIBLE", "LIVE_TESTING_ELIGIBLE"];
+               "DEEP_TESTING_ELIGIBLE", "LIVE_TESTING_ELIGIBLE", "LIVE_TESTING_ACTIVE"];
 const SHORT = {
   TOTAL: "TOTAL",
   ALIVE: "ALIVE",
@@ -24,11 +30,12 @@ const SHORT = {
   FINAL_TESTING_ELIGIBLE: "FINAL ELIGIBLE",
   DEEP_TESTING_ELIGIBLE: "DEEP ELIGIBLE",
   LIVE_TESTING_ELIGIBLE: "LIVE ELIGIBLE",
+  LIVE_TESTING_ACTIVE: "LIVE ACTIVE",
 };
 const TONE = {
   TOTAL: "mute", ALIVE: "ok", QUALIFIED: "good",
   FINAL_TESTING_ELIGIBLE: "violet", DEEP_TESTING_ELIGIBLE: "accent",
-  LIVE_TESTING_ELIGIBLE: "real",
+  LIVE_TESTING_ELIGIBLE: "real", LIVE_TESTING_ACTIVE: "ok",
 };
 
 export default function NodePopulationStrip({ compact = false, refreshMs = 30000 }) {

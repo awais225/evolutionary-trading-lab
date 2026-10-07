@@ -405,7 +405,8 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
                     {pop && pop.state && (
                       <div className="kit-strip" style={{ marginBottom: 6 }}>
                         {["TOTAL", "ALIVE", "QUALIFIED", "FINAL_TESTING_ELIGIBLE",
-                          "DEEP_TESTING_ELIGIBLE", "LIVE_TESTING_ELIGIBLE"].map((k) => (
+                          "DEEP_TESTING_ELIGIBLE", "LIVE_TESTING_ELIGIBLE",
+                          "LIVE_TESTING_ACTIVE"].map((k) => (
                           <div className="item" key={k}>
                             <span className="k">{k.replace(/_/g, " ")}</span>
                             <span className="v mono">

@@ -3,7 +3,8 @@
 Checked against a scratch database built with the *same* schema as the lab, so the
 numbers here are computed by real code, not by a fixture's arithmetic:
 
-  §D  one endpoint (and one module) answers total/alive/qualified/final/deep/live;
+  §D  one endpoint (and one module) answers total/alive/qualified/final/deep/live/
+      live_active (V5.2.2: eligible = capability, active = enrolment);
       the count never inflates alive nodes, never counts LEGACY_TEST rows as live
       or as research, and never silently promotes an unknown status to "alive";
   §E  the deep-testing universe is the UNION of qualified ∪ live-eligible ∪
@@ -148,22 +149,34 @@ def test_06_deep_is_the_union_size(population_db):
     assert out["counts"]["deep"] >= out["counts"]["qualified"]
 
 
-def test_07_live_counts_only_nodes_present_in_the_database():
-    """A config row for a node that is not in this DB must not inflate ``live``."""
+def test_07_live_activity_counts_only_nodes_present_in_the_database():
+    """A config row for a node that is not in this DB must not inflate the count.
+
+    V5.2.2 — the enrolment number is ``live_active`` (``LIVE_TESTING_ACTIVE``);
+    ``live`` (``LIVE_TESTING_ELIGIBLE``) is capability and needs no config row.
+    """
     db = FakeDB([node(1, "LIVE_TESTING")],
                 live=[{"strategy_id": 1, "is_active": 1}, {"strategy_id": 999, "is_active": 1}],
                 demo=[{"strategy_id": 888, "enabled": 1}])
     out = P.populations(db)
-    assert out["counts"]["live"] == 1
+    assert out["counts"]["live_active"] == 1
     assert out["detail"]["live_inputs"]["configured"] == 1
+    # the raw config rows are still reported honestly (2 that point outside this DB)
+    assert out["detail"]["live_inputs"]["active_configs_total"] == 3
+    assert out["counts"]["live"] == 1                 # capability: the node is qualified + tradeable
 
 
 def test_08_a_legacy_config_is_not_reported_as_a_live_user_node():
     db = FakeDB([node(1, "SURVIVED"), node(2, "SURVIVED", data_source="LEGACY_TEST")],
                 live=[{"strategy_id": 2, "is_active": 1}])
     out = P.populations(db)
-    assert out["counts"]["live"] == 0
+    assert out["counts"]["live_active"] == 0                    # the only config is LEGACY infrastructure
     assert out["detail"]["live_inputs"]["configured"] == 0
+    # ... and a legacy row is never a live-eligible candidate either, while the
+    # current-experiment node is (V5.2.2: eligibility is capability)
+    assert out["counts"]["live"] == 1
+    eligible = out["detail"]["live_inputs"]["eligible_detail"]["eligible"]
+    assert [e["id"] for e in eligible] == [1]
 
 
 def test_09_infrastructure_blocked_nodes_are_not_failures(population_db):
@@ -174,7 +187,7 @@ def test_09_infrastructure_blocked_nodes_are_not_failures(population_db):
 
 def test_10_the_payload_ships_its_own_definitions(population_db):
     out = P.populations(population_db)
-    for key in ("total", "alive", "qualified", "final", "deep", "live"):
+    for key in ("total", "alive", "qualified", "final", "deep", "live", "live_active"):
         assert out["definitions"][key]
     assert out["authority"].startswith("app.status.node_bucket")
 
@@ -195,7 +208,7 @@ def test_11_an_unreadable_database_says_so_instead_of_reporting_fake_numbers():
 def test_12_empty_database_is_zero_with_a_note():
     out = P.populations(FakeDB([]))
     assert out["counts"] == {"total": 0, "alive": 0, "qualified": 0, "final": 0,
-                             "deep": 0, "live": 0}
+                             "deep": 0, "live": 0, "live_active": 0}
     assert out["notes"]
 
 
@@ -295,7 +308,8 @@ def test_22_api_populations_endpoint_matches_the_module(client):
     r = client.get("/api/nodes/populations")
     assert r.status_code == 200
     body = r.json()
-    assert set(body["counts"]) == {"total", "alive", "qualified", "final", "deep", "live"}
+    assert set(body["counts"]) == {"total", "alive", "qualified", "final", "deep",
+                                   "live", "live_active"}
     assert body["counts"]["total"] > 0
     assert body["counts"]["alive"] >= 1
     assert body["definitions"]["alive"]

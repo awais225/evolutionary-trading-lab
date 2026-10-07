@@ -80,7 +80,10 @@ TRADE_CLOSED_MISSING = "CLOSED_MISSING"        # was live, no longer present at 
 ACTIVE_TRADE_STATUSES = (TRADE_UNCONFIRMED, TRADE_POSITION, TRADE_PENDING, TRADE_UNKNOWN)
 
 # statuses of strategies that must never receive live-test execution (spec §16)
-_EXCLUDED_STATUSES = ("DEAD", "KILLED", "RETIRED", "INVALID", "FAILED", "ARCHIVED")
+# V5.2.2 — the one live-tradeability predicate lives in ``eligibility`` so the
+# engine, the population counters and the Live Testing page cannot disagree.
+from .eligibility import EXCLUDED_STATUSES as _EXCLUDED_STATUSES  # noqa: E402
+from .eligibility import tradeability as _tradeability
 
 _TF_SECONDS = {"M1": 60, "M5": 300, "M15": 900, "M30": 1800, "H1": 3600}
 
@@ -356,24 +359,18 @@ class LiveTestingEngine:
         nodes, notes = [], []
         for r in self.live_test_configs():
             sid = r["strategy_id"]
-            status = (r.get("strategy_status") or "").upper()
-            source = (r.get("data_source") or "").upper()
             genome = r.get("genome") or {}
             risk = resolve_risk_pct(limits["risk_pct_default"], r.get("risk_pct"))
             entry = {"id": sid, "node_id": sid, "strategy_id": sid,
                      "genome": genome, "config": r,
                      "_effective_risk_pct": risk["risk_pct"], "_risk_source": risk["source"]}
-            if source == "LEGACY_TEST":
-                notes.append({**entry, "reason": "LEGACY_TEST node - never a live trading candidate"})
-                continue
-            if status in _EXCLUDED_STATUSES:
-                notes.append({**entry, "reason": f"node status {status} is not eligible for live testing"})
-                continue
-            if not genome or not genome.get("symbol"):
-                notes.append({**entry, "reason": "node has no trading configuration (genome/symbol missing)"})
-                continue
-            if not (genome.get("entry_long") or genome.get("entry_short")):
-                notes.append({**entry, "reason": "node has no entry conditions"})
+            # V5.2.2 — the SAME predicate the population counter uses ("eligibility"),
+            # so the number the operator reads and the nodes the engine trades agree
+            # by construction.  ``status`` is the stored status of this config's node.
+            verdict = _tradeability({"data_source": r.get("data_source"),
+                                     "status": r.get("strategy_status")}, genome=genome)
+            if not verdict["ok"]:
+                notes.append({**entry, "reason": verdict["reason"], "code": verdict["code"]})
                 continue
             nodes.append(entry)
         self._eligibility_notes = notes

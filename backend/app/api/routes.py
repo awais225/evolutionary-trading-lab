@@ -4295,18 +4295,28 @@ def live_testing_market_header(symbol: Optional[str] = None,
 def nodes_populations() -> Dict:
     """V5.1a-next §D — the ONE authoritative population counter.
 
-    Returns total / alive / qualified / final / deep / live, each derived with
+    Returns total / alive / qualified / final / deep / live (eligible) /
+    live_active (enrolled), each derived with
     ``app.status.node_bucket`` (the same classifier the node filters use), plus
     the definition of every number and the raw detail behind it. Read-only.
     """
     from ..research.populations import population_state, populations
     # V5.2 §10 — ``counts`` keeps its original keys; ``state`` adds the explicit
     # lifecycle names every page must agree on (TOTAL / ALIVE / QUALIFIED /
-    # FINAL_TESTING_ELIGIBLE / DEEP_TESTING_ELIGIBLE / LIVE_TESTING_ELIGIBLE).
+    # FINAL_TESTING_ELIGIBLE / DEEP_TESTING_ELIGIBLE / LIVE_TESTING_ELIGIBLE /
+    # LIVE_TESTING_ACTIVE).
+    # V5.2.2 — LIVE_TESTING_ELIGIBLE is CAPABILITY (qualified nodes the engine's
+    # tradeability predicate accepts, i.e. the nodes START can enrol) and
+    # LIVE_TESTING_ACTIVE is ENROLMENT (nodes wired into the live layer now).
+    from ..research.populations import POPULATION_STATE_KEYS
     data = populations()
-    data["state"] = population_state().get("state")
-    data["state_order"] = ["TOTAL", "ALIVE", "QUALIFIED", "FINAL_TESTING_ELIGIBLE",
-                           "DEEP_TESTING_ELIGIBLE", "LIVE_TESTING_ELIGIBLE"]
+    state = population_state()
+    data["state"] = state.get("state")
+    data["state_order"] = list(POPULATION_STATE_KEYS.keys())
+    # V5.2.2 — the explicit names carry their OWN definitions, so the strip's
+    # tooltips explain exactly the number they sit on (lowercase keys kept too).
+    data["state_definitions"] = state.get("definitions")
+    data["definitions"] = {**(data.get("definitions") or {}), **(state.get("definitions") or {})}
     return data
 
 
