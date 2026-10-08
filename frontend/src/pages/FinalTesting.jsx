@@ -44,8 +44,9 @@ export default function FinalTesting() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [resultsData, setResultsData] = useState(null);
-  const [pageLimit, setPageLimit] = useState(250);   // V4.8 server-side paging
-  const [pageOffset, setPageOffset] = useState(0);
+  /* V5.2.3 §10 — the operator asked for ONE table, not pages: every matching
+   * node is fetched (limit=0) and rendered in one scrollable table. */
+
   const [sortCol, setSortCol] = useState("total_return_pct");
   const [sortDir, setSortDir] = useState("desc");
 
@@ -83,15 +84,13 @@ export default function FinalTesting() {
   // Fetch Filtered Strategies (Zero-recomputation)
   /* V4.8 — any new query starts from page 1; paging only moves the window. */
   const fetchStrategies = async (customFilters = null, resetPage = true) => {
-    const offsetToUse = resetPage ? 0 : pageOffset;
-    if (resetPage && pageOffset !== 0) setPageOffset(0);
     setLoading(true);
     setError(null);
     try {
       const p = customFilters || filters;
       const payload = {
-        limit: pageLimit,
-        offset: offsetToUse,
+        limit: 0,          // all matching nodes — the table scrolls, it does not page
+        offset: 0,
         search: searchInput.trim() || undefined,
         node_id: exactNodeInput ? parseInt(exactNodeInput, 10) : undefined,
         status_category: p.status_category !== "ALL" ? p.status_category : undefined,
@@ -132,15 +131,6 @@ export default function FinalTesting() {
   useEffect(() => {
     fetchStrategies();
   }, [shortlistOnly]);
-
-  /* V4.8 — moving the page refetches that window from the server; the guard
-   * prevents a second identical request when a filter change resets to page 1. */
-  const lastOffsetRef = useRef(-1);
-  useEffect(() => {
-    if (lastOffsetRef.current === pageOffset) return;
-    lastOffsetRef.current = pageOffset;
-    fetchStrategies(null, false);
-  }, [pageOffset]);
 
   /* V4.8 — population counters for the KPI row come from the authoritative
    * facets endpoint, not from a recount of the page held in the browser. */
@@ -685,7 +675,7 @@ export default function FinalTesting() {
           </div>
         </div>
 
-        <div className="scroll-x" style={{ maxHeight: "calc(100vh - 430px)", overflowY: "auto" }}>
+        <div className="table-scroll" style={{ maxHeight: "calc(100vh - 430px)" }}>
           <table className="tbl" style={{ width: "100%", fontSize: "0.82rem" }}>
             <thead>
               <tr>
@@ -793,26 +783,16 @@ export default function FinalTesting() {
           </table>
         </div>
 
-        {/* V4.8 — server-side pagination: the browser never holds the whole population */}
+        {/* V5.2.3 §10 — no pager: every matching node is in the scrollable table
+          * above (the browser holds the whole matching set, as the operator asked). */}
         <div className="kit-pager" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
-          <button className="btn btn-xs" disabled={loading || pageOffset <= 0}
-                  title={loading ? "waiting for the current page" : pageOffset <= 0 ? "already on the first page" : "previous page"}
-                  onClick={() => setPageOffset(Math.max(0, pageOffset - pageLimit))}>‹ prev</button>
+          <button className="btn btn-xs" disabled={loading} onClick={() => fetchStrategies()}>
+            {loading ? "loading…" : "reload"}
+          </button>
           <span className="muted" style={{ fontSize: 11.5 }}>
-            showing {(resultsData?.total_matching ?? 0) === 0 ? 0 : pageOffset + 1}–{Math.min(pageOffset + pageLimit, resultsData?.total_matching ?? 0)}
-            {" "}of {(resultsData?.total_matching ?? 0).toLocaleString()}
-            {" "}· page {Math.floor(pageOffset / pageLimit) + 1} of {Math.max(1, Math.ceil((resultsData?.total_matching ?? 0) / pageLimit))}
+            {(resultsData?.total_matching ?? 0).toLocaleString()} matching node(s) · all rows in the table above · one scrollable page
+            {resultsData?.truncated ? " · the server withheld rows (truncated)" : ""}
           </span>
-          <button className="btn btn-xs" disabled={loading || pageOffset + pageLimit >= (resultsData?.total_matching ?? 0)}
-                  title={loading ? "waiting for the current page" : pageOffset + pageLimit >= (resultsData?.total_matching ?? 0) ? "no more matching nodes" : "next page"}
-                  onClick={() => setPageOffset(pageOffset + pageLimit)}>next ›</button>
-          <label className="fld" style={{ display: "flex", alignItems: "center", gap: 6, margin: 0 }}>
-            <span className="muted" style={{ fontSize: 11.5 }}>rows per page</span>
-            <select value={String(pageLimit)} style={{ width: 80 }}
-                    onChange={(e) => { setPageLimit(parseInt(e.target.value, 10)); setPageOffset(0); }}>
-              {[50, 100, 250, 500].map((n) => <option key={n} value={n}>{n}</option>)}
-            </select>
-          </label>
           {shortlistOnly && <Badge tone="info">shortlist only</Badge>}
         </div>
 

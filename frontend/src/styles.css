@@ -318,6 +318,18 @@ table.tbl td .kit-badge, table.table td .kit-badge { vertical-align: middle; }
 .table-wrap > table { margin: 0; }
 .scroll-x { overflow-x: auto; }
 
+/* ---- V5.2.3 §10 — ONE scrollable table, no pagination --------------------- *
+ * Every node table (Live Testing, Deep Backtest, MT5 Backtest, Final Testing)
+ * and the deep-run trade list lists the WHOLE result set in a single element
+ * that scrolls, with the header pinned by the sticky rule above. There is no
+ * page 1 / page 2: all matching rows are in the table. */
+.table-scroll {
+  max-height: 70vh; overflow: auto; border: 1px solid var(--border);
+  border-radius: 10px; background: var(--panel);
+}
+.table-scroll > table { margin: 0; }
+.table-scroll > table thead th { z-index: 2; }
+
 /* ---- B. component classes the pages already use --------------------------- */
 /* text inputs / selects (the MT5 pages use `.input`, the kit uses bare input/select) */
 input.input, select.input, textarea.input { width: 100%; }

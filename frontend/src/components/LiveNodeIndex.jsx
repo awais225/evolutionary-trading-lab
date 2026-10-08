@@ -99,8 +99,9 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
   const [starredOnly, setStarredOnly] = useState(false);
   const [sortBy, setSortBy] = useState("fitness");
   const [sortDesc, setSortDesc] = useState(true);
-  const [limit, setLimit] = useState(25);
-  const [offset, setOffset] = useState(0);
+  /* V5.2.3 §10 — the operator asked for ONE table, not pages: every matching
+   * node is fetched (limit=0 = all rows) and rendered in one scrollable table. */
+  const [allRows, setAllRows] = useState(0);
   const [busyId, setBusyId] = useState(null);
   const [scheduleFor, setScheduleFor] = useState(null);
   const [riskDraft, setRiskDraft] = useState("");
@@ -116,14 +117,15 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
       const res = await api.nodes({
         filter, search: search || undefined, timeframe: timeframe || undefined,
         starred_only: starredOnly || undefined, sort_by: sortBy, sort_desc: sortDesc,
-        limit, offset,
+        limit: 0, offset: 0,
       });
       if (res && res.ok === false) throw new Error(txt(res.error, "the node index refused the filter"));
       setRows(safeRows(res?.nodes));
       setTotal(res?.total ?? 0);
+      setAllRows(safeRows(res?.nodes).length);
       setMeta(res);
     } catch (e) { setErr(e); } finally { setLoading(false); }
-  }, [filter, search, timeframe, starredOnly, sortBy, sortDesc, limit, offset]);
+  }, [filter, search, timeframe, starredOnly, sortBy, sortDesc]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -172,7 +174,7 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
 
   const sortBtn = (key, label) => (
     <button className="btn ghost" style={{ padding: "2px 6px", fontSize: 11 }}
-            onClick={() => { setOffset(0); setSortBy(key); setSortDesc(sortBy === key ? !sortDesc : true); }}>
+            onClick={() => { setSortBy(key); setSortDesc(sortBy === key ? !sortDesc : true); }}>
       {label}{sortBy === key ? (sortDesc ? " ▼" : " ▲") : ""}
     </button>
   );
@@ -188,7 +190,10 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
   return (
     <Card
       title="Live test nodes"
-      right={<Badge tone="mute">{total} node(s) · page {Math.floor(offset / limit) + 1}</Badge>}
+      right={<Badge tone="mute">
+        {loading ? "loading…" : `${total} node(s) · all rows in one table`}
+        {allRows && total > allRows ? ` · ${allRows} rendered` : ""}
+      </Badge>}
     >
       {/* §27 — which experiment these node numbers belong to, on the table itself. */}
       <div className="muted" style={{ fontSize: 11.5, marginBottom: 6 }}>
@@ -200,7 +205,7 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
 
       <div className="btn-row" style={{ marginBottom: 6, flexWrap: "wrap" }}>
         <select className="input" value={filter}
-                onChange={(e) => { setOffset(0); setFilter(e.target.value); }}
+                onChange={(e) => { setFilter(e.target.value); }}
                 title="Which nodes to list (default: qualified / alive / eligible)">
           {FILTERS.map((f) => (
             <option key={f.value} value={f.value}>
@@ -209,19 +214,19 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
           ))}
         </select>
         <input className="input" style={{ width: 150 }} placeholder="search id / market / tf"
-               value={search} onChange={(e) => { setOffset(0); setSearch(e.target.value); }} />
+               value={search} onChange={(e) => { setSearch(e.target.value); }} />
         <select className="input" value={timeframe}
-                onChange={(e) => { setOffset(0); setTimeframe(e.target.value); }}>
+                onChange={(e) => { setTimeframe(e.target.value); }}>
           <option value="">any timeframe</option>
           {["M1", "M5", "M15", "M30", "H1", "H4", "D1"].map((t) => <option key={t} value={t}>{t}</option>)}
         </select>
         <label className="muted" style={{ fontSize: 12 }}>
           <input type="checkbox" checked={starredOnly}
-                 onChange={(e) => { setOffset(0); setStarredOnly(e.target.checked); }} /> starred only
+                 onChange={(e) => { setStarredOnly(e.target.checked); }} /> starred only
         </label>
         <span className="muted" style={{ fontSize: 12 }}>sort</span>
         <select className="input" value={sortBy}
-                onChange={(e) => { setOffset(0); setSortBy(e.target.value); }}>
+                onChange={(e) => { setSortBy(e.target.value); }}>
           {SORTS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
         </select>
         <button className="btn ghost" style={{ padding: "2px 8px" }}
@@ -241,7 +246,7 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
       {err && <div className="kit-inline-err">{err.message || String(err)}</div>}
       {msg && <div className="kit-ok" style={{ marginBottom: 6 }}>{msg}</div>}
 
-      <div style={{ overflowX: "auto" }}>
+      <div className="table-scroll">
         <table className="table compact">
           <thead>
             <tr>
@@ -436,17 +441,15 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
         </table>
       </div>
 
+      {/* V5.2.3 §10 — no pager: the table above holds every matching node and
+        * scrolls inside its own frame (header pinned). */}
       <div className="btn-row" style={{ marginTop: 8 }}>
-        <button className="btn ghost" disabled={offset === 0}
-                onClick={() => setOffset(Math.max(0, offset - limit))}>« prev</button>
-        <button className="btn ghost" disabled={offset + limit >= total}
-                onClick={() => setOffset(offset + limit)}>next »</button>
-        <select className="input" value={limit}
-                onChange={(e) => { setOffset(0); setLimit(Number(e.target.value)); }}>
-          {[10, 25, 50, 100].map((n) => <option key={n} value={n}>{n} / page</option>)}
-        </select>
+        <button className="btn ghost" onClick={load} disabled={loading}>
+          {loading ? "loading…" : "reload"}
+        </button>
         <span className="muted" style={{ fontSize: 11.5 }}>
-          {txt(meta?.note, "")}{loading ? " loading…" : ""}
+          {total} {filter} node(s) · all {allRows} row(s) in the table above · one scrollable page
+          {txt(meta?.note, "") ? ` · ${txt(meta?.note, "")}` : ""}
         </span>
       </div>
 

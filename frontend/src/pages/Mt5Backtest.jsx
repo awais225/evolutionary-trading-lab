@@ -31,8 +31,7 @@ export default function Mt5Backtest() {
   const [pSort, setPSort] = useState("return");
   const [pDir, setPDir] = useState("desc");
   const [pStarred, setPStarred] = useState(false);
-  const [pPage, setPPage] = useState(0);
-  const PICKER_PAGE_SIZE = 10;
+  /* V5.2.3 §10 — the picker lists EVERY matching node in one scrollable table. */
   const [pSel, setPSel] = useState(null);
 
   // V5 §19 — the node's own symbol/timeframe: availability, integrity, reuse, fetch
@@ -139,7 +138,7 @@ export default function Mt5Backtest() {
 
   const loadPicker = useCallback(async (over = {}) => {
     const q = { search: pSearch, status: pStatus, sort: pSort, dir: pDir,
-                shortlist_only: pStarred, limit: PICKER_PAGE_SIZE, offset: (over.page ?? pPage) * PICKER_PAGE_SIZE };
+                shortlist_only: pStarred, limit: 0, offset: 0 };   // 0 = all rows
     if (!q.search) delete q.search;
     if (!q.status) delete q.status;
     if (!q.shortlist_only) delete q.shortlist_only;
@@ -151,7 +150,7 @@ export default function Mt5Backtest() {
     } finally {
       setPickerLoading(false);
     }
-  }, [pSearch, pStatus, pSort, pDir, pStarred, pPage]);
+  }, [pSearch, pStatus, pSort, pDir, pStarred]);
 
   useEffect(() => { loadPicker(); }, [loadPicker]);
 
@@ -268,7 +267,7 @@ export default function Mt5Backtest() {
         </div>
 
         {pickerErr && <div className="text-[11px] font-mono text-rose-300">{pickerErr.message || String(pickerErr)}</div>}
-        <div className="overflow-x-auto">
+        <div className="table-scroll">
           <table className="table w-full text-left text-[11px] font-mono">
             <thead>
               <tr className="border-b border-slate-800 text-slate-400 uppercase text-[10px]">
@@ -343,15 +342,10 @@ export default function Mt5Backtest() {
           </table>
         </div>
         <div className="flex items-center gap-2 text-[11px] font-mono text-slate-400">
-          <button type="button" disabled={pPage <= 0 || pickerLoading}
-                  onClick={() => { const pg = pPage - 1; setPPage(pg); loadPicker({ page: pg }); }}
-                  className="px-2 py-0.5 rounded border border-slate-700 disabled:opacity-40">prev</button>
-          <span>page {txt(numOrNull(picker?.offset) === null ? null : Math.floor(picker.offset / PICKER_PAGE_SIZE) + 1, "1")}
-            {" "}of {txt(picker?.pages, "1")}</span>
-          <button type="button" disabled={pickerLoading || (numOrNull(picker?.pages) ?? 1) <= pPage + 1}
-                  onClick={() => { const pg = pPage + 1; setPPage(pg); loadPicker({ page: pg }); }}
-                  className="px-2 py-0.5 rounded border border-slate-700 disabled:opacity-40">next</button>
-          <span className="text-slate-500">showing {txt(picker?.returned, "0")} of {txt(picker?.total, "0")}
+          {/* V5.2.3 §10 — no pager: the table above holds every matching node. */}
+          <button type="button" disabled={pickerLoading} onClick={() => loadPicker()}
+                  className="px-2 py-0.5 rounded border border-slate-700 disabled:opacity-40">reload</button>
+          <span className="text-slate-500">all {txt(picker?.returned, "0")} of {txt(picker?.total, "0")} node(s) in the table above · one scrollable page
             {" "}(legacy rows excluded: {txt(picker?.legacy_excluded_total, "0")})</span>
         </div>
       </div>

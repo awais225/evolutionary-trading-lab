@@ -1463,7 +1463,11 @@ def run_trades(run_id: str, db: Any = None, limit: int = DEFAULT_TRADES_LIMIT,
     row = _row(d, run_id)
     if not row:
         return {"ok": False, "error": f"run {run_id} not found"}
-    limit = max(1, min(_as_int(limit) or DEFAULT_TRADES_LIMIT, MAX_TRADES_LIMIT))
+    # V5.2.3 §10 — the run's trade table is one scrollable table: ``limit=0`` (or
+    # negative) returns EVERY trade of the run instead of a page.
+    all_rows = _as_int(limit) is not None and _as_int(limit) <= 0
+    limit = 0 if all_rows else max(1, min(_as_int(limit) or DEFAULT_TRADES_LIMIT,
+                                          MAX_TRADES_LIMIT))
     offset = max(0, _as_int(offset) or 0)
     df = _trades_frame(run_id)
     if df is None:
@@ -1473,12 +1477,14 @@ def run_trades(run_id: str, db: Any = None, limit: int = DEFAULT_TRADES_LIMIT,
                                  "reason": (f"this run has no persisted trade list (status {row['status']}"
                                             + (f", error: {row['error']}" if row.get("error") else "") + ")")}]}
     total = int(len(df))
-    page = df.iloc[offset:offset + limit]
+    page = df.iloc[offset:] if all_rows else df.iloc[offset:offset + limit]
     trades = []
     for rec in page.to_dict("records"):
         trades.append({k: (_round(v, 6) if isinstance(v, float) else v) for k, v in rec.items()})
     return {"ok": True, "run_id": run_id, "status": row["status"], "total": total,
-            "limit": limit, "offset": offset, "count": len(trades), "trades": trades}
+            "limit": limit, "offset": offset, "count": len(trades), "trades": trades,
+            "all_rows": all_rows,
+            "truncated": (not all_rows) and (offset + len(trades) < total)}
 
 
 def run_equity(run_id: str, db: Any = None, max_points: int = DEFAULT_EQUITY_POINTS) -> Dict[str, Any]:

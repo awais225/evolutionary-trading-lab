@@ -221,8 +221,7 @@ export default function DeepBacktest() {
   const [openRun, setOpenRun] = useState(null);
   const [runDetail, setRunDetail] = useState({});
   const [starredOnly, setStarredOnly] = useState(false);
-  const [page, setPage] = useState(0);
-  const [pageSize, setPageSize] = useState(25);
+  /* V5.2.3 §10 — ONE scrollable table: no page state, no rows-per-page. */
   const [selected, setSelected] = useState(() => new Set());
   const [preset, setPreset] = useState("7d");
   const [from, setFrom] = useState("");
@@ -253,8 +252,8 @@ export default function DeepBacktest() {
     try {
       const params = {
         filter: nodeFilter,
-        limit: pageSize,
-        offset: page * pageSize,
+        limit: 0,            // all matching nodes — the table scrolls, it does not page
+        offset: 0,
         sort_by: sortBy,
         sort_desc: sortDesc ? 1 : 0,
         search: search || undefined,
@@ -268,7 +267,7 @@ export default function DeepBacktest() {
     } catch (e) {
       setError(e.message || String(e));
     }
-  }, [page, pageSize, search, sortBy, sortDesc, tf, nodeFilter]);
+  }, [search, sortBy, sortDesc, tf, nodeFilter]);
 
   const loadRuns = useCallback(async () => {
     try {
@@ -369,7 +368,6 @@ export default function DeepBacktest() {
   const selectedIds = [...selected];
   const starredIds = rows.filter((r) => r.starred).map((r) => r.node_id);
   const allSelected = visible.length > 0 && visible.every((r) => selected.has(r.node_id));
-  const pages = Math.max(1, Math.ceil(total / pageSize));
 
   return (
     <div className="stack">
@@ -383,11 +381,11 @@ export default function DeepBacktest() {
         <div className="row" style={{ gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
           <label className="field" style={{ minWidth: 180 }}>
             <span>Search node / strategy</span>
-            <input value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); }} placeholder="Node_240, XAUUSD…" />
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Node_240, XAUUSD…" />
           </label>
           <label className="field" style={{ width: 110 }}>
             <span>Timeframe</span>
-            <select value={tf} onChange={(e) => { setTf(e.target.value); setPage(0); }}>
+            <select value={tf} onChange={(e) => setTf(e.target.value)}>
               <option value="">All</option>
               {["M1", "M5", "M15", "M30", "H1"].map((x) => <option key={x} value={x}>{x}</option>)}
             </select>
@@ -412,7 +410,7 @@ export default function DeepBacktest() {
           </label>
           <label className="field" style={{ width: 170 }} title={NODE_FILTERS.find((f) => f.key === nodeFilter)?.hint || ""}>
             <span>Nodes</span>
-            <select value={nodeFilter} onChange={(e) => { setNodeFilter(e.target.value); setSelected(new Set()); setPage(0); }}>
+            <select value={nodeFilter} onChange={(e) => { setNodeFilter(e.target.value); setSelected(new Set()); }}>
               {NODE_FILTERS.map((f) => (
                 <option key={f.key} value={f.key}>
                   {f.label}{counts[f.key] != null ? ` (${counts[f.key]})` : ""}
@@ -420,13 +418,7 @@ export default function DeepBacktest() {
               ))}
             </select>
           </label>
-          <label className="field" style={{ width: 90 }}>
-            <span>Rows</span>
-            <select value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(0); }}>
-              {[10, 25, 50, 100].map((n) => <option key={n} value={n}>{n}</option>)}
-            </select>
-          </label>
-          <button className="btn ghost" onClick={() => { setSelected(new Set()); setSearch(""); setTf(""); setStarredOnly(false); setNodeFilter("qualified"); setPage(0); }}>Reset view</button>
+          <button className="btn ghost" onClick={() => { setSelected(new Set()); setSearch(""); setTf(""); setStarredOnly(false); setNodeFilter("qualified"); }}>Reset view</button>
         </div>
 
         <div className="row" style={{ gap: 10, marginTop: 10, flexWrap: "wrap", alignItems: "center" }}>
@@ -528,13 +520,13 @@ export default function DeepBacktest() {
 
       <Card title={`NODES — ${NODE_FILTERS.find((f) => f.key === nodeFilter)?.label || nodeFilter}`}
             right={<span className="muted" style={{ fontSize: 10 }}>
-              {total} match · page {page + 1}/{pages}
+              {total} match · all rows in one scrollable table
               {experiment?.run_id ? ` · experiment ${experiment.run_id} (${experiment.population} nodes, numbered 1–${experiment.node_number_range?.[1] ?? "?"})` : ""}
             </span>}>
         <StateBlock loading={!rows.length && !error} error={error && !rows.length ? error : ""} empty={!visible.length}
                     emptyHint={`No ${nodeFilter} nodes match the current filters. Other buckets: ${Object.entries(counts).filter(([k]) => k !== nodeFilter).map(([k, v]) => `${k} ${v}`).join(", ") || "none"}.`}
                     onRetry={load}>
-          <div style={{ overflowX: "auto" }}>
+          <div className="table-scroll">
             <table className="tbl">
               <thead>
                 <tr>
@@ -630,10 +622,12 @@ export default function DeepBacktest() {
               </tbody>
             </table>
           </div>
+          {/* V5.2.3 §10 — no pager: every matching node is in the table above. */}
           <div className="row" style={{ justifyContent: "space-between", marginTop: 8 }}>
-            <button className="btn ghost" disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>← Prev</button>
-            <span className="muted" style={{ fontSize: 11 }}>{total} {nodeFilter} nodes · {visible.length} shown · {selected.size} selected</span>
-            <button className="btn ghost" disabled={page + 1 >= pages} onClick={() => setPage((p) => p + 1)}>Next →</button>
+            <span className="muted" style={{ fontSize: 11 }}>
+              {total} {nodeFilter} node(s) · {visible.length} row(s) in the table · {selected.size} selected
+            </span>
+            <button className="btn ghost" onClick={load}>reload</button>
           </div>
         </StateBlock>
       </Card>

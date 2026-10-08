@@ -149,7 +149,14 @@ def section(title: str) -> None:
     print("=" * 78)
 
 
-def verdict_line(name: str, ok: bool) -> str:
+def verdict_line(name: str, ok: Any, na_note: str = "") -> str:
+    """PASS / FAIL / N/A — ``None`` means "this check does not apply here".
+
+    V5.2.3 §22: a source export (no ``.git``) can never PASS *or* FAIL a commit
+    comparison, and printing FAIL there blamed a perfectly good checkout.
+    """
+    if ok is None:
+        return f"{name}: N/A" + (f"   ({na_note})" if na_note else "")
     return f"{name}: {'PASS' if ok else 'FAIL'}"
 
 
@@ -157,7 +164,34 @@ def verdict_line(name: str, ok: bool) -> str:
 # 1. git identity
 # --------------------------------------------------------------------------- #
 def git_identity(root: Path, remote: bool = True, timeout: float = 30.0) -> Dict[str, Any]:
+    """Git identity of the checkout — or an explicit "there is no git here".
+
+    V5.2.3 §22: the dashboard is often run from a GitHub **"Download ZIP"** export
+    (``…-main``). Such a folder has no ``.git``: every ``git`` command fails, and the
+    old report printed ``LOCAL GIT HEAD: None`` plus ``GIT_IDENTITY_MATCH: FAIL``
+    and even ``HEAD == ORIGIN/MAIN: True`` (``None == None``), which reads like a
+    broken repository when in fact the build is perfectly identifiable by its
+    fingerprints. The verdict is now honest and tri-state, and a source export is
+    identified through ``BUILD_FINGERPRINTS.json`` instead of blamed.
+    """
     info: Dict[str, Any] = {"root": str(root)}
+    if not (root / ".git").exists():
+        info.update({
+            "checkout_kind": "source-export",
+            "has_git": False,
+            "local_head": None, "origin_main": None, "branch": None,
+            "status_short": "(not a git checkout - nothing to compare)",
+            "tracked_changes": None,
+            "git_identity_match": None,
+            "note": ("this checkout has no .git (GitHub \"Download ZIP\" export): there is no "
+                     "local commit to compare with GitHub. Identity is established by the "
+                     "published fingerprints (BUILD_FINGERPRINTS.json). Use "
+                     "`git clone https://github.com/awais225/evolutionary-trading-lab.git` "
+                     "if you want commit-level identity and `git pull`."),
+        })
+        return info
+    info["checkout_kind"] = "git-clone"
+    info["has_git"] = True
     code, head = run(["git", "rev-parse", "HEAD"], cwd=root)
     info["local_head"] = head if code == 0 else None
     code, origin = run(["git", "rev-parse", "origin/main"], cwd=root)
@@ -192,6 +226,26 @@ def git_identity(root: Path, remote: bool = True, timeout: float = 30.0) -> Dict
         and (not info.get("remote_main") or info["remote_main"] == info["local_head"])
     )
     return info
+
+
+# --------------------------------------------------------------------------- #
+# 1b. published fingerprint identification (works without .git)
+# --------------------------------------------------------------------------- #
+def fingerprint_identity(root: Path, fe: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Which PUBLISHED release is this tree?  (V5.2.3 §22 — ZIP-friendly identity.)
+
+    Matches ``frontend/src`` + backend code hashes against the index recorded in
+    ``BUILD_FINGERPRINTS.json``. ``found`` false is reported as unknown — never
+    guessed from a file date.
+    """
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import build_fingerprints as bf                     # type: ignore
+        out = bf.match(root)
+        out["available"] = True
+        return out
+    except Exception as e:                                  # pragma: no cover - defensive
+        return {"available": False, "found": False, "error": str(e)}
 
 
 # --------------------------------------------------------------------------- #
@@ -502,6 +556,7 @@ def build_report(root: Path, url: str, *, remote: bool = True, timeout: float = 
     report: Dict[str, Any] = {"root": str(root), "url": url, "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
 
     report["git"] = git_identity(root, remote=remote, timeout=remote_timeout)
+    report["fingerprint"] = fingerprint_identity(root)
     report["frontend"] = frontend_identity(root)
     report["backend_code"] = {"code_hash": code_hash_of(root)}
     try:                                     # the launcher's ./scripts markers, verbatim
@@ -605,7 +660,12 @@ def build_report(root: Path, url: str, *, remote: bool = True, timeout: float = 
 
     failing = [k for k, ok in checks.items() if not ok]
     report["verdict"] = {
+        # V5.2.3 §22 — "matches GitHub" is only ever claimed from evidence: an
+        # actual commit comparison when .git exists, or a published fingerprint
+        # match when the checkout is a source export. Never from `None == None`.
         "running_dashboard_matches_github": not failing,
+        "identity_basis": ("commit" if (report.get("git") or {}).get("has_git")
+                           else "fingerprint (no .git in this checkout)"),
         "failing_checks": failing,
     }
     return report
@@ -629,22 +689,53 @@ def print_report(report: Dict[str, Any], root: Path) -> None:
     print("################################################################################")
 
     # ---- GIT IDENTITY -----------------------------------------------------
+    fp = report.get("fingerprint") or {}
     section("GIT IDENTITY")
-    print(f"LOCAL GIT HEAD:      {git.get('local_head')}")
-    print(f"ORIGIN/MAIN:         {git.get('origin_main')}")
-    print(f"REMOTE MAIN:         {git.get('remote_main') if git.get('remote_checked') else '(remote not checked)'}")
-    print(f"HEAD == ORIGIN/MAIN: {git.get('local_head') == git.get('origin_main')}")
-    print(f"Git branch:          {git.get('branch')}")
-    print(f"Latest commit:       {git.get('last_commit')}")
-    print(f"Latest commit date:  {git.get('last_commit_date')}")
-    print(f"Latest commit msg:   {git.get('last_commit_subject')}")
-    print("Working tree status (tracked changes only, untracked DATA/logs excluded):")
-    print(f"  {git.get('tracked_changes') or '(clean)'}")
-    print("Working tree status (full):")
-    for line in str(git.get("status_short") or "(clean)").splitlines()[:25]:
-        print(f"  {line}")
-    print()
-    print(verdict_line("GIT_IDENTITY_MATCH", bool(git.get("git_identity_match"))))
+    print(f"CHECKOUT KIND:       {git.get('checkout_kind') or 'unknown'}"
+          + ("   (no .git: GitHub \"Download ZIP\" export — commit identity is not available)"
+             if git.get("has_git") is False else ""))
+    if git.get("has_git") is False:
+        print("LOCAL GIT HEAD:      NOT AVAILABLE (this folder is not a git checkout)")
+        print("ORIGIN/MAIN:         NOT AVAILABLE")
+        print("HEAD == ORIGIN/MAIN: UNKNOWN (nothing to compare — not a git checkout)")
+        print("IDENTIFIED BY:       fingerprint (BUILD_FINGERPRINTS.json)")
+        if fp.get("found"):
+            print(f"FINGERPRINT MATCH:   {fp.get('release')}  (commit {fp.get('commit_short')}, "
+                  f"recorded {fp.get('recorded_at')})")
+            print("LATEST PUBLISHED:    "
+                  + (f"{fp.get('latest_release')} (commit {fp.get('latest_commit_short')})"
+                     + ("   <-- this IS the latest release" if fp.get("is_latest") else
+                        "   <-- NEWER THAN THIS CHECKOUT: pull/clone again")
+                     if fp.get("latest_release") else "(index empty)"))
+        else:
+            print(f"FINGERPRINT MATCH:   NONE — src {str(fp.get('src_hash'))[:16]} / code "
+                  f"{str(fp.get('code_hash'))[:16]} matches no published release")
+        print(f"HOW TO GET COMMITS:  git clone https://github.com/awais225/evolutionary-trading-lab.git")
+        print("                     (then `git pull` updates the dashboard; a ZIP cannot)")
+        print(verdict_line("GIT_IDENTITY_MATCH", None,
+                           na_note="not a git checkout — see FINGERPRINT MATCH above"))
+        print(f"NOTE:                {git.get('note')}")
+        print()
+    else:
+        print(f"LOCAL GIT HEAD:      {git.get('local_head')}")
+        print(f"ORIGIN/MAIN:         {git.get('origin_main')}")
+        print(f"REMOTE MAIN:         {git.get('remote_main') if git.get('remote_checked') else '(remote not checked)'}")
+        if git.get("local_head") and git.get("origin_main"):
+            print(f"HEAD == ORIGIN/MAIN: {git.get('local_head') == git.get('origin_main')}")
+        else:
+            print("HEAD == ORIGIN/MAIN: UNKNOWN (one of the two refs could not be read)")
+    if git.get("has_git") is not False:
+        print(f"Git branch:          {git.get('branch')}")
+        print(f"Latest commit:       {git.get('last_commit')}")
+        print(f"Latest commit date:  {git.get('last_commit_date')}")
+        print(f"Latest commit msg:   {git.get('last_commit_subject')}")
+        print("Working tree status (tracked changes only, untracked DATA/logs excluded):")
+        print(f"  {git.get('tracked_changes') or '(clean)'}")
+        print("Working tree status (full):")
+        for line in str(git.get("status_short") or "(clean)").splitlines()[:25]:
+            print(f"  {line}")
+        print()
+        print(verdict_line("GIT_IDENTITY_MATCH", git.get("git_identity_match")))
 
     # ---- FRONTEND SOURCE IDENTITY ----------------------------------------
     section("FRONTEND SOURCE IDENTITY")
@@ -810,11 +901,24 @@ def print_report(report: Dict[str, Any], root: Path) -> None:
     print("EVOLUTIONARYTRADINGV5 RUNTIME DIAGNOSTIC")
     print("=" * 64)
     print("")
-    print(f"GITHUB REMOTE:              {git.get('remote_main') or git.get('origin_main')}")
-    print("")
-    print(f"LOCAL HEAD:                 {git.get('local_head')}")
-    print("")
-    print(f"GIT MATCH:                  {'PASS' if git.get('git_identity_match') else 'FAIL'}")
+    if git.get("has_git") is False:
+        print('CHECKOUT KIND:              SOURCE EXPORT (no .git — GitHub "Download ZIP")')
+        print("")
+        print("IDENTIFIED BUILD:           "
+              + (f"{fp.get('release')} (commit {fp.get('commit_short')})" if fp.get("found")
+                 else "no published release matches this tree"))
+        if fp.get("found") and not fp.get("is_latest"):
+            print(f"NEWER RELEASE PUBLISHED:    {fp.get('latest_release')} ({fp.get('latest_commit_short')})")
+            print("")
+        print("GIT MATCH:                  N/A (no .git — identity by fingerprint)")
+        print("")
+        print("FOR COMMIT-LEVEL IDENTITY:  git clone https://github.com/awais225/evolutionary-trading-lab.git")
+    else:
+        print(f"GITHUB REMOTE:              {git.get('remote_main') or git.get('origin_main')}")
+        print("")
+        print(f"LOCAL HEAD:                 {git.get('local_head')}")
+        print("")
+        print(f"GIT MATCH:                  {'PASS' if git.get('git_identity_match') else 'FAIL'}")
     print("")
     print(f"RUNNING BACKEND PID:        {report['port_owner'].get('pid') or ((rb.get('process') or {}).get('pid'))}")
     print("")

@@ -115,6 +115,17 @@ where git >nul 2>nul
 if errorlevel 1 (
   echo [git] git is not on PATH - the checkout cannot be identified from here.
   echo [git] git is not on PATH>> "%REPORT%"
+) else if not exist "%ROOT%\.git" (
+  rem V5.2.3 - a GitHub "Download ZIP" export has no .git: say so instead of
+  rem printing raw git errors, and identify the build by FINGERPRINT instead.
+  echo [git] THIS IS NOT A GIT CHECKOUT: %ROOT%\.git does not exist.
+  echo [git] (a GitHub "Download ZIP" export looks exactly like this - there is
+  echo [git]  no commit to compare, and "git pull" cannot work here.)
+  echo [git] identity is established by fingerprint in SECTION 2 below
+  echo [git] (BUILD_FINGERPRINTS.json -> src_hash + backend code hash + commit).
+  echo [git] THIS IS NOT A GIT CHECKOUT: %ROOT%\.git does not exist.>> "%REPORT%"
+  echo [git] identity below is established by FINGERPRINT, not by commit.>> "%REPORT%"
+  echo [git] to make git identity available: git clone https://github.com/awais225/evolutionary-trading-lab.git
 ) else (
   set "GITHEAD="
   set "GITBRANCH="

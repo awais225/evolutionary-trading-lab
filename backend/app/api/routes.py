@@ -1057,13 +1057,19 @@ def _filter_persisted_strategies(
             return str(v).lower()
         matched.sort(key=_get_sort_val, reverse=bool(sort_desc))
 
-    paginated = matched[offset:offset + limit]
+    # V5.2.3 §10 — ``limit=0`` (or negative) returns EVERY matching node so the
+    # Final Testing table can render one scrollable table instead of pages.
+    all_rows = int(limit) <= 0
+    offset = max(0, int(offset or 0))
+    paginated = matched[offset:] if all_rows else matched[offset:offset + int(limit)]
     return {
         "total_evaluated": total_evaluated,
         "total_matching": len(matched),
         "recomputed": False,
-        "limit": limit,
+        "limit": 0 if all_rows else int(limit),
         "offset": offset,
+        "all_rows": all_rows,
+        "truncated": (not all_rows) and (offset + len(paginated) < len(matched)),
         "filters_applied": {
             "min_trades": min_trades,
             "min_trade_duration_seconds": min_trade_duration_seconds,
@@ -4742,7 +4748,17 @@ def nodes_index(
         _present.sort(key=lambda r: str(_sort_value(r)), reverse=bool(sort_desc))
     rows = _present + _missing
     total = len(rows)
-    page = rows[max(0, offset):max(0, offset) + max(1, min(int(limit), 1000))]
+    # V5.2.3 §10 — ONE scrollable table, no pagination: ``limit=0`` (or negative)
+    # means "every matching node". A finite limit is still honoured for other
+    # callers and capped at 1000, and the response always says whether rows were
+    # withheld (``truncated``) so no consumer can mistake a page for the population.
+    _offset = max(0, offset)
+    if int(limit) <= 0:
+        _cap = None
+        page = rows[_offset:]
+    else:
+        _cap = max(1, min(int(limit), 1000))
+        page = rows[_offset:_offset + _cap]
     return {
         "ok": True,
         "filter": wanted,
@@ -4764,8 +4780,10 @@ def nodes_index(
         },
         "total": total,
         "returned": len(page),
-        "limit": limit,
-        "offset": offset,
+        "limit": 0 if _cap is None else _cap,
+        "offset": _offset,
+        "all_rows": _cap is None,
+        "truncated": (_cap is not None) and (_offset + len(page) < total),
         "experiment": experiment,
         "nodes": page,
         "risk": {"global_risk_pct": global_pct, "limits": limits},

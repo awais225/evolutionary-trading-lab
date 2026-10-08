@@ -494,8 +494,12 @@ def strategy_list(db: Any = None, limit: int = DEFAULT_LIMIT, offset: int = 0,
     sub-selects for that page's rows). No per-row query is issued.
     """
     d = db or _default_db()
-    limit = max(1, min(_as_int(limit) or DEFAULT_LIMIT, MAX_LIMIT))
     offset = max(0, _as_int(offset) or 0)
+    # V5.2.3 §10 — the node tables render ONE scrollable table, so ``limit=0`` (or
+    # negative) means "every matching row". A positive limit keeps the historical
+    # cap, and ``truncated`` always tells the caller whether rows were withheld.
+    all_rows = limit is not None and _as_int(limit) is not None and _as_int(limit) <= 0
+    limit = max(1, min(_as_int(limit) or DEFAULT_LIMIT, MAX_LIMIT)) if not all_rows else 0
     sort_key = (sort or "return").strip().lower()
     if sort_key not in SORTS:
         sort_key = "return"
@@ -507,9 +511,13 @@ def strategy_list(db: Any = None, limit: int = DEFAULT_LIMIT, offset: int = 0,
     total_row = _one(d, f"{_CTE} SELECT COUNT(*) AS c {_FROM_WHERE(where)}", args) or {}
     total = int(total_row.get("c") or 0)
 
-    rows = _rows(d, f"{_CTE}{_SELECT_COLS} WHERE {where} "
-                    f"ORDER BY {order_expr} {direction} NULLS LAST, s.id ASC LIMIT ? OFFSET ?",
-                 list(args) + [limit, offset])
+    if all_rows:
+        rows = _rows(d, f"{_CTE}{_SELECT_COLS} WHERE {where} "
+                        f"ORDER BY {order_expr} {direction} NULLS LAST, s.id ASC", args)
+    else:
+        rows = _rows(d, f"{_CTE}{_SELECT_COLS} WHERE {where} "
+                        f"ORDER BY {order_expr} {direction} NULLS LAST, s.id ASC LIMIT ? OFFSET ?",
+                     list(args) + [limit, offset])
 
     pop_total = _one(d, f"SELECT COUNT(*) AS c FROM strategies s WHERE {_pred('s')}") or {}
     legacy_total = _one(d, "SELECT COUNT(*) AS c FROM strategies s WHERE NOT "
@@ -525,7 +533,9 @@ def strategy_list(db: Any = None, limit: int = DEFAULT_LIMIT, offset: int = 0,
         "offset": offset,
         "limit": limit,
         "returned": len(rows),
-        "pages": (total + limit - 1) // limit if limit else 0,
+        "all_rows": all_rows,
+        "truncated": (not all_rows) and (offset + len(rows) < total),
+        "pages": 1 if all_rows else ((total + limit - 1) // limit if limit else 0),
         "sort": sort_key,
         "dir": direction.lower(),
         "filters": applied,

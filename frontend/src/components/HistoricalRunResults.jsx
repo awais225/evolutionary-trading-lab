@@ -74,10 +74,8 @@ export default function HistoricalRunResults({ runId, onClose, runsForSelection 
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
   const [trades, setTrades] = useState(null);
-  const [tPage, setTPage] = useState(0);
   const [equity, setEquity] = useState(null);
   const [showProvenance, setShowProvenance] = useState(false);
-  const perPage = 25;
 
   const load = useCallback(async (id) => {
     if (!id) { setRun(null); return; }
@@ -85,10 +83,10 @@ export default function HistoricalRunResults({ runId, onClose, runsForSelection 
     try {
       const r = await api.mt5HistoricalRun(id);
       setRun(r);
-      setTPage(0);
       setEquity(null); setTrades(null);
       if (r.trade_count > 0) {
-        api.mt5HistoricalTrades(id, { limit: perPage, offset: 0 }).then(setTrades).catch(() => setTrades(null));
+        // V5.2.3 §10 — the run's trades are ONE scrollable table: limit 0 = every trade.
+        api.mt5HistoricalTrades(id, { limit: 0, offset: 0 }).then(setTrades).catch(() => setTrades(null));
       }
       api.mt5HistoricalEquity(id, { max_points: 500 }).then(setEquity).catch(() => setEquity(null));
     } catch (e) {
@@ -100,16 +98,6 @@ export default function HistoricalRunResults({ runId, onClose, runsForSelection 
 
   useEffect(() => { load(runId); }, [runId, load]);
 
-  const loadTradePage = async (page) => {
-    if (!run) return;
-    setTPage(page);
-    try {
-      const t = await api.mt5HistoricalTrades(run.run_id, { limit: perPage, offset: page * perPage });
-      setTrades(t);
-    } catch (e) {
-      setErr(e);
-    }
-  };
 
   if (!runId) return null;
   const m = run?.results?.metrics || {};
@@ -226,7 +214,7 @@ export default function HistoricalRunResults({ runId, onClose, runsForSelection 
             </div>
           ) : (
             <>
-              <div className="scroll-x" style={{ maxHeight: 300 }}>
+              <div className="table-scroll" style={{ maxHeight: 420 }}>
                 <table className="tbl">
                   <thead>
                     <tr>
@@ -258,13 +246,10 @@ export default function HistoricalRunResults({ runId, onClose, runsForSelection 
                 </table>
               </div>
               <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
-                <button className="btn" disabled={tPage === 0} onClick={() => loadTradePage(tPage - 1)}>◀ prev</button>
+                {/* V5.2.3 §10 — no pager: every trade of the run is in the table above. */}
                 <span className="muted mono" style={{ fontSize: 11 }}>
-                  page {tPage + 1} / {Math.max(1, Math.ceil(trades.total / perPage))}
-                  {" "}· showing {trades.offset + 1}–{trades.offset + trades.trades.length} of {trades.total}
+                  {arr(trades.trades).length} of {trades.total} trade(s) in the scrollable table above
                 </span>
-                <button className="btn" disabled={(tPage + 1) * perPage >= trades.total}
-                        onClick={() => loadTradePage(tPage + 1)}>next ▶</button>
               </div>
             </>
           )}

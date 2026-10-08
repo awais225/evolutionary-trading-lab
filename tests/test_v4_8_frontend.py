@@ -183,7 +183,13 @@ def test_readable_dead_reasons_are_rendered():
     assert "dead_reason" in page
     assert "reason not recorded by the engine" in page
     assert "colSpan={17}" in page                       # the extra reason column exists
-    assert "pageOffset" in page and "total_matching" in page   # server-side paging
+    # V5.2.3 §10 — the operator asked for ONE scrollable table instead of pages:
+    # the whole matching set is fetched (limit 0) and rendered in .table-scroll,
+    # and the paging controls are gone.
+    assert "total_matching" in page
+    assert "pageOffset" not in page and "pageLimit" not in page
+    assert "table-scroll" in page
+    assert "limit: 0," in page                          # all matching nodes
 
 
 def test_market_data_distinguishes_row_from_physical_file():

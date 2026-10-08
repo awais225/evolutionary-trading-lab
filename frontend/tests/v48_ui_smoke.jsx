@@ -1605,17 +1605,21 @@ export async function runSmoke() {
   }
 
   {
-    // §19: choose the node from real research rows — search, sort, star, paging, backtest this
+    // §19: choose the node from real research rows — search, sort, star, ONE table, backtest this
     const container = document.createElement("div");
     document.body.appendChild(container);
     const root = createRoot(container);
     try {
       await act(async () => { root.render(wrap(<Mt5Backtest />)); await Promise.resolve(); await Promise.resolve(); });
       let text = container.textContent || "";
+      // V5.2.3 §10 — no pager any more: the picker lists the whole result set in one
+      // scrollable table, and says how many rows it is showing.
       for (const needle of ["Choose a node to backtest", "Node_10825", "Node_30000", "1.743", "27.70 %",
-                            "12.6 %", "page 1 of 4", "legacy rows excluded: 787"]) {
+                            "12.6 %", "legacy rows excluded: 787", "in the table above"]) {
         if (!text.includes(needle)) throw new Error(`the node picker is missing ${needle} … "${text.slice(0, 240)}"`);
       }
+      if (/page \d+ of \d+/i.test(text)) throw new Error("the node picker still pages instead of listing every row");
+      if (!container.querySelector(".table-scroll")) throw new Error("the node picker is not in one scrollable table");
       // a failed row must be shown as failed with N/A metrics — never as a zero
       const failedRow = Array.from(container.querySelectorAll("tr"))
         .find((tr) => (tr.textContent || "").includes("Node_30000"));
