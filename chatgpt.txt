@@ -3455,3 +3455,50 @@ question, "which build is my machine running?"):
    its numbers at every hop of the /api/nodes request (boundary_counts) so an
    empty table can never again be unexplained; starred_only accepts true / false /
    omitted and the string "undefined" is refused with a readable reason.
+
+================================================================================
+5. V5.4 (2026-10-08) — ONE node authority + MT5 manual execution repaired.
+   REQUEST (verbatim intent): (a) make ONE authoritative node-count source so
+   every panel agrees — Overview "LIVE ELIGIBLE 33" next to a different TOTAL/
+   QUALIFIED, an empty Live Testing table behind a non-empty Overview, and a
+   study reset that did not restart node identity were all symptoms of the same
+   disease: several panels each derived their own number; (b) repair MT5 manual
+   execution so Live Testing reports the REAL mt5.order_send() result instead of
+   "retcode null, comment '', no result object".  Standing rule: prove exactly
+   where the order disappears; HTTP 200, a frontend success message and a
+   passing order_check are never evidence of execution.
+
+   DECISIONS (V5.4):
+   * ONE authority: app.research.populations.node_state_snapshot() is the only
+     place a node number is produced.  It ships the whole partition under
+     explicit names (TOTAL, ALIVE, DEAD, BACKTESTING, VALIDATING, QUALIFIED,
+     FINAL/DEEP/LIVE_TESTING_ELIGIBLE, LIVE_TESTING_ACTIVE, CURRENT_GENERATION,
+     TARGET, REMAINING), the definition of every key, the measured partition
+     invariants, and the CURRENT EXPERIMENT's ceiling progress separately from
+     the all-nodes TOTAL.  /api/status, /api/nodes/populations, /api/lab/status,
+     Stats and the Strategy Lab facets consume that one object; the node_state
+     payload has one shape on every endpoint.
+   * No local re-derivations: the frontend's fallback chains
+     (recheckData ?? lab ?? status_counts) are gone; DEAD is split into failed
+     vs infrastructure-blocked so an infrastructure problem can never be read as
+     a strategy failure; PROGRESS is labelled CURRENT EXPERIMENT and the
+     all-nodes TOTAL is shown next to it instead of being quietly mixed in.
+   * No hidden global state: the snapshot is DB-scoped and read-only.  Reading a
+     snapshot no longer re-binds the process-wide evolution engine (the defect
+     that let one scratch database inherit the live run's id and report 0
+     experiment nodes), and a run id is adopted only when the database actually
+     holds its rows — otherwise the database's own scope is reported WITH a note.
+   * Rates can never lie: qualification/survival rates are computed with the same
+     classifier over the nodes that were actually evaluated (a rate above 100%
+     is now impossible by construction).
+   * The counter audit now speaks two definitions (ALL_STORED / USER_RESEARCH)
+     and reports, per surface, whether it matches the authority; a surface that
+     starts re-deriving its own number shows up as mismatched_surfaces.
+   * MT5: the check result is NEVER the send result.  A refused preflight returns
+     retcode None / raw None (the broker's retcode is preserved under the check),
+     every return carries called/called_reported + a stable bridge phase, and the
+     result contract is a KIND (BROKER_RESULT / NO_RESULT / NO_USABLE_RESULT /
+     CHECK_RESULT_RETURNED) with the phase only under order_send.phase — one
+     vocabulary, so the UI cannot present a preflight answer as an execution.
+   * Windows acceptance is unchanged and remains the only proof of a real DEMO
+     order; nothing in this wave was ever presented as an executed trade.

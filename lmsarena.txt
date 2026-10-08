@@ -5219,3 +5219,158 @@ F7  WHAT THIS MACHINE CANNOT DO
     LOGS\MT5_DEMO_FORENSICS_<stamp>.txt.  The verdict is taken from the terminal
     (positions_get/orders_get), never from HTTP 200, a UI message, or a passing
     order_check.
+
+================================================================================
+G  V5.4 — ONE NODE AUTHORITY + MT5 MANUAL EXECUTION REPAIR (2026-10-08)
+================================================================================
+
+RELEASE CODE 238e920 (this log is published by the following docs commit).
+Suite at the moment of writing: 851 passed / 0 failed / 1 warning (145.7 s)
+  EVOLUTIONARY_LAB_DATA_ROOT=/opt/lmsarena-storage/DATA \
+  /opt/lmsarena-storage/venv/bin/python -m pytest tests/ -q
+
+G1  THE DISEASE (measured before any code changed)
+    Overview printed LIVE ELIGIBLE 33 while Live Testing's table was empty;
+    Overview PROGRESS said 10,000/10,000 (engine scope) while the NODES strip
+    said TOTAL 10,787; Stats/Final Testing reported QUALIFIED 5 while the strip
+    reported 33.  Three different derivations produced three different answers:
+      * engine.get_node_generation_state(exclude_legacy=True)  -> run scope
+      * db.count_by_status(exclude_legacy=True)                -> stored vocab
+      * app.research.populations.populations()                 -> buckets
+    Evidence (live DATA, pre-fix):
+      engine view   current 10000 / dead 9967 / qualified 5 / generation 39
+      all rows      10787 / qualified 33 / legacy 787
+      count_by_status(exclude_legacy=True) = {FAILED 9967, QUALIFIED 5, SURVIVED 28}
+    The same disease explained the empty Live Testing table: the panel counted a
+    different population than the one the Overview card advertised.
+
+G2  THE CURE (code, file + symbol)
+    1) backend/app/research/populations.py
+       - node_state_snapshot(db, engine): THE one source.  Loads the rows ONCE,
+         classifies them ONCE and derives state, counts, progress, invariants and
+         definitions together.  state = the explicit names; counts = the same
+         numbers under their short keys; progress = the CURRENT EXPERIMENT's
+         ceiling (target/run/nodes/remaining/pct/ceiling_reached) with a note that
+         separates it from the all-nodes TOTAL.
+       - populations(): counts now carries the WHOLE partition
+         (dead, failed, blocked, unknown, legacy_excluded, user_research,
+         in_flight, generation, validating) and every key has a definition.
+       - classified_ids(db, ids=…): the ONE classifier exposed to analytics, so a
+         second implementation of "qualified" cannot appear in SQL.
+       - _experiment_scope(db, engine, counts, notes): DB-scoped and side-effect
+         free.  It no longer re-binds the process-wide engine (that is how a
+         scratch database inherited the live run id and reported 0 experiment
+         nodes in the full suite), and a run id is adopted only when THIS database
+         holds its rows; otherwise the database's own research scope is reported
+         AND a note names the ignored run.
+    2) backend/app/orchestrator/lab.py  Lab.status()
+       reports the snapshot (total_nodes/target/remaining/alive/dead/backtesting/
+       validating/qualified/generation/legacy_excluded/failed/blocked/
+       target_reached/experiment_nodes/progress_scope/progress_pct/node_state)
+       plus user_research_nodes, so nobody has to subtract legacy rows.
+    3) backend/app/api/routes.py
+       - /api/status ships node_state = the whole snapshot (guarded try/except +
+         log.warning; a missing snapshot is never silently replaced by a recount).
+       - /api/nodes/populations ships the SAME object under node_state (one shape
+         on every endpoint), keeps the flat six-name map under state and adds the
+         extended flat map under state_values + progress + invariants + authority.
+    4) backend/app/stats/research_stats.py
+       - population(): delegates to the snapshot; publishes total (every stored
+         node) AND user_research (the experiment scope) + blocked + legacy
+         accounting + node_state + node_state_authority + invariants.
+       - evolution(): nodes_generated = the EXPERIMENT's nodes (published beside
+         population_total), and qualification/survival rates are computed with
+         the same classifier over EVALUATED nodes — a rate above 100% is now
+         impossible (it was 1.5 in a fixture before this fix).
+       - counter_audit(): two declared definitions (ALL_STORED / USER_RESEARCH),
+         per-check matches_authority, mismatched_surfaces, authority_values.
+         Verified live: consistent True, mismatched [] on both axes.
+    5) frontend/src/pages/Overview.jsx  (and Stats.jsx / StrategyLab.jsx labels)
+       - the fallback chain (recheckData ?? lab ?? status_counts) is gone; every
+         card reads one explicit snapshot name and shows "—" when the authority is
+         missing instead of inventing a number.
+       - PROGRESS is labelled "CURRENT EXPERIMENT" with the experiment nodes over
+         the ceiling, next to "total population N" and a tooltip that explains the
+         difference; the TOTAL NODES card spells out "every stored node · X
+         research + Y legacy"; DEAD is split "failed … · blocked (infrastructure)
+         …" so an infrastructure problem is never read as a strategy failure.
+       - the target input is seeded from the same snapshot.
+    6) MT5 manual execution (Issue 2, implementation closed earlier this wave)
+       - backend/app/mt5/mt5_real.py: a refused/unevaluable preflight returns
+         retcode None / raw None (the check's retcode stays under check), every
+         return carries called + called_reported + phase, and result_shape()
+         reports what was actually returned.
+       - backend/app/mt5/execution.py: result_class (EXECUTED, SEND_FAILED,
+         CHECK_FAILED, CHECK_ERROR, UNKNOWN_EXECUTION) with result_class_detail as
+         a stable KIND (BROKER_RESULT / NO_RESULT / NO_USABLE_RESULT /
+         CHECK_RESULT_RETURNED) and the bridge phase only under order_send.phase;
+         flat contract fields (broker_retcode, broker_comment, ticket, fill_price,
+         sl/tp requested+broker, order_check_called/passed, order_send_called/
+         phase, safe_to_retry, nothing_sent) on every response.
+       - SCRATCH REPRODUCER (never committed) /home/user/v54_probe_issue2.py
+         replays six terminal behaviours on the real code path.  Post-fix map:
+           send ok            -> EXECUTED           / BROKER_RESULT        ticket 555001
+           check refused 10030-> CHECK_FAILED       / "ORDER NOT SENT … REFUSED"; send NOT called
+           check raises       -> CHECK_ERROR        / "… COULD NOT BE EVALUATED"  (the operator's path)
+           send -> None       -> UNKNOWN_EXECUTION  / phase ORDER_SEND_RETURNED_NONE + last_error
+           send -> OrderCheck -> UNKNOWN_EXECUTION  / phase ORDER_SEND_RETURNED_CHECK_RESULT
+           send raises        -> MT5_EXCEPTION      / exception type + message preserved
+         Pre-fix, the check-refused path reported the CHECK's retcode as the order's
+         result and an OrderCheckResult from order_send read "Unrecognised MT5
+         retcode 0" — i.e. the UI could not tell a preflight answer from an
+         execution.  That is the defect this wave removed.
+
+G3  LIVE EVIDENCE (this workspace, backend restarted on the committed code)
+    /system/build: release V5.4, dist FRESH, dist_matches_src true,
+      src_hash 7e46d547d96b4b71…, index_sha256 0a320fc0e4087504…,
+      entry assets index-CtPUGZPn.js + index-DG45pVtK.css.
+    ONE snapshot, every surface (2026-10-08T11:07:14Z, /home/user/v54_evidence.txt):
+      TOTAL 10835 | ALIVE 46 | DEAD 10002 | QUALIFIED 43 | LIVE_TESTING_ELIGIBLE 43
+      | DEEP 43 | FINAL 0 | LIVE_ACTIVE 0 | GENERATION 39
+      identical on /api/status == /api/nodes/populations == /api/lab/status, and
+      equal to /api/stats/overview.population and /api/research/facets.population.
+      partition: 46 + 10002 + 787 = 10835 ✓   dead split: 543 + 9459 + 0 = 10002 ✓
+      progress (current experiment): run RUN-20261005-055251, nodes 10048,
+      target 10835, remaining 787, 92.7%, ceiling_reached false.
+    Live Testing now reads the same population: /api/live-testing/nodes-table
+      total 43 (rows 43) with starred_only omitted/false = 43 and true = 0
+      (truthful empty state), and /api/live-testing/nodes = 0 ENROLLED with 16
+      excluded rows listed — capability vs enrolment kept apart, nothing faked.
+    MT5 on this Linux host: place_demo_order refuses at ACCOUNT_SAFETY with
+      MT5_UNAVAILABLE ("the active market bridge is SIMULATOR, not a real MT5
+      terminal").  No DEMO order is claimed from here.
+
+G4  TESTS
+    new  tests/test_v5_4_node_authority.py (13): partition adds up; blocked !=
+         failed != unknown; legacy inside TOTAL and in no research number; every
+         counter surface returns the identical snapshot; ONE node_state shape on
+         both endpoints; a snapshot never re-binds the process engine; a run id is
+         adopted only when the database holds its rows; two databases never bleed
+         into each other; the audit matches the authority on both definitions;
+         every definition ships with its number; Overview reads the snapshot and
+         has no fallback chain; no page re-adds the population counters.
+    repaired on purpose (old assertions pinned the DISAGREEING definitions):
+         test_v4_4_stats population/evolution/audit/api; test_v4_5 facets total +
+         query budget (now also proves the count does not scale with rows);
+         test_v4_1 dialog/lab agreement (compared under the same definition);
+         test_v5_1a_node_populations definitions/empty/api payload;
+         test_v5_1a_mt5_runtime_report test_19 (a refused check must NOT return the
+         check's retcode as the order's retcode).
+
+G5  WHAT THIS MACHINE CANNOT DO (unchanged standing rule)
+    Linux cannot import MetaTrader5, so no DEMO order is executed or claimed in
+    this workspace.  The authoritative acceptance stays on the operator's Windows
+    machine: CHECK_RUNNING_DASHBOARD.bat (which build is running) ->
+    CHECK_DEMO_FORENSICS.bat (read-only -> ORDER CHECK: PASSED) ->
+    SEND_DEMO_ORDER=1 for ONE 0.01 XAUUSD order -> verify the position in the
+    terminal -> Live Testing population.  The forensic report is taken from the
+    tool's own output, never from HTTP 200 or a UI message.
+
+G6  FILES TOUCHED THIS WAVE
+    backend/app/research/populations.py, backend/app/stats/research_stats.py,
+    backend/app/orchestrator/lab.py, backend/app/api/routes.py,
+    backend/app/mt5/execution.py, backend/app/mt5/mt5_real.py,
+    backend/app/versions.py (PRODUCT_RELEASE = V5.4),
+    frontend/src/pages/{Overview,Stats,StrategyLab}.jsx,
+    tests/test_v5_4_node_authority.py (new) + 7 repaired test files,
+    BUILD_FINGERPRINTS.json (V5.4 entry, code commit 238e920).
