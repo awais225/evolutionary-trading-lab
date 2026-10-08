@@ -301,8 +301,9 @@ const clearSelection = () => { setSelectedIds([]); setCompare(null); setMatrix(n
         <Metric label="Research population" value={fmt.num(pop?.total ?? list?.population_total, 0)}
                 sub={`scope ${list?.scope || "USER_RESEARCH"}`} />
         <Metric label="Alive / Dead" value={`${fmt.num(pop?.alive, 0)} / ${fmt.num(pop?.dead, 0)}`}
-                sub="engine status grouping" />
-        <Metric label="Qualified" value={fmt.num(pop?.qualified, 0)} sub="status QUALIFIED" />
+                sub="one node authority" />
+        <Metric label="Qualified" value={fmt.num(pop?.qualified, 0)}
+                sub="cleared the research gates (authority)" />
         <Metric label="Matching filters" value={fmt.num(total, 0)} sub={`${pageCount} page(s)`} />
         <Metric label="With backtest" value={fmt.num((facets?.options?.result_state || []).find((r) => r.value === "backtested")?.count, 0)} sub="stored BACKTEST records" />
         <Metric label="With validation" value={fmt.num((facets?.options?.result_state || []).find((r) => r.value === "validated")?.count, 0)} sub="stored VALIDATION records" />

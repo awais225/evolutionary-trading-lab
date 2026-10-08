@@ -226,10 +226,18 @@ def test_operation_status_endpoint_shape(client):
 
 
 def test_state_endpoint_and_lab_status_agree(client):
-    """The dialog and the dashboard must report the same user-research population."""
+    """The dialog and the dashboard must report the same user-research population.
+
+    V5.4 §1 — both endpoints read the ONE authority, and each number is compared
+    under its own definition: the dialog's user-research count is the
+    dashboard's ``user_research_nodes`` (NOT ``total_nodes``, which is now every
+    stored node) — the two definitions are related by the legacy count.
+    """
     st = client.get("/api/research-run/state").json()
     lab = client.get("/api/lab/status").json()
-    assert st["user_research_nodes"] == lab["total_nodes"]
+    assert st["user_research_nodes"] == lab["user_research_nodes"]
+    assert st["user_research_nodes"] == lab["experiment_nodes"]      # same scope on both
+    assert lab["total_nodes"] == lab["user_research_nodes"] + lab["legacy_excluded"]
     assert st["legacy_test_nodes"] == counts()["legacy_test_nodes"]
 
 

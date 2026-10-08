@@ -23,9 +23,9 @@ FULL_VERSION_STRING = "EVOLUTIONARY TRADING RESEARCH LAB V3.6"
 #: stored experiments and backtest fingerprints cannot change because a release
 #: was named. It is what ``/system/build`` and the dashboard's Build chip show,
 #: next to the commit and the frontend fingerprint, and it must equal the newest
-#: release name published in ``BUILD_FINGERPRINTS.json`` (V5.3.1) — otherwise the
+#: release name published in ``BUILD_FINGERPRINTS.json`` (V5.4) — otherwise the
 #: dashboard would name a different build than the identity index does.
-PRODUCT_RELEASE = "V5.3.1"
+PRODUCT_RELEASE = "V5.4"
 
 # Schema versions — bump when the corresponding structure/semantics change.
 DB_SCHEMA_VERSION = 3          # SQLite migration target (PRAGMA user_version)

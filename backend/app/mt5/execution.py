@@ -473,6 +473,56 @@ def _trade_mode_name(mode: Optional[int]) -> str:
 # ---------------------------------------------------------------------------
 # Order validation (spec §7)
 # ---------------------------------------------------------------------------
+#: V5.4 §2 — the four outcomes the operator must be able to tell apart, plus the
+#: two ways a preflight can fail. ``result_class`` is ALWAYS one of these.
+RESULT_CLASSES = ("EXECUTED", "SEND_FAILED", "CHECK_FAILED", "CHECK_ERROR",
+                  "UNKNOWN_EXECUTION")
+
+#: bridge phases that mean "no order_send was attempted" (the preflight stopped it)
+_CHECK_PHASES = ("ORDER_CHECK_REFUSED", "ORDER_CHECK_ERROR")
+
+#: bridge phases that mean "order_send may have run and we cannot read its answer"
+_UNKNOWN_PHASES = ("ORDER_SEND_RETURNED_NONE", "ORDER_SEND_UNUSABLE_RESULT",
+                   "ORDER_SEND_RETURNED_CHECK_RESULT")
+
+
+def _check_shaped_raw(raw: Any) -> bool:
+    """Is an ORDER CHECK result sitting in the send-result slot?
+
+    V5.4 §2 — the bridge that produced the operator's failure put a
+    ``MqlTradeCheckResult`` where the ``MqlTradeResult`` belongs (its ``raw``).
+    A bridge that reports no phase is still classified correctly: the object's
+    own shape decides (margin/balance/equity and no deal/order/request_id = a
+    check, never an execution).
+    """
+    if not isinstance(raw, dict):
+        return False
+    if raw.get("result_shape") == "check":
+        return True
+    body = raw.get("raw")
+    if not isinstance(body, dict) or not body:
+        return False
+    try:
+        from .mt5_real import result_shape as _shape
+        return _shape(body) == "check"
+    except Exception:                      # pragma: no cover - defensive
+        return False
+
+
+def _bridge_phase(raw: Any, diagnostic: Any = None) -> Optional[str]:
+    """The phase the bridge reported, never inferred from a retcode.
+
+    V5.3 §2.1 added ``diagnostic.phase``; V5.4 makes it a first-class field on
+    every bridge return so the caller classifies by WHAT HAPPENED instead of by
+    the shape of a value that may not exist.
+    """
+    if isinstance(raw, dict) and raw.get("phase"):
+        return str(raw["phase"])
+    if isinstance(diagnostic, dict) and diagnostic.get("phase"):
+        return str(diagnostic["phase"])
+    return None
+
+
 def _usable_retcode(v: Any) -> bool:
     """True only for a real MT5 retcode.
 
@@ -1120,12 +1170,88 @@ def place_demo_order(payload: Dict[str, Any], bridge=None) -> Dict[str, Any]:
                                              "last_error_before": fx.get("mt5_last_error_before"),
                                              "last_error_after": fx.get("mt5_last_error_after")},
                                     http_status=502)
+        # ------------------------------------------------------------------ #
+        # V5.4 §2 — CHECK phases. mt5.order_check REFUSED the request (or could
+        # not be evaluated): mt5.order_send was never reached, so this is NOT a
+        # broker result and NOT an unknown execution — it is CHECK_FAILED /
+        # CHECK_ERROR, named at the layer that produced it. Nothing was sent, so
+        # a deliberate resubmission cannot duplicate an order.
+        # ------------------------------------------------------------------ #
+        phase = _bridge_phase(raw, diagnostic)
+        if phase in _CHECK_PHASES:
+            check_facts = _order_check_facts(raw)
+            refused = phase == "ORDER_CHECK_REFUSED"
+            rc = check_facts.get("retcode")
+            rc_name = check_facts.get("retcode_name")
+            comment = check_facts.get("comment") or ""
+            cause = str(check_facts.get("error") or "")
+            if refused:
+                msg = (f"mt5.order_check REFUSED this request (retcode {rc}"
+                       + (f" {rc_name}" if rc_name else "")
+                       + (f", comment {comment!r}" if comment else "")
+                       + "). mt5.order_send was NOT called: no order left this application. "
+                         "Fix the cause named above and resubmit deliberately — nothing is "
+                         "pending at the broker, so a resubmission cannot duplicate an order.")
+                label = "ORDER NOT SENT — mt5.order_check REFUSED THE REQUEST"
+            else:
+                msg = ("mt5.order_check could not be evaluated by the terminal"
+                       + (f": {cause}" if cause else "")
+                       + ". mt5.order_send was NOT called: no order left this application.")
+                label = "ORDER NOT SENT — mt5.order_check COULD NOT BE EVALUATED"
+            result = {
+                "ok": False, "status": ("CHECK_FAILED" if refused else "CHECK_ERROR"),
+                "result_class": ("CHECK_FAILED" if refused else "CHECK_ERROR"),
+                "result_class_detail": phase,
+                "label": label,
+                "client_order_id": client_order_id,
+                "broker": {"retcode": rc, "comment": comment, "message": msg,
+                           "category": ("CHECK_REFUSED" if refused else "CHECK_ERROR"),
+                           "warning": None,
+                           # nothing left the application: a resubmission is the
+                           # operator's decision and cannot create a duplicate
+                           "safe_to_retry": True, "nothing_sent": True,
+                           "retcode_is": ("mt5.order_check retcode (preflight) — never an "
+                                          "execution retcode; order_send was NOT called")},
+                "order_send": {"called": False, "called_reported": True, "call_count": 0,
+                               "last_error": check_facts.get("error"), "exception": None,
+                               "retcode": None, "comment": None, "raw_result": None,
+                               "raw_result_repr": None, "outcome": "NOT_CALLED",
+                               "phase": phase, "result_shape": None, "returned": False,
+                               "result_type": None, "result_repr": None,
+                               "last_error_before": None, "last_error_after": None},
+                "order_check": check_facts, "check": check_facts,
+                "diagnostic": diagnostic, "preflight": capability, "forensics": {},
+                "session": (raw.get("session") if isinstance(raw, dict) else None),
+                "filling_resolution": (raw.get("filling_resolution")
+                                       if isinstance(raw, dict) else None),
+                "deviation": dev, "request": request,
+                "order": {"ticket": None, "deal_ticket": None,
+                          "position_ticket": None, "pending_ticket": None},
+                "execution": {"symbol": symbol, "side": side, "volume": norm["volume"],
+                              "requested_volume": norm["volume"], "executed_volume": None,
+                              "requested_price": exec_price, "exec_price": None,
+                              "sl_requested": norm["sl"], "tp_requested": norm["tp"],
+                              "sl_broker": None, "tp_broker": None, "sl_tp_verified": None,
+                              "time": None},
+                "terminal_state": {}, "verification": {},
+                "account": guard.get("account"), "source": getattr(bridge, "source", "MT5"),
+                "duration_ms": round((time.time() - t0) * 1000.0, 1),
+            }
+            result.update(contract_fields(result))
+            _record(db, result, strategy_id=payload.get("strategy_id"), t0=t0)
+            _gate.finish(result)
+            log.warning("[V5.4] %s: %s", result["result_class"], msg)
+            return result
+
         # An answer with no usable retcode is NEVER a broker result — even when the
         # bridge did not say whether the call was made (a legacy bridge): claiming
         # "BROKER_RESULT, retcode None" was exactly how the operator's failure
         # became a dead end.
-        unknown_send = (not usable_retcode and not terminal_raised
-                        and not (isinstance(raw, dict) and raw.get("unsupported")))
+        result_shape = raw.get("result_shape") if isinstance(raw, dict) else None
+        check_shaped = _check_shaped_raw(raw)
+        unknown_send = (phase in _UNKNOWN_PHASES or check_shaped
+                        or (not usable_retcode and not terminal_raised
+                            and not (isinstance(raw, dict) and raw.get("unsupported"))))
         no_result = unknown_send and raw_result is None
         unusable_result = unknown_send and not no_result
 
@@ -1137,11 +1263,20 @@ def place_demo_order(payload: Dict[str, Any], bridge=None) -> Dict[str, Any]:
             # request, so the layer can be identified instead of guessed. Nothing is
             # retried and nothing is claimed as success.
             interp = interpret_retcode(None, "")
-            what = ("returned no result object" if no_result else
-                    "answered with an object that carries no usable retcode")
+            check_shaped_case = (check_shaped
+                                 or phase == "ORDER_SEND_RETURNED_CHECK_RESULT")
+            if check_shaped_case:
+                what = ("answered with an ORDER CHECK result instead of a trade result "
+                        "(a passing order_check is a preflight — it never proves execution)")
+            elif no_result:
+                what = "returned no result object"
+            else:
+                what = "answered with an object that carries no usable retcode"
+            called_reported = (isinstance(raw, dict) and isinstance(raw.get("called"), bool))
             who = ("mt5.order_send was called once and " if called else
-                   "The execution bridge reported no usable result and did NOT state whether "
-                   "order_send was called; it ")
+                   ("mt5.order_send was NOT called; the bridge reported " if called_reported
+                    else "The execution bridge reported no usable result and did NOT state "
+                         "whether order_send was called; it "))
             detail_msg = (
                 f"{who}{what}"
                 + (f" (raw result: {_raw_result_repr(raw_result)})" if not no_result else "")
@@ -1162,11 +1297,22 @@ def place_demo_order(payload: Dict[str, Any], bridge=None) -> Dict[str, Any]:
             result = {
                 "ok": False,
                 "status": "UNKNOWN",
-                "result_class": ("NO_RESULT" if no_result else "NO_USABLE_RESULT"),
-                "label": (("RESULT UNKNOWN — mt5.order_send RETURNED NO RESULT" if no_result
+                # V5.4 §2 — ONE class for "we cannot establish what happened", with the
+                # fine-grained phase kept beside it (NO_RESULT / UNUSABLE_RESULT /
+                # CHECK_RESULT_RETURNED) so the layer is still named exactly.
+                "result_class": "UNKNOWN_EXECUTION",
+                # the KIND of unknown (stable vocabulary), while order_send.phase
+                # names WHERE it happened
+                "result_class_detail": ("CHECK_RESULT_RETURNED" if check_shaped_case else
+                                        "NO_RESULT" if no_result else "NO_USABLE_RESULT"),
+                "label": (("RESULT UNKNOWN — mt5.order_send RETURNED AN ORDER CHECK RESULT"
+                           " (NOT AN EXECUTION)" if check_shaped_case else
+                           "RESULT UNKNOWN — mt5.order_send RETURNED NO RESULT" if no_result
                            else "RESULT UNKNOWN — mt5.order_send RETURNED NO USABLE RESULT")
                           if called else
-                          "RESULT UNKNOWN — THE BRIDGE DID NOT REPORT AN ORDER_SEND RESULT"),
+                          ("RESULT UNKNOWN — mt5.order_send WAS NOT CALLED BUT NOTHING STATED WHY"
+                           if called_reported else
+                           "RESULT UNKNOWN — THE BRIDGE DID NOT REPORT AN ORDER_SEND RESULT")),
                 "client_order_id": client_order_id,
                 "broker": {"retcode": None, "comment": "",
                            "message": detail_msg, "category": "UNKNOWN",
@@ -1207,10 +1353,10 @@ def place_demo_order(payload: Dict[str, Any], bridge=None) -> Dict[str, Any]:
                 # V5.3 §1 — the read-only verdict on this terminal/account/symbol, so
                 # "nothing came back" is never the whole story.
                 "preflight": capability,
-                "next_actions": _unknown_next_actions(capability, diagnostic,
-                                                      last_error=order_send_last_error,
-                                                      result_class=("NO_RESULT" if no_result
-                                                                    else "NO_USABLE_RESULT")),
+                "next_actions": _unknown_next_actions(
+                    capability, diagnostic, last_error=order_send_last_error,
+                    result_class=(phase or ("NO_RESULT" if no_result
+                                            else "NO_USABLE_RESULT"))),
                 "order": {"ticket": None, "deal_ticket": None,
                           "position_ticket": None, "pending_ticket": None},
                 "request": request,
@@ -1225,10 +1371,15 @@ def place_demo_order(payload: Dict[str, Any], bridge=None) -> Dict[str, Any]:
                 "duration_ms": round((time.time() - t0) * 1000.0, 1),
                 "verification": {},
             }
+            result["result_class_detail"] = result.get("result_class_detail") or (
+                "CHECK_RESULT_RETURNED" if check_shaped else
+                "NO_RESULT" if no_result else "NO_USABLE_RESULT")
+            result.update(contract_fields(result))
             _record(db, result, strategy_id=payload.get("strategy_id"), t0=t0)
             _gate.finish(result)
-            log.error("[V5.1a-next] mt5.order_send returned NO RESULT (last_error=%s) — "
-                      "status UNKNOWN, nothing retried", order_send_last_error)
+            log.error("[V5.4] %s (%s): mt5.order_send produced no usable trade result "
+                      "(last_error=%s) — status UNKNOWN, nothing retried",
+                      result["result_class"], result["result_class_detail"], order_send_last_error)
             return result
 
         _gate.stage("INTERPRETING")
@@ -1290,7 +1441,11 @@ def place_demo_order(payload: Dict[str, Any], bridge=None) -> Dict[str, Any]:
                        "safe_to_retry": interp["safe_to_retry"]},
             # V5.1a-next §A — the raw order_send facts travel with every result,
             # so a reviewer never has to guess whether the call happened.
-            "result_class": "BROKER_RESULT",
+            # V5.4 §2 — named by outcome: a broker answer that executed is EXECUTED,
+            # a broker answer that refused is SEND_FAILED. Neither is ever UNKNOWN.
+            "result_class": ("EXECUTED" if interp["category"] in ("EXECUTED", "PENDING")
+                             else "SEND_FAILED"),
+            "result_class_detail": "BROKER_RESULT",
             "deviation": dev,
             "filling_resolution": (raw.get("filling_resolution") if isinstance(raw, dict) else None),
             "order_send": {"called": order_send_called,
@@ -1333,10 +1488,11 @@ def place_demo_order(payload: Dict[str, Any], bridge=None) -> Dict[str, Any]:
             "duration_ms": round((time.time() - t0) * 1000.0, 1),
             "verification": verification,
         }
+        result.update(contract_fields(result))
         _record(db, result, strategy_id=payload.get("strategy_id"), t0=t0)
         _gate.finish(result)
         log.info("[V4.2] demo order result: %s", json.dumps(
-            {k: result[k] for k in ("status", "ok")}, default=str))
+            {k: result[k] for k in ("status", "ok", "result_class")}, default=str))
         return result
 
     except MT5ExecutionError as e:
@@ -1355,6 +1511,52 @@ def place_demo_order(payload: Dict[str, Any], bridge=None) -> Dict[str, Any]:
         _gate.fail(err)
         log.exception("[V4.2] unexpected execution error")
         raise err
+
+
+#: V5.4 §2 — the flat fields the manual-trade contract promises on EVERY response,
+#: so the UI never has to guess where a value lives (and never invents one).
+_CONTRACT_FIELDS = (
+    "ok", "status", "result_class", "result_class_detail", "label",
+    "client_order_id",
+    "broker_retcode", "broker_comment", "broker_message",
+    "ticket", "order_ticket", "deal_ticket", "position_ticket",
+    "fill_price", "volume", "requested_volume",
+    "sl_requested", "sl_broker", "tp_requested", "tp_broker", "sl_tp_verified",
+    "order_check_called", "order_check_passed", "order_send_called", "order_send_phase",
+    "safe_to_retry", "nothing_sent",
+)
+
+
+def contract_fields(result: Dict[str, Any]) -> Dict[str, Any]:
+    """Flatten one execution result into the promised contract (never invents)."""
+    ex_ = result.get("execution") or {}
+    order = result.get("order") or {}
+    broker = result.get("broker") or {}
+    check = result.get("order_check") or {}
+    send = result.get("order_send") or {}
+    out = {
+        "ok": result.get("ok"), "status": result.get("status"),
+        "result_class": result.get("result_class"),
+        "result_class_detail": result.get("result_class_detail"),
+        "label": result.get("label"), "client_order_id": result.get("client_order_id"),
+        "broker_retcode": broker.get("retcode"), "broker_comment": broker.get("comment"),
+        "broker_message": broker.get("message"),
+        "ticket": order.get("ticket"), "order_ticket": order.get("ticket"),
+        "deal_ticket": order.get("deal_ticket"),
+        "position_ticket": order.get("position_ticket"),
+        "fill_price": ex_.get("exec_price"), "volume": ex_.get("volume"),
+        "requested_volume": ex_.get("requested_volume"),
+        "sl_requested": ex_.get("sl_requested"), "sl_broker": ex_.get("sl_broker"),
+        "tp_requested": ex_.get("tp_requested"), "tp_broker": ex_.get("tp_broker"),
+        "sl_tp_verified": ex_.get("sl_tp_verified"),
+        "order_check_called": check.get("called"),
+        "order_check_passed": check.get("passed"),
+        "order_send_called": send.get("called"),
+        "order_send_phase": send.get("phase") or send.get("outcome"),
+        "safe_to_retry": broker.get("safe_to_retry"),
+        "nothing_sent": broker.get("nothing_sent"),
+    }
+    return {k: out.get(k) for k in _CONTRACT_FIELDS}
 
 
 def _order_check_facts(raw: Any) -> Dict[str, Any]:

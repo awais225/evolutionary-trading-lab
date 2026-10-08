@@ -279,7 +279,8 @@ def test_12_an_unreadable_result_through_place_demo_order_is_precise(
     bridge._connected = True
     res = _place(bridge, monkeypatch)
     assert res["ok"] is False and res["status"] == "UNKNOWN"
-    assert res["result_class"] == "NO_USABLE_RESULT", \
+    assert res["result_class"] == "UNKNOWN_EXECUTION"
+    assert res["result_class_detail"] == "NO_USABLE_RESULT", \
         "an unreadable answer is not a broker result"
     assert res["label"].startswith("RESULT UNKNOWN")
     assert res["order_send"]["called"] is True
@@ -322,7 +323,8 @@ def test_13_a_bridge_that_reports_nothing_is_still_not_a_broker_result(monkeypat
                     "error": "no result object", "last_error": [-10004, "No IPC connection"]}
 
     res = _place(LegacyBridge(), monkeypatch)
-    assert res["result_class"] == "NO_RESULT"
+    assert res["result_class"] == "UNKNOWN_EXECUTION"
+    assert res["result_class_detail"] == "NO_RESULT"
     assert res["status"] == "UNKNOWN"
     assert res["order_send"]["last_error"] == [-10004, "No IPC connection"]
     acts = [a["action"].lower() for a in res["next_actions"]]

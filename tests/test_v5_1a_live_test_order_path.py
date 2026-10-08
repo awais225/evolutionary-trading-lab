@@ -206,7 +206,7 @@ def test_06_none_result_is_reported_as_no_result_with_the_last_error(wired, db):
     broker_ev = [e for e in eng.recent_events if e["stage"] == "BROKER RESPONSE"][0]
     d = broker_ev["detail"]
     assert d["status"] == "UNKNOWN"
-    assert d["result_class"] == "NO_RESULT"
+    assert d["result_class"] == "UNKNOWN_EXECUTION"
     assert d["diagnostic_phase"] == "ORDER_SEND_RETURNED_NONE"
     assert d["order_send"]["called"] is True
     assert d["order_send"]["last_error"] == [-10004, "No IPC connection"]

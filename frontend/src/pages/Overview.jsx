@@ -2,6 +2,7 @@ import React, { useEffect, useState, useMemo } from "react";
 import { api, fmt } from "../api.js";
 import { useLab } from "../App.jsx";
 import { Metric, Pill, EventFeed, SignedNum, ErrorNote } from "../components/common.jsx";
+import { objOrNull, txt } from "../lib/safe.js";
 import NewResearchRunModal from "../components/NewResearchRunModal.jsx";
 import PowerButton from "../components/PowerButton.jsx";
 import NodePopulationStrip from "../components/NodePopulationStrip.jsx";
@@ -50,12 +51,34 @@ export default function Overview() {
   const lab = status?.lab;
   const counts = status?.status_counts || {};
 
-  // Sync targetInput with lab state initially or on update
+  /* V5.4 §1 — ONE SOURCE OF TRUTH for every node number on this page.
+   *
+   * `status.node_state` is the backend's single snapshot
+   * (app.research.populations.node_state_snapshot — the same function behind
+   * /api/nodes/populations, the NODES strip, Deep Testing and Live Testing).
+   *
+   * This page used to derive each card from a chain of fallbacks
+   * (`recheckData ?? lab ?? status_counts`), which is exactly how Overview came to
+   * print QUALIFIED 5 while the NODES strip printed 33 and TOTAL 10,000 while the
+   * strip printed 10,787. Nothing is recounted, nothing is mixed in from a second
+   * source: when the snapshot is missing the card shows "—" and says why.
+   */
+  const ns = objOrNull(status?.node_state);
+  const nsState = objOrNull(ns?.state);
+  const nsProgress = objOrNull(ns?.progress);
+  const nsCounts = objOrNull(ns?.counts);
+  const authority = txt(ns?.authority, "node-state snapshot unavailable");
+  const nnum = (v) => (v === null || v === undefined || v === "" ? null : Number(v));
+  const nfmt = (v) => (v === null || v === undefined ? "—" : Number(v).toLocaleString());
+
+  // Sync targetInput with the authority's target initially or on update (V5.4 §1:
+  // the input shows the same number the progress bar and the cards read)
   useEffect(() => {
-    if (lab?.target && targetInput === "") {
-      setTargetInput(String(lab.target));
+    const t = nnum(nsState?.TARGET);
+    if (t && targetInput === "") {
+      setTargetInput(String(t));
     }
-  }, [lab?.target]);
+  }, [nsState?.TARGET]);
 
   const fetchRuns = async () => {
     try {
@@ -291,8 +314,9 @@ export default function Overview() {
   // V2.1 START / CONTINUE EVOLUTION
   const handleStartContinue = async () => {
     const num = parseInt(targetInput, 10);
-    const effTotal = recheckData?.total_nodes ?? lab?.total_nodes ?? 0;
-    const effTarget = recheckData?.target ?? lab?.target ?? 500;
+    /* V5.4 §1 — the ceiling guard is about the CURRENT EXPERIMENT (same authority) */
+    const effTotal = nnum(nsProgress?.nodes) ?? 0;
+    const effTarget = nnum(nsProgress?.target) ?? 0;
     if (effTotal >= effTarget && (!num || num <= effTotal)) {
       setErr(`Target of ${effTarget} is already reached (${effTotal}/${effTarget}). Enter a higher target (e.g. ${effTotal + 50}) to continue evolution.`);
       return;
@@ -320,20 +344,20 @@ export default function Overview() {
 
   const cumulativeStats = useMemo(() => {
     return pState.cumulative || {
-      total_nodes: recheckData?.total_nodes ?? lab?.total_nodes ?? 0,
-      completed_nodes: counts.QUALIFIED || 0,
-      qualified_nodes: counts.QUALIFIED || 0,
+      total_nodes: nnum(nsState?.TOTAL) ?? 0,
+      completed_nodes: nnum(nsState?.QUALIFIED) ?? 0,
+      qualified_nodes: nnum(nsState?.QUALIFIED) ?? 0,
       total_runs: runsData.length || 1,
     };
   }, [pState, recheckData, lab, counts, runsData]);
 
-  const runGenNodes = currentRun?.generated_nodes ?? (recheckData?.total_nodes ?? lab?.total_nodes ?? 0);
-  const runCeiling = currentRun?.node_ceiling ?? (recheckData?.target ?? lab?.target ?? 500);
+  const runGenNodes = currentRun?.generated_nodes ?? nnum(nsProgress?.nodes) ?? 0;
+  const runCeiling = currentRun?.node_ceiling ?? nnum(nsProgress?.target) ?? 0;
   const runCompleted = currentRun?.completed_nodes ?? 0;
-  const runQualified = currentRun?.qualified_nodes ?? ((counts.QUALIFIED || 0) + (counts.PAPER || 0));
-  const runPendingBt = currentRun?.pending_backtesting ?? (counts.BACKTESTING || 0);
-  const runPendingVal = currentRun?.pending_validation ?? (counts.VALIDATING || 0);
-  const runGen = currentRun?.current_generation ?? (recheckData?.current_generation ?? lab?.generation ?? 0);
+  const runQualified = currentRun?.qualified_nodes ?? nnum(nsState?.QUALIFIED) ?? 0;
+  const runPendingBt = currentRun?.pending_backtesting ?? nnum(nsState?.BACKTESTING) ?? 0;
+  const runPendingVal = currentRun?.pending_validation ?? nnum(nsState?.VALIDATING) ?? 0;
+  const runGen = currentRun?.current_generation ?? nnum(nsState?.CURRENT_GENERATION) ?? 0;
   const runGenPct = runCeiling > 0 ? Math.min(100, Math.round((runGenNodes / runCeiling) * 1000) / 10) : 100;
   const runCompPct = runCeiling > 0 ? Math.min(100, Math.round((runCompleted / runCeiling) * 1000) / 10) : 100;
   const runTargetReached = runGenNodes >= runCeiling;
@@ -390,17 +414,22 @@ export default function Overview() {
   };
 
   // Derived V2.1 metrics
-  const totalNodes = recheckData?.total_nodes ?? lab?.total_nodes ?? 0;
-  const target = recheckData?.target ?? lab?.target ?? 500;
-  const remaining = recheckData?.remaining ?? lab?.remaining ?? Math.max(0, target - totalNodes);
-  const alive = recheckData?.alive ?? lab?.alive ?? 0;
-  const dead = recheckData?.dead ?? lab?.dead ?? 0;
-  const backtesting = recheckData?.backtesting ?? lab?.backtesting ?? (counts.BACKTESTING || 0);
-  const validating = recheckData?.validating ?? lab?.validating ?? (counts.VALIDATING || 0);
-  const qualified = recheckData?.qualified ?? lab?.qualified ?? ((counts.QUALIFIED || 0) + (counts.PAPER || 0));
-  const currentGen = recheckData?.current_generation ?? lab?.generation ?? 0;
-  const targetReached = totalNodes >= target;
-  const progressPct = target > 0 ? Math.min(100, Math.round((totalNodes / target) * 1000) / 10) : 100;
+  /* every number below is the authority's value — no fallback to another source */
+  const totalNodes = nnum(nsState?.TOTAL);
+  const target = nnum(nsState?.TARGET);
+  const remaining = nnum(nsState?.REMAINING);
+  const alive = nnum(nsState?.ALIVE);
+  const dead = nnum(nsState?.DEAD);
+  const backtesting = nnum(nsState?.BACKTESTING);
+  const validating = nnum(nsState?.VALIDATING);
+  const qualified = nnum(nsState?.QUALIFIED);
+  const currentGen = nnum(nsState?.CURRENT_GENERATION);
+  /* the ceiling is a property of the CURRENT EXPERIMENT (same authority), which
+   * is why it is labelled separately instead of being folded into TOTAL */
+  const experimentNodes = nnum(nsProgress?.nodes);
+  const targetReached = nsProgress?.ceiling_reached === true;
+  const progressPct = nsProgress?.pct === null || nsProgress?.pct === undefined
+    ? null : Number(nsProgress.pct);
 
   const cpu = resources?.cpu;
   const mem = resources?.memory;
@@ -602,9 +631,13 @@ export default function Overview() {
         {/* Progress Bar (spec §V2.1 I) */}
         <div style={{ marginBottom: 12 }}>
           <div className="flex justify-between" style={{ fontSize: "0.75rem", marginBottom: 4 }}>
-            <span className="muted">PROGRESS</span>
+            <span className="muted">PROGRESS — CURRENT EXPERIMENT
+              <span style={{ marginLeft: 6, opacity: 0.75 }} title={txt(nsProgress?.note, "")}>
+                (ceiling {target === null ? "—" : target} · total population {nfmt(totalNodes)})
+              </span>
+            </span>
             <span className="mono font-bold" style={{ color: targetReached ? "var(--green)" : "var(--fg)" }}>
-              {totalNodes} / {target} ({progressPct}%)
+              {nfmt(experimentNodes)} / {nfmt(target)} ({progressPct === null ? "—" : `${progressPct}%`})
             </span>
           </div>
           <div style={{ height: "6px", background: "rgba(255,255,255,0.08)", borderRadius: "3px", overflow: "hidden" }}>
@@ -621,8 +654,11 @@ export default function Overview() {
         <div className="grid cols-5" style={{ gap: "8px", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))" }}>
           <div style={{ padding: "8px 10px", background: "var(--bg-box)", borderRadius: "4px", border: "1px solid rgba(255,255,255,0.05)" }}>
             <div className="muted" style={{ fontSize: "0.7rem", letterSpacing: "0.05em" }}>TOTAL NODES</div>
-            <div style={{ fontSize: "1.25rem", fontWeight: 700, color: "var(--fg)", fontFamily: "monospace" }}>{totalNodes}</div>
-            <div className="muted" style={{ fontSize: "0.68rem" }}>Historical count</div>
+            <div style={{ fontSize: "1.25rem", fontWeight: 700, color: "var(--fg)", fontFamily: "monospace" }}>{nfmt(totalNodes)}</div>
+            <div className="muted" style={{ fontSize: "0.68rem" }}
+                 title={authority}>
+              every stored node · {nfmt(nsCounts?.user_research)} research + {nfmt(nsCounts?.legacy_excluded)} legacy
+            </div>
           </div>
           <div style={{ padding: "8px 10px", background: "var(--bg-box)", borderRadius: "4px", border: "1px solid rgba(255,255,255,0.05)" }}>
             <div className="muted" style={{ fontSize: "0.7rem", letterSpacing: "0.05em" }}>TARGET</div>
@@ -636,33 +672,39 @@ export default function Overview() {
           </div>
           <div style={{ padding: "8px 10px", background: "var(--bg-box)", borderRadius: "4px", border: "1px solid rgba(255,255,255,0.05)" }}>
             <div className="muted" style={{ fontSize: "0.7rem", letterSpacing: "0.05em" }}>ALIVE</div>
-            <div style={{ fontSize: "1.25rem", fontWeight: 700, color: "var(--green)", fontFamily: "monospace" }}>{alive}</div>
-            <div className="muted" style={{ fontSize: "0.68rem" }}>Active / Survived</div>
+            <div style={{ fontSize: "1.25rem", fontWeight: 700, color: "var(--green)", fontFamily: "monospace" }}>{nfmt(alive)}</div>
+            <div className="muted" style={{ fontSize: "0.68rem" }}>
+              not a dead end · {nfmt(qualified)} of them qualified
+            </div>
           </div>
           <div style={{ padding: "8px 10px", background: "var(--bg-box)", borderRadius: "4px", border: "1px solid rgba(255,255,255,0.05)" }}>
             <div className="muted" style={{ fontSize: "0.7rem", letterSpacing: "0.05em" }}>DEAD</div>
-            <div style={{ fontSize: "1.25rem", fontWeight: 700, color: "var(--red)", fontFamily: "monospace" }}>{dead}</div>
-            <div className="muted" style={{ fontSize: "0.68rem" }}>Failed / Retired</div>
+            <div style={{ fontSize: "1.25rem", fontWeight: 700, color: "var(--red)", fontFamily: "monospace" }}>{nfmt(dead)}</div>
+            <div className="muted" style={{ fontSize: "0.68rem" }}
+                 title="infrastructure-blocked nodes (no data / backtest error) are reported separately — never presented as strategy failures">
+              failed {nfmt(nsCounts?.failed)} · blocked (infrastructure) {nfmt(nsCounts?.blocked)}
+            </div>
           </div>
           <div style={{ padding: "8px 10px", background: "var(--bg-box)", borderRadius: "4px", border: "1px solid rgba(255,255,255,0.05)" }}>
             <div className="muted" style={{ fontSize: "0.7rem", letterSpacing: "0.05em" }}>BACKTESTING</div>
-            <div style={{ fontSize: "1.25rem", fontWeight: 700, color: backtesting > 0 ? "var(--blue)" : "var(--fg)", fontFamily: "monospace" }}>{backtesting}</div>
-            <div className="muted" style={{ fontSize: "0.68rem" }}>In screen/detail</div>
+            <div style={{ fontSize: "1.25rem", fontWeight: 700, color: (backtesting || 0) > 0 ? "var(--blue)" : "var(--fg)", fontFamily: "monospace" }}>{nfmt(backtesting)}</div>
+            <div className="muted" style={{ fontSize: "0.68rem" }}>in flight now (subset of alive)</div>
           </div>
           <div style={{ padding: "8px 10px", background: "var(--bg-box)", borderRadius: "4px", border: "1px solid rgba(255,255,255,0.05)" }}>
             <div className="muted" style={{ fontSize: "0.7rem", letterSpacing: "0.05em" }}>VALIDATING</div>
-            <div style={{ fontSize: "1.25rem", fontWeight: 700, color: validating > 0 ? "#a78bfa" : "var(--fg)", fontFamily: "monospace" }}>{validating}</div>
-            <div className="muted" style={{ fontSize: "0.68rem" }}>In validation</div>
+            <div style={{ fontSize: "1.25rem", fontWeight: 700, color: (validating || 0) > 0 ? "#a78bfa" : "var(--fg)", fontFamily: "monospace" }}>{nfmt(validating)}</div>
+            <div className="muted" style={{ fontSize: "0.68rem" }}>in flight now (subset of alive)</div>
           </div>
           <div style={{ padding: "8px 10px", background: "var(--bg-box)", borderRadius: "4px", border: "1px solid rgba(255,255,255,0.05)" }}>
             <div className="muted" style={{ fontSize: "0.7rem", letterSpacing: "0.05em" }}>QUALIFIED</div>
-            <div style={{ fontSize: "1.25rem", fontWeight: 700, color: "var(--green)", fontFamily: "monospace" }}>{qualified}</div>
-            <div className="muted" style={{ fontSize: "0.68rem" }}>Robust survivors</div>
+            <div style={{ fontSize: "1.25rem", fontWeight: 700, color: "var(--green)", fontFamily: "monospace" }}>{nfmt(qualified)}</div>
+            <div className="muted" style={{ fontSize: "0.68rem" }}
+                 title={authority}>robust survivors (one authority)</div>
           </div>
           <div style={{ padding: "8px 10px", background: "var(--bg-box)", borderRadius: "4px", border: "1px solid rgba(255,255,255,0.05)" }}>
             <div className="muted" style={{ fontSize: "0.7rem", letterSpacing: "0.05em" }}>CURRENT GENERATION</div>
-            <div style={{ fontSize: "1.25rem", fontWeight: 700, color: "var(--fg)", fontFamily: "monospace" }}>Gen {currentGen}</div>
-            <div className="muted" style={{ fontSize: "0.68rem" }}>Highest gen</div>
+            <div style={{ fontSize: "1.25rem", fontWeight: 700, color: "var(--fg)", fontFamily: "monospace" }}>Gen {nfmt(currentGen)}</div>
+            <div className="muted" style={{ fontSize: "0.68rem" }}>highest gen in the population</div>
           </div>
         </div>
       </div>
@@ -1068,11 +1110,13 @@ export default function Overview() {
 
       {/* Top High-Level Metrics */}
       <div className="grid cols-4" style={{ marginBottom: 14 }}>
-        <Metric label="Generation" value={currentGen} sub={`${lab?.cycle ?? 0} orchestrator cycles`} />
-        <Metric label="Active population" value={lab?.population_active ?? "–"}
-                sub={`target ${status?.config_summary?.population_size ?? "?"} · duplicates blocked ${lab?.duplicates_blocked ?? 0}`} />
-        <Metric label="Qualified / Paper" value={`${counts.QUALIFIED || 0} / ${counts.PAPER || 0}`}
-                sub={`validated ${lab?.counters?.validated ?? 0} · killed ${lab?.counters?.killed ?? 0}`} color="var(--green)" />
+        <Metric label="Generation" value={nfmt(currentGen)} sub={`${lab?.cycle ?? 0} orchestrator cycles`} />
+        <Metric label="Alive / Dead" value={`${nfmt(alive)} / ${nfmt(dead)}`}
+                sub={`authority · failed ${nfmt(nsCounts?.failed)} · blocked ${nfmt(nsCounts?.blocked)}`} />
+        {/* V5.4 §1 — the qualified number is the authority's, not the raw stored status
+         *  count; the raw vocabulary stays visible in the sub-line. */}
+        <Metric label="Qualified / Paper" value={`${nfmt(qualified)} / ${counts.PAPER || 0}`}
+                sub={`authority qualified · stored PAPER ${counts.PAPER || 0} · validated ${lab?.counters?.validated ?? 0}`} color="var(--green)" />
         <Metric label="Screened / Detailed" value={`${lab?.counters?.screened ?? 0} / ${lab?.counters?.detailed ?? 0}`}
                 sub={`born ${lab?.counters?.born ?? 0} · hypotheses ${lab?.counters?.hypotheses ?? 0}`} />
       </div>

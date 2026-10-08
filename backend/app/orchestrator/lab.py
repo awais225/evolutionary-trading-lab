@@ -268,6 +268,23 @@ class Lab:
         target = self.evo.get_total_node_target()
         reconstructed = self.db.reconstruct_state(target, exclude_legacy=True)
         node_state = self.evo.get_node_generation_state(exclude_legacy=True)
+        # ------------------------------------------------------------------ #
+        # V5.4 §1 — ONE source of truth. The numbers REPORTED here are the same
+        # snapshot the NODES strip, Deep Testing and Live Testing consume; this
+        # method used to publish its own (run-scoped, raw-status) counters, which
+        # is why Overview said TOTAL 10,000 / QUALIFIED 5 while every other page
+        # said TOTAL 10,787 / QUALIFIED 33. The engine's own decision gates
+        # (total_nodes()/is_target_reached()) are untouched: this is the display
+        # contract only, and `progress` names the experiment scope explicitly.
+        try:
+            from ..research.populations import node_state_snapshot
+            snapshot = node_state_snapshot(db=self.db, engine=self.evo)
+        except Exception as e:                                    # pragma: no cover
+            snapshot = None
+            log.warning("node-state snapshot unavailable: %s", e)
+        snap_state = (snapshot or {}).get("state") or {}
+        snap_progress = (snapshot or {}).get("progress") or {}
+        snap_counts = (snapshot or {}).get("counts") or {}
         return {
             "running": self.running, "paused": self.paused,
             "safe_paused": getattr(self, "safe_paused", False),
@@ -284,17 +301,37 @@ class Lab:
             # Authoritative single source of truth for node generation (spec §3)
             **node_state,
             # V2.1 Total Node Target & Reconstruction fields (spec §V2.1 I)
-            "total_nodes": node_state["current_nodes"],
-            "target": node_state["target_nodes"],
-            "remaining": node_state["remaining_nodes"],
-            "alive": node_state["alive_nodes"],
-            "dead": node_state["dead_nodes"],
-            "backtesting": node_state["backtesting_nodes"],
-            "validating": node_state["validating_nodes"],
-            "qualified": node_state["qualified_nodes"],
-            "target_reached": node_state["is_target_reached"],
-            "progress": f"{node_state['current_nodes']} / {node_state['target_nodes']}",
-            "progress_pct": node_state["progress_pct"],
+            # V5.4 §1 — the reported values come from the ONE snapshot
+            "total_nodes": snap_state.get("TOTAL", node_state["current_nodes"]),
+            "target": snap_state.get("TARGET", node_state["target_nodes"]),
+            "remaining": (snap_progress.get("remaining", node_state["remaining_nodes"])
+                          if snapshot else node_state["remaining_nodes"]),
+            "alive": snap_state.get("ALIVE", node_state["alive_nodes"]),
+            "dead": snap_state.get("DEAD", node_state["dead_nodes"]),
+            "backtesting": snap_state.get("BACKTESTING", node_state["backtesting_nodes"]),
+            "validating": snap_state.get("VALIDATING", node_state["validating_nodes"]),
+            "qualified": snap_state.get("QUALIFIED", node_state["qualified_nodes"]),
+            "generation": snap_state.get("CURRENT_GENERATION", node_state["generation_number"]),
+            "legacy_excluded": int(snap_counts.get("legacy_excluded") or 0),
+            # V5.4 §1 — the research scope under its own name, so a caller never has
+            # to subtract legacy rows (or mistake TOTAL for the experiment size)
+            "user_research_nodes": int(snap_counts.get("user_research") or 0),
+            "failed": snap_counts.get("failed"),
+            "blocked": snap_counts.get("blocked"),
+            "target_reached": bool(snap_progress.get("ceiling_reached",
+                                                     node_state["is_target_reached"]))
+                              if snapshot else node_state["is_target_reached"],
+            # the experiment scope is explicit: the ceiling counts THIS run's nodes
+            "experiment_nodes": snap_progress.get("nodes", node_state["current_nodes"]),
+            "progress": (f"{snap_progress.get('nodes', node_state['current_nodes'])} / "
+                         f"{snap_state.get('TARGET', node_state['target_nodes'])}"
+                         if snapshot else
+                         f"{node_state['current_nodes']} / {node_state['target_nodes']}"),
+            "progress_scope": "current experiment",
+            "progress_pct": (snap_progress.get("pct") if snapshot
+                             else node_state["progress_pct"]),
+            # V5.4 §1 — the complete snapshot travels with the status payload
+            "node_state": snapshot,
             "next_strategy_id": reconstructed["next_strategy_id"],
             "ancestry": reconstructed["ancestry"],
             "fingerprints": reconstructed["fingerprints"],

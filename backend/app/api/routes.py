@@ -77,6 +77,14 @@ def status() -> Dict:
     bs = bridge_status()
     # V4.0: user-facing status statistics exclude the LEGACY_TEST records
     counts = db.count_by_status(exclude_legacy=True)
+    # V5.4 §1 — the ONE node-state authority (same function behind the NODES strip,
+    # Deep Testing and Live Testing). Never re-derived here.
+    try:
+        from ..research.populations import node_state_snapshot
+        node_state = node_state_snapshot(db=db)
+    except Exception as e:                                    # pragma: no cover
+        log.warning("node-state snapshot unavailable: %s", e)
+        node_state = None
     from ..resources.manager import get_resource_manager
     from ..mt5.monitor import get_connection_monitor
     from ..activity import activity
@@ -92,6 +100,9 @@ def status() -> Dict:
         "bridge": bs,
         "paper": get_paper_engine().status()["running"],
         "status_counts": counts,
+        # V5.4 §1 — the canonical node state on the status payload every page
+        # already polls, so Overview/PROGRESS/summary cards read ONE authority.
+        "node_state": node_state,
         "components": COMPONENT_STATES,
         "resources": rm.live_metrics(),
         "connection": mon.status_details(),
@@ -4314,11 +4325,27 @@ def nodes_populations() -> Dict:
     # V5.2.2 — LIVE_TESTING_ELIGIBLE is CAPABILITY (qualified nodes the engine's
     # tradeability predicate accepts, i.e. the nodes START can enrol) and
     # LIVE_TESTING_ACTIVE is ENROLMENT (nodes wired into the live layer now).
-    from ..research.populations import POPULATION_STATE_KEYS
+    from ..research.populations import POPULATION_STATE_KEYS, node_state_snapshot
     data = populations()
     state = population_state()
+    # V5.4 §1 — the snapshot ADDS the progress half of the same authority
+    # (DEAD/BACKTESTING/VALIDATING/CURRENT_GENERATION/TARGET/REMAINING) and the
+    # measured invariants, so a page never needs a second endpoint or a recount.
+    snapshot = node_state_snapshot()
     data["state"] = state.get("state")
     data["state_order"] = list(POPULATION_STATE_KEYS.keys())
+    # V5.4 §1 — ``node_state`` is the SAME object /api/status ships (the whole
+    # snapshot: state + counts + progress + invariants + authority), so a reader
+    # never has to know which endpoint teaches a different shape. ``state`` keeps
+    # the flat six-name map the NODES strip already consumes; ``state_values``
+    # carries the extended flat map for readers that want names only.
+    data["node_state"] = snapshot
+    data["state_values"] = snapshot.get("state")
+    data["node_state_order"] = snapshot.get("state_order")
+    data["progress"] = snapshot.get("progress")
+    data["invariants"] = snapshot.get("invariants")
+    data["authority"] = snapshot.get("authority")
+    data["counts"] = snapshot.get("counts")
     # V5.2.2 — the explicit names carry their OWN definitions, so the strip's
     # tooltips explain exactly the number they sit on (lowercase keys kept too).
     data["state_definitions"] = state.get("definitions")

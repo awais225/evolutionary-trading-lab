@@ -187,9 +187,13 @@ def test_09_infrastructure_blocked_nodes_are_not_failures(population_db):
 
 def test_10_the_payload_ships_its_own_definitions(population_db):
     out = P.populations(population_db)
-    for key in ("total", "alive", "qualified", "final", "deep", "live", "live_active"):
-        assert out["definitions"][key]
-    assert out["authority"].startswith("app.status.node_bucket")
+    # V5.4 §1: the population keys AND the whole partition are defined
+    for key in ("total", "alive", "qualified", "final", "deep", "live", "live_active",
+                "dead", "failed", "blocked", "unknown", "legacy_excluded",
+                "user_research", "in_flight", "generation", "validating"):
+        assert out["definitions"][key], key
+    assert "app.research.populations" in out["authority"]
+    assert "node_bucket" in out["authority"]                 # the classifier is named too
 
 
 def test_11_an_unreadable_database_says_so_instead_of_reporting_fake_numbers():
@@ -207,9 +211,16 @@ def test_11_an_unreadable_database_says_so_instead_of_reporting_fake_numbers():
 
 def test_12_empty_database_is_zero_with_a_note():
     out = P.populations(FakeDB([]))
+    # V5.4 §1: an empty database is zero on EVERY counter of the partition
     assert out["counts"] == {"total": 0, "alive": 0, "qualified": 0, "final": 0,
-                             "deep": 0, "live": 0, "live_active": 0}
+                             "deep": 0, "live": 0, "live_active": 0,
+                             "dead": 0, "failed": 0, "blocked": 0, "unknown": 0,
+                             "legacy_excluded": 0, "user_research": 0,
+                             "in_flight": 0, "generation": 0, "validating": 0}
     assert out["notes"]
+    # ... and the partition invariants still hold when there is nothing to count
+    snap = P.node_state_snapshot(FakeDB([]))
+    assert snap["state"]["TOTAL"] == 0 and snap["invariants"]["total_equals_alive_dead_legacy"]
 
 
 # ===========================================================================
@@ -309,8 +320,20 @@ def test_22_api_populations_endpoint_matches_the_module(client):
     assert r.status_code == 200
     body = r.json()
     assert set(body["counts"]) == {"total", "alive", "qualified", "final", "deep",
-                                   "live", "live_active"}
+                                   "live", "live_active", "dead", "failed", "blocked",
+                                   "unknown", "legacy_excluded", "user_research",
+                                   "in_flight", "generation", "validating",
+                                   # carried by the endpoint's authority snapshot
+                                   "target", "remaining"}
     assert body["counts"]["total"] > 0
+    # V5.4 §1 — the endpoint ships the SAME snapshot the other surfaces read
+    ns = body["node_state"]
+    assert ns["authority"] == "app.research.populations.node_state_snapshot"
+    assert ns["state"]["TOTAL"] == body["counts"]["total"]
+    assert ns["state"]["DEAD"] == body["counts"]["dead"]
+    assert ns["state"] == body["state_values"]                 # names and short keys agree
+    assert ns["invariants"]["total_equals_alive_dead_legacy"]
+    assert ns["progress"]["scope"] == "current experiment"
     assert body["counts"]["alive"] >= 1
     assert body["definitions"]["alive"]
 

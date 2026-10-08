@@ -847,6 +847,7 @@ class MT5RealBridge(MarketBridge):
         """
         if not self._connected or not MT5_PACKAGE_AVAILABLE:
             return {"ok": False, "unsupported": True, "retcode": None, "called": False,
+                    "called_reported": True, "phase": "BRIDGE_NOT_CONNECTED",
                     "error": "MT5 terminal not connected",
                     "session": session_snapshot(),
                     "diagnostic": self._execution_diagnostic(request, called=False,
@@ -859,6 +860,7 @@ class MT5RealBridge(MarketBridge):
             session = self._ensure_order_session()
             if not session.get("ok"):
                 return {"ok": False, "retcode": None, "raw": None, "called": False,
+                        "called_reported": True, "phase": "ORDER_SESSION_UNAVAILABLE",
                         "unsupported": False, "session": {**(session or {}), "snapshot": session_snapshot()},
                         "request": dict(request), "filling_resolution": filling_resolution,
                         "error": session.get("reason"),
@@ -868,16 +870,30 @@ class MT5RealBridge(MarketBridge):
                             filling=filling_resolution)}
             check = self.check_market_order(request)
             if not check.get("unsupported") and not check.get("ok"):
+                # V5.4 §2 — the CHECK result is NEVER the send result. Until this fix
+                # the refused path returned the MqlTradeCheckResult in the ``raw``
+                # slot, so the caller classified a preflight answer as if the broker
+                # had answered an order_send(): the operator saw
+                # "OrderCheckResult(retcode=0, comment='Done')" reported as the trade
+                # outcome. ``raw`` (the send result) is therefore None here, and the
+                # check travels in ``check`` under its own phase.
                 raw_check = check.get("raw") or {}
-                return {"ok": False, "retcode": check.get("retcode"), "raw": raw_check,
-                        "check": check, "request": dict(request), "called": False,
+                terminal_refused = bool(check.get("retcode") is not None or raw_check)
+                phase = "ORDER_CHECK_REFUSED" if terminal_refused else "ORDER_CHECK_ERROR"
+                return {"ok": False, "retcode": None, "raw": None,
+                        "check": check, "request": dict(request),
+                        "called": False, "called_reported": True,
+                        "phase": phase, "result_shape": None,
                         "session": {**(session or {}), "snapshot": session_snapshot()},
                         "filling_resolution": filling_resolution,
                         "refused_by": "mt5.order_check",
                         "error": (raw_check.get("comment")
-                                  or f"order_check refused the order (retcode {check.get('retcode')})"),
+                                  or check.get("error") or check.get("exception")
+                                  or (f"order_check refused the order (retcode {check.get('retcode')})"
+                                      if terminal_refused else
+                                      "order_check could not be evaluated by the terminal")),
                         "diagnostic": self._execution_diagnostic(request, called=False,
-                                                                 phase="ORDER_CHECK_REFUSED",
+                                                                 phase=phase,
                                                                  check=check,
                                                                  filling=filling_resolution)}
             # ------------------------------------------------------------------
@@ -920,9 +936,11 @@ class MT5RealBridge(MarketBridge):
                 "outcome": ("ORDER_SEND_EXCEPTION" if raised is not None else
                             "ORDER_SEND_RETURNED_NONE" if result is None else
                             "ORDER_SEND_RETURNED_RESULT"),
+                "result_shape": None,
             }
             if raised is not None:
                 return {"ok": False, "retcode": None, "raw": None, "called": True, "call_count": 1,
+                        "called_reported": True, "phase": "ORDER_SEND_EXCEPTION",
                         "exception": str(raised), "exception_type": type(raised).__name__,
                         "last_error": last_error_after, "forensics": forensics, "session": {**(session or {}), "snapshot": session_snapshot()},
                         "request": dict(request), "check": check,
@@ -940,6 +958,7 @@ class MT5RealBridge(MarketBridge):
                 log.error("order_send returned None (last_error_before=%s last_error_after=%s)",
                           last_error_before, last_error_after)
                 return {"ok": False, "retcode": None, "raw": None, "called": True, "call_count": 1,
+                        "called_reported": True, "phase": "ORDER_SEND_RETURNED_NONE",
                         "last_error": last_error_after,
                         "exception": (f"order_send returned None "
                                       f"(mt5.last_error={last_error_after})"),
@@ -951,6 +970,36 @@ class MT5RealBridge(MarketBridge):
                             last_error=last_error_after, filling=filling_resolution,
                             forensics=forensics)}
             raw = _result_to_dict(result)
+            shape = result_shape(result)
+            if shape == "check":
+                # V5.4 §2 — order_send handed back an ORDER CHECK result. That is a
+                # preflight answer, not an execution: retcode 0 here means "the
+                # request would be accepted", never "the order was executed". The
+                # outcome of the send is therefore UNKNOWN (the call did happen),
+                # never EXECUTED, and the object is preserved for the report.
+                log.error("order_send returned an ORDER CHECK result (%s, retcode=%s) — "
+                          "that is a preflight, not an execution",
+                          type(result).__name__, raw.get("retcode"))
+                # the forensics record must say the same thing as the return value
+                forensics["outcome"] = "ORDER_SEND_RETURNED_CHECK_RESULT"
+                forensics["result_shape"] = "check"
+                forensics["check_result_returned"] = raw
+                return {"ok": False, "retcode": None, "raw": None, "called": True, "call_count": 1,
+                        "called_reported": True, "phase": "ORDER_SEND_RETURNED_CHECK_RESULT",
+                        "result_shape": "check", "check_result_returned": raw,
+                        "last_error": last_error_after, "exception_type": "CheckResultReturned",
+                        "exception": ("mt5.order_send answered with an ORDER CHECK result "
+                                      f"({type(result).__name__}, retcode={raw.get('retcode')}, "
+                                      f"comment={raw.get('comment')!r}) — a passing order_check is "
+                                      "a preflight, never an execution"),
+                        "forensics": forensics, "session": {**(session or {}), "snapshot": session_snapshot()},
+                        "filling_resolution": filling_resolution,
+                        "request": dict(request), "check": check,
+                        "diagnostic": self._execution_diagnostic(
+                            request, called=True,
+                            phase="ORDER_SEND_RETURNED_CHECK_RESULT", check=check,
+                            last_error=last_error_after, filling=filling_resolution,
+                            forensics=forensics)}
             if not isinstance(raw.get("retcode"), int) or isinstance(raw.get("retcode"), bool):
                 # V5.3 §1 — the terminal ANSWERED, but with an object this binding
                 # cannot read (no usable retcode). That is not a broker result.
@@ -958,6 +1007,8 @@ class MT5RealBridge(MarketBridge):
                 log.error("order_send returned an unreadable result (retcode missing, keys=%s, "
                           "last_error=%s)", sorted(raw.keys()), err)
                 return {"ok": False, "retcode": None, "raw": raw, "called": True, "call_count": 1,
+                        "called_reported": True, "phase": "ORDER_SEND_UNUSABLE_RESULT",
+                        "result_shape": shape,
                         "last_error": err, "exception_type": "UnusableResult",
                         "exception": ("order_send answered with an object that carries no usable "
                                       f"retcode (keys={sorted(raw.keys())})"),
@@ -975,6 +1026,8 @@ class MT5RealBridge(MarketBridge):
             verification = self.verify_sent_order(request, raw)
             forensics["post_send"] = verification
             return {"ok": bool(raw.get("retcode")), "retcode": raw.get("retcode"), "raw": raw,
+                    "called_reported": True, "phase": "ORDER_SEND_RETURNED_RESULT",
+                    "result_shape": shape,
                     "check": check, "filling_resolution": filling_resolution,
                     "request": dict(request), "called": True, "call_count": 1,
                     "last_error": last_error_after, "forensics": forensics, "session": {**(session or {}), "snapshot": session_snapshot()},
@@ -1303,6 +1356,39 @@ def _filling_modes(si) -> List[int]:
     if not out:
         out = [ORDER_FILLING_RETURN]
     return out
+
+
+#: fields that only ever appear on an MqlTradeResult (what ``order_send`` returns)
+_TRADE_RESULT_FIELDS = ("deal", "order", "request_id", "retcode_external", "bid", "ask")
+#: fields that only ever appear on an MqlTradeCheckResult (what ``order_check`` returns)
+_CHECK_RESULT_FIELDS = ("margin", "margin_free", "margin_level", "balance", "equity", "profit")
+
+
+def result_shape(result: Any, type_name: Optional[str] = None) -> str:
+    """Is this object a TRADE result, a CHECK result, or unreadable?
+
+    V5.4 §2 — the operator's evidence was an ``OrderCheckResult(retcode=0,
+    comment='Done')`` being reported where a trade result was expected. A check
+    result carries margin/balance/equity and *no* deal/order/request_id; a trade
+    result carries deal/order and never margin. The shape is therefore decidable
+    without guessing from the retcode (retcode 0 exists in both vocabularies and
+    means opposite things), which is exactly why this test exists.
+    """
+    d = _result_to_dict(result)
+    keys = set(d.keys())
+    name = str(type_name if type_name is not None
+               else type(result).__name__ if result is not None else "").lower()
+    if name.startswith("ordercheck") or name.startswith("mqltradecheck"):
+        return "check"
+    if keys & set(_CHECK_RESULT_FIELDS) and not (keys & set(_TRADE_RESULT_FIELDS)):
+        return "check"
+    if name.startswith("traderesult") or name.startswith("mqltraderesult"):
+        return "trade"
+    if keys & set(_TRADE_RESULT_FIELDS):
+        return "trade"
+    if {"retcode", "comment"} <= keys:
+        return "trade"
+    return "unknown"
 
 
 def _result_to_dict(result) -> Dict:

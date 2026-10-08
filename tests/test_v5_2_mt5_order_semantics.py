@@ -476,7 +476,8 @@ def test_24_no_result_is_a_precise_unknown_and_never_a_second_send(
     monkeypatch.setattr(ex, "get_bridge", lambda: bridge, raising=False)
     res = ex.place_demo_order(_payload(), bridge=bridge)
     assert res["ok"] is False and res["status"] == "UNKNOWN"
-    assert res["result_class"] == "NO_RESULT"
+    assert res["result_class"] == "UNKNOWN_EXECUTION"
+    assert res["result_class_detail"] == "NO_RESULT"
     assert res["broker"]["safe_to_retry"] is False
     assert res["order_send"]["called"] is True
     assert res["diagnostic"]["phase"] == "ORDER_SEND_RETURNED_NONE"

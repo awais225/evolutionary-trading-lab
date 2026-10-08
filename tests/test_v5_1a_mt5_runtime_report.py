@@ -339,7 +339,13 @@ def test_19_a_refused_order_check_stops_the_order_before_it_is_sent(monkeypatch)
     bridge = _real_bridge(monkeypatch, term)
     out = bridge.send_market_order(REQUEST)
     assert out["ok"] is False
-    assert out["retcode"] == 10019
+    # V5.4 §2 — the broker retcode BELONGS TO THE CHECK. Reporting it as the
+    # order's own retcode is exactly the defect that made a refused preflight
+    # look like a trade outcome: ``retcode``/``raw`` are the SEND result and are
+    # None because nothing was sent.
+    assert out["retcode"] is None and out["raw"] is None
+    assert out["called"] is False and out["phase"] == "ORDER_CHECK_REFUSED"
+    assert out["check"]["retcode"] == 10019
     assert out["refused_by"] == "mt5.order_check"
     assert out["check"]["ok"] is False
     assert term.sent == [], "order_send was called although order_check refused"

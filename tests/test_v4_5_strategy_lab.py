@@ -433,7 +433,17 @@ def test_query_counts_do_not_scale_with_rows(tmp_path):
     assert d.statements <= 6
     d.statements = 0
     sl.facets(d)
-    assert d.statements <= 16
+    # V5.4 §1 — facets now also builds the ONE authority snapshot (the same
+    # numbers Overview/Live Testing show), so the budget covers that fixed cost.
+    # What must NOT happen is the cost growing with the number of rows: measured
+    # below on a 3x larger population.
+    assert d.statements <= 24, d.statements
+    for i in range(60):
+        add_node(d, 6000 + i, status="SURVIVED", generation=2)
+    d.statements = 0
+    sl.facets(d)
+    assert d.statements <= 24, ("facets query count scaled with the row count",
+                                d.statements)
 
 
 # --------------------------------------------------------------------------- #
@@ -465,7 +475,10 @@ def test_strategy_lab_http_endpoints(client):
     assert facets["scope"] == "USER_RESEARCH"
     assert facets["scope_info"]["legacy_excluded_nodes"] == 1
     assert {o["value"] for o in facets["options"]["status"]} >= {"QUALIFIED", "SURVIVED", "FAILED"}
-    assert facets["population"]["total"] == 45
+    # V5.4 §1 — the authority's TOTAL counts every stored node (45 + 1 legacy);
+    # the research scope it serves is published next to it.
+    assert facets["population"]["total"] == 46
+    assert facets["population"]["user_research"] == 45
     assert facets["limits"]["max_compare"] == 8
 
     r = client.get("/api/research/matrix", params={"ids": "2001,2004"})

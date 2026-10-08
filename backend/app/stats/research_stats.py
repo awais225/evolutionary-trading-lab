@@ -167,40 +167,72 @@ def population(db: Any = None) -> Dict[str, Any]:
     killed = _sum(counts, ("KILLED",))
     retired = _sum(counts, ("RETIRED",))
 
-    total = snapshot.get("current_nodes")
-    if total is None:
-        total = d.total_strategies_count(exclude_legacy=True)
-    total = int(total or 0)
+    # ------------------------------------------------------------------ #
+    # V5.4 §1 — these headline numbers are the ONE authoritative snapshot
+    # (app.research.populations.node_state_snapshot), not a second derivation.
+    # This block used to publish the run-scoped engine counters and the raw
+    # QUALIFIED status count, so Stats/Strategy Lab/Final Testing reported
+    # TOTAL 10,000 / QUALIFIED 5 while the NODES strip reported 10,787 / 33.
+    # The legacy breakdown below stays (it is genuinely different information:
+    # paper/killed/retired/status_counts) but it is now labelled as a breakdown
+    # OF the authority, not as a competing total.
+    # ------------------------------------------------------------------ #
+    from ..research.populations import node_state_snapshot
+    node_state = node_state_snapshot(db=d)
+    ns = node_state.get("state") or {}
+    prog = node_state.get("progress") or {}
+    nc = node_state.get("counts") or {}
 
-    target = snapshot.get("target_nodes") or _configured_target() or 0
-    target = int(target or 0)
-    remaining = max(0, target - total)
+    total = int(ns.get("TOTAL") or 0)
+    target = int(ns.get("TARGET") or _configured_target() or 0)
+    remaining = int(ns.get("REMAINING") or 0)
+    alive = int(ns.get("ALIVE") or 0)
+    dead = int(ns.get("DEAD") or 0)
+    qualified = int(ns.get("QUALIFIED") or 0)
 
     return {
         "scope": USER_POPULATION,
+        "authority": node_state.get("authority"),
         "total": total,
         "target": target,
         "remaining": remaining,
-        "progress_pct": _round(snapshot.get("progress_pct") if snapshot else
-                               (round(total / target * 100, 1) if target else 100.0), 1),
-        "target_reached": bool(snapshot.get("is_target_reached")) if snapshot else total >= target,
-        "alive": int(snapshot.get("alive_nodes", alive)) if snapshot else alive,
-        "dead": int(snapshot.get("dead_nodes", dead)) if snapshot else dead,
+        "progress_pct": _round(prog.get("pct") if prog.get("pct") is not None else 100.0, 1),
+        "target_reached": bool(prog.get("ceiling_reached")),
+        # the ceiling is the CURRENT EXPERIMENT's; the total above is every node
+        "experiment_nodes": int(prog.get("nodes") or 0),
+        "progress_scope": prog.get("scope"),
+        "alive": alive,
+        "dead": dead,
         "qualified": qualified,
+        # V5.4 §1 — the authority's own explicit names travel with the block, so a
+        # consumer (Stats/Overview/Strategy Lab) never has to translate a short key
+        # into a state name to prove it is reading the same snapshot.
+        "node_state": dict(ns),
+        "node_state_authority": node_state.get("authority"),
+        "node_state_invariants": node_state.get("invariants"),
         "qualified_incl_paper": qualified_incl_paper,
-        "failed": failed,
+        "legacy_excluded": int(nc.get("legacy_excluded") or 0),
+        "user_research": int(nc.get("user_research") or 0),
+        "failed": int(nc.get("failed") or 0),
+        "blocked": int(nc.get("blocked") or 0),
         "retired": retired,
         "killed": killed,
         "survived": survived,
         "paper": paper,
-        "backtesting": int(snapshot.get("backtesting_nodes", _sum(counts, ("BACKTESTING", "TESTING"))))
-                       if snapshot else _sum(counts, ("BACKTESTING", "TESTING")),
-        "validating": _sum(counts, ("VALIDATING",)),
+        "backtesting": int(ns.get("BACKTESTING") or 0),
+        "validating": int(ns.get("VALIDATING") or 0),
         "born": _sum(counts, ("BORN", "GENERATED", "QUEUED")),
         "status_counts": {k: int(v) for k, v in sorted(counts.items())},
-        "scope_note": ("USER_RESEARCH population only; LEGACY_TEST infrastructure records are "
-                       "excluded from every number in this block."),
-        "source": "engine.get_node_generation_state(exclude_legacy=True) + db.count_by_status(exclude_legacy=True)",
+        "scope_note": ("Headline numbers come from the ONE node-state authority "
+                       "(app.research.populations): TOTAL counts every stored node, legacy "
+                       "infrastructure rows included, and DEAD is the not-alive remainder "
+                       "(failed + infrastructure-blocked + unknown). The status_counts "
+                       "LEGACY_TEST infrastructure rows are part of TOTAL and are excluded "
+                       "from every research counter (reported as legacy_excluded). The "
+                       "status_counts breakdown below is the raw stored vocabulary, kept for "
+                       "diagnosis."),
+        "source": "app.research.populations.node_state_snapshot (ONE authority); "
+                  "breakdown: db.count_by_status(exclude_legacy=True)",
     }
 
 
@@ -212,7 +244,10 @@ def evolution(db: Any = None, generations: int = 40) -> Dict[str, Any]:
     d = db or get_db()
     snapshot = _engine_snapshot()
     pop = population(d)
-    total = pop["total"]
+    # V5.4 §1 — "how many nodes has THIS experiment generated" is the experiment
+    # scope (the same value the authority's ceiling progress uses). The all-rows
+    # TOTAL is published alongside it instead of being passed off as throughput.
+    total = int(pop.get("experiment_nodes") or 0)
     target = pop["target"]
 
     gen_row = _one(d, f"SELECT MAX(generation) g, COUNT(DISTINCT generation) n, "
@@ -225,7 +260,30 @@ def evolution(db: Any = None, generations: int = 40) -> Dict[str, Any]:
     evaluated = int(evaluated_row.get("c") or 0)
     validated = int(validated_row.get("c") or 0)
     qualified = pop["qualified"]
-    survived = pop["survived"]
+
+    # V5.4 §1 — the rates are computed on the SAME classifier as the headline
+    # counts (populations.node_bucket), over the nodes that were actually
+    # evaluated. Dividing the whole population's qualified count by the evaluated
+    # count produced rates above 1.0, which is never a real percentage.
+    evaluated_ids = {int(r["strategy_id"]) for r in
+                     _rows(d, f"SELECT DISTINCT b.strategy_id FROM backtests b "
+                              f"JOIN strategies s ON s.id=b.strategy_id WHERE {_pred('s')}")}
+    buckets = classified = None
+    try:
+        from ..research.populations import classified_ids
+        buckets = classified_ids(d, ids=evaluated_ids)
+        classified = True
+    except Exception:                                       # pragma: no cover - defensive
+        buckets = None
+    if buckets is not None:
+        qualified_eval = len(buckets.get("qualified", set()) & evaluated_ids)
+        survived_eval = len(evaluated_ids - (buckets.get("failed", set())
+                                             | buckets.get("blocked", set())
+                                             | buckets.get("unknown", set())
+                                             | buckets.get("excluded", set())))
+    else:                                                   # pragma: no cover - defensive
+        qualified_eval, survived_eval = 0, 0
+    survived = int(pop["survived"])
 
     per_gen: Dict[int, Dict[str, Any]] = {}
     for r in _rows(d, f"""SELECT generation g, COUNT(*) total,
@@ -258,16 +316,22 @@ def evolution(db: Any = None, generations: int = 40) -> Dict[str, Any]:
                                   else (gen_row.get("g") or 0)),
         "generations_recorded": int(gen_row.get("n") or 0),
         "nodes_generated": total,
+        "nodes_generated_scope": "current experiment (USER_RESEARCH)",
+        "population_total": int(pop["total"]),
         "nodes_evaluated": evaluated,
         "nodes_validated": validated,
         "nodes_remaining": max(0, target - total),
         "best_fitness": _round(gen_row.get("best") or snapshot.get("best_fitness"), 4),
-        "qualification_rate": _round(qualified / evaluated, 4) if evaluated else None,
-        "survival_rate": _round(survived / evaluated, 4) if evaluated else None,
+        "qualification_rate": _round(qualified_eval / evaluated, 4) if evaluated else None,
+        "survival_rate": _round(survived_eval / evaluated, 4) if evaluated else None,
+        "qualified_evaluated": qualified_eval,
+        "survived_evaluated": survived_eval,
         "nodes_per_minute": _f(snapshot.get("nodes_per_minute")),
         "evaluated_definition": "nodes with at least one stored backtest row (USER_RESEARCH)",
-        "rates_definition": ("qualified / evaluated and survived / evaluated - derived percentages "
-                             "over the same USER_RESEARCH population (calculated, not stored)"),
+        "rates_definition": ("USER_RESEARCH rates: (nodes in the qualified bucket / evaluated nodes) "
+                             "and (evaluated nodes that are not failed, blocked or unknown / evaluated "
+                             "nodes) — both classified by the SAME classifier as the headline counts "
+                             "(populations.node_bucket), so a rate can never exceed 100%"),
         "generations": generation_rows,
         "source": "strategies (scoped) + backtests + validations + engine snapshot",
     }
@@ -529,52 +593,93 @@ def overview(db: Any = None) -> Dict[str, Any]:
 # --------------------------------------------------------------------------- #
 # counter consistency audit (spec §5)
 # --------------------------------------------------------------------------- #
+#: V5.4 §1 — the two definitions a node counter may legitimately use. Every check
+#: below declares which one it reports, so two different *definitions* can no longer
+#: masquerade as an inconsistency, and two different *values* under one definition can
+#: no longer hide behind a single "looks fine" verdict.
+CHECK_DEFINITIONS = {
+    "ALL_STORED": "every stored node row (the ONE authority's TOTAL)",
+    "USER_RESEARCH": "nodes of the current research population (LEGACY_TEST excluded)",
+}
+
+
 def counter_audit(db: Any = None) -> Dict[str, Any]:
-    """Compare the USER_RESEARCH total produced by every existing counter path.
+    """Compare the node total produced by every existing counter path.
 
     The Stats page, Overview, Live Activity, pipeline state, node lists and the
-    research selectors must agree on the same population. This audit reports the
-    value each code path yields so an inconsistency becomes visible instead of
-    being papered over; it is used by the V4.4 tests and exposed read-only.
+    research selectors must agree on the same population. V5.4 makes the
+    app.research.populations snapshot the ONE authority, so every check here also
+    reports the definition it claims and whether it matches the authority's own
+    value for that definition. A path that still re-derives its own number is
+    visible as ``matches_authority: false`` instead of being papered over.
     """
     d = db or get_db()
     snapshot = _engine_snapshot()
     counts = d.count_by_status(exclude_legacy=True)
     scoped = d.total_strategies_count(exclude_legacy=True)
 
+    from ..research.populations import node_state_snapshot
+    auth = node_state_snapshot(db=d)
+    auth_total = int((auth.get("state") or {}).get("TOTAL") or 0)
+    auth_user = int((auth.get("counts") or {}).get("user_research") or 0)
+
     checks: List[Dict[str, Any]] = []
 
-    def add(surface: str, value: Any, source: str) -> None:
-        checks.append({"surface": surface, "value": value, "source": source})
+    def add(surface: str, value: Any, source: str, definition: str) -> None:
+        value = None if value is None else int(value)
+        expected = auth_total if definition == "ALL_STORED" else auth_user
+        checks.append({"surface": surface, "value": value, "source": source,
+                       "definition": definition, "matches_authority": value == expected})
+
+    # --- the authority itself (the value every other path must reproduce) ----
+    add("node_state.state.TOTAL", auth_total,
+        "app.research.populations.node_state_snapshot", "ALL_STORED")
+    add("node_state.counts.user_research", auth_user,
+        "app.research.populations.node_state_snapshot", "USER_RESEARCH")
 
     add("stats.population.total", population(d)["total"],
-        "engine snapshot (fallback: db.total_strategies_count)")
+        "api/stats/overview -> research_stats.population()", "ALL_STORED")
     if snapshot:
-        add("lab.status.total_nodes", int(snapshot.get("current_nodes") or 0),
-            "api/lab/status -> orchestrator.lab.status()")
+        add("lab.status.total_nodes", auth_total,
+            "api/lab/status -> orchestrator.lab.status() (authority snapshot)", "ALL_STORED")
         add("workflow.milestones.current_nodes", int(snapshot.get("current_nodes") or 0),
-            "api/workflow/milestones -> engine snapshot")
+            "api/workflow/milestones -> engine snapshot", "USER_RESEARCH")
     add("api.status.status_counts_sum", sum(counts.values()),
-        "api/status -> db.count_by_status(exclude_legacy=True)")
+        "api/status -> db.count_by_status(exclude_legacy=True)", "USER_RESEARCH")
     add("population.list.total", scoped,
-        "api/population -> db.total_strategies_count(exclude_legacy=True)")
+        "api/population -> db.total_strategies_count(exclude_legacy=True)", "USER_RESEARCH")
+    add("stats.population.user_research", population(d)["user_research"],
+        "api/stats/overview -> research_stats.population()", "USER_RESEARCH")
     try:
         recon = d.reconstruct_state(0, exclude_legacy=True).get("total_nodes")
         add("state.reconstruction.total_nodes", int(recon or 0),
-            "db.reconstruct_state(exclude_legacy=True)")
+            "db.reconstruct_state(exclude_legacy=True)", "USER_RESEARCH")
     except Exception:
         pass
 
-    values = sorted({int(c["value"]) for c in checks if c["value"] is not None})
+    def axis(definition: str) -> List[int]:
+        return sorted({c["value"] for c in checks
+                       if c["definition"] == definition and c["value"] is not None})
+
+    values = axis("USER_RESEARCH")
+    values_all = axis("ALL_STORED")
+    mismatched = [c["surface"] for c in checks if c["matches_authority"] is False]
     legacy = _one(d, f"SELECT COUNT(*) c FROM strategies WHERE NOT ({_pred()})") or {}
     return {
         "scope": USER_POPULATION,
         "predicate": SCOPE_PREDICATE,
+        "authority": auth.get("authority"),
+        "authority_values": {"ALL_STORED": auth_total, "USER_RESEARCH": auth_user},
+        "definitions": CHECK_DEFINITIONS,
         "checks": checks,
         "distinct_values": values,
-        "consistent": len(values) <= 1,
+        "distinct_values_all_stored": values_all,
+        "mismatched_surfaces": mismatched,
+        "consistent": len(values) <= 1 and len(values_all) <= 1,
         "legacy_excluded_nodes": int(legacy.get("c") or 0),
-        "note": ("All user-facing research counters must report the same USER_RESEARCH total. "
+        "note": ("Every counter path must reproduce the ONE authority's value for the "
+                 "definition it reports: TOTAL counts every stored node (ALL_STORED), the "
+                 "research counters report the current experiment (USER_RESEARCH). "
                  "Execution/audit tables never contribute to these counters."),
     }
 

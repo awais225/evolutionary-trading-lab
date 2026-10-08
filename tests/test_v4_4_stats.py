@@ -169,9 +169,21 @@ def test_overview_scope_and_labels(db, stub_snapshot):
 
 def test_population_counts_user_scope(db, stub_snapshot):
     pop = st.population(db)
-    assert pop["total"] == 8                      # the 3 legacy rows are excluded
-    assert pop["qualified"] == 1
-    assert pop["failed"] == 1
+    # V5.4 §1 — the authority's TOTAL counts every stored node (the 3 legacy
+    # infrastructure rows included), and the research scope is reported next to it
+    # as its own number instead of being published as "the total".
+    assert pop["total"] == 11
+    assert pop["user_research"] == 8
+    assert pop["legacy_excluded"] == 3
+    assert pop["total"] == pop["user_research"] + pop["legacy_excluded"]
+    # the authority's qualified BUCKET (the same classifier the node filters use):
+    # QUALIFIED + SURVIVED + PAPER all cleared the research gates
+    assert pop["qualified"] == 3
+    assert pop["qualified_incl_paper"] == 2      # engine group: stored QUALIFIED + PAPER
+    # the authority's failed bucket: FAILED + RETIRED + KILLED are all genuine
+    # strategy rejections (the stored-status breakdown is reported below)
+    assert pop["failed"] == 3
+    assert pop["blocked"] == 0
     assert pop["retired"] == 1
     assert pop["killed"] == 1
     assert pop["survived"] == 1
@@ -199,13 +211,20 @@ def test_legacy_excluded_from_population_and_lists(db, stub_snapshot):
 # --------------------------------------------------------------------------- #
 def test_evolution_evaluated_and_rates(db, stub_snapshot):
     ev = st.evolution(db)
+    # V5.4 §1 — throughput is the CURRENT EXPERIMENT's nodes; the all-rows total
+    # (11) is published beside it, never passed off as experiment throughput.
     assert ev["nodes_generated"] == 8
+    assert ev["population_total"] == 11
     assert ev["nodes_evaluated"] == 2             # only the two user nodes have backtests
     assert ev["nodes_validated"] == 1
     assert ev["current_generation"] == 5
     assert ev["generations_recorded"] == 3        # generations 3, 4, 5
-    assert ev["qualification_rate"] == pytest.approx(1 / 2, abs=1e-6)
-    assert ev["survival_rate"] == pytest.approx(1 / 2, abs=1e-6)
+    # V5.4 §1 — the rates use the authority's classifier over the EVALUATED nodes:
+    # both evaluated nodes (1001 SURVIVED, 1002 QUALIFIED) are in the qualified
+    # bucket, so both rates are 1.0 and can never exceed 100%.
+    assert ev["qualified_evaluated"] == 2 and ev["survived_evaluated"] == 2
+    assert ev["qualification_rate"] == pytest.approx(1.0, abs=1e-6)
+    assert ev["survival_rate"] == pytest.approx(1.0, abs=1e-6)
     gens = {g["generation"]: g for g in ev["generations"]}
     assert gens[4]["nodes"] == 3 and gens[4]["evaluated"] == 2
     assert "USER_RESEARCH" in ev["rates_definition"]
@@ -245,14 +264,24 @@ def test_execution_records_are_separate(db, stub_snapshot):
 
 
 def test_counter_audit_consistent(db, stub_snapshot):
+    """V5.4 §1 — every counter path must reproduce the ONE authority's value."""
     audit = st.counter_audit(db)
     assert audit["scope"] == "USER_RESEARCH"
     assert audit["consistent"] is True
-    assert audit["distinct_values"] == [8]
+    assert audit["mismatched_surfaces"] == []                # nothing re-derives its own number
+    assert audit["authority"] == "app.research.populations.node_state_snapshot"
+    # two legitimate definitions, each internally consistent...
+    assert audit["distinct_values"] == [8]                   # USER_RESEARCH
+    assert audit["distinct_values_all_stored"] == [11]       # every stored node
+    assert audit["authority_values"] == {"ALL_STORED": 11, "USER_RESEARCH": 8}
+    # ...every check declares its definition, and reports whether it matches
+    assert {c["definition"] for c in audit["checks"]} <= set(audit["definitions"])
+    assert all(c["matches_authority"] is True for c in audit["checks"])
     assert audit["legacy_excluded_nodes"] == 3
     surfaces = {c["surface"] for c in audit["checks"]}
     assert {"stats.population.total", "api.status.status_counts_sum",
-            "population.list.total", "state.reconstruction.total_nodes"} <= surfaces
+            "population.list.total", "state.reconstruction.total_nodes",
+            "node_state.state.TOTAL", "stats.population.user_research"} <= surfaces
 
 
 # --------------------------------------------------------------------------- #
@@ -381,7 +410,8 @@ def test_api_stats_endpoints(client):
     assert r.status_code == 200
     body = r.json()
     assert body["scope"]["population"] == "USER_RESEARCH"
-    assert body["population"]["total"] == 8
+    assert body["population"]["total"] == 11          # one authority: every stored node
+    assert body["population"]["user_research"] == 8   # current experiment scope
     assert body["scope"]["legacy_excluded_nodes"] == 3
 
     r = client.get("/api/stats/nodes", params={"limit": 5})

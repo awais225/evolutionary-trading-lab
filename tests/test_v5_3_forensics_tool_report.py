@@ -173,10 +173,10 @@ def test_07_order_send_returning_none_exposes_the_real_last_error(lab, tmp_path)
     assert "-10004" in after and "No IPC connection" in after, \
         "the binding's own error must travel into the report"
     assert send.get("demo_trade_acceptance") != "PASS", "nothing may be called accepted"
-    assert send["status"] == "UNKNOWN" and send["result_class"] == "NO_RESULT"
+    assert send["status"] == "UNKNOWN" and send["result_class"] == "UNKNOWN_EXECUTION"
     assert send["broker"]["safe_to_retry"] is False, \
         "an UNKNOWN outcome must never invite an automatic retry"
-    assert send["result_class"] != "BROKER_RESULT", \
+    assert send["result_class_detail"] == "NO_RESULT", \
         "the failure must be named at the layer it happened, not folded into a broker reply"
     assert rc == 2, "a sent-but-unverified order is never exit 0"
     assert "ORDER_SEND_RETURNED_NONE" in text

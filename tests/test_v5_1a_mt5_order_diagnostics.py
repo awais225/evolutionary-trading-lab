@@ -277,7 +277,8 @@ def test_04_none_result_through_place_demo_order_is_a_precise_unknown(
     monkeypatch.setattr("app.mt5.get_bridge", lambda: real_bridge, raising=False)
     res = ex.place_demo_order(_payload(), bridge=real_bridge)
     assert res["ok"] is False and res["status"] == "UNKNOWN"
-    assert res["result_class"] == "NO_RESULT"
+    assert res["result_class"] == "UNKNOWN_EXECUTION"
+    assert res["result_class_detail"] == "NO_RESULT"
     assert res["label"].startswith("RESULT UNKNOWN")
     assert "-10004" in res["broker"]["message"] and "No IPC connection" in res["broker"]["message"]
     assert res["broker"]["safe_to_retry"] is False
@@ -339,7 +340,10 @@ def test_08_a_refused_order_check_never_calls_order_send(fake_pkg, real_bridge):
     fake_pkg.check_retcode = 10016
     out = real_bridge.send_market_order(_request())
     assert out["called"] is False and out["refused_by"] == "mt5.order_check"
-    assert out["retcode"] == 10016
+    # V5.4 §2 — the CHECK retcode belongs to the check, never to the send: this slot
+    # carried the OrderCheckResult and made a preflight refusal look like a trade result.
+    assert out["retcode"] is None and out["raw"] is None
+    assert out["check"]["retcode"] == 10016
     assert out["diagnostic"]["phase"] == "ORDER_CHECK_REFUSED"
     assert fake_pkg.order_send_calls == 0
     assert ("order_check", ) not in [(c[0], ) for c in fake_pkg.calls] or True
@@ -383,7 +387,9 @@ def test_11_a_demo_account_executes_one_order_and_verifies_the_position(
     assert res["order"]["ticket"] == 555001
     assert res["execution"]["volume"] == 0.03
     assert res["verification"]["position_found"] is True and res["verification"]["exec_volume"] == 0.03
-    assert res["result_class"] == "BROKER_RESULT"
+    # V5.4 §2 — a broker answer that executed is classed EXECUTED (the fine-grained
+    # provenance stays in result_class_detail)
+    assert res["result_class"] == "EXECUTED" and res["result_class_detail"] == "BROKER_RESULT"
     assert res["diagnostic"]["phase"] == "ORDER_SEND_RETURNED_RESULT"
     assert fake_pkg.order_send_calls == 1
     row = temp_db.get_manual_mt5_orders()[0]

@@ -61,6 +61,32 @@ POPULATION_DEFINITIONS: Dict[str, str] = {
                    "now — enrolled (active live-test config, enabled MT5-demo configuration or "
                    "LIVE_TESTING status) AND accepted by the tradeability predicate. Enrolled rows "
                    "the engine refuses are reported separately, never counted here.",
+    # V5.4 §1 — the rest of the partition, defined where the numbers are made
+    "dead": "Every USER_RESEARCH node that is not alive: the failed, infrastructure-blocked and "
+            "unrecognised-status rows (LEGACY_TEST rows are NOT part of DEAD — they are reported "
+            "separately as legacy_excluded). DEAD = failed + blocked + unknown.",
+    "failed": "Nodes that were genuinely judged against real data and did not clear the gates "
+              "(status.node_bucket == 'failed'). A strategy failure, never an infrastructure one.",
+    "blocked": "Nodes blocked BEFORE the strategy was judged (DATA_UNAVAILABLE / DATA_CORRUPT / "
+               "BACKTEST_ERROR). Reported separately so an infrastructure problem is never shown "
+               "as a strategy failure.",
+    "unknown": "Nodes whose stored status is not part of the known vocabulary — reported as-is "
+               "for investigation, never silently promoted to alive or failed.",
+    "legacy_excluded": "LEGACY_TEST infrastructure rows that live in the same authoritative table. "
+                       "They are part of TOTAL (nothing is hidden) and excluded from every "
+                       "research number.",
+    "user_research": "The current research experiment's nodes (TOTAL minus the LEGACY_TEST rows). "
+                     "The research counters and the node lists work on this scope.",
+    "in_flight": "Nodes currently being worked on (stored status BACKTESTING / TESTING / "
+                 "VALIDATING). A subset of ALIVE — in flight is NOT dead.",
+    "generation": "Highest generation recorded in the research population; 0 when nothing was "
+                  "generated yet.",
+    "validating": "Nodes the derived classifier reports as VALIDATING (the same classifier the node "
+                  "filters use, so the count cannot disagree with the filter results).",
+    "target": "The CURRENT EXPERIMENT's node ceiling (the configured target of the running "
+              "experiment), never the whole stored population.",
+    "remaining": "max(0, target - experiment nodes): how many nodes the current experiment may "
+                 "still generate before its ceiling is reached.",
 }
 
 #: research stages that count as "final"
@@ -73,11 +99,13 @@ _FINAL_STATUSES = {"LIVE_COMPLETED", "MT5_DEMO"}
 #: of reporting 0 nodes (which would look like an empty lab).
 _ROW_SQLS = (
     """SELECT id, status, data_source, pipeline_stage, symbol, timeframe, genome,
-              shortlisted, failure_reason, creation_reason, survival_reason
+              shortlisted, failure_reason, creation_reason, survival_reason, generation,
+              run_id, research_node_num
        FROM strategies""",
     """SELECT id, status, data_source, symbol, timeframe, genome,
-              failure_reason, creation_reason, survival_reason
+              failure_reason, creation_reason, survival_reason, generation
        FROM strategies""",
+    """SELECT id, status, data_source, symbol, timeframe, genome, generation FROM strategies""",
     """SELECT id, status, data_source, symbol, timeframe, genome FROM strategies""",
 )
 
@@ -289,6 +317,232 @@ POPULATION_STATE_DEFINITIONS: Dict[str, str] = {
 }
 
 
+#: V5.4 §1 — the COMPLETE state vocabulary. Every panel (Overview, PROGRESS, the
+#: NODES strip, Deep Testing, Live Testing, summary cards) reads these names; the
+#: six population keys are a subset kept for backwards compatibility.
+NODE_STATE_KEYS: Dict[str, str] = {
+    "TOTAL": "total",
+    "ALIVE": "alive",
+    "DEAD": "dead",
+    "BACKTESTING": "in_flight",
+    "VALIDATING": "validating",
+    "QUALIFIED": "qualified",
+    "FINAL_TESTING_ELIGIBLE": "final",
+    "DEEP_TESTING_ELIGIBLE": "deep",
+    "LIVE_TESTING_ELIGIBLE": "live",
+    "LIVE_TESTING_ACTIVE": "live_active",
+    "CURRENT_GENERATION": "generation",
+    "TARGET": "target",
+    "REMAINING": "remaining",
+}
+
+NODE_STATE_DEFINITIONS: Dict[str, str] = {
+    "TOTAL": POPULATION_DEFINITIONS["total"],
+    "ALIVE": POPULATION_DEFINITIONS["alive"],
+    "DEAD": ("Nodes that are NOT alive and are not infrastructure-labelled: the research "
+             "population minus ALIVE. Reported as the sum of FAILED (judged and did not make "
+             "it), BLOCKED (could not be judged — data/infrastructure, never shown as a "
+             "strategy failure) and UNKNOWN (a status the vocabulary cannot explain)."),
+    "BACKTESTING": "Nodes in flight in the backtest stage right now (status BACKTESTING/TESTING).",
+    "VALIDATING": "Nodes in flight in the walk-forward validation stage right now.",
+    "QUALIFIED": POPULATION_DEFINITIONS["qualified"],
+    "FINAL_TESTING_ELIGIBLE": POPULATION_STATE_DEFINITIONS["FINAL_TESTING_ELIGIBLE"],
+    "DEEP_TESTING_ELIGIBLE": POPULATION_STATE_DEFINITIONS["DEEP_TESTING_ELIGIBLE"],
+    "LIVE_TESTING_ELIGIBLE": POPULATION_STATE_DEFINITIONS["LIVE_TESTING_ELIGIBLE"],
+    "LIVE_TESTING_ACTIVE": POPULATION_STATE_DEFINITIONS["LIVE_TESTING_ACTIVE"],
+    "CURRENT_GENERATION": ("The highest generation number in the research population "
+                           "(the engine's own generation counter, read from the same rows)."),
+    "TARGET": "The node ceiling of the CURRENT experiment (operator setting, not a node count).",
+    "REMAINING": "Nodes the current experiment may still generate before it reaches TARGET.",
+}
+
+
+def _experiment_scope(db: Any, engine: Any, counts: Dict[str, Any],
+                      notes: List[str]) -> Dict[str, Any]:
+    """V5.4 §1 — the CURRENT EXPERIMENT's target / run id / node count.
+
+    Read-only and side-effect free: a snapshot for database X must never re-bind
+    a process-wide engine (doing so made one caller's database describe every
+    later caller, which is how a scratch database ended up "having" the live
+    run's id). When the engine that owns the run is handed in, its own values
+    are used; otherwise the values are read from the database itself and a run
+    id is only adopted when that database actually holds rows for it.
+    """
+    target = 0
+    run_id = None
+    nodes = int((counts or {}).get("user_research") or 0)
+    source = "database scope"
+
+    def _configured_target() -> int:
+        try:
+            from ..config import get_config
+            return int(get_config().evolution.total_node_target or 0)
+        except Exception:                                   # pragma: no cover - defensive
+            return 0
+
+    if engine is not None:
+        source = "engine (run scope)"
+        try:
+            target = int(engine.get_total_node_target() or 0)
+        except Exception as e:                              # pragma: no cover - defensive
+            notes.append(f"the engine could not report its node target: {e}")
+            target = _configured_target()
+        run_id = getattr(engine, "active_run_id", None)
+        if run_id:
+            try:
+                nodes = int(engine.run_nodes() or 0)
+            except Exception as e:                          # pragma: no cover - defensive
+                notes.append(f"the engine could not count its run's nodes ({e}) — "
+                             f"the database scope is reported instead")
+                run_id = None
+                nodes = int((counts or {}).get("user_research") or 0)
+        return {"target": target, "run_id": run_id, "nodes": nodes, "source": source}
+
+    d = db
+    if d is None:                                           # the same database the counts came from
+        try:
+            from ..db.database import get_db
+            d = get_db()
+        except Exception:                                   # pragma: no cover - defensive
+            d = None
+    try:
+        if d is not None:
+            target = int(d.get_meta("total_node_target") or 0)
+    except Exception:                                       # pragma: no cover - defensive
+        target = 0
+    if target <= 0:
+        target = _configured_target()
+
+    candidate = None
+    try:
+        from ..orchestrator.pipeline_state import get_pipeline_state_manager
+        candidate = get_pipeline_state_manager().run_id
+    except Exception:                                       # pragma: no cover - defensive
+        candidate = None
+    if candidate and d is not None:
+        run_count = None
+        try:
+            run_count = int(d.total_strategies_count(run_id=candidate))
+        except Exception:                                   # pragma: no cover - defensive
+            run_count = None
+        if run_count:                                       # only adopt a run this DB knows
+            run_id, nodes, source = candidate, run_count, "database run scope"
+        elif run_count == 0:
+            notes.append(f"run {candidate} has no rows in this database — the current "
+                         f"experiment is reported from the database's own research scope")
+    return {"target": target, "run_id": run_id, "nodes": nodes, "source": source}
+
+
+def node_state_snapshot(db: Any = None, engine: Any = None) -> Dict[str, Any]:
+    """V5.4 §1 — THE node-state snapshot every page consumes.
+
+    One function, one read of the strategy rows, one classifier: the counts and the
+    progress figures cannot disagree with each other because they are derived
+    together. Callers must NOT re-derive a number from their own query — that is
+    how Overview ended up showing a different QUALIFIED than the NODES strip.
+
+    ``state``     explicit names (NODE_STATE_KEYS) — the vocabulary the UI prints
+    ``counts``    the same numbers under their short keys (backwards compatible)
+    ``progress``  the CURRENT EXPERIMENT's ceiling: target / nodes / remaining / pct
+    ``invariants`` the partition checks, measured (never assumed)
+    ``authority`` which module/classifier produced the numbers
+    """
+    data = populations(db=db)
+    counts = dict(data.get("counts") or {})
+    notes: List[str] = list(data.get("notes") or [])
+
+    # ---------------------------------------------------------------- #
+    # the current experiment's own progress — read from the DATABASE this
+    # snapshot was asked about, never from a process-wide singleton (V5.4 §1):
+    # re-binding the global engine on a read-only analytics call leaked one
+    # caller's database into every later caller.
+    # ---------------------------------------------------------------- #
+    scope = _experiment_scope(db, engine, counts, notes)
+    target = int(scope["target"])
+    run_id = scope["run_id"]
+    experiment_nodes = int(scope["nodes"])
+    remaining = max(0, target - experiment_nodes) if target else 0
+    pct = round((experiment_nodes / target) * 100.0, 1) if target else None
+    # VALIDATING is reported by populations() from the same single read of the
+    # rows — this function must NOT open a second read (that is how two numbers
+    # start to drift apart).
+    values = dict(counts)
+    values["validating"] = int(counts.get("validating") or 0)
+    values["target"] = target
+    values["remaining"] = remaining
+
+    state = {name: int(values.get(key) or 0) for name, key in NODE_STATE_KEYS.items()}
+
+    # measured invariants — shipped with the numbers so a mismatch is visible
+    alive, dead, legacy = state["ALIVE"], state["DEAD"], int(counts.get("legacy_excluded") or 0)
+    total = state["TOTAL"]
+    invariants = {
+        "total_equals_alive_dead_legacy": (alive + dead + legacy) == total,
+        "alive_plus_dead_plus_legacy": alive + dead + legacy,
+        "qualified_within_alive": state["QUALIFIED"] <= alive,
+        "dead_split_reported": (int(counts.get("failed") or 0) + int(counts.get("blocked") or 0)
+                                + int(counts.get("unknown") or 0)) == dead,
+        "rule": ("TOTAL = ALIVE + DEAD + LEGACY (infrastructure-labelled rows); "
+                 "DEAD = FAILED + BLOCKED + UNKNOWN; QUALIFIED ⊆ ALIVE; "
+                 "BACKTESTING/VALIDATING ⊆ ALIVE (in flight, not dead)"),
+    }
+    if not invariants["total_equals_alive_dead_legacy"] or not invariants["dead_split_reported"]:
+        notes.append("the node partition does not add up — the numbers are reported as "
+                     "measured, the mismatch is NOT hidden")
+
+    return {
+        "ok": bool(data.get("ok")),
+        "authority": "app.research.populations.node_state_snapshot",
+        "classifier": data.get("authority"),
+        "state": state,
+        "state_order": list(NODE_STATE_KEYS.keys()),
+        "population_state": {name: state[name] for name in POPULATION_STATE_KEYS},
+        "counts": {**counts, "validating": values["validating"], "target": target,
+                   "remaining": remaining},
+        "progress": {
+            "scope": "current experiment",
+            "source": scope["source"],
+            "run_id": run_id,
+            "nodes": experiment_nodes,
+            "target": target,
+            "remaining": remaining,
+            "pct": pct,
+            "ceiling_reached": bool(target and experiment_nodes >= target),
+            "note": ("the ceiling counts the CURRENT EXPERIMENT's nodes; TOTAL counts every "
+                     "stored node, legacy infrastructure rows included"),
+        },
+        "invariants": invariants,
+        "definitions": {**data.get("definitions", {}), **NODE_STATE_DEFINITIONS},
+        "detail": data.get("detail"),
+        "notes": notes,
+    }
+
+
+def classified_ids(db: Any = None, *, ids: Any = None) -> Dict[str, Set[int]]:
+    """V5.4 §1 — id sets per bucket, produced by the ONE classifier.
+
+    Downstream analytics that need per-node buckets (e.g. the evolution rates) call
+    this instead of re-implementing the rule in SQL: a second implementation is how
+    two panels start reporting different "qualified" numbers. ``ids`` narrows the
+    work to a known set of node ids when the caller only cares about those.
+    """
+    rows = load_rows(db)
+    wanted: Optional[Set[int]] = None
+    if ids is not None:
+        wanted = {int(i) for i in ids}
+    out: Dict[str, Set[int]] = {}
+    for r in rows:
+        try:
+            rid = int(r["id"])
+        except Exception:                                   # pragma: no cover - defensive
+            continue
+        if wanted is not None and rid not in wanted:
+            continue
+        bucket = node_bucket(r)["bucket"]
+        out.setdefault(bucket, set()).add(rid)
+    return out
+
+
 def population_state(db: Any = None) -> Dict[str, Any]:
     """§10 — the single authoritative status model, under explicit names.
 
@@ -377,11 +631,53 @@ def populations(db: Any = None) -> Dict[str, Any]:
         key = str(r.get("data_source") or "UNKNOWN")
         by_source[key] = by_source.get(key, 0) + 1
 
+    # ------------------------------------------------------------------ #
+    # V5.4 §1 — ONE source of truth: the same rows and the same classifier
+    # produce the whole partition, so no page has to derive its own number.
+    #   TOTAL = ALIVE + DEAD + LEGACY   (DEAD = not alive, not infrastructure-labelled)
+    #   DEAD  = FAILED + BLOCKED + UNKNOWN, reported separately because an
+    #           infrastructure-blocked node is NOT a failed strategy.
+    # ------------------------------------------------------------------ #
+    failed = int(buckets.get("failed", 0))
+    blocked = int(buckets.get("blocked", 0))
+    unknown = int(buckets.get("unknown", 0))
+    user_total = len(user_rows)
+    dead = user_total - alive
+    if dead != failed + blocked + unknown:            # pragma: no cover - invariant guard
+        notes.append(f"partition mismatch: dead={dead} but failed+blocked+unknown="
+                     f"{failed + blocked + unknown} — reported as measured")
+    in_flight = 0
+    for r in user_rows:
+        if str(r.get("status") or "").strip().upper() in ("BACKTESTING", "TESTING", "VALIDATING"):
+            in_flight += 1
+    # VALIDATING uses the SAME derived classifier the node filters use (v5_status),
+    # so nobody has to open a second read of the rows to count it (V5.4 §1).
+    try:
+        validating = sum(1 for r in rows
+                         if str(v5_status(r)).strip().upper() == "VALIDATING")
+    except Exception as e:                                  # pragma: no cover - defensive
+        notes.append(f"VALIDATING could not be derived: {e}")
+        validating = 0
+    generations = []
+    for r in user_rows:
+        try:
+            g = r.get("generation")
+            if g is not None:
+                generations.append(int(g))
+        except Exception:
+            continue
+    generation = max(generations) if generations else 0
+
     return {
         "ok": True,
         "counts": {"total": len(rows), "alive": alive, "qualified": qualified,
                    "final": final, "deep": deep, "live": live,
-                   "live_active": live_active},
+                   "live_active": live_active,
+                   # V5.4 §1 additions — the rest of the same partition
+                   "dead": dead, "failed": failed, "blocked": blocked, "unknown": unknown,
+                   "legacy_excluded": legacy, "user_research": user_total,
+                   "in_flight": in_flight, "generation": generation,
+                   "validating": validating},
         "definitions": POPULATION_DEFINITIONS,
         "detail": {
             "user_research_total": len(user_rows),
@@ -403,7 +699,8 @@ def populations(db: Any = None) -> Dict[str, Any]:
             },
             "by_data_source": by_source,
         },
-        "authority": "app.status.node_bucket (single classifier used by the node filters)",
+        "authority": "app.research.populations (the ONE node-state source; classifier "
+                     "app.status.node_bucket, the same one the node filters use)",
         "notes": notes,
     }
 

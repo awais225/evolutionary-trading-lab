@@ -132,9 +132,18 @@ export default function Stats() {
         <Metric label="ALIVE" value={fmt.num(pop?.alive, 0)} />
         <Metric label="DEAD" value={fmt.num(pop?.dead, 0)} />
         <Metric label="QUALIFIED" value={fmt.num(pop?.qualified, 0)} />
-        <Metric label="FAILED" value={fmt.num(pop?.failed, 0)} />
-        <Metric label="RETIRED" value={fmt.num(pop?.retired, 0)} />
-        <Metric label="KILLED" value={fmt.num(pop?.killed, 0)} />
+        {/* V5.4 §1 — FAILED/BLOCKED come from the ONE authority; the stored-status
+         *  breakdown (retired/killed/survived) is labelled as what it is. */}
+        <Metric label="FAILED (judged)" value={fmt.num(pop?.failed, 0)} sub="authority bucket" />
+        <Metric label="BLOCKED (infrastructure)" value={fmt.num(pop?.blocked, 0)}
+                sub="never a strategy failure" />
+        <Metric label="LEGACY EXCLUDED" value={fmt.num(pop?.legacy_excluded, 0)}
+                sub="LEGACY_TEST rows inside TOTAL" />
+        <Metric label="BACKTESTING / VALIDATING"
+                value={`${fmt.num(pop?.backtesting, 0)} / ${fmt.num(pop?.validating, 0)}`}
+                sub="in flight now" />
+        <Metric label="RETIRED (stored status)" value={fmt.num(pop?.retired, 0)} />
+        <Metric label="KILLED (stored status)" value={fmt.num(pop?.killed, 0)} />
         <Metric label="SURVIVED / EVALUATED" value={fmt.num(pop?.survived, 0)} />
         <Metric label="PAPER" value={fmt.num(pop?.paper, 0)} />
         <Metric label="BACKTESTING" value={fmt.num(pop?.backtesting, 0)} />
