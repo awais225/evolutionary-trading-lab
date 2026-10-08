@@ -241,3 +241,52 @@ def test_06_a_real_execution_still_reports_the_real_retcode_and_tickets():
     assert res["order_send_called"] is True
     assert res["order_send_phase"] == "ORDER_SEND_RETURNED_RESULT"
     assert res["_terminal"].order_send_calls == 1
+
+
+# --------------------------------------------------------------------------- #
+# 6. ONE send site in the whole backend
+# --------------------------------------------------------------------------- #
+def _order_send_call_sites():
+    """Every *executable* ``mt5.order_send(...)`` call under ``backend/app``."""
+    import ast
+
+    sites = []
+    for path in sorted((REPO / "backend" / "app").rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            fn = node.func
+            if isinstance(fn, ast.Attribute) and fn.attr == "order_send":
+                # ``mt5.order_send`` (or ``self._mt5.order_send`` …) — the binding call
+                sites.append((path.relative_to(REPO).as_posix(), node.lineno))
+    return sites
+
+
+def test_07_the_backend_has_exactly_one_order_send_call_site():
+    sites = _order_send_call_sites()
+    assert len(sites) == 1, (
+        "an order may leave the process through exactly ONE instrumented call "
+        f"site; found {sites}")
+    assert sites[0][0] == "backend/app/mt5/mt5_real.py", sites[0]
+
+
+def test_08_the_legacy_helper_routes_through_the_instrumented_path(monkeypatch):
+    """`real_market_order` must not be a second, un-instrumented send site."""
+    from app.mt5 import mt5_real
+
+    calls = {}
+
+    class _Bridge(mt5_real.MT5RealBridge):
+        def send_market_order(self, request):                # noqa: D102
+            calls["request"] = dict(request)
+            return {"ok": True, "retcode": 10009, "phase": "ORDER_SEND_RETURNED_RESULT",
+                    "raw": {"retcode": 10009, "order": 42, "price": 4126.61, "comment": "Done"}}
+
+    b = _Bridge()
+    b._connected = True
+    b.latest_tick = lambda symbol: _Obj(bid=4126.42, ask=4126.61, time=int(time.time()))
+    out = b.real_market_order("XAUUSD", "buy", 0.01)
+    assert calls.get("request", {}).get("symbol") == "XAUUSD", \
+        "real_market_order bypassed send_market_order()"
+    assert out.ok is True and out.order_id == 42 and out.retcode == 10009

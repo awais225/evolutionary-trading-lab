@@ -1291,7 +1291,17 @@ class MT5RealBridge(MarketBridge):
                 "error": res.get("error") or res.get("exception")}
 
     def real_market_order(self, symbol: str, side: str, lots: float) -> OrderResult:
-        """Send a REAL market order to MT5. Only callable through the risk layer."""
+        """Legacy helper — routed through the ONE instrumented send path (V5.4 §2).
+
+        This used to call ``mt5.order_send()`` itself with a hard-coded filling
+        mode, no ``order_check``, no session check, no forensics: a SECOND,
+        un-instrumented send site. An order that left through it could never be
+        told apart from one that never left at all — exactly the class of defect
+        V5.4 removes. The method keeps its signature and its ``OrderResult``
+        contract, but every order now goes through :meth:`send_market_order`
+        (filling derived from the symbol, preflight check, one send, verbatim
+        forensics, post-send terminal verification).
+        """
         if not self._connected or not MT5_PACKAGE_AVAILABLE:
             return OrderResult(ok=False, comment="MT5 not connected",
                                rejected_by="BRIDGE", source=self.source)
@@ -1306,31 +1316,28 @@ class MT5RealBridge(MarketBridge):
             "action": mt5.TRADE_ACTION_DEAL, "symbol": symbol, "volume": float(lots),
             "type": order_type, "price": price, "deviation": 20,
             "magic": 777001, "comment": "evolab", "type_time": mt5.ORDER_TIME_GTC,
-            "type_filling": mt5.ORDER_FILLING_IOC,
+            "type_filling": int(getattr(mt5, "ORDER_FILLING_IOC", 1)),
         }
-        try:
-            result = mt5.order_send(request)
-        except Exception as e:
-            return OrderResult(ok=False,
-                               comment=(f"order_send exception {type(e).__name__}: {e} "
-                                        f"| mt5.last_error={self._last_error_safe()}"),
-                               rejected_by="BRIDGE", source=self.source)
+        res = self.send_market_order(request)          # the ONE send site
         exec_ts = time.time()
-        if result is None:
-            # never a bare "returned None": the terminal's own last_error is the
-            # diagnostic, and the outcome is uncertain (the order may exist).
+        raw = res.get("raw") if isinstance(res.get("raw"), dict) else {}
+        retcode = res.get("retcode")
+        if retcode is None:
+            # never a bare "unknown": the phase + the terminal's own last_error
+            # say WHERE the order stopped, and the outcome may be ambiguous.
             return OrderResult(ok=False,
-                               comment=(f"order_send returned no result object "
-                                        f"(mt5.last_error={self._last_error_safe()}) — "
+                               comment=(f"{res.get('phase') or 'no result'}"
+                                        f" (mt5.last_error={res.get('last_error')}) — "
                                         f"verify open positions/orders in MT5"),
                                rejected_by="BRIDGE", source=self.source)
-        ok = result.retcode == mt5.TRADE_RETCODE_DONE
-        ep = float(result.price or 0)
-        return OrderResult(ok=ok, order_id=getattr(result, "order", None),
+        ok = bool(retcode) and retcode == mt5.TRADE_RETCODE_DONE
+        ep = float(raw.get("price") or 0)
+        return OrderResult(ok=ok, order_id=raw.get("order"),
                            exec_price=ep, exec_ts=exec_ts, requested_price=price,
                            slippage_points=(abs(ep - price) / 0.01) if ep else None,
-                           delay_ms=(exec_ts - t0) * 1000.0, retcode=result.retcode,
-                           comment=getattr(result, "comment", ""), source=self.source)
+                           delay_ms=(exec_ts - t0) * 1000.0, retcode=retcode,
+                           comment=(raw.get("comment") or res.get("error") or ""),
+                           source=self.source)
 
 def _filling_modes(si) -> List[int]:
     """``type_filling`` values this symbol accepts, from its own metadata.
