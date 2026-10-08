@@ -255,8 +255,72 @@ def test_11_every_run_names_itself_so_the_duplicate_gate_only_blocks_real_repeat
         assert rc == 0, f"run {len(ids)} was refused: {log.read_text(encoding='utf-8')[-800:]}"
         data = json.loads(js.read_text(encoding="utf-8"))
         ids.append(data["send"]["client_order_id"])
+        # V5.4 §2.4: a second DELIBERATE run is only legitimate once the first
+        # order's exposure is gone — here the operator closes it in the terminal,
+        # which is modelled by clearing the fake terminal's open positions.
+        terminal.positions.clear()
     assert len(terminal.sent_requests) == 2, "two deliberate runs = two real sends"
     assert ids[0] != ids[1], "each run must name itself uniquely"
     assert all(i.startswith("forensic-") for i in ids)
     text = (tmp_path / "r0.txt").read_text(encoding="utf-8")
     assert ids[0] in text, "the id of the attempt must be in the report"
+
+
+# ---------------------------------------------------------------------------
+# V5.4 §2.4 — inspect what already exists BEFORE sending (never resend blindly)
+# ---------------------------------------------------------------------------
+def _seed_manual_position(terminal, magic=777000, ticket=999001, symbol="XAUUSD"):
+    """A position the dashboard placed earlier is still open in the terminal."""
+    terminal.positions[ticket] = _v52._Obj(
+        ticket=ticket, symbol=symbol, type=0, volume=0.03, price_open=4126.61,
+        price_current=4127.00, sl=4095.96, tp=4185.96, profit=1.2, magic=magic,
+        time=1759900000, comment="evolab")
+
+
+def test_09_read_only_reports_existing_exposure_and_still_sends_nothing(lab, tmp_path):
+    tool, terminal, _bridge, _ = lab
+    _seed_manual_position(terminal)                    # from the earlier attempt
+    rc, text, data, _t = _run(lab, tmp_path)
+    assert rc == 0
+    # the filling probe legitimately uses order_check to discover the accepted mode;
+    # what must NEVER happen without --send is a transmitted order
+    assert terminal.order_send_calls == 0 and terminal.sent_requests == []
+    exp = data["facts"]["existing_exposure"]
+    assert exp["queried"] is True
+    assert exp["symbol"] == "XAUUSD"
+    assert 777000 in exp["magics"] and 777900 in exp["magics"]
+    assert exp["count"] == 1, "the earlier manual position must be seen, not ignored"
+    assert exp["positions"][0]["ticket"] == 999001
+    assert exp["positions"][0]["magic"] == 777000
+    assert "EXISTING EXPOSURE" in text and "do NOT resend" in text
+
+
+def test_10_an_existing_position_blocks_a_second_send(lab, tmp_path):
+    tool, terminal, _bridge, _ = lab
+    _seed_manual_position(terminal)
+    rc, text, data, _t = _run(lab, tmp_path, "--send", "--confirm", "PLACE_DEMO_ORDER")
+    assert rc == 6, "an open position for this magic must stop the run before anything is sent"
+    assert terminal.order_send_calls == 0, "never a blind resend"
+    assert terminal.sent_requests == [], "no order may reach the broker"
+    send = data["send"]
+    assert send["status"] == "REFUSED_BEFORE_SEND"
+    assert send["result_class"] == "EXISTING_EXPOSURE"
+    assert send["result_class_detail"] == "NOT_SENT"
+    assert send["broker"]["safe_to_retry"] is False
+    assert send["order_send"]["called"] is False and send["order_check"]["called"] is False
+    assert send["existing_exposure"]["count"] == 1
+    assert send.get("demo_trade_acceptance") != "PASS"
+    assert "REFUSING TO SEND" in text and "inspect it in the terminal" in text
+    assert "Nothing was transmitted" in text
+
+
+def test_11_force_is_the_operators_explicit_overrule_and_sends_exactly_once(lab, tmp_path):
+    tool, terminal, _bridge, _ = lab
+    _seed_manual_position(terminal)
+    rc, text, data, _t = _run(lab, tmp_path, "--send", "--confirm", "PLACE_DEMO_ORDER",
+                              "--force")
+    assert terminal.order_send_calls == 1, "--force sends ONE order, it is not a retry loop"
+    assert rc == 0 and data["send"]["demo_trade_acceptance"] == "PASS"
+    # the report still shows what was already open, so the operator sees both
+    assert data["send"]["existing_exposure"]["count"] == 1
+    assert "EXISTING EXPOSURE" in text

@@ -17,6 +17,14 @@ rem    set SEND_DEMO_ORDER=1 before running this file (or run the python tool
 rem    with --send --confirm PLACE_DEMO_ORDER). Exactly ONE order_send attempt,
 rem    never a retry.
 rem
+rem  BEFORE ANY SEND (V5.4)
+rem    the tool first reads the terminal (positions_get/orders_get) and reports
+rem    any OPEN position/order for this symbol with magic 777000 (dashboard) or
+rem    777900 (this tool). If one exists it REFUSES to send (exit 6) and asks you
+rem    to inspect the terminal first - an earlier attempt may already have filled.
+rem    Nothing is transmitted in that case. Only add FORCE_DEMO_ORDER=1 (or
+rem    --force) when you have looked at the terminal and still want a new order.
+rem
 rem  The full report is saved to LOGS\MT5_DEMO_FORENSICS_<stamp>.txt so it can be
 rem  attached instead of copied by hand.
 rem ===========================================================================
@@ -88,6 +96,7 @@ if not defined PYEXE goto :nopython
 echo  interpreter       : !PYEXE!   (!PYHOW!)
 set "EXTRA="
 if defined SEND_DEMO_ORDER set "EXTRA=--send --confirm PLACE_DEMO_ORDER"
+if defined FORCE_DEMO_ORDER set "EXTRA=!EXTRA! --force"
 set "SYMSIDE=%~1"
 if not defined SYMSIDE set "SYMSIDE=buy"
 echo  symbol / side     : XAUUSD / !SYMSIDE!
@@ -98,7 +107,8 @@ set "RC=!ERRORLEVEL!"
 echo.
 echo ---------------------------------------------------------------------------
 echo  exit code : !RC!   (0 = ran / PASS, 2 = sent but not verified, 3 = no real MT5 bridge,
-echo                      4 = no live quote, 5 = confirmation missing)
+echo                      4 = no live quote, 5 = confirmation missing,
+echo                      6 = REFUSED: an open position/order already exists - inspect it)
 echo  full report saved to : !LOG!
 echo  paste the report (or attach that file) into the chat - it contains every
 echo  value MT5 returned, so the exact failing layer can be named.

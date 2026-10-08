@@ -134,6 +134,75 @@ def _bootstrap(root: Path) -> None:
     os.chdir(backend)
 
 
+#: the magics this tool's exposure check looks for: the manual-order magic the
+#: dashboard uses and the forensic magic this tool itself sends with.
+MANUAL_MAGIC = 777000
+FORENSIC_MAGIC = 777900
+_EXPOSURE_MAGICS = (MANUAL_MAGIC, FORENSIC_MAGIC)
+
+
+def _existing_exposure(bridge, symbol: str) -> Dict[str, Any]:
+    """V5.4 §2.4 — what is ALREADY open for this symbol before anything is sent.
+
+    The operator's brief is explicit: before testing the repaired execution path,
+    inspect the current MT5 state and do NOT blindly send the same request again
+    (the previous attempt may have reached the broker). This reads the terminal
+    only — positions_get / orders_get for the symbol, filtered by the magics this
+    tool and the dashboard use — and never changes anything.
+    """
+    out: Dict[str, Any] = {"symbol": symbol, "magics": list(_EXPOSURE_MAGICS),
+                           "positions": [], "orders": [], "queried": False,
+                           "errors": []}
+    try:
+        rows = bridge.positions_get(symbol=symbol)
+    except Exception as e:                                    # pragma: no cover - defensive
+        out["errors"].append(f"positions_get: {type(e).__name__}: {e}")
+        rows = []
+    out["queried"] = True
+    positions = [p for p in (rows or [])
+                 if int(p.get("magic") or 0) in _EXPOSURE_MAGICS]
+    out["positions"] = [{"ticket": p.get("ticket"), "symbol": p.get("symbol"),
+                         "volume": p.get("volume"), "open": p.get("price_open"),
+                         "sl": p.get("sl"), "tp": p.get("tp"),
+                         "magic": p.get("magic"), "type": p.get("type"),
+                         "time": p.get("time"), "comment": p.get("comment")}
+                        for p in positions]
+    try:
+        orders = bridge.orders_get(symbol=symbol)
+    except Exception as e:                                    # pragma: no cover - defensive
+        out["errors"].append(f"orders_get: {type(e).__name__}: {e}")
+        orders = []
+    pending = [o for o in (orders or [])
+               if int(o.get("magic") or 0) in _EXPOSURE_MAGICS]
+    out["orders"] = [{"ticket": o.get("ticket"), "symbol": o.get("symbol"),
+                      "volume": o.get("volume_initial"), "price": o.get("price_open"),
+                      "sl": o.get("sl"), "tp": o.get("tp"), "magic": o.get("magic"),
+                      "comment": o.get("comment")} for o in pending]
+    out["count"] = len(out["positions"]) + len(out["orders"])
+    out["verdict"] = ("EXISTING EXPOSURE FOUND — do NOT resend; inspect it in the "
+                      "terminal first" if out["count"] else
+                      "no open position/order for this symbol with the manual or "
+                      "forensic magic — the path is clear to send ONE order")
+    return out
+
+
+def _print_exposure(exposure: Dict[str, Any]) -> None:
+    _hr("EXISTING EXPOSURE (checked BEFORE anything is sent)", "-")
+    _field("symbol", exposure.get("symbol"))
+    _field("magics checked", ", ".join(str(m) for m in exposure.get("magics") or []))
+    _field("positions found", len(exposure.get("positions") or []))
+    for p in exposure.get("positions") or []:
+        print(f"      ticket={p.get('ticket')} {p.get('symbol')} vol={p.get('volume')} "
+              f"open={p.get('open')} sl={p.get('sl')} tp={p.get('tp')} magic={p.get('magic')}")
+    _field("pending orders found", len(exposure.get("orders") or []))
+    for o in exposure.get("orders") or []:
+        print(f"      ticket={o.get('ticket')} {o.get('symbol')} vol={o.get('volume')} "
+              f"price={o.get('price')} magic={o.get('magic')}")
+    for e in exposure.get("errors") or []:
+        _field("query error", e)
+    _field("verdict", exposure.get("verdict"))
+
+
 def _run_read_only(bridge, symbol: str, side: str) -> Dict[str, Any]:
     """Everything that can be learned without sending anything."""
     from app.mt5 import mt5_real
@@ -349,6 +418,8 @@ def _print_report(facts: Dict[str, Any], send: Optional[Dict[str, Any]]) -> None
         _field("BLOCKER", f"{b.get('code')} ({b.get('fact')}={b.get('value')})", b.get("action"))
 
     if send is None:
+        if facts.get("existing_exposure") is not None:
+            _print_exposure(facts["existing_exposure"])
         _hr("ORDER CHECK / SEND", "-")
         print("  not run in this mode (read-only). Re-run with --send --confirm "
               "PLACE_DEMO_ORDER")
@@ -358,6 +429,8 @@ def _print_report(facts: Dict[str, Any], send: Optional[Dict[str, Any]]) -> None
     osend = send.get("order_send") or {}
     broker = send.get("broker") or {}
     req = send.get("request") or {}
+    _print_exposure(send.get("existing_exposure") or {})
+
     _hr("REQUEST BUILT", "-")
     for k in ("action", "symbol", "volume", "type", "price", "sl", "tp", "deviation",
               "magic", "comment", "type_time", "type_filling"):
@@ -426,6 +499,18 @@ def _print_report(facts: Dict[str, Any], send: Optional[Dict[str, Any]]) -> None
     _hr()
 
 
+def _write_json(args, facts: Dict[str, Any], payload: Optional[Dict[str, Any]]) -> None:
+    """The machine-readable twin of the printed report (same facts, no invention)."""
+    if not args.json:
+        return
+    try:
+        Path(args.json).write_text(json.dumps({"facts": facts, "send": payload},
+                                              indent=2, default=str), encoding="utf-8")
+        print(f"JSON written to {args.json}")
+    except Exception as e:                                        # pragma: no cover - io
+        print(f"could not write JSON: {e}")
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="V5.3 MT5 DEMO execution forensics (real binding only)")
     ap.add_argument("--root", default="", help="repository root (default: this script's checkout)")
@@ -439,6 +524,9 @@ def main(argv=None) -> int:
     ap.add_argument("--send", action="store_true",
                     help="actually send ONE demo order (order_send); default is read-only")
     ap.add_argument("--confirm", default="", help="must be PLACE_DEMO_ORDER when --send is used")
+    ap.add_argument("--force", action="store_true",
+                    help="send even though an open position/order exists for this magic "
+                         "(only after inspecting the terminal; never a retry)")
     ap.add_argument("--json", default="", help="also write the collected facts as JSON here")
     ap.add_argument("--log", default="", help="write the whole report to this file as well")
     args = ap.parse_args(argv)
@@ -466,6 +554,8 @@ def main(argv=None) -> int:
     facts = _run_read_only(bridge, args.symbol, args.symbol_side)
     facts["volume"] = args.volume
     facts["side"] = args.symbol_side
+    # V5.4 §2.4 — never send blindly: the terminal is asked what is already open
+    facts["existing_exposure"] = _existing_exposure(bridge, args.symbol)
 
     send_payload: Optional[Dict[str, Any]] = None
     if args.send:
@@ -473,6 +563,47 @@ def main(argv=None) -> int:
             print(f"refusing to send: --confirm must be {ex.PLACE_CONFIRMATION}")
             _print_report(facts, None)
             return 5
+        exposure = facts.get("existing_exposure") or {}
+        if exposure.get("count") and not args.force:
+            print()
+            print("REFUSING TO SEND: an open position/order already exists for "
+                  f"{args.symbol} with magic {exposure.get('magics')}.")
+            print("                   The previous attempt may already have executed — "
+                  "inspect it in the terminal (Trade / History) first.")
+            print("                   Nothing was transmitted: the order itself was never "
+                  "checked and never sent (the three order_check calls above belong to the "
+                  "read-only filling probe). --force sends anyway and is NOT a retry.")
+            refusal = {
+                "ok": False, "status": "REFUSED_BEFORE_SEND",
+                "result_class": "EXISTING_EXPOSURE", "result_class_detail": "NOT_SENT",
+                "demo_trade_acceptance": "REFUSED_BEFORE_SEND",
+                "demo_trade_acceptance_rule": ("an existing open position/order for this "
+                                               "symbol and magic means the earlier attempt "
+                                               "may already have executed: inspect it in "
+                                               "the terminal before sending anything"),
+                "broker": {"message": "existing exposure found before send",
+                           "retcode": None, "comment": None,
+                           "category": "EXISTING_EXPOSURE", "safe_to_retry": False},
+                "order_send": {"outcome": "NOT_CALLED", "called": False,
+                               "phase": "NOT_CALLED"},
+                "order_check": {"called": False},
+                "existing_exposure": exposure,
+                "next_actions": [
+                    {"step": 1, "action": ("open the MT5 terminal: Toolbox -> Trade for the "
+                                           "live position, History for a closed one")},
+                    {"step": 2, "action": ("decide by hand whether that position is the "
+                                           "earlier attempt; close it there if it is not wanted")},
+                    {"step": 3, "action": ("then re-run this tool WITHOUT --force to prove a "
+                                           "clean execution, or WITH --force knowingly")},
+                ],
+            }
+            _print_report(facts, refusal)
+            _write_json(args, facts, refusal)
+            if args.log:
+                print(f"report written to {args.log}")
+            sys.stdout = sys.__stdout__
+            tee.close()
+            return 6
         si = facts.get("symbol") or {}
         tick = facts.get("tick") or {}
         point = float(si.get("point") or 0.01)
@@ -518,15 +649,12 @@ def main(argv=None) -> int:
                             "broker": {"message": f"{type(e).__name__}: {e}"},
                             "order_send": {}, "order_check": {}}
 
+    if isinstance(send_payload, dict):
+        send_payload["existing_exposure"] = facts.get("existing_exposure")
+
     _print_report(facts, send_payload)
 
-    if args.json:
-        try:
-            Path(args.json).write_text(json.dumps({"facts": facts, "send": send_payload},
-                                                  indent=2, default=str), encoding="utf-8")
-            print(f"JSON written to {args.json}")
-        except Exception as e:
-            print(f"could not write JSON: {e}")
+    _write_json(args, facts, send_payload)
 
     if args.log:
         print(f"report written to {args.log}")
