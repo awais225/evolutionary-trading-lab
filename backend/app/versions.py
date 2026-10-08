@@ -18,12 +18,14 @@ APP_VERSION = "3.6"
 APP_NAME = "EVOLUTIONARY TRADING RESEARCH LAB V3.6"
 FULL_VERSION_STRING = "EVOLUTIONARY TRADING RESEARCH LAB V3.6"
 
-#: Product release the operator is running (V5.1a). This is a *label*, kept
+#: Product release the operator is running. This is a *label*, kept
 #: deliberately outside ``manifest()`` so that the engine-generation digests in
 #: stored experiments and backtest fingerprints cannot change because a release
 #: was named. It is what ``/system/build`` and the dashboard's Build chip show,
-#: next to the commit and the frontend fingerprint.
-PRODUCT_RELEASE = "V5.1a"
+#: next to the commit and the frontend fingerprint, and it must equal the newest
+#: release name published in ``BUILD_FINGERPRINTS.json`` (V5.2.3) — otherwise the
+#: dashboard would name a different build than the identity index does.
+PRODUCT_RELEASE = "V5.2.3"
 
 # Schema versions — bump when the corresponding structure/semantics change.
 DB_SCHEMA_VERSION = 3          # SQLite migration target (PRAGMA user_version)

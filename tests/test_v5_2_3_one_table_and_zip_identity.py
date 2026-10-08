@@ -276,3 +276,25 @@ def test_15_an_older_published_release_is_flagged_as_behind_not_as_latest():
     out_new = bf.match(REPO, fp={"src_hash": newest["src_hash"], "code_hash": newest["code_hash"]})
     assert out_new["is_latest"] is True
     assert out_new["latest_release"] == newest["release"]
+
+
+def test_16_the_dashboard_names_the_release_the_fingerprint_index_publishes():
+    """The Build chip must not name a different build than the identity index
+    does: ``/system/build`` reports PRODUCT_RELEASE, so that label has to equal
+    the newest release in BUILD_FINGERPRINTS.json. It must also stay OUT of
+    versions.manifest(), which is digested into stored experiments — naming a
+    release must never invalidate DATA."""
+    import json as _json
+
+    from app import runtime_identity as ri
+    from app.versions import PRODUCT_RELEASE, manifest
+
+    published = _json.loads(IDENTITY_FILE.read_text(encoding="utf-8"))["releases"]
+    newest = published[-1]["release"]
+    assert PRODUCT_RELEASE == newest, \
+        f"the dashboard labels the build {PRODUCT_RELEASE} while the index publishes {newest}"
+
+    report = ri.identity_report("identity-probe", REPO)
+    assert report["release"] == PRODUCT_RELEASE
+    assert PRODUCT_RELEASE not in _json.dumps(manifest(), sort_keys=True), \
+        "the release label must stay outside the engine-generation manifest"
