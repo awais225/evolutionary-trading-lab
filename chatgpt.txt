@@ -3316,3 +3316,52 @@ DECISIONS TAKEN:
     counters, so the dashboard number and the enforcement path cannot drift apart.
   * The old enrolment meaning was NOT deleted — it became LIVE_TESTING_ACTIVE, and
     the regression suite now pins both properties separately.
+
+
+================================================================================
+REQUEST / DECISION HISTORY — V5.2.3    2026-10-08 06:35 UTC
+================================================================================
+OPERATOR REQUEST (2026-10-08, his Windows diagnostic attached):
+  * "GIT_IDENTITY_MATCH: FAIL" is printed although every other check passes.
+    E:\evolutionary-trading-lab-main is a GitHub "Download ZIP" export with no
+    .git, so there is no commit to compare — the FAIL is meaningless.  He wants
+    identity that works for such a checkout AND a statement of which build that
+    machine actually runs.
+  * Tables must not paginate: no "10/25 per page" with a next page — ALL nodes in
+    ONE scrollable table, on Live Testing and on every other node/trade table.
+ANSWER GIVEN (with the measured evidence):
+  * A ZIP export cannot carry commit identity — it is identified by FINGERPRINT.
+    His tree matches the published V5.2.1 fingerprint (src 72fa9506…, dist index
+    725f4545…, entry assets index-CKw8dVNR.js + index-Bpzv1Dzq.css, code
+    6266586e…), so THAT MACHINE RUNS V5.2.1.  V5.2.2 and V5.2.3 exist only on
+    GitHub main and are NOT deployed there.  Commit-level identity and `git pull`
+    updates require `git clone`, not a ZIP download.
+  * A checkout without .git now reports
+    GIT_IDENTITY_MATCH: N/A (not a git checkout — see FINGERPRINT MATCH above)
+    plus FINGERPRINT MATCH: <release> (commit …) and, when applicable,
+    "<-- this IS the latest release".  The .bat says the same thing on Windows
+    before the git section.  No false FAIL, no empty "None" rows.
+  * Pagination is gone everywhere: `limit=0` means every row and the payload says
+    so (all_rows / truncated), and each surface draws one scrollable table.
+DECISIONS TAKEN:
+  * BUILD_FINGERPRINTS.json is the published identity index for non-Git
+    checkouts — one entry per release, refreshed by re-recording; re-recording a
+    release REPLACES its entry so an intermediate, unpublished build can never
+    keep claiming a release name, and an older fingerprint is never presented as
+    the current release.
+  * The diagnostic does not guess: with no .git it says the checkout kind, how it
+    was identified, how to get commit identity, and it omits the git rows
+    entirely instead of printing "None".
+  * Keep the existing finite row caps for finite limits; only limit=0 asks for
+    everything, and any residual finite cap is stated in the payload.  No test was
+    weakened and no cap was removed silently.
+  * The stale-runtime protection was exercised for real in this delivery: the
+    guard reported the answering backend as "survived a rebuild: it was started
+    with bundle aad4a33d7e516490, the current bundle is 0a4dd14b5c4357b5".  That
+    process was stopped (logging "Live Testing INACTIVE - backend shutdown ...
+    New orders blocked") and replaced with a fresh one (token LAB-V523-1983F8A)
+    before the dashboard preview was rebuilt — the operator's own rule, applied
+    to ourselves.
+  * No UI redesign: the V5 theme, spacing, buttons and icons are untouched — the
+    pager controls were replaced by the existing table styling extended with
+    `.table-scroll`, and the Final Testing table's height uses the same theme.

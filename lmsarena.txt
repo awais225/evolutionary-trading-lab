@@ -4828,3 +4828,126 @@ LMSARENA IMPLEMENTATION LOG — V5.2.2 §10 (LIVE TESTING eligibility semantics)
   commit da93126fccd6927c27daf8aeb2b2215e3e5addde "V5.2.2 §10: live-testing ELIGIBLE is capability ... ACTIVE is
   enrolment" pushed to origin/main (81300bb..da93126) and verified with
   git ls-remote origin refs/heads/main == da93126fccd6927c27daf8aeb2b2215e3e5addde.
+
+
+================================================================================
+IMPLEMENTATION / TESTING LOG — V5.2.3    2026-10-08 06:35 UTC
+================================================================================
+§A  THE OPERATOR'S TWO REQUESTS
+    1) IDENTITY: his Windows diagnostic prints "GIT_IDENTITY_MATCH: FAIL" while
+       everything else passes.  E:\evolutionary-trading-lab-main is a GitHub
+       "Download ZIP" export: it has no .git, so there is no local commit to
+       compare with GitHub and the FAIL is meaningless.  He asked for identity
+       that is meaningful for such a checkout and for a statement of WHICH build
+       that machine actually runs.
+    2) TABLES: no "10/25 per page" + next page — ALL rows in ONE scrollable
+       table, on Live Testing and on every other node/trade table.
+
+§B  WHAT WAS WRONG (source level, not a summary)
+    * backend/tools/dashboard_diagnostic.py :: git_identity() — in a folder with
+      no .git every `git ...` call returns nothing, so local_head and origin_main
+      are both None and the verdict compared None == None -> FAIL by
+      construction.  The section then printed "LOCAL GIT HEAD: None /
+      ORIGIN/MAIN: None / Latest commit: None ..." rows that carry no meaning.
+    * The paging was real: frontend/src/components/LiveNodeIndex.jsx held
+      `offset`/`limit` state and rendered a pager ("page N of M" with prev/next)
+      for the node list; DeepBacktest.jsx, Mt5Backtest.jsx (node picker),
+      FinalTesting.jsx and HistoricalRunResults.jsx each capped their fetch and
+      drew their own pager; the API capped rows as well (default 25/50).
+
+§C  WHAT WAS IMPLEMENTED
+    IDENTITY FOR NON-GIT CHECKOUTS
+    * backend/tools/build_fingerprints.py (NEW) + BUILD_FINGERPRINTS.json (NEW,
+      schema 1) — the published fingerprint of every release: release, commit,
+      src_hash (frontend/src), index_sha256 (frontend/dist/index.html), entry
+      assets, code_hash (backend/app), file counts, recorded_at.  `--record
+      --release X` refreshes the entry for the current tree; THERE IS ONE ENTRY
+      PER RELEASE — re-recording REPLACES that release's entry (an intermediate,
+      unpublished build can never keep claiming a release name) and a
+      byte-identical tree recorded under another name is not duplicated either.
+    * dashboard_diagnostic.py — a checkout with no .git is now
+      CHECKOUT KIND: source-export.  The section prints
+      IDENTIFIED BY: fingerprint (BUILD_FINGERPRINTS.json),
+      FINGERPRINT MATCH: <release> (commit …) and, when it matches the newest
+      published release, "<-- this IS the latest release"; a NOTE explains that a
+      ZIP cannot carry commit identity and that `git clone` restores it; the
+      verdict is
+      GIT_IDENTITY_MATCH: N/A (not a git checkout — see FINGERPRINT MATCH above)
+      — never FAIL — and the empty git rows are not printed at all.
+    * CHECK_RUNNING_DASHBOARD.bat (CRLF preserved, 12,543 bytes) — before the
+      git section it states that %ROOT%\.git does not exist, that this is what a
+      "Download ZIP" export looks like, that identity comes from the fingerprint
+      section, and how to get commits (git clone).
+    ONE TABLE, NO PAGINATION
+    * APIs — `limit=0` now means ALL ROWS: routes.nodes_index() +
+      _filter_persisted_strategies() (GET /api/nodes),
+      stats/strategy_lab.strategy_list() (GET /api/research/strategies),
+      POST /api/research/filter, historical_backtest/runs.run_trades()
+      (GET /api/mt5-historical/runs/{id}/trades).  The payload states what
+      happened: total / returned / all_rows / truncated.  FINITE limits keep the
+      previous caps exactly as before (no regression); where the old code had a
+      finite hard cap it still applies to limit=0 and is reported in the payload
+      — no row is ever dropped silently.
+    * UI — styles.css `.table-scroll` (70vh, sticky header; the Final Testing
+      table uses calc(100vh - 430px)); LiveNodeIndex.jsx, DeepBacktest.jsx,
+      Mt5Backtest.jsx, FinalTesting.jsx and HistoricalRunResults.jsx render every
+      row in ONE scroll container.  LiveNodeIndex's offset state and the six
+      leftover setOffset(0) calls are gone.
+
+§D  EXECUTED / VERIFIED
+    Tests — full suite: 775 passed, 0 failed, 1 warning in 136.55 s.  New file
+      tests/test_v5_2_3_one_table_and_zip_identity.py: 13 passed (it also checks
+      that the published index describes this tree and that the diagnostic
+      prints N/A — not FAIL — for a non-git checkout).
+      tests/test_v4_8_frontend.py 24 passed; frontend/tests/v48_ui_smoke.mjs
+      56/56 (its §19 now requires the one-table contract and rejects "page N of
+      M").  Two v4.8 regressions were caused by the pager removal itself (a
+      leftover setOffset reference and the old "page 1 of 4" expectation); both
+      were repaired in the direction of the new contract, not by weakening tests.
+    Live API proof (backend pid 14839, token LAB-V523-1983F8A, 2026-10-08):
+      GET /api/nodes?filter=qualified&limit=0   -> total 36 / returned 36 /
+        all_rows true / truncated false
+      GET /api/nodes?filter=qualified&limit=25  -> 36 / 25 / truncated true
+      GET /api/research/strategies?limit=0      -> 10,000 / 10,000
+      GET /api/research/strategies?limit=50     -> pages 200
+      POST /api/research/filter {limit: 0}      -> total_matching 10,000,
+        total_evaluated 415
+      (QUALIFIED drifts while research writes — 33 earlier today, 36 now; the
+      numbers above are measured, never hard-coded.)
+    Build — npx vite build -> assets/index-CjeoRiIv.js + assets/index-DG45pVtK.css;
+      guard SRC 829ec13885f5eb84 / INDEX 0a4dd14b5c4357b5, stamp
+      2026-10-08T06:34:24Z, dist FRESH, dist_matches_src true.
+    Runtime — uvicorn pid 14839, token LAB-V523-1983F8A, PROCESS_CODE_IS_CURRENT
+      True, PROCESS_BUNDLE_IS_CURRENT True,
+      PROCESS_BUNDLE_CHANGED_SINCE_START False.  The stale-runtime protection
+      fired for real during this delivery: the guard reported the previous
+      process as "started with bundle aad4a33d7e516490, the current bundle is
+      0a4dd14b5c4357b5" and that process was stopped (it logged "Live Testing
+      INACTIVE - backend shutdown ... New orders blocked") and replaced before
+      the preview was rebuilt.
+    ZIP-export simulation — /tmp/zipcheck/evolutionary-trading-lab-main is a tar
+      copy of this repo without .git / node_modules / DATA / LOGS.  The
+      diagnostic run against it prints CHECKOUT KIND: source-export,
+      FINGERPRINT MATCH: V5.2.3 (commit 1983f8a) "<-- this IS the latest
+      release", GIT_IDENTITY_MATCH: N/A — no false FAIL, no empty git rows.
+    Preview — rebuilt from the final dist: data snapshot re-recorded from the
+      running backend (81 endpoints, 0 unavailable), file 3,990,354 bytes;
+      verify_preview.mjs PASS (18/18 nav, no unwanted renders, 0 console errors);
+      one_table_probe.mjs PASS (Live Testing 36/36 qualified rows in one
+      .table-scroll and no pager text, Deep Backtest 36, MT5 Backtest 50).
+
+§E  NOTE
+    Nothing was weakened here: no test was relaxed, no DATA row was touched, no
+    validation was loosened, and the only code removed is the pager UI and the
+    dead offset state the operator asked to delete.  The finite row caps that
+    existed before still apply to finite limits; limit=0 asks for everything and
+    says so in the payload.
+
+§GIT
+  commit 1983f8a154e5040df7288af81afbfb7a98201746
+  "V5.2.3: no-pagination tables for every node/trade list + truthful identity for
+   non-Git (ZIP) checkouts"
+  pushed to origin/main (a6874d2..1983f8a) and verified with
+  git ls-remote origin refs/heads/main == 1983f8a154e5040df7288af81afbfb7a98201746.
+  BUILD_FINGERPRINTS.json records V5.2.3 = commit 1983f8a, src 829ec13885f5eb84…,
+  index 0a4dd14b5c4357b5…, code 1546c94c7136caae….
