@@ -3563,3 +3563,36 @@ DECISION 3 — THE OLD "TWO RUNS = TWO SENDS" TEST WAS REWRITTEN, NOT WEAKENED.
   run is refused (correctly).  The test now clears the terminal's open positions
   between the runs — the operator closing the inspected position — so the
   uniqueness guarantee is still proven while the new guard stays enforced.
+
+--------------------------------------------------------------------------------
+ENTRY 8 — 2026-10-08 — ONE AUTHORITY MEANS ONE DERIVATION, NOT ONE FUNCTION NAME
+--------------------------------------------------------------------------------
+
+FOUND WHILE READING THE LIVE PAYLOAD (not while reading code): the same database
+answered "how many nodes are dead/qualified" twice.
+  /api/lab/status            dead_nodes 9991   qualified_nodes 5
+  /api/status.node_state     DEAD     9996     QUALIFIED     41
+Two widgets print those aliases: the Population page's KPI row
+(PopulationSummary, via api.labStatus()) and the Live Activity sidebar
+(/api/status.stage_state). So two panels showed 9991/5 while Overview, Stats and
+Live Testing showed 9996/41 — BLOCKER B again, one layer deeper.
+
+DECISION 1 — THE ALIASES FOLLOW THE AUTHORITY, THE RAW VALUE KEEPS A NAME.
+  app.research.populations gains AUTHORITATIVE_ALIASES + authoritative_aliases();
+  Lab.status() and get_unified_task_state() resolve alive_nodes / dead_nodes /
+  qualified_nodes / backtesting_nodes / validating_nodes / target_nodes /
+  remaining_nodes / generation_number from the snapshot. The engine's raw values
+  are preserved as engine_dead_nodes / engine_qualified_nodes / … so the second
+  axis stays observable instead of being deleted. Fixing this in the backend and
+  not in each widget means a future third widget cannot reintroduce it.
+
+DECISION 2 — `current_nodes` IS NOT REPOINTED.
+  It is the experiment-scope node count (10,040 of 10,827), not the population
+  TOTAL. V5.4 §1 already publishes that number under its explicit name
+  experiment_nodes with progress_scope "current experiment", so repointing the
+  legacy key at TOTAL would have created a NEW lie to fix an old one.
+
+DECISION 3 — NO CACHE WAS ADDED.
+  The extra snapshot read costs ~0.25 s per status poll (measured). A TTL cache
+  would make a panel print a number the authority no longer states, which is the
+  one thing forbidden. Cost is paid instead of hidden.
