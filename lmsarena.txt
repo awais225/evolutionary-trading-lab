@@ -5374,3 +5374,89 @@ G6  FILES TOUCHED THIS WAVE
     frontend/src/pages/{Overview,Stats,StrategyLab}.jsx,
     tests/test_v5_4_node_authority.py (new) + 7 repaired test files,
     BUILD_FINGERPRINTS.json (V5.4 entry, code commit 238e920).
+
+================================================================================
+H  V5.4 FOLLOW-UP — the operator's exact payload (OrderCheckResult from order_send)
+================================================================================
+
+Commits: c282e5a (result contract + check-result layer) → d349693 (ONE send site).
+Suite after both: 860 passed / 0 failed / 1 warning (176.3 s).
+
+H1  WHAT THE OPERATOR'S RESPONSE PROVED
+    Their manual trade returned
+      order_check  OrderCheckResult(retcode=0, comment='Done', margin=24.76)
+      order_send   the SAME OrderCheckResult object (the bridge put a check into
+                   the trade-result slot)
+      dashboard    "result_class NO_USABLE_RESULT … THE BRIDGE DID NOT REPORT AN
+                   ORDER_SEND RESULT … did NOT state whether order_send was called"
+    i.e. the one thing that HAD happened (a passing preflight) was invisible, and
+    the thing that had NOT been proven (an execution) was not distinguished.
+
+H2  WHAT CHANGED (file + symbol)
+    1) backend/app/mt5/execution.py — the UNKNOWN branch
+       * order_send.phase is now ALWAYS present: the bridge's own phase when it
+         reported one, otherwise the DERIVED phase (check_shaped -> 
+         ORDER_SEND_RETURNED_CHECK_RESULT, raw None -> ORDER_SEND_RETURNED_NONE,
+         unreadable -> ORDER_SEND_UNUSABLE_RESULT), with phase_reported saying
+         which of the two it was. `outcome` uses the same precedence.
+       * nothing_sent is stated honestly: called -> False, bridge says not called
+         -> True, nobody said -> null. safe_to_retry stays False on every
+         ambiguous outcome; no retry path was added anywhere.
+       * result_class_detail stays a KIND (CHECK_RESULT_RETURNED / NO_RESULT /
+         NO_USABLE_RESULT); the layer name lives in order_send.phase.
+    2) backend/app/mt5/execution.py — the response contract
+       * flat additions: retcode, requested_sl, broker_sl, requested_tp, broker_tp.
+       * the operator's own vocabulary is returned in a `contract` block:
+         ok, status, result_class, result_class_detail, retcode, ticket, order,
+         deal, position, fill_price, volume, requested_sl, broker_sl,
+         requested_tp, broker_tp, broker_comment, broker_message,
+         client_order_id, order_check_called, order_send_called, order_send_phase.
+         WHY A BLOCK: result["order"] is the STRUCTURED order object
+         ({ticket, deal_ticket, position_ticket, pending_ticket}) and _record()
+         persists result["order"]["ticket"]. Publishing a scalar `order` at the
+         top level clobbered it and broke persistence — caught by the new
+         test_06 in the same run (that is why the alias went into `contract`).
+    3) backend/app/mt5/mt5_real.py — real_market_order()
+       * it used to call mt5.order_send() ITSELF with a hard-coded
+         ORDER_FILLING_IOC: a second, un-instrumented send site with no
+         order_check, no session check, no forensics and no verification. It now
+         builds the same request and DELEGATES to send_market_order(), so the
+         whole backend contains exactly ONE executable mt5.order_send(...) call
+         site — asserted by an AST walk in test_07.
+
+H3  TESTS ADDED
+    tests/test_v5_4_order_check_result_is_not_execution.py (8 tests) drives the
+    real place_demo_order() → MT5RealBridge.send_market_order chain against a
+    fake MetaTrader5 whose quote, account, flags and request are the OPERATOR'S
+    verbatim values (XAUUSD bid 4126.42 / ask 4126.61, 0.03 lots, price 4126.61,
+    SL 4095.96, TP 4185.96, deviation 60, filling 1, magic 777000, comment
+    'evolab-demo-manual', build 6230, trade_allowed true, tradeapi_disabled
+    false) for two bridge behaviours: V5.4 (phase reported) and legacy (no phase
+    — the object's shape decides).
+      test_01  a passing check is NEVER EXECUTED; broker retcode stays null; the
+               check's retcode 0 / 'Done' / margin 24.76 is preserved under check
+      test_02  the legacy bridge (no phase) is classified by shape alone
+      test_03  exactly ONE order_send is made; phase = ORDER_SEND_RETURNED_CHECK_RESULT
+      test_04  nothing is retried, and the response tells the operator to verify
+               the terminal
+      test_05  the full response contract (flat + contract block) is present
+      test_06  a terminal that really fills still reports retcode 10009, ticket,
+               deal and fill price through the same contract
+      test_07  exactly one mt5.order_send(...) call site in backend/app
+      test_08  real_market_order delegates to send_market_order
+
+H4  THE SIX BEHAVIOURS, RE-MEASURED AFTER THE CHANGE (scratch /home/user/v54_probe_issue2.py)
+    send ok            EXECUTED           BROKER_RESULT            ticket 555001
+    check refused      CHECK_FAILED       send NOT called          broker 10030
+    check raises       CHECK_ERROR        send NOT called          (operator's first path)
+    send -> None       UNKNOWN_EXECUTION  ORDER_SEND_RETURNED_NONE + last_error
+    send -> check      UNKNOWN_EXECUTION  ORDER_SEND_RETURNED_CHECK_RESULT
+    send raises        MT5_EXCEPTION      type + message preserved
+
+H5  ENVIRONMENT NOTE (this workspace)
+    Sandbox wipe #7 removed /opt/lmsarena-storage (DATA + venv). restore_env.sh
+    re-provisioned it; the restored DATA is the operator-shaped dataset
+    (TOTAL 10,787 / ALIVE 33 / QUALIFIED 33 / LIVE ELIGIBLE 33 / LIVE ACTIVE 0 /
+    Gen 39 / experiment 10,000 of 10,000) — i.e. exactly the numbers in the V5.4
+    brief — and the live lab continued generating afterwards (10,803 / 36 at
+    13:41Z). No DATA was deleted, reset or regenerated.

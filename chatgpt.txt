@@ -3502,3 +3502,32 @@ question, "which build is my machine running?"):
      vocabulary, so the UI cannot present a preflight answer as an execution.
    * Windows acceptance is unchanged and remains the only proof of a real DEMO
      order; nothing in this wave was ever presented as an executed trade.
+
+================================================================================
+6. V5.4 FOLLOW-UP (2026-10-08) — the operator sent the raw evidence.
+
+   Their manual trade returned an OrderCheckResult(retcode=0, comment='Done')
+   where a TradeResult belongs, and the dashboard answered "NO_USABLE_RESULT …
+   the bridge did not state whether order_send was called".  Two decisions:
+
+   1. AN ORDER CHECK ANSWER MUST NAME ITSELF.  When the bridge reports no phase,
+      the DERIVED phase now says what is in the trade-result slot:
+      ORDER_SEND_RETURNED_CHECK_RESULT (with the label "…RETURNED AN ORDER CHECK
+      RESULT (NOT AN EXECUTION)"), ORDER_SEND_RETURNED_NONE, or
+      ORDER_SEND_UNUSABLE_RESULT — plus `phase_reported` saying whether the
+      bridge or we derived it.  result_class stays UNKNOWN_EXECUTION (we cannot
+      prove no fill), result_class_detail stays the KIND.  nothing_sent is
+      answered honestly: False when order_send ran, True when the bridge says it
+      did not, null when nobody said.  safe_to_retry stays False, and the
+      response still tells the operator to verify positions/orders in MT5 first.
+
+   2. THE WHOLE BACKEND MUST HAVE ONE SEND SITE.  real_market_order() was a
+      second mt5.order_send() caller with a hard-coded filling mode and no
+      instrumentation — an order leaving through it could not be distinguished
+      from one that never left.  It now delegates to send_market_order(), and an
+      AST regression test proves exactly one executable order_send() call site
+      remains.  The response contract the operator asked for is returned in
+      full (flat fields + a `contract` block with their own vocabulary:
+      order / deal / position / retcode / requested+broker SL/TP …); the
+      order/deal/position scalars deliberately live in that block because
+      result["order"] is the structured order object that persistence reads.
