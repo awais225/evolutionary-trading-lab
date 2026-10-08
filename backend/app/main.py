@@ -15,7 +15,8 @@ import os
 import time
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -64,6 +65,43 @@ app = FastAPI(title="Evolutionary Trading Research Lab", version=APP_VERSION,
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False,
                    allow_methods=["*"], allow_headers=["*"])
 app.include_router(router)
+
+
+@app.exception_handler(RequestValidationError)
+async def _readable_query_errors(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """V5.3 §2 — a bad query parameter must say what to send instead of dumping pydantic.
+
+    The operator's Live Testing page showed
+
+        422: query.starred_only: Input should be a valid boolean, unable to interpret input
+
+    which named the field but not the culprit: the browser had sent the literal
+    string ``undefined`` (a JavaScript value that URLSearchParams stringifies).
+    The status stays 422 and the machine-readable detail is preserved; a plain
+    ``message`` names the parameter, the value received and the accepted values.
+    """
+    try:
+        errors = exc.errors()
+    except Exception:                                       # pragma: no cover - defensive
+        errors = []
+    parts = []
+    for e in errors:
+        loc = ".".join(str(x) for x in (e.get("loc") or []))
+        raw = e.get("input")
+        parts.append(f"{loc}: {e.get('msg')} (received {raw!r})"
+                     if raw is not None else f"{loc}: {e.get('msg')}")
+    message = "; ".join(parts) or "invalid request parameters"
+    hint = None
+    blob = message.lower()
+    if "'undefined'" in blob or '"undefined"' in blob or "undefined" in blob:
+        hint = ("The dashboard sent the JavaScript value 'undefined' for this parameter. "
+                "Update the page (the fixed build drops unset filters instead of sending "
+                "them). The server rejects it rather than guessing a boolean.")
+    return JSONResponse(status_code=422,
+                        content={"ok": False, "status": "BAD_REQUEST", "error": "VALIDATION_ERROR",
+                                 "message": message, "detail": errors, "hint": hint,
+                                 "path": str(request.url.path),
+                                 "method": str(request.method)})
 
 
 @app.on_event("startup")

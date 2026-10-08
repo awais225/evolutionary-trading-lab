@@ -25,7 +25,7 @@ FULL_VERSION_STRING = "EVOLUTIONARY TRADING RESEARCH LAB V3.6"
 #: next to the commit and the frontend fingerprint, and it must equal the newest
 #: release name published in ``BUILD_FINGERPRINTS.json`` (V5.2.3) — otherwise the
 #: dashboard would name a different build than the identity index does.
-PRODUCT_RELEASE = "V5.2.3"
+PRODUCT_RELEASE = "V5.3"
 
 # Schema versions — bump when the corresponding structure/semantics change.
 DB_SCHEMA_VERSION = 3          # SQLite migration target (PRAGMA user_version)

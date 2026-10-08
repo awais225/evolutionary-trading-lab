@@ -1127,7 +1127,9 @@ class LiveTestingEngine:
                       "result_class": res.get("result_class"),
                       "order_send": res.get("order_send"),
                       "diagnostic_phase": (res.get("diagnostic") or {}).get("phase"),
-                      "diagnostic": res.get("diagnostic")}
+                      "diagnostic": res.get("diagnostic"),
+                      "preflight": res.get("preflight"),
+                      "next_actions": res.get("next_actions")}
             self._stage({"stage": STAGE_BROKER, "node_id": sid, "symbol": symbol, "side": side,
                          "status": status, "detail": detail})
             row_status, local = self._record_result(node, payload, trace, res, status)
@@ -1210,8 +1212,11 @@ class LiveTestingEngine:
         return {"ok": False, "status": "REJECTED", "sent": False, "blocked_code": code,
                 "blocked_stage": {"VALIDATION": STAGE_ORDER_VALIDATED,
                                   "ACCOUNT_SAFETY": STAGE_ORDER_VALIDATED,
+                                  "TRADE_CAPABILITY": STAGE_ORDER_VALIDATED,
                                   "DUPLICATE_GATE": STAGE_ORDER_SENT,
                                   "CONFIRMATION": STAGE_ORDER_SENT}.get(stage, STAGE_ORDER_VALIDATED),
+                # V5.3 §1 — a pre-send capability block keeps its read-only evidence
+                "preflight": details.get("trade_capability") or details.get("preflight"),
                 "broker": {"message": message, "retcode": None, "safe_to_retry": False,
                            "comment": code},
                 "order": {}, "execution": {}}

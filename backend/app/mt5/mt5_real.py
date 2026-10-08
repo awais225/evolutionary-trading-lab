@@ -638,6 +638,23 @@ class MT5RealBridge(MarketBridge):
                         request, called=True, phase="ORDER_SEND_NO_RESULT", check=check,
                         last_error=err, filling=filling_resolution)}
         raw = _result_to_dict(result)
+        if not isinstance(raw.get("retcode"), int) or isinstance(raw.get("retcode"), bool):
+            # V5.3 §1 — the terminal ANSWERED, but with an object this binding cannot
+            # read (no usable retcode). That is not a broker result and must not be
+            # interpreted as one: it gets its own phase and the raw payload travels
+            # with it, so the case can be named instead of collapsed into UNKNOWN.
+            err = self._last_error_safe()
+            log.error("order_send returned an unreadable result (retcode missing, keys=%s, "
+                      "last_error=%s)", sorted(raw.keys()), err)
+            return {"ok": False, "retcode": None, "raw": raw, "called": True, "call_count": 1,
+                    "last_error": err, "exception_type": "UnusableResult",
+                    "exception": ("order_send answered with an object that carries no usable "
+                                  f"retcode (keys={sorted(raw.keys())})"),
+                    "filling_resolution": filling_resolution,
+                    "request": dict(request), "check": check,
+                    "diagnostic": self._execution_diagnostic(
+                        request, called=True, phase="ORDER_SEND_UNUSABLE_RESULT", check=check,
+                        last_error=err, filling=filling_resolution)}
         log.info("[V4.2] mt5.order_send retcode=%s order=%s deal=%s price=%s vol=%s sl=%s tp=%s comment=%r",
                  raw.get("retcode"), raw.get("order"), raw.get("deal"), raw.get("price"),
                  raw.get("volume"), raw.get("sl"), raw.get("tp"), raw.get("comment"))
@@ -742,6 +759,12 @@ class MT5RealBridge(MarketBridge):
                        "margin": (check.get("verdict") or {}).get("margin")}
                       if isinstance(check, dict) else None),
             "last_error_name": last_error_name(last_error) if last_error else None,
+            # V5.3 §1 — the read-only facts that name the usual causes; all of them
+            # come straight from the terminal, none is inferred.
+            "terminal_trade_allowed": None,
+            "terminal_tradeapi_disabled": None,
+            "account_trade_expert": None,
+            "symbol_trade_mode": None,
         }
         if isinstance(filling, dict):
             diag["filling_resolution"] = filling
@@ -760,6 +783,8 @@ class MT5RealBridge(MarketBridge):
                 "tradeapi_disabled": getattr(ti, "tradeapi_disabled", None),
                 "dlls_allowed": getattr(ti, "dlls_allowed", None),
             }
+            diag["terminal_trade_allowed"] = diag["terminal"]["trade_allowed"]
+            diag["terminal_tradeapi_disabled"] = diag["terminal"]["tradeapi_disabled"]
         diag["bridge"] = {"name": self.name, "source": self.source,
                           "connected": bool(self._connected),
                           "package_importable": bool(MT5_PACKAGE_AVAILABLE),
@@ -784,6 +809,7 @@ class MT5RealBridge(MarketBridge):
                 "trade_allowed": getattr(acct, "trade_allowed", None),
                 "trade_expert": getattr(acct, "trade_expert", None),
             }
+            diag["account_trade_expert"] = diag["account"]["trade_expert"]
         # symbol state (the request's own symbol)
         symbol = str((request or {}).get("symbol") or "")
         try:
@@ -808,8 +834,10 @@ class MT5RealBridge(MarketBridge):
                                     3: "CLOSE_ONLY", 4: "FULL"}.get(
                     getattr(si, "trade_mode", None), "unknown"),
                 "trade_allowed": getattr(si, "trade_allowed", None),
+                "filling_mode": getattr(si, "filling_mode", None),
                 "fill_modes": _filling_modes(si),
             }
+            diag["symbol_trade_mode"] = diag["symbol"]["trade_mode"]
             req_fill = (request or {}).get("type_filling")
             diag["fill_mode_used"] = req_fill
             diag["fill_mode_used_name"] = filling_name(req_fill)

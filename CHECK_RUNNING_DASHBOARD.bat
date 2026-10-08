@@ -137,22 +137,35 @@ if errorlevel 1 (
   for /f "delims=" %%S in ('git -C "%ROOT%" log -1 --pretty=oneline 2^>nul') do set "GITLAST=%%S"
   for /f "delims=" %%O in ('git -C "%ROOT%" remote get-url origin 2^>nul') do set "GITORIGIN=%%O"
   for /f "delims=" %%M in ('git -C "%ROOT%" rev-parse origin/main 2^>nul') do set "GITMAIN=%%M"
-  echo [git] HEAD        : !GITHEAD!
-  echo [git] branch      : !GITBRANCH!
-  echo [git] commit      : !GITLAST!
-  echo [git] origin      : !GITORIGIN!
-  echo [git] origin/main : !GITMAIN!   ^(run "git fetch origin" first for the newest value^)
-  echo [git] HEAD        : !GITHEAD!>> "%REPORT%"
-  echo [git] branch      : !GITBRANCH!>> "%REPORT%"
-  echo [git] commit      : !GITLAST!>> "%REPORT%"
-  echo [git] origin      : !GITORIGIN!>> "%REPORT%"
-  echo [git] origin/main : !GITMAIN!>> "%REPORT%"
-  if /I "!GITHEAD!"=="!GITMAIN!" (
-    echo [git] HEAD == origin/main  ^(this checkout is the GitHub main state^)
-    echo [git] HEAD == origin/main>> "%REPORT%"
+  rem V5.3 - never print an empty git field: these lines only run when the 
+  rem command actually produced a value (a ZIP checkout must not show blanks).
+  if defined GITHEAD (
+    echo [git] HEAD        : !GITHEAD!
+    echo [git] branch      : !GITBRANCH!
+    echo [git] commit      : !GITLAST!
+    echo [git] origin      : !GITORIGIN!
+    echo [git] HEAD        : !GITHEAD!>> "%REPORT%"
+    echo [git] branch      : !GITBRANCH!>> "%REPORT%"
+    echo [git] commit      : !GITLAST!>> "%REPORT%"
+    echo [git] origin      : !GITORIGIN!>> "%REPORT%"
+    if defined GITMAIN (
+      echo [git] origin/main : !GITMAIN!   ^(as last fetched - run "git fetch origin" for the newest^)
+      echo [git] origin/main : !GITMAIN!>> "%REPORT%"
+      if /I "!GITHEAD!"=="!GITMAIN!" (
+        echo [git] HEAD == origin/main  ^(this checkout is the GitHub main state as last fetched^)
+        echo [git] HEAD == origin/main>> "%REPORT%"
+      ) else (
+        echo [git] NOTE: HEAD differs from the last known origin/main - a pull may be needed.
+        echo [git] NOTE: HEAD differs from the last known origin/main>> "%REPORT%"
+      )
+    ) else (
+      echo [git] origin/main : not read in this folder - run "git fetch origin" first.
+      echo [git] origin/main : not read in this folder.>> "%REPORT%"
+    )
   ) else (
-    echo [git] NOTE: HEAD differs from the last known origin/main - a pull may be needed.
-    echo [git] NOTE: HEAD differs from the last known origin/main>> "%REPORT%"
+    echo [git] no commit identity could be read here - identity comes from the
+    echo [git] FINGERPRINT section below, not from a commit.
+    echo [git] no commit identity could be read here - identity by FINGERPRINT.>> "%REPORT%"
   )
 )
 

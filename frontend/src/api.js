@@ -7,7 +7,12 @@ function qs(params = {}) {
   const sp = new URLSearchParams();
   Object.entries(params).forEach(([k, v]) => {
     if (v === undefined || v === null || v === "") return;
-    sp.set(k, String(v));
+    // V5.3 §2 — never send the *string* "undefined"/"null". URLSearchParams
+    // stringifies whatever it is given, so a JavaScript `undefined` used to reach
+    // the API as ?filter=undefined and was rejected as a bad boolean (#422).
+    const s = String(v);
+    if (s === "undefined" || s === "null") return;
+    sp.set(k, s);
   });
   return sp.toString();
 }
@@ -156,7 +161,7 @@ export const api = {
   // V4.4 — research statistics & node economics (read-only analytics)
   statsOverview: () => req("/api/stats/overview"),
   statsScopeAudit: () => req("/api/stats/scope_audit"),
-  statsNodes: (p = {}) => req(`/api/stats/nodes?${new URLSearchParams(p)}`),
+  statsNodes: (p = {}) => req(`/api/stats/nodes?${qs(p)}`),
   statsNode: (sid) => req(`/api/stats/node/${sid}`),
 
   // V4.5 — Strategy Lab / Backtest Matrix (research selection & comparison)
@@ -176,10 +181,10 @@ export const api = {
   researchRunResumeAdd: (payload) => req("/api/research-run/resume-add", { method: "POST", body: payload }),
 
   // Population & Strategy Research
-  population: (p = {}) => req(`/api/population?${new URLSearchParams(p)}`),
-  qualifiedStrategies: (p = {}) => req(`/api/strategies/qualified?${new URLSearchParams(p)}`),
-  scatter: (p = {}) => req(`/api/scatter?${new URLSearchParams(p)}`),
-  tree: (p = {}) => req(`/api/tree?${new URLSearchParams(p)}`),
+  population: (p = {}) => req(`/api/population?${qs(p)}`),
+  qualifiedStrategies: (p = {}) => req(`/api/strategies/qualified?${qs(p)}`),
+  scatter: (p = {}) => req(`/api/scatter?${qs(p)}`),
+  tree: (p = {}) => req(`/api/tree?${qs(p)}`),
   strategy: (id) => req(`/api/strategies/${id}`),
   strategyCharts: (sid) => req(`/api/strategies/${sid}/charts`),
   generateMatrix: (sid) => req(`/api/strategies/${sid}/matrix`, { method: "POST" }),
@@ -192,7 +197,7 @@ export const api = {
     req(`/api/strategies/${sid}/pipeline-stage`, { method: "POST", body: { stage, notes } }),
 
   // Research Filtering & Shortlist
-  researchShortlist: (params = {}) => req(`/api/research/shortlist?${new URLSearchParams(params)}`),
+  researchShortlist: (params = {}) => req(`/api/research/shortlist?${qs(params)}`),
   researchFilter: (body) => req("/api/research/filter", { method: "POST", body }),
   strategyTrades: (sid) => req(`/api/strategies/${sid}/trades`),
   strategyRerunBacktest: (sid) => req(`/api/strategies/${sid}/backtest`, { method: "POST" }),
@@ -226,7 +231,7 @@ export const api = {
   // §6 — several nodes in one action (a single run path per node, fanned out)
   mt5HistoricalStartBatch: (body) => req("/api/mt5-historical/runs/batch", { method: "POST", body }),
   // §6/§7 — the qualified-node index (filter: qualified|alive|eligible|all|failed|excluded|blocked|unknown)
-  nodes: (params = {}) => req(`/api/nodes?${new URLSearchParams(params)}`),
+  nodes: (params = {}) => req(`/api/nodes?${qs(params)}`),
   mt5HistoricalRuns: (params = {}) => {
     const q = qs(params);
     return req(`/api/mt5-historical/runs${q ? `?${q}` : ""}`);
@@ -246,7 +251,7 @@ export const api = {
   liveTestStopAll: () => req("/api/live-test/stop-all", { method: "POST" }),
   liveTestPauseAll: () => req("/api/live-test/pause-all", { method: "POST" }),
   liveTestResumeAll: () => req("/api/live-test/resume-all", { method: "POST" }),
-  liveTestResults: (params = {}) => req(`/api/live-test/results?${new URLSearchParams(params)}`),
+  liveTestResults: (params = {}) => req(`/api/live-test/results?${qs(params)}`),
 
   // V4.3 — controlled live testing (demo only, INACTIVE by default)
   liveTestingStatus: () => req("/api/live-testing/status"),
@@ -259,11 +264,11 @@ export const api = {
   // V4.8 §7 read-only per-condition truth table (never places an order)
   liveTestingConditions: (symbol) => req(`/api/live-testing/conditions${symbol ? `?symbol=${symbol}` : ""}`),
   liveTestingCounter: () => req("/api/live-testing/counter"),
-  liveTestingLog: (params = {}) => req(`/api/live-testing/log?${new URLSearchParams(params)}`),
+  liveTestingLog: (params = {}) => req(`/api/live-testing/log?${qs(params)}`),
   liveTestingNodes: () => req("/api/live-testing/nodes"),
   liveTestingNodeConfig: (sid, body) => req(`/api/live-testing/nodes/${sid}/config`, { method: "POST", body }),
   liveTestingSettings: (body) => req("/api/live-testing/settings", { method: "POST", body }),
-  liveTestingTrades: (params = {}) => req(`/api/live-testing/trades?${new URLSearchParams(params)}`),
+  liveTestingTrades: (params = {}) => req(`/api/live-testing/trades?${qs(params)}`),
   liveTestingReconcile: () => req("/api/live-testing/reconcile", { method: "POST" }),
 
   // V5 §10-§16 — redesigned Live Testing surface
@@ -309,7 +314,7 @@ export const api = {
 
   // Hypotheses & AI Researcher
   hypotheses: () => req("/api/hypotheses"),
-  researchMemory: (p = {}) => req(`/api/research/memory?${new URLSearchParams(p)}`),
+  researchMemory: (p = {}) => req(`/api/research/memory?${qs(p)}`),
   applyHypothesis: (id) => req(`/api/hypotheses/${id}/apply`, { method: "POST" }),
 
   // Datasets & Market Data
@@ -358,7 +363,7 @@ export const api = {
   exportLogs: () => req("/api/logs/export"),
   pipelineState: () => req("/api/pipeline/state"),
   events: (limit = 120) => req(`/api/events?limit=${limit}`),
-  activity: (p = {}) => req(`/api/activity?${new URLSearchParams(p)}`),
+  activity: (p = {}) => req(`/api/activity?${qs(p)}`),
   currentTask: () => req("/api/activity/current_task"),
   resources: () => req("/api/resources"),
   mt5Status: () => req("/api/mt5/status"),

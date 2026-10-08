@@ -286,6 +286,170 @@ def demo_account_guard(bridge=None) -> Dict[str, Any]:
     return rep
 
 
+def trade_capability(bridge=None, *, symbol: str = "", side: str = "") -> Dict[str, Any]:
+    """READ-ONLY: the facts that decide whether this terminal can send at all.
+
+    V5.3 §1 — "order_send returned nothing" has known, *named* causes. This
+    gathers them before an order is built so the operator is told which switch is
+    off (Algo Trading button, API trading in the terminal options, expert trading
+    on the account, the symbol's own trade mode) instead of receiving an opaque
+    UNKNOWN afterwards. Nothing is sent, nothing is changed.
+
+    A *definite* blocker (a flag MT5 reports as off) sets ``send_permitted=False``.
+    A fact that cannot be read is reported as unknown and never blocks: the order
+    path must not refuse out of ignorance.
+    """
+    from .factory import get_bridge
+    bridge = bridge or get_bridge()
+    src_name = str(getattr(bridge, "source", "UNKNOWN"))
+    rep: Dict[str, Any] = {
+        "checked": True, "read_only": True, "bridge": getattr(bridge, "name", "unknown"),
+        "applicable": (src_name.upper() == "MT5"),
+        "terminal": None, "account": None, "symbol": None,
+        "blockers": [], "warnings": [], "send_permitted": True,
+        "rule": ("a blocker must be a value MT5 reports as off; unknown values are "
+                 "reported and never block"),
+    }
+    blockers: List[Dict[str, Any]] = rep["blockers"]
+    warnings: List[Dict[str, Any]] = rep["warnings"]
+    if not rep["applicable"]:
+        # No real terminal is attached: the account-safety guard already blocks
+        # execution, so this check answers honestly instead of pretending.
+        rep["headline"] = (f"not applicable — the active bridge is '{src_name}', not a real "
+                           "MT5 terminal (execution is blocked by the account-safety guard)")
+        return rep
+
+    def _blocker(code: str, fact: str, value: Any, action: str) -> None:
+        blockers.append({"code": code, "fact": fact, "value": value, "action": action})
+
+    def _unknown(fact: str) -> None:
+        warnings.append({"fact": fact, "value": None,
+                         "note": "not reported by this terminal — treated as unknown, not as a blocker"})
+
+    # ---- terminal -----------------------------------------------------------
+    mod = mt5_module()
+    ti = None
+    for source in (mod, bridge):
+        get = getattr(source, "terminal_info", None)
+        if not callable(get):
+            continue
+        try:
+            ti = get()
+        except Exception:
+            ti = None
+        if ti is not None:
+            break
+    if ti is None:
+        _unknown("terminal_info()")
+    else:
+        rep["terminal"] = {
+            "name": getattr(ti, "name", None), "company": getattr(ti, "company", None),
+            "path": getattr(ti, "path", None), "build": getattr(ti, "build", None),
+            "connected": getattr(ti, "connected", None),
+            "trade_allowed": getattr(ti, "trade_allowed", None),
+            "tradeapi_disabled": getattr(ti, "tradeapi_disabled", None),
+            "dlls_allowed": getattr(ti, "dlls_allowed", None),
+        }
+        if rep["terminal"]["connected"] is False:
+            _blocker("TERMINAL_NOT_CONNECTED", "terminal_info().connected", False,
+                     "Reconnect the MT5 terminal to the trade server and retry.")
+        if rep["terminal"]["trade_allowed"] is False:
+            _blocker("TERMINAL_ALGO_TRADING_OFF", "terminal_info().trade_allowed", False,
+                     "Enable algorithmic trading in the terminal: click the 'Algo Trading' "
+                     "button in the toolbar (or Tools -> Options -> Expert Advisors -> "
+                     "'Allow algorithmic trading'). order_check keeps passing while this "
+                     "is off, but order_send cannot reach the broker.")
+        if rep["terminal"]["tradeapi_disabled"] is True:
+            _blocker("TERMINAL_API_TRADING_DISABLED", "terminal_info().tradeapi_disabled", True,
+                     "The terminal has automated/API trading disabled: Tools -> Options -> "
+                     "Expert Advisors -> enable 'Allow algorithmic trading' / API trading, "
+                     "then restart the terminal.")
+
+    # ---- account ------------------------------------------------------------
+    acct = None
+    for source in (mod, bridge):
+        get = getattr(source, "account_info", None)
+        if not callable(get):
+            continue
+        try:
+            acct = get()
+        except Exception:
+            acct = None
+        if acct is not None:
+            break
+    if acct is None:
+        _unknown("account_info()")
+    else:
+        rep["account"] = {
+            "login": getattr(acct, "login", None), "server": getattr(acct, "server", None),
+            "currency": getattr(acct, "currency", None),
+            "balance": getattr(acct, "balance", None), "equity": getattr(acct, "equity", None),
+            "margin_free": getattr(acct, "margin_free", None),
+            "leverage": getattr(acct, "leverage", None),
+            "trade_mode": getattr(acct, "trade_mode", None),
+            "trade_mode_name": _trade_mode_name(getattr(acct, "trade_mode", None)),
+            "trade_allowed": getattr(acct, "trade_allowed", None),
+            "trade_expert": getattr(acct, "trade_expert", None),
+        }
+        if rep["account"]["trade_allowed"] is False:
+            _blocker("ACCOUNT_TRADE_DISABLED", "account_info().trade_allowed", False,
+                     "Trading is disabled for this account (server side). Contact the broker "
+                     "or switch to the demo account that allows trading.")
+        if rep["account"]["trade_expert"] is False:
+            _blocker("ACCOUNT_TRADE_EXPERT_OFF", "account_info().trade_expert", False,
+                     "This account does not permit Expert/API trading. Ask the broker to "
+                     "enable it, or use the demo account provided for the lab.")
+
+    # ---- symbol -------------------------------------------------------------
+    sym = str(symbol or "")
+    sinfo = None
+    if sym:
+        try:
+            sinfo = bridge.symbol_info(sym)
+        except Exception:
+            sinfo = None
+        if sinfo is None:
+            _unknown(f"symbol_info({sym})")
+        else:
+            raw_mode = getattr(sinfo, "trade_mode_raw", None)
+            if raw_mode is None:
+                tm = getattr(sinfo, "trade_mode", None)
+                try:
+                    raw_mode = int(tm) if tm is not None else None
+                except (TypeError, ValueError):
+                    raw_mode = None
+            names = {0: "DISABLED", 1: "LONG_ONLY", 2: "SHORT_ONLY", 3: "CLOSE_ONLY", 4: "FULL"}
+            rep["symbol"] = {
+                "symbol": sym, "visible": getattr(sinfo, "visible", None),
+                "trade_mode": raw_mode, "trade_mode_name": names.get(raw_mode, "unknown"),
+                "trade_allowed": getattr(sinfo, "trade_allowed", None),
+                "volume_min": getattr(sinfo, "volume_min", None),
+                "volume_step": getattr(sinfo, "volume_step", None),
+                "trade_stops_level": getattr(sinfo, "trade_stops_level", None),
+            }
+            if raw_mode == 0:
+                _blocker("SYMBOL_TRADE_DISABLED", f"symbol_info({sym}).trade_mode", raw_mode,
+                         f"{sym} is disabled for trading on this account. Pick another symbol.")
+            elif raw_mode == 3:
+                _blocker("SYMBOL_CLOSE_ONLY", f"symbol_info({sym}).trade_mode", raw_mode,
+                         f"{sym} is close-only right now — new positions cannot be opened.")
+            elif raw_mode == 1 and str(side or "").lower() == "sell":
+                _blocker("SYMBOL_LONG_ONLY", f"symbol_info({sym}).trade_mode", raw_mode,
+                         f"{sym} currently only accepts BUY orders.")
+            elif raw_mode == 2 and str(side or "").lower() == "buy":
+                _blocker("SYMBOL_SHORT_ONLY", f"symbol_info({sym}).trade_mode", raw_mode,
+                         f"{sym} currently only accepts SELL orders.")
+            if rep["symbol"]["visible"] is False:
+                warnings.append({"fact": f"symbol_info({sym}).visible", "value": False,
+                                 "note": "the symbol is not in Market Watch; the terminal may "
+                                         "still trade it, so this is not treated as a blocker"})
+
+    rep["send_permitted"] = not blockers
+    rep["headline"] = ("trading capability confirmed" if not blockers else
+                       f"{len(blockers)} blocker(s): " + ", ".join(b["code"] for b in blockers))
+    return rep
+
+
 def _http_for(code: Optional[str]) -> int:
     return {
         "MT5_UNAVAILABLE": 503, "MT5_NOT_CONNECTED": 503, "ACCOUNT_UNAVAILABLE": 503,
@@ -309,6 +473,16 @@ def _trade_mode_name(mode: Optional[int]) -> str:
 # ---------------------------------------------------------------------------
 # Order validation (spec §7)
 # ---------------------------------------------------------------------------
+def _usable_retcode(v: Any) -> bool:
+    """True only for a real MT5 retcode.
+
+    V5.3 §1 — an MT5 result object that carries no retcode (or a bool/other type)
+    must never be interpreted as a broker answer: that was how "order_send
+    returned something we cannot read" collapsed into a bare RESULT UNKNOWN.
+    """
+    return isinstance(v, int) and not isinstance(v, bool)
+
+
 def _finite(x) -> bool:
     try:
         return math.isfinite(float(x))
@@ -825,6 +999,21 @@ def place_demo_order(payload: Dict[str, Any], bridge=None) -> Dict[str, Any]:
                                     stage="ACCOUNT_SAFETY", details={"account_safety": guard},
                                     http_status=_http_for(code))
 
+        # V5.3 §1 — READ-ONLY pre-flight: if this terminal/account/symbol cannot
+        # trade (Algo Trading off, API trading disabled, expert trading not allowed,
+        # symbol disabled/close-only), refuse BEFORE anything is built or sent. The
+        # operator gets the switch to flip instead of an opaque UNKNOWN afterwards.
+        _gate.stage("TRADE_CAPABILITY")
+        capability = trade_capability(bridge, symbol=symbol, side=side)
+        if not capability.get("send_permitted"):
+            first = (capability.get("blockers") or [{}])[0]
+            raise MT5ExecutionError(
+                str(first.get("code") or "TRADE_NOT_PERMITTED"),
+                ("Order execution blocked before sending: " + str(first.get("action") or "")
+                 + f" (fact: {first.get('fact')} = {first.get('value')})"),
+                stage="TRADE_CAPABILITY", details={"trade_capability": capability},
+                http_status=409)
+
         _gate.stage("VALIDATION")
         report = validate_order_request(
             bridge, symbol=symbol, side=side, volume=volume, sl=payload.get("sl"),
@@ -880,16 +1069,34 @@ def place_demo_order(payload: Dict[str, Any], bridge=None) -> Dict[str, Any]:
                                     "(no real MT5 terminal).",
                                     stage="SENDING",
                                     details={"raw": raw, "diagnostic": diagnostic}, http_status=503)
-        no_result = (raw_result is None and isinstance(raw, dict)
-                     and order_send_phase == "ORDER_SEND_NO_RESULT")
-        if raw_result is None and isinstance(raw, dict) and raw.get("exception") and not no_result:
+        # V5.3 §1 — what the terminal actually produced. These cases must never
+        # collapse into one another and none of them is a broker result:
+        #   * order_send was never reached (refused locally / not supported) -> above
+        #   * order_send WAS called and returned NO object at all             -> NO_RESULT
+        #   * order_send WAS called and answered with an object that carries no
+        #     usable retcode (an unparsable MqlTradeResult)                   -> NO_USABLE_RESULT
+        called_flag = raw.get("called") if isinstance(raw, dict) else None
+        called = bool(called_flag)
+        _bridge_retcode = raw.get("retcode") if isinstance(raw, dict) else None
+        usable_retcode = _usable_retcode(_bridge_retcode)
+        terminal_raised = (raw_result is None and isinstance(raw, dict) and raw.get("exception")
+                           and order_send_phase == "ORDER_SEND_RAISED")
+        if terminal_raised:
             raise MT5ExecutionError("MT5_EXCEPTION",
                                     f"mt5.order_send raised: {raw.get('exception')}",
                                     stage="SENDING",
                                     details={"raw": raw, "diagnostic": diagnostic,
                                              "last_error": order_send_last_error}, http_status=502)
+        # An answer with no usable retcode is NEVER a broker result — even when the
+        # bridge did not say whether the call was made (a legacy bridge): claiming
+        # "BROKER_RESULT, retcode None" was exactly how the operator's failure
+        # became a dead end.
+        unknown_send = (not usable_retcode and not terminal_raised
+                        and not (isinstance(raw, dict) and raw.get("unsupported")))
+        no_result = unknown_send and raw_result is None
+        unusable_result = unknown_send and not no_result
 
-        if no_result:
+        if unknown_send:
             # mt5.order_send WAS called and returned no result object. The outcome
             # is genuinely unknown (the request may have reached the broker), so
             # the status stays UNKNOWN — but the response now carries the terminal's
@@ -897,9 +1104,15 @@ def place_demo_order(payload: Dict[str, Any], bridge=None) -> Dict[str, Any]:
             # request, so the layer can be identified instead of guessed. Nothing is
             # retried and nothing is claimed as success.
             interp = interpret_retcode(None, "")
+            what = ("returned no result object" if no_result else
+                    "answered with an object that carries no usable retcode")
+            who = ("mt5.order_send was called once and " if called else
+                   "The execution bridge reported no usable result and did NOT state whether "
+                   "order_send was called; it ")
             detail_msg = (
-                "mt5.order_send was called once and returned no result object. "
-                f"mt5.last_error()={order_send_last_error}. "
+                f"{who}{what}"
+                + (f" (raw result: {_raw_result_repr(raw_result)})" if not no_result else "")
+                + f". mt5.last_error()={order_send_last_error}. "
                 "The outcome is UNKNOWN: the request may have reached the broker. "
                 "Verify open positions/orders in MT5 before doing anything else.")
             try:
@@ -916,19 +1129,33 @@ def place_demo_order(payload: Dict[str, Any], bridge=None) -> Dict[str, Any]:
             result = {
                 "ok": False,
                 "status": "UNKNOWN",
-                "result_class": "NO_RESULT",
-                "label": "RESULT UNKNOWN — mt5.order_send RETURNED NO RESULT",
+                "result_class": ("NO_RESULT" if no_result else "NO_USABLE_RESULT"),
+                "label": (("RESULT UNKNOWN — mt5.order_send RETURNED NO RESULT" if no_result
+                           else "RESULT UNKNOWN — mt5.order_send RETURNED NO USABLE RESULT")
+                          if called else
+                          "RESULT UNKNOWN — THE BRIDGE DID NOT REPORT AN ORDER_SEND RESULT"),
                 "client_order_id": client_order_id,
                 "broker": {"retcode": None, "comment": "",
                            "message": detail_msg, "category": "UNKNOWN",
                            "warning": interp.get("warning"),
                            "safe_to_retry": False},
-                "order_send": {"called": True, "call_count": raw.get("call_count", 1),
+                "order_send": {"called": (called_flag if isinstance(called_flag, bool) else None),
+                               "called_reported": isinstance(called_flag, bool),
+                               "call_count": raw.get("call_count", 1),
                                "last_error": order_send_last_error,
                                "exception": raw.get("exception"),
-                               "retcode": None, "comment": None, "raw_result": None},
+                               "retcode": None, "comment": None,
+                               "raw_result": raw_result,
+                               "raw_result_repr": _raw_result_repr(raw_result)},
                 "order_check": _order_check_facts(raw),
                 "diagnostic": diagnostic,
+                # V5.3 §1 — the read-only verdict on this terminal/account/symbol, so
+                # "nothing came back" is never the whole story.
+                "preflight": capability,
+                "next_actions": _unknown_next_actions(capability, diagnostic,
+                                                      last_error=order_send_last_error,
+                                                      result_class=("NO_RESULT" if no_result
+                                                                    else "NO_USABLE_RESULT")),
                 "order": {"ticket": None, "deal_ticket": None,
                           "position_ticket": None, "pending_ticket": None},
                 "request": request,
@@ -1006,6 +1233,7 @@ def place_demo_order(payload: Dict[str, Any], bridge=None) -> Dict[str, Any]:
                           "sl_tp_verified": verification.get("sl_tp_verified"),
                           "time": verification.get("time")},
             "account": guard.get("account"),
+            "preflight": capability,
             "source": getattr(bridge, "source", "MT5"),
             "duration_ms": round((time.time() - t0) * 1000.0, 1),
             "verification": verification,
@@ -1063,6 +1291,111 @@ def _order_check_facts(raw: Any) -> Dict[str, Any]:
         "raw": verdict.get("raw") or check.get("raw"),
         "error": check.get("error") or check.get("exception"),
     }
+
+
+def _raw_result_repr(raw_result: Any) -> Optional[str]:
+    """A printable form of whatever the terminal returned (never a guess)."""
+    if raw_result is None:
+        return None
+    if isinstance(raw_result, dict):
+        try:
+            return json.dumps({k: str(v) for k, v in list(raw_result.items())[:12]},
+                              ensure_ascii=False)[:600]
+        except Exception:
+            return str({k: str(v) for k, v in list(raw_result.items())[:12]})[:600]
+    try:
+        return repr(raw_result)[:600]
+    except Exception:                                       # pragma: no cover - defensive
+        return "<unrepresentable>"
+
+
+#: mt5.last_error() codes that name a specific, actionable cause.
+_LAST_ERROR_ACTIONS = {
+    -10004: ("The terminal lost the IPC connection to the Python API (last_error -10004).",
+             "Re-open MetaTrader 5, log the demo account in again and confirm the terminal "
+             "shows 'Connected' before retrying."),
+    -10003: ("The terminal's Python API connection was reset (last_error -10003).",
+             "Restart the terminal, then verify in MT5 whether the order exists."),
+    -10001: ("The MetaTrader5 Python API was not initialized (last_error -10001).",
+             "Restart the dashboard backend from start.bat so it re-initializes the API."),
+    10027: ("The terminal reports algorithmic trading as disabled (last_error 10027).",
+            "Click the 'Algo Trading' button in the terminal toolbar and retry."),
+}
+
+
+def _unknown_next_actions(capability: Optional[Dict[str, Any]],
+                          diagnostic: Optional[Dict[str, Any]],
+                          *, last_error: Any = None,
+                          result_class: str = "NO_RESULT") -> List[Dict[str, Any]]:
+    """Ranked, actionable steps for an UNKNOWN outcome — from real facts only.
+
+    V5.3 §1: an UNKNOWN is never a dead end. Each step is derived from something
+    MT5 actually reported (a flag, a last_error code, a phase); when nothing
+    matches, the honest step is to export this block and verify in the terminal.
+    """
+    steps: List[Dict[str, Any]] = [{
+        "step": 1,
+        "action": ("Open MetaTrader 5 and check History / Trade tab for this symbol and the "
+                   "magic number in the request below before doing anything else."),
+        "why": ("order_send was called once; the request may have reached the broker, so the "
+                "position may already exist. This panel will never resend it."),
+    }]
+    diag = diagnostic if isinstance(diagnostic, dict) else {}
+    term = (diag.get("terminal") or {}) if isinstance(diag.get("terminal"), dict) else {}
+    acct = (diag.get("account") or {}) if isinstance(diag.get("account"), dict) else {}
+
+    if term.get("trade_allowed") is False:
+        steps.append({"step": len(steps) + 1, "action":
+                      "Click the 'Algo Trading' button in the MT5 toolbar (Tools -> Options -> "
+                      "Expert Advisors -> 'Allow algorithmic trading').",
+                      "why": "terminal_info().trade_allowed was False — the terminal was "
+                             "refusing to send, which is exactly what produces a silent "
+                             "no-result from order_send."})
+    if term.get("tradeapi_disabled") is True:
+        steps.append({"step": len(steps) + 1, "action":
+                      "Enable API/automated trading in Tools -> Options -> Expert Advisors and "
+                      "restart the terminal.",
+                      "why": "terminal_info().tradeapi_disabled was True."})
+    if acct.get("trade_expert") is False:
+        steps.append({"step": len(steps) + 1, "action":
+                      "Ask the broker to enable Expert/API trading on this account, or use the "
+                      "demo account issued for the lab.",
+                      "why": "account_info().trade_expert was False."})
+    if term.get("connected") is False:
+        steps.append({"step": len(steps) + 1, "action": "Reconnect the terminal to the trade server.",
+                      "why": "terminal_info().connected was False."})
+
+    err = last_error if isinstance(last_error, (list, tuple)) else None
+    code = None
+    if err:
+        try:
+            code = int(err[0])
+        except (TypeError, ValueError, IndexError):
+            code = None
+    if code in _LAST_ERROR_ACTIONS:
+        what, action = _LAST_ERROR_ACTIONS[code]
+        steps.append({"step": len(steps) + 1, "action": action, "why": what})
+
+    cap = capability if isinstance(capability, dict) else {}
+    for b in (cap.get("blockers") or []):
+        steps.append({"step": len(steps) + 1, "action": str(b.get("action") or ""),
+                      "why": f"pre-flight blocker {b.get('code')}: {b.get('fact')} = {b.get('value')}"})
+
+    if len(steps) == 1:
+        if result_class == "NO_USABLE_RESULT":
+            steps.append({"step": 2, "action":
+                          "Export this result (it contains the raw object MT5 returned, "
+                          "mt5.last_error(), the terminal/account/symbol state and the exact "
+                          "request) and send it for analysis.",
+                          "why": "The terminal answered with an object this build cannot read; "
+                                 "the raw payload above is the evidence needed to name the cause."})
+        else:
+            steps.append({"step": 2, "action":
+                          "Check that the terminal is logged in to the demo account shown above "
+                          "and that 'Algo Trading' is on, then restart the backend from start.bat.",
+                          "why": "order_send returned no object at all and no terminal flag "
+                                 "explains it — a stale API session is the remaining common cause."})
+    return steps
 
 
 def _final_status(interp: Dict[str, Any], verification: Dict[str, Any]) -> str:
@@ -1300,6 +1633,14 @@ def execution_state(bridge=None) -> Dict[str, Any]:
                    "is_simulated": bool(getattr(bridge, "is_simulated", False)),
                    "connected": bool(getattr(bridge, "_connected", False))},
         "account_safety": guard,
+        # V5.3 §1 — the panel printed "no account" while MT5 was logged in to the
+        # demo account, because only account_safety.account existed. The account
+        # (and the trading-capability flags) are now first-class here.
+        "account": guard.get("account"),
+        "account_type": ((guard.get("account") or {}).get("trade_mode_name")
+                         if guard.get("account") else None),
+        # side is left open here: this is the overview, not a specific order
+        "trade_capability": trade_capability(bridge, symbol=symbol),
         "execution_allowed": bool(guard.get("demo_verified")),
         "blocked_code": guard.get("blocked_code"),
         "blocked_reason": guard.get("blocked_reason"),

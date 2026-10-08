@@ -208,6 +208,7 @@ export function ManualOrderPanel({ defaultSymbol = "XAUUSD" }) {
   const blocked = objOrNull(preview?.blocked);
   const symbolInfo = objOrNull(preview?.symbol_info);
   const defaults = objOrNull(preview?.defaults);
+  const cap = objOrNull(state?.trade_capability);
 
   /* Market + execution state refresh (read-only).
    *
@@ -435,6 +436,42 @@ export function ManualOrderPanel({ defaultSymbol = "XAUUSD" }) {
         </div>
       )}
 
+      {/* V5.3 §1 — the read-only capability verdict: WHICH switch would stop an
+       *  order, taken from the terminal's own flags. It is shown before the
+       *  operator commits, so a silent "no result" can never again be the first
+       *  explanation they get. */}
+      {cap && (
+        <div className="kit-strip" style={{ border: "none", padding: 0, marginTop: 6, flexWrap: "wrap" }}>
+          <div className="item"><span className="k">Account</span>
+            <span className="v mono">{txt(state?.account?.login, "no account")} · {txt(state?.account_type || state?.account?.trade_mode_name, "DEMO ONLY")}</span></div>
+          <div className="item"><span className="k">Terminal trade allowed</span>
+            <span className="v mono">{txt(cap.terminal?.trade_allowed, "not reported")}</span></div>
+          <div className="item"><span className="k">API trading disabled</span>
+            <span className="v mono">{txt(cap.terminal?.tradeapi_disabled, "not reported")}</span></div>
+          <div className="item"><span className="k">Account trade / expert</span>
+            <span className="v mono">{txt(cap.account?.trade_allowed, "?")} / {txt(cap.account?.trade_expert, "?")}</span></div>
+          <div className="item"><span className="k">Symbol trade mode</span>
+            <span className="v mono">{txt(cap.symbol?.trade_mode_name, "not reported")}</span></div>
+          <div className="item"><span className="k">Pre-flight</span>
+            <span className="v mono">{cap.applicable === false ? "n/a — no real terminal"
+              : cap.send_permitted === false ? "BLOCKED" : "clear"}</span></div>
+        </div>
+      )}
+      {cap && cap.applicable === false && (
+        <div className="muted" style={{ marginTop: 4, fontSize: 12 }}>{txt(cap.headline)}</div>
+      )}
+      {cap && arr(cap.blockers).length > 0 && (
+        <div className="kit-inline-err" style={{ marginTop: 6 }}>
+          <b>Order sending is blocked by the terminal or the account — nothing is sent.</b>
+          {arr(cap.blockers).map((b, i) => (
+            <div key={i} style={{ marginTop: 2 }}>
+              • <b>{txt(b.code)}</b> — {txt(b.action)}{" "}
+              <span className="muted">({txt(b.fact)} = {txt(b.value)})</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="btn-row">
         <button className="btn" disabled={busy === "preview"} onClick={() => runPreview()}
                 title="Runs exactly the same backend preview the panel already runs automatically (250 ms after any change).">
@@ -542,6 +579,31 @@ export function ManualOrderPanel({ defaultSymbol = "XAUUSD" }) {
             <b>Broker message:</b> {txt(result.broker?.message ?? result.result_message ?? result.message, "none")}
             {result.broker?.warning ? <div className="muted">{result.broker.warning}</div> : null}
           </div>
+          {/* V5.3 §1 — an UNKNOWN is never a dead end: the raw facts that decide
+           *  the next move, straight from the terminal. */}
+          {result.ok === false && (
+            <div className="kit-strip" style={{ border: "none", padding: 0, marginTop: 4, flexWrap: "wrap" }}>
+              <div className="item"><span className="k">order_send called</span>
+                <span className="v mono">{txt(result.order_send?.called, "not reported")}</span></div>
+              <div className="item"><span className="k">mt5.last_error()</span>
+                <span className="v mono">{txt(result.order_send?.last_error ? JSON.stringify(result.order_send.last_error) : null, "none reported")}</span></div>
+              <div className="item"><span className="k">Diagnostic phase</span>
+                <span className="v mono">{txt(result.diagnostic?.phase, NA_TEXT)}</span></div>
+              <div className="item"><span className="k">Result class</span>
+                <span className="v mono">{txt(result.result_class, NA_TEXT)}</span></div>
+            </div>
+          )}
+          {result.ok === false && arr(result.next_actions).length > 0 && (
+            <div style={{ marginTop: 6, fontSize: 11.5 }}>
+              <b>What to check next — derived from the terminal's own facts:</b>
+              {arr(result.next_actions).map((a, i) => (
+                <div key={i} style={{ marginTop: 2 }}>
+                  {txt(a.step, i + 1)}. {txt(a.action)}
+                  {a.why ? <span className="muted"> — {txt(a.why)}</span> : null}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </Card>

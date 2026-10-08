@@ -114,10 +114,13 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
   const load = useCallback(async () => {
     setLoading(true); setErr(null);
     try {
+      // V5.3 §2 — unset filters are OMITTED (never sent as the string "undefined",
+      // which the API rejects with 422 and which left this table empty).
       const res = await api.nodes({
         filter, search: search || undefined, timeframe: timeframe || undefined,
-        starred_only: starredOnly || undefined, sort_by: sortBy, sort_desc: sortDesc,
-        limit: 0, offset: 0,
+        ...(starredOnly ? { starred_only: true } : {}),
+        sort_by: sortBy, sort_desc: sortDesc,
+        limit: 0,
       });
       if (res && res.ok === false) throw new Error(txt(res.error, "the node index refused the filter"));
       setRows(safeRows(res?.nodes));
