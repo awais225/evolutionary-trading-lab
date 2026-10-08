@@ -89,14 +89,45 @@ def _field(label: str, value: Any, note: str = "") -> None:
         print(f"  {label:<30}: {shown}")
 
 
+def _client_order_id() -> str:
+    """ONE identity per run.
+
+    §2.5 — the id names the attempt, so it has to be unique per attempt: the
+    executor refuses a `client_order_id` it already recorded (the duplicate gate
+    that stops a double click, a refresh or a restart from sending twice). A
+    second, deliberate forensic run is a NEW attempt and must not collide with
+    the previous one — hence seconds AND a random suffix, both logged.
+    """
+    import uuid
+    return f"forensic-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
+
+
 def _bool_txt(v: Any) -> Any:
     if v is None:
         return "not reported"
     return "YES" if v else "NO"
 
 
+def _default_root() -> Path:
+    """The checkout this script belongs to, whatever the current directory is.
+
+    A ZIP checkout is started from the explorer (double click) as often as from a
+    terminal, and the working directory then differs per machine — resolving the
+    root from this file's own location keeps "run it however you like" true.
+    """
+    here = Path(__file__).resolve()
+    for cand in (Path.cwd(), *(here.parents[i] for i in range(len(here.parents)))):
+        if (cand / "backend" / "app").is_dir():
+            return cand
+    return Path.cwd()
+
+
 def _bootstrap(root: Path) -> None:
     backend = root / "backend"
+    if not (backend / "app").is_dir():
+        raise SystemExit(
+            f"[FAIL] --root {root} has no backend/app — point --root at the "
+            f"repository root (the folder that contains backend\\ and frontend\\)")
     if str(backend) not in sys.path:
         sys.path.insert(0, str(backend))
     os.environ.setdefault("EVOLUTIONARY_LAB_DATA_ROOT", str(root / "DATA"))
@@ -397,7 +428,7 @@ def _print_report(facts: Dict[str, Any], send: Optional[Dict[str, Any]]) -> None
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="V5.3 MT5 DEMO execution forensics (real binding only)")
-    ap.add_argument("--root", default=".", help="repository root (default: current directory)")
+    ap.add_argument("--root", default="", help="repository root (default: this script's checkout)")
     ap.add_argument("--symbol", default="XAUUSD")
     ap.add_argument("--symbol-side", default="buy", choices=["buy", "sell"])
     ap.add_argument("--volume", type=float, default=0.03)
@@ -416,8 +447,9 @@ def main(argv=None) -> int:
     tee = _Tee(Path(args.log) if args.log else None)
     sys.stdout = tee
 
-    root = Path(args.root).resolve()
+    root = Path(args.root).resolve() if args.root else _default_root()
     _bootstrap(root)
+    print(f"checkout root: {root}")
 
     from app.mt5.factory import build_bridge
     from app.mt5 import execution as ex
@@ -456,7 +488,7 @@ def main(argv=None) -> int:
         payload = {"symbol": args.symbol, "side": args.symbol_side, "volume": args.volume,
                    "price": float(entry), "sl": sl, "tp": tp,
                    "magic": 777900, "comment": "evolab-forensic",
-                   "client_order_id": f"forensic-{int(time.time())}",
+                   "client_order_id": _client_order_id(),
                    "confirm": ex.PLACE_CONFIRMATION}
         print(f"sending ONE demo {args.symbol_side.upper()} {args.volume} {args.symbol} "
               f"(entry={entry} sl={sl} tp={tp}) — exactly one order_send attempt ...")
