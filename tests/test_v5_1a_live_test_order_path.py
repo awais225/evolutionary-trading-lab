@@ -60,7 +60,7 @@ class PathAssertingBridge(_v43.LiveTestBridge):
                     "raw": None, "error": "order_send returned None",
                     "last_error": [-10004, "No IPC connection"],
                     "exception": "RuntimeError: mt5.order_send returned None (last_error=[-10004, 'No IPC connection'])",
-                    "diagnostic": {"phase": "ORDER_SEND_NO_RESULT", "order_send_called": True,
+                    "diagnostic": {"phase": "ORDER_SEND_RETURNED_NONE", "order_send_called": True,
                                    "request": dict(request), "last_error": [-10004, "No IPC connection"],
                                    "symbol": {"point": 0.01, "digits": 2, "volume_min": 0.01},
                                    "account": {"login": 50123456, "trade_mode": 0,
@@ -207,7 +207,7 @@ def test_06_none_result_is_reported_as_no_result_with_the_last_error(wired, db):
     d = broker_ev["detail"]
     assert d["status"] == "UNKNOWN"
     assert d["result_class"] == "NO_RESULT"
-    assert d["diagnostic_phase"] == "ORDER_SEND_NO_RESULT"
+    assert d["diagnostic_phase"] == "ORDER_SEND_RETURNED_NONE"
     assert d["order_send"]["called"] is True
     assert d["order_send"]["last_error"] == [-10004, "No IPC connection"]
     assert d["safe_to_retry"] is False

@@ -92,7 +92,37 @@ def probe_terminal(path: str, *, timeout_ms: int = 60000) -> Dict[str, Any]:
 
     Returns a dict describing what was found; it never sends anything to the
     broker.  ``initialized`` says whether ``mt5.initialize(path)`` succeeded.
+
+    V5.3 §2.1 — this probe USED to call ``mt5.shutdown()`` at the end without
+    restoring anything.  That destroyed the IPC session the *order path* uses
+    while ``MT5RealBridge._connected`` still said True, so the next ``order_send``
+    was issued against a dead session and answered ``None`` — indistinguishable
+    from a broker refusal. Every probe now runs under the session lock and the
+    live session is re-established before the lock is released.
     """
+    from .mt5_real import SESSION_LOCK, session_snapshot, restore_session_from_snapshot
+    with SESSION_LOCK:
+        live = session_snapshot()
+        row = _probe_terminal_locked(path, timeout_ms=timeout_ms)
+        row["session_before_probe"] = {
+            "terminal_info_available": live.get("terminal_info_available"),
+            "account_login": live.get("account_login"),
+            "path": live.get("path"), "generation": live.get("generation")}
+        row["session_restored"] = False
+        row["session_after_probe"] = None
+        if live.get("terminal_info_available"):
+            # put the trading session back exactly as it was before the probe
+            restored = restore_session_from_snapshot(live)
+            row["session_restored"] = bool(restored.get("restored"))
+            row["session_after_probe"] = restored
+            if not restored.get("restored"):
+                log.error("[V5.3] the live MT5 session could NOT be restored after probing "
+                          "%s: %s", path, restored.get("reason"))
+        return row
+
+
+def _probe_terminal_locked(path: str, *, timeout_ms: int = 60000) -> Dict[str, Any]:
+    """The actual probe. Called with SESSION_LOCK held (never directly)."""
     mt5, reason, _ = _mt5_module()
     row: Dict[str, Any] = {"path": path, "initialized": False, "connected": False,
                            "login": None, "server": None, "company": None,
@@ -147,6 +177,8 @@ def probe_terminal(path: str, *, timeout_ms: int = 60000) -> Dict[str, Any]:
     finally:
         try:
             mt5.shutdown()
+            from .mt5_real import _session_mark
+            _session_mark(initialized=False, by="accounts.probe_terminal")
         except Exception:
             pass
     try:

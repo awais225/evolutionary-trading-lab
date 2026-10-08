@@ -412,7 +412,7 @@ def test_21_when_the_terminal_returns_nothing_last_error_is_captured(terminal, b
     assert out["ok"] is False and out["called"] is True and out["call_count"] == 1
     assert out["last_error"] == [-10004, "No IPC connection"]
     diag = out["diagnostic"]
-    assert diag["phase"] == "ORDER_SEND_NO_RESULT"
+    assert diag["phase"] == "ORDER_SEND_RETURNED_NONE"
     assert diag["last_error_name"] and "no IPC connection" in diag["last_error_name"]
     assert diag["check"]["ok"] is True                    # the check that preceded it
     assert diag["filling_resolution"]["name"] == "ORDER_FILLING_RETURN"
@@ -424,7 +424,7 @@ def test_22_an_exception_is_named_with_its_type(terminal, bridge):
     terminal.send_behaviour = "raise"
     out = bridge.send_market_order(_request(filling=2))
     assert out["exception_type"] == "RuntimeError"
-    assert out["diagnostic"]["phase"] == "ORDER_SEND_RAISED"
+    assert out["diagnostic"]["phase"] == "ORDER_SEND_EXCEPTION"
     assert any("socket closed" in ln for ln in out["diagnostic"]["exception"]["traceback_tail"])
 
 
@@ -479,7 +479,7 @@ def test_24_no_result_is_a_precise_unknown_and_never_a_second_send(
     assert res["result_class"] == "NO_RESULT"
     assert res["broker"]["safe_to_retry"] is False
     assert res["order_send"]["called"] is True
-    assert res["diagnostic"]["phase"] == "ORDER_SEND_NO_RESULT"
+    assert res["diagnostic"]["phase"] == "ORDER_SEND_RETURNED_NONE"
     assert "No IPC connection" in res["broker"]["message"]
     assert terminal.order_send_calls == 1
 

@@ -52,6 +52,14 @@ LEGACY_PROTECT = (
 )
 USER_ROWS = "NOT " + LEGACY_PROTECT
 
+#: The classifier above treats every row with ``id <= 787`` as historical
+#: infrastructure (the ~787 legacy development records), so a fresh study must
+#: never be allocated an id inside that band — it would be misclassified as
+#: LEGACY_TEST and disappear from the research population. The identity
+#: allocator reset therefore never lands BELOW this ceiling.
+#: (Mirrors app/db/database.py:402 and app/evolution/engine.py:46.)
+LEGACY_ID_CEILING = 787
+
 # Tables that reference strategies(strategy_id) and therefore belong to the
 # research-run state that is backed up / reset together with the nodes.
 STRATEGY_DEPENDENT_TABLES: Tuple[str, ...] = (
@@ -59,6 +67,14 @@ STRATEGY_DEPENDENT_TABLES: Tuple[str, ...] = (
     "matrices", "mt5_backtests", "mt5_demo_configs", "paper_trades",
     "research_shortlist", "strategy_pipeline_states", "validations",
 )
+
+#: V5.3 §4 — every table whose AUTOINCREMENT high-water mark is part of the
+#: *study identity*. Deleting rows does NOT lower a SQLite AUTOINCREMENT sequence,
+#: so without an explicit reset the first node of a fresh study continues the
+#: deleted study's numbering (the exact defect the operator reported: a new study
+#: starting at Node_10788 instead of Node_1). The reset sets each sequence back to
+#: the highest id that actually SURVIVES, which is what a plain table would do.
+IDENTITY_SEQUENCE_TABLES: Tuple[str, ...] = ("strategies",) + STRATEGY_DEPENDENT_TABLES
 
 #: Run-scoped state that carries no run_id of its own and therefore cannot be
 #: filtered per run: it has to be cleared as a whole, otherwise the *new* run
@@ -432,30 +448,101 @@ def _reset_statements(existing: Optional[set] = None) -> List[Tuple[str, str, tu
         stmts.append((tbl, "DELETE FROM %s" % tbl, ()))
     if existing is None or "strategies" in existing:
         stmts.append(("strategies", "DELETE FROM strategies WHERE " + USER_ROWS, ()))
+    # V5.3 §4 — reset the identity allocators IN THE SAME TRANSACTION as the
+    # deletes. `seq` is set to the highest surviving id, so the next id is
+    # allocated from the surviving population instead of continuing the deleted
+    # study (never "leave the counter at 10814 because the rows are gone").
+    if existing is None or "sqlite_sequence" in existing:
+        for tbl in IDENTITY_SEQUENCE_TABLES:
+            if existing is not None and tbl not in existing:
+                continue
+            stmts.append((
+                "identity_sequence:%s" % tbl,
+                # rowid is valid on every SQLite table (for `strategies` it IS the
+                # primary key); `id` does not exist on every dependent table.
+                # `strategies` additionally never re-enters the legacy id band.
+                "UPDATE sqlite_sequence SET seq=MAX(COALESCE((SELECT MAX(rowid) FROM %s),0), %d) "
+                "WHERE name=?" % (tbl, LEGACY_ID_CEILING if tbl == "strategies" else 0),
+                (tbl,)))
     return stmts
 
 
+def _sequence_value(db, table: str) -> Optional[int]:
+    """The AUTOINCREMENT high-water mark of ``table`` (None when it has none)."""
+    try:
+        row = db.one("SELECT seq FROM sqlite_sequence WHERE name=?", (table,))
+        return int(row["seq"]) if row else 0
+    except Exception:
+        return None
+
+
+def _next_id_preview(db, table: str) -> Optional[int]:
+    """What id the NEXT insert into ``table`` would receive (read-only)."""
+    try:
+        row = db.one("SELECT COALESCE(MAX(rowid),0) m FROM %s" % table)
+        live = int(row["m"]) if row else 0
+    except Exception:
+        return None
+    seq = _sequence_value(db, table)
+    if seq is None:
+        return live + 1
+    return (max(seq, live)) + 1
+
+
 def reset_user_research() -> Dict[str, Any]:
-    """Atomically delete the USER_RESEARCH research state; LEGACY_TEST untouched."""
+    """Atomically delete the USER_RESEARCH research state; LEGACY_TEST untouched.
+
+    V5.3 §4 — this also RESETS THE NODE IDENTITY ALLOCATOR. Deleting rows does not
+    lower a SQLite AUTOINCREMENT sequence, so before this the first node of a
+    fresh study continued the deleted study's numbering (Node_10788 instead of
+    Node_1). The allocator now lands on the highest id that survives, and the
+    study-local node number restarts at 1.
+    """
     db = get_db()
     before = counts()
+    sequences_before = {t: _sequence_value(db, t) for t in IDENTITY_SEQUENCE_TABLES}
+    next_id_before = _next_id_preview(db, "strategies")
     stmts = _reset_statements(existing_tables(db))
     rowcounts = db.transaction([(sql, args) for _, sql, args in stmts])
     deleted_dependents = {label: c for (label, _, _), c in zip(stmts, rowcounts)}
     after = counts()
+    sequences_after = {t: _sequence_value(db, t) for t in IDENTITY_SEQUENCE_TABLES}
+    next_id_after = _next_id_preview(db, "strategies")
     result = {
         "ok": True,
         "deleted_strategies": int(deleted_dependents.get("strategies", 0)),
-        "deleted_dependents": {k: v for k, v in deleted_dependents.items() if k != "strategies"},
+        "deleted_dependents": {k: v for k, v in deleted_dependents.items()
+                               if k != "strategies" and not k.startswith("identity_sequence:")},
         "user_research_before": before["user_research_nodes"],
         "user_research_after": after["user_research_nodes"],
         "legacy_test_before": before["legacy_test_nodes"],
         "legacy_test_after": after["legacy_test_nodes"],
         "legacy_untouched": before["legacy_test_nodes"] == after["legacy_test_nodes"],
+        # ---- V5.3 §4: the identity allocator, before and after --------------
+        "identity_allocator": {
+            "table": "strategies",
+            "sequence_before": sequences_before.get("strategies"),
+            "sequence_after": sequences_after.get("strategies"),
+            "max_surviving_id": max(0, (next_id_after or 1) - 1),
+            "next_strategy_id_before_reset": next_id_before,
+            "next_strategy_id_after_reset": next_id_after,
+            "legacy_id_ceiling": LEGACY_ID_CEILING,
+            "next_node_number": 1,
+            "reset": bool(sequences_before.get("strategies") != sequences_after.get("strategies")),
+            "rule": ("an AUTOINCREMENT high-water mark is not lowered by DELETE, so the reset "
+                     "sets it to the highest surviving id explicitly; the study-local node "
+                     "number always restarts at 1"),
+        },
+        "sequences_reset": {t: {"before": sequences_before.get(t), "after": sequences_after.get(t)}
+                            for t in IDENTITY_SEQUENCE_TABLES
+                            if sequences_before.get(t) != sequences_after.get(t)},
     }
-    log.info("[RESEARCH-RUN] reset: %d user nodes deleted; legacy %d -> %d (untouched=%s)",
-             result["deleted_strategies"], result["legacy_test_before"], result["legacy_test_after"],
-             result["legacy_untouched"])
+    log.info("[RESEARCH-RUN] reset: %d user nodes deleted (ids %s -> next id %s); legacy %d -> %d "
+             "(untouched=%s); sequence %s -> %s",
+             result["deleted_strategies"], next_id_before, next_id_after,
+             result["legacy_test_before"], result["legacy_test_after"],
+             result["legacy_untouched"], sequences_before.get("strategies"),
+             sequences_after.get("strategies"))
     return result
 
 
@@ -524,10 +611,22 @@ def fresh_preview(mode: str = "backup_and_reset", target: Optional[int] = None) 
             "run_id": "a new RUN-YYYYMMDD-HHMMSS id is allocated by the existing run machinery",
             "population": fresh_target,
             "first_node_number": 1,
-            "node_numbering": ("experiment-local: the first node of the fresh run is Node_1 and the "
-                               "previous run's numbers are never continued"),
+            "node_numbering": ("study-local: the first node of the fresh study is Node_1 and the "
+                               "previous study's numbers are never continued"),
             "generation": 0,
             "target_is_the_fresh_runs_own_limit": True,
+            # V5.3 §4 — the allocator fact is part of the promise, so the operator can
+            # compare the preview with the result afterwards.
+            "identity_allocator": {
+                "table": "strategies",
+                "sequence_now": _sequence_value(db, "strategies"),
+                "next_strategy_id_now": _next_id_preview(db, "strategies"),
+                "next_node_number_now": next_number,
+                "next_strategy_id_after_reset": None,
+                "surviving_rows_keep_their_ids": ("LEGACY_TEST rows are never touched, so the "
+                                                  "allocator lands on the highest id that "
+                                                  "survives the reset"),
+            },
         },
         "current": {
             "run_id": ctx["run_id"],
@@ -537,8 +636,10 @@ def fresh_preview(mode: str = "backup_and_reset", target: Optional[int] = None) 
             "max_generation": c["max_user_generation"],
             "max_strategy_id": c["max_strategy_id"],
         },
-        "id_policy": ("stored row ids keep advancing (the SQLite primary key is never renumbered) "
-                      "while the experiment-local node number restarts at 1 — no offset tricks are "
+        "id_policy": ("the study-local node number restarts at 1. The stored row id is the "
+                      "audit key and is NEVER reused while its row exists; after a delete-all the "
+                      "allocator is reset to the highest SURVIVING id, so a fresh study never "
+                      "continues the deleted study's row numbering (V5.3 §4). No offset trick is "
                       "applied to make a count look right"),
         "backups": list_research_backups(limit=5),
         "operation": operation_status(),
@@ -566,10 +667,19 @@ def _init_fresh_run(target: int, start: bool) -> Dict[str, Any]:
     if start:
         res = lab.start(mode="continuous", run_type="resume")
         started = bool(res.get("ok"))
+    # V5.3 §4 — prove the fresh study's identity starts where it is documented to
+    # start: it has no nodes of its own yet, so its first node number is 1.
+    try:
+        run_rows = int(get_db().one("SELECT COUNT(*) c FROM strategies WHERE run_id=?",
+                                    (new_run_id,))["c"])
+    except Exception:
+        run_rows = 0
     return {
         "run_id": new_run_id,
         "target": int(target),
         "started": started,
+        "first_node_number": 1 if run_rows == 0 else run_rows + 1,
+        "run_node_rows": run_rows,
         "reconstructed_total_nodes": int(state_rebuilt.get("total_nodes", 0)),
         # §4/§25 — the fresh run's generation is the *experiment-scoped* one. Reading
         # the database-wide maximum would report the retired population's counter
@@ -650,6 +760,8 @@ def start_fresh_run(mode: str, confirm: str, target: Optional[int] = None,
                 "legacy_test_nodes": after["legacy_test_nodes"],
                 "legacy_untouched": reset["legacy_untouched"] and after["legacy_test_nodes"] == before["legacy_test_nodes"],
                 "generation": init["generation"],
+                "first_node_number": init.get("first_node_number"),
+                "next_node_number": init.get("first_node_number"),
             }
             with _op_lock:
                 _op["result"] = result

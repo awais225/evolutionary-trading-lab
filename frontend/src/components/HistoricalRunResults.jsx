@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { api, fmt } from "../api.js";
 import { NA, money, pct, ratio, val } from "./NodeResearchDetail.jsx";
 import { arr, txt } from "../lib/safe.js";
+import { nodeLabel } from "./ui.jsx";
 import { StatusPill } from "./HistoricalBacktestPanel.jsx";
 
 /* V4.6 — HISTORICAL MT5 BACKTEST result view.
@@ -127,7 +128,9 @@ export default function HistoricalRunResults({ runId, onClose, runsForSelection 
         <>
           {/* ---------------- run information ---------------- */}
           <div style={{ marginTop: 10, ...GRID }}>
-            <MetricBox label="node" value={<span>Node_{run.strategy_id}</span>} />
+            <MetricBox label="node"
+                       value={<span>{nodeLabel({ research_node_num: run.research_node_num,
+                                                id: run.strategy_id })}</span>} />
             <MetricBox label="symbol / timeframe" value={`${run.symbol} ${run.timeframe}`} />
             <MetricBox label="period (UTC)" value={`${String(run.period?.start || "").slice(0, 10)} → ${String(run.period?.end || "").slice(0, 10)}`} />
             <MetricBox label="bars" value={run.period?.bars ?? "N/A"} />

@@ -3,6 +3,7 @@ import { fmt } from "../api.js";
 import { Card, Spinner } from "./common.jsx";
 import { NA, money, pct, ratio } from "./NodeResearchDetail.jsx";
 import { txt } from "../lib/safe.js";
+import { nodeLabel } from "./ui.jsx";
 
 /* V4.5 Backtest Matrix — comparison table over stored research results.
  *
@@ -23,7 +24,7 @@ const LAYER_TONE = {
   EXECUTION: "#ffcf6b",
 };
 
-function cell(value, column) {
+function cell(value, column, row) {
   const key = column.key;
   if (key === "execution_records") {
     const ex = value || {};
@@ -47,7 +48,9 @@ function cell(value, column) {
     return ratio(value, key === "expectancy" ? 4 : 3);
   }
   if (key === "validation_passed" || key === "qualified") return value ? "YES" : "NO";
-  if (key === "id") return <span className="mono">Node_{value}</span>;
+  // V5.3 §4 — the node identity is the study-local number (research_node_num),
+  // never the row id: the id allocator restarts after "delete all previous data".
+  if (key === "id") return <span className="mono">{nodeLabel(row || value)}</span>;
   if (key === "generation") return <span className="mono">G{value}</span>;
   if (typeof value === "number") return <span className="mono">{fmt.num(value, 0)}</span>;
   return <span className="mono">{String(value)}</span>;
@@ -123,7 +126,8 @@ export default function BacktestMatrixTable({ data, loading, error, emptyHint, o
                     <td key={c.key} style={{ textAlign: ["id", "generation", "symbol", "timeframe", "status", "stage"].includes(c.key) ? "left" : "right" }}>
                       {c.key === "status" ? (
                         <span className="pill" style={{ fontSize: 9 }}>{r.row?.status || "—"}</span>
-                      ) : cell(c.key === "id" ? node.id : r.row?.[c.key], c)}
+                      ) : cell(c.key === "id" ? node.id : r.row?.[c.key], c,
+                              c.key === "id" ? (node || {}) : r.row)}
                       {c.key === "id" && legacy ? (
                         <span className="pill" style={{ fontSize: 9, marginLeft: 6 }}
                               title="LEGACY_TEST infrastructure record — diagnostic scope only">LEGACY</span>

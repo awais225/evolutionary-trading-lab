@@ -21,6 +21,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { api } from "../api";
 import { Card, Progress } from "./ui";
 import { arr, txt } from "../lib/safe.js";
+import { nodeLabel } from "./ui.jsx";
 
 const TONE = {
   READY: "var(--green)",
@@ -289,7 +290,8 @@ export default function DeepDataPanel({ onReadiness }) {
                 <tbody>
                   {notReady.slice(0, 25).map((n) => (
                     <tr key={n.node_id}>
-                      <td className="mono">Node_{n.node_id}</td>
+                      <td className="mono">{nodeLabel({ research_node_num: n.research_node_num,
+                                                        id: n.node_id })}</td>
                       <td className="mono">{txt(n.symbol, "—")}</td>
                       <td className="mono">{txt(n.timeframe, "—")}</td>
                       <td className="mono">{fmtInt(n.stored_bars)}</td>

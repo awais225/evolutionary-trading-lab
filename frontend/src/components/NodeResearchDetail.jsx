@@ -2,6 +2,7 @@ import React, { useMemo } from "react";
 import { fmt } from "../api.js";
 import { Card, ErrorNote, Pill, Spinner } from "./common.jsx";
 import { arr, objOrNull, txt } from "../lib/safe.js";
+import { nodeLabel } from "./ui.jsx";
 
 /* V4.4/V4.5 shared node detail - RESEARCH RESULTS / NODE ECONOMICS /
  * EXECUTION RECORDS.
@@ -99,7 +100,8 @@ export default function NodeResearchDetail({ node, error, busy, onOpenStrategy, 
   return (
     <Card style={{ marginBottom: 14 }}>
       <h3>
-        Node_{txt(n.id, "unknown")}
+        {/* V5.3 §4 — the study-local identity (never the row id) */}
+        {nodeLabel(n)}
         <span className="mono muted" style={{ marginLeft: 10, fontSize: 12 }}>
           {txt(n.symbol, "—")} {txt(n.timeframe, "")} {txt(n.direction, "")}
         </span>

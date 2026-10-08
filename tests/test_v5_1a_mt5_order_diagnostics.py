@@ -259,7 +259,7 @@ def test_03_none_result_captures_last_error_and_never_claims_success(fake_pkg, r
     assert out["last_error"] == [-10004, "No IPC connection"]
     assert "-10004" in out["exception"]
     diag = out["diagnostic"]
-    assert diag["phase"] == "ORDER_SEND_NO_RESULT"
+    assert diag["phase"] == "ORDER_SEND_RETURNED_NONE"
     assert diag["last_error"] == [-10004, "No IPC connection"]
     assert diag["request"]["symbol"] == "XAUUSD"          # the exact request is kept
     assert diag["terminal"]["build"] == 6230
@@ -282,7 +282,7 @@ def test_04_none_result_through_place_demo_order_is_a_precise_unknown(
     assert "-10004" in res["broker"]["message"] and "No IPC connection" in res["broker"]["message"]
     assert res["broker"]["safe_to_retry"] is False
     assert res["order_send"]["called"] is True and res["order_send"]["last_error"] == [-10004, "No IPC connection"]
-    assert res["diagnostic"]["phase"] == "ORDER_SEND_NO_RESULT"
+    assert res["diagnostic"]["phase"] == "ORDER_SEND_RETURNED_NONE"
     assert res["order"]["ticket"] is None
     assert fake_pkg.order_send_calls == 1                 # NEVER retried
     row = temp_db.get_manual_mt5_orders()[0]
@@ -314,7 +314,7 @@ def test_06_an_exception_is_captured_with_type_message_and_traceback(fake_pkg, r
     assert out["exception_type"] == "RuntimeError"
     assert "socket exploded" in out["exception"]
     diag = out["diagnostic"]
-    assert diag["phase"] == "ORDER_SEND_RAISED"
+    assert diag["phase"] == "ORDER_SEND_EXCEPTION"
     assert diag["exception"]["type"] == "RuntimeError"
     assert any("socket exploded" in line for line in diag["exception"]["traceback_tail"])
 
@@ -328,7 +328,7 @@ def test_07_an_exception_through_place_demo_order_names_the_layer(
         res = ex.place_demo_order(_payload(), bridge=real_bridge)
     assert ei.value.code == "MT5_EXCEPTION"
     assert "socket exploded" in ei.value.message
-    assert ei.value.details["diagnostic"]["phase"] == "ORDER_SEND_RAISED"
+    assert ei.value.details["diagnostic"]["phase"] == "ORDER_SEND_EXCEPTION"
     assert fake_pkg.order_send_calls == 1
 
 

@@ -292,3 +292,23 @@ export function fmtId(id) {
   const n = parseNodeId(id);
   return n === null ? NA_TEXT : `Node_${n}`;
 }
+
+/* V5.3 §4 — the STUDY-LOCAL node identity.
+ *
+ * `research_node_num` is the experiment-local number: it restarts at 1 for every
+ * new study. The database row id is the internal audit key — it is NOT a node's
+ * identity, and after "delete all previous data" the allocator restarts, so a row
+ * id would otherwise show a node "continuing" the deleted study's numbering.
+ * Everything that labels a node uses this helper, so the number the operator
+ * reads and the number the backend counts are the same one. */
+export function nodeIdentity(row) {
+  if (row === null || row === undefined) return null;
+  if (typeof row === "number") return row;
+  const local = parseNodeId(row.research_node_num ?? row.node_number);
+  return local === null ? parseNodeId(row.id ?? row.node_id) : local;
+}
+
+export function nodeLabel(row) {
+  const n = nodeIdentity(row);
+  return n === null ? NA_TEXT : `Node_${n}`;
+}

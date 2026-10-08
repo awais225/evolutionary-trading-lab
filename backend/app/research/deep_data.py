@@ -191,6 +191,8 @@ def node_requirements(db: Any = None, rows: Optional[Iterable[Dict[str, Any]]] =
         sec = _tf_seconds(timeframe)
         req: Dict[str, Any] = {
             "node_id": sid, "symbol": symbol, "timeframe": timeframe,
+            # V5.3 §4 — the study-local identity travels with every node reference
+            "research_node_num": (row.get("research_node_num") if row else None),
             "why_in_union": list(m.get("why") or []),
             "has_genome": bool(has_genome_and_entry(row)) if row else None,
             "fields": list(DATA_FIELDS),

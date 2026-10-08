@@ -15,11 +15,13 @@ Real order sending (`real_market_order`) is implemented but is gated twice:
 from __future__ import annotations
 
 import logging
+import sys
+import threading
 import time
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from .bridge import (MarketBridge, Bar, Tick, SymbolInfo, AccountInfo,
                      OrderResult, TIMEFRAME_MINUTES)
@@ -43,6 +45,132 @@ except Exception as e:  # pragma: no cover - platform dependent
     MT5_IMPORT_ERROR = str(e)
 
 _TF_MAP = {}
+
+# ---------------------------------------------------------------------------
+# V5.3 §2.1 — ONE session lock for every operation that can create or destroy
+# the MetaTrader5 IPC session (initialize / shutdown) and for the order path
+# itself.  Several features legitimately re-initialize the terminal (account
+# discovery probes every installed terminal, the account selector switches
+# terminal, the connection monitor reconnects).  Without this lock a probe that
+# shuts the terminal down can land *between* `order_check` and `order_send`,
+# and `order_send` then answers `None` — indistinguishable from a broker
+# refusal unless the session state is captured.  The lock makes that
+# interleaving impossible; it never retries an order.
+# ---------------------------------------------------------------------------
+SESSION_LOCK = threading.RLock()
+_SESSION: Dict[str, Any] = {
+    "initialized": False,      # the MetaTrader5 package has a live IPC session
+    "path": "",                # terminal executable the session was created with
+    "login": 0, "server": "",  # account the session was created with
+    "generation": 0,           # bumped on every initialize/shutdown
+    "last_initialize_ts": 0.0,
+    "last_shutdown_ts": 0.0,
+    "last_shutdown_by": "",
+}
+
+
+def session_snapshot() -> Dict[str, Any]:
+    """The IPC session as the binding sees it right now (never guessed)."""
+    snap: Dict[str, Any] = dict(_SESSION)
+    snap["package_importable"] = bool(MT5_PACKAGE_AVAILABLE)
+    snap["python"] = sys.executable
+    snap["python_version"] = sys.version.split()[0]
+    snap["package_version"] = (getattr(mt5, "__version__", None)
+                              if MT5_PACKAGE_AVAILABLE else None)
+    snap["terminal_info_available"] = None
+    snap["terminal_info_supported"] = None
+    snap["terminal_connected"] = None
+    snap["terminal_trade_allowed"] = None
+    snap["account_login"] = None
+    if MT5_PACKAGE_AVAILABLE:
+        getter = getattr(mt5, "terminal_info", None)
+        snap["terminal_info_supported"] = callable(getter)
+        ti = None
+        if callable(getter):
+            try:
+                ti = getter()
+            except Exception as e:                                # pragma: no cover
+                ti = None
+                snap["terminal_info_error"] = f"{type(e).__name__}: {e}"
+                snap["terminal_info_supported"] = False
+        snap["terminal_info_available"] = (ti is not None) if callable(getter) else None
+        if ti is not None:
+            snap["terminal_connected"] = getattr(ti, "connected", None)
+            snap["terminal_trade_allowed"] = getattr(ti, "trade_allowed", None)
+            snap["terminal_path"] = getattr(ti, "path", None)
+            snap["terminal_build"] = getattr(ti, "build", None)
+        try:
+            ai = mt5.account_info()
+            snap["account_login"] = getattr(ai, "login", None) if ai is not None else None
+        except Exception:                                          # pragma: no cover
+            pass
+        try:
+            snap["last_error"] = mt5.last_error()
+        except Exception:                                          # pragma: no cover
+            snap["last_error"] = None
+    return snap
+
+
+def _session_mark(*, initialized: bool, path: str = "", login: int = 0, server: str = "",
+                  by: str = "") -> None:
+    with SESSION_LOCK:
+        _SESSION["initialized"] = bool(initialized)
+        if path:
+            _SESSION["path"] = path
+        _SESSION["login"] = int(login or 0) if login else _SESSION["login"]
+        if server:
+            _SESSION["server"] = server
+        _SESSION["generation"] = int(_SESSION.get("generation") or 0) + 1
+        if initialized:
+            _SESSION["last_initialize_ts"] = time.time()
+        else:
+            _SESSION["last_shutdown_ts"] = time.time()
+            _SESSION["last_shutdown_by"] = by or "unknown"
+
+
+def restore_session_from_snapshot(snapshot: Dict[str, Any]) -> Dict[str, Any]:
+    """Re-create the IPC session described by ``snapshot`` (V5.3 §2.1).
+
+    Used after a read-only probe (account discovery, terminal switch) shut the
+    terminal down: the *trading* session must be back before the session lock is
+    released, or the next `order_send` would be issued against a dead session and
+    answer `None`. Takes no lock of its own — callers hold ``SESSION_LOCK``.
+    """
+    out: Dict[str, Any] = {"restored": False, "reason": "", "path": snapshot.get("path") or "",
+                           "login": snapshot.get("login") or 0,
+                           "server": snapshot.get("server") or ""}
+    if not MT5_PACKAGE_AVAILABLE:
+        out["reason"] = "MetaTrader5 package not importable"
+        return out
+    kwargs: Dict[str, Any] = {"timeout": 60000}
+    if out["login"]:
+        # the password is NEVER stored in a snapshot; a same-terminal re-initialize
+        # uses the terminal's existing session (login only)
+        kwargs.update({"login": int(out["login"]), "server": out["server"]})
+    try:
+        ok = (mt5.initialize(path=str(out["path"]), **kwargs) if out["path"]
+              else mt5.initialize(**kwargs))
+    except Exception as e:                                        # pragma: no cover
+        ok = False
+        out["reason"] = f"initialize raised: {type(e).__name__}: {e}"
+    if not ok:
+        try:
+            out["reason"] = out["reason"] or f"mt5.initialize failed: {mt5.last_error()}"
+        except Exception:                                          # pragma: no cover
+            out["reason"] = out["reason"] or "mt5.initialize failed"
+        return out
+    _session_mark(initialized=True, path=out["path"], login=int(out["login"] or 0),
+                  server=out["server"], by="restore_session_from_snapshot")
+    out["restored"] = True
+    try:
+        ai = mt5.account_info()
+        out["account_login"] = getattr(ai, "login", None) if ai is not None else None
+        out["account_ok"] = (out["account_login"] is not None)
+    except Exception:                                              # pragma: no cover
+        out["account_ok"] = None
+    log.info("[V5.3] restored the live MT5 session after a probe (path=%s login=%s)",
+             out["path"], out["login"])
+    return out
 
 
 def _tf_const(timeframe: str):
@@ -113,37 +241,44 @@ class MT5RealBridge(MarketBridge):
                            "server": self._server})
 
         ok = False
-        # Try target path first if available
-        if target_path:
-            try:
-                ok = mt5.initialize(path=str(target_path), **kwargs)
-                if ok:
-                    log.info("Initialized MT5 with specified path: %s", target_path)
-            except Exception as e:
-                log.warning("MT5 initialize with path %s failed: %s", target_path, e)
+        used_path = ""
+        # V5.3 §2.1 — the whole initialize sequence is serialized against the order
+        # path and against every other session user (account probes, account switch,
+        # monitor reconnect): an initialize/shutdown can never land mid-order.
+        with SESSION_LOCK:
+            # Try target path first if available
+            if target_path:
+                try:
+                    ok = mt5.initialize(path=str(target_path), **kwargs)
+                    if ok:
+                        used_path = str(target_path)
+                        log.info("Initialized MT5 with specified path: %s", target_path)
+                except Exception as e:
+                    log.warning("MT5 initialize with path %s failed: %s", target_path, e)
 
-        # If still not connected, try standard auto-discovery
-        if not ok:
-            try:
-                ok = mt5.initialize(**kwargs)
-                if ok:
-                    log.info("Initialized MT5 via automatic discovery.")
-            except Exception as e:
-                self._last_error = f"initialize exception: {e}"
+            # If still not connected, try standard auto-discovery
+            if not ok:
+                try:
+                    ok = mt5.initialize(**kwargs)
+                    if ok:
+                        log.info("Initialized MT5 via automatic discovery.")
+                except Exception as e:
+                    self._last_error = f"initialize exception: {e}"
 
-        # If still not connected, try discovered terminals
-        if not ok:
-            terminals = discover_terminals()
-            for term in terminals:
-                t_path = term.get("path")
-                if t_path and Path(t_path).exists():
-                    try:
-                        ok = mt5.initialize(path=str(t_path), **kwargs)
-                        if ok:
-                            log.info("Initialized MT5 using discovered terminal: %s", t_path)
-                            break
-                    except Exception:
-                        continue
+            # If still not connected, try discovered terminals
+            if not ok:
+                terminals = discover_terminals()
+                for term in terminals:
+                    t_path = term.get("path")
+                    if t_path and Path(t_path).exists():
+                        try:
+                            ok = mt5.initialize(path=str(t_path), **kwargs)
+                            if ok:
+                                used_path = str(t_path)
+                                log.info("Initialized MT5 using discovered terminal: %s", t_path)
+                                break
+                        except Exception:
+                            continue
 
         if not ok:
             try:
@@ -154,6 +289,8 @@ class MT5RealBridge(MarketBridge):
             return False
 
         self._connected = True
+        _session_mark(initialized=True, path=used_path or self._path,
+                      login=int(self._login or 0), server=self._server, by="connect")
         self._refresh_identity()
         log.info("MT5 terminal connected: %s (Build %s, %s)",
                  self._terminal_name, self._terminal_build, self._terminal_company)
@@ -181,8 +318,8 @@ class MT5RealBridge(MarketBridge):
             report["last_error"] = (f"MetaTrader5 python package not available "
                                     f"({MT5_IMPORT_ERROR}). pip install MetaTrader5 on Windows.")
             return report
-        # 1. tear down whatever we were using before switching
-        self.disconnect()
+        # 1. tear down whatever we were using before switching (recorded)
+        self.disconnect(by="switch_to_path")
         # 2. initialize exactly the requested terminal (never auto-discovery here:
         #    the operator asked for *this* account)
         self._path = requested
@@ -205,6 +342,8 @@ class MT5RealBridge(MarketBridge):
             self._connected = False
             return report
         self._connected = True
+        _session_mark(initialized=True, path=requested, login=int(login or 0),
+                      server=str(server or ""), by="switch_to_path")
         self._refresh_identity()
         try:
             ti = mt5.terminal_info()
@@ -275,17 +414,29 @@ class MT5RealBridge(MarketBridge):
         except Exception:
             pass
 
-    def disconnect(self) -> None:
-        if self._connected and MT5_PACKAGE_AVAILABLE:
-            try:
-                mt5.shutdown()
-            except Exception:
-                pass
+    def disconnect(self, by: str = "bridge.disconnect") -> None:
+        # V5.3 §2.1 — a shutdown may only happen under the session lock, and it is
+        # recorded: "order_send answered None" must be attributable to whoever tore
+        # the session down, with a timestamp.
+        with SESSION_LOCK:
+            if self._connected and MT5_PACKAGE_AVAILABLE:
+                try:
+                    mt5.shutdown()
+                except Exception:
+                    pass
+                _session_mark(initialized=False, by=by)
         self._connected = False
         self._terminal_build = None
         self._terminal_company = ""
         self._terminal_path = ""
         self._terminal_name = ""
+
+    def session_state(self) -> Dict[str, Any]:
+        """V5.3 §2.1 — this bridge's IPC session, as the binding reports it."""
+        snap = session_snapshot()
+        snap["bridge_connected"] = bool(self._connected)
+        snap["bridge_path"] = self._path or snap.get("path")
+        return snap
 
     def status(self) -> Dict:
         pkg_ver = getattr(mt5, "__version__", "not installed") if MT5_PACKAGE_AVAILABLE else None
@@ -576,96 +727,263 @@ class MT5RealBridge(MarketBridge):
         return {"ok": bool(verdict["ok"]), "retcode": verdict["retcode"], "raw": raw,
                 "verdict": verdict}
 
+    def _ensure_order_session(self) -> Dict[str, Any]:
+        """V5.3 §2.1 — is there a *live* IPC session for the order we are about to send?
+
+        `order_check` is answered by the terminal client and can pass while the
+        Python binding has no live session at all; `order_send` then returns
+        `None`. Several features re-initialize the terminal (account probes, the
+        account selector, the connection monitor), so before sending we state
+        whether a session exists, and — only if it does not — re-establish the
+        SAME terminal/account once. This recovers a session; it never re-sends an
+        order (nothing has been sent yet at this point).
+        """
+        out: Dict[str, Any] = {"checked": True, "recovered": False, "ok": True,
+                               "session_before": session_snapshot()}
+        if not MT5_PACKAGE_AVAILABLE:
+            out["ok"] = False
+            out["reason"] = "the MetaTrader5 package is not importable in this interpreter"
+            return out
+        if out["session_before"].get("terminal_info_available"):
+            return out
+        if out["session_before"].get("terminal_info_supported") is not True:
+            # This binding cannot answer the question: report it and do NOT block —
+            # an unknown must never refuse an order (the send is still instrumented,
+            # so a silent None is captured with its last_error either way).
+            out["reason"] = ("this MetaTrader5 build exposes no terminal_info(), so the IPC "
+                             "session state cannot be read — proceeding and recording the "
+                             "outcome")
+            out["unknown"] = True
+            return out
+        # No session: the terminal was shut down or never initialized here.
+        out["recovered_attempt"] = self.connect()
+        out["session_after"] = session_snapshot()
+        out["recovered"] = bool(out["session_after"].get("terminal_info_available"))
+        out["ok"] = out["recovered"]
+        if not out["ok"]:
+            out["reason"] = ("no live MetaTrader5 session: mt5.terminal_info() is None and "
+                             "re-initializing the terminal failed "
+                             f"(mt5.last_error={out['session_after'].get('last_error')})")
+            log.error("[V5.3] order session unavailable: %s", out["reason"])
+        else:
+            self._connected = True
+            log.warning("[V5.3] order session was gone (shutdown by %s at %s) - re-initialized "
+                        "before sending; no order had been sent",
+                        out["session_before"].get("last_shutdown_by"),
+                        out["session_before"].get("last_shutdown_ts"))
+        return out
+
+    def verify_sent_order(self, request: Dict, raw_result: Optional[Dict] = None) -> Dict[str, Any]:
+        """V5.3 §2.6 — the ACTUAL terminal state after a send (never inferred).
+
+        Positions and orders are read from the terminal and filtered by this
+        account's symbol + magic, plus the tickets the broker returned. This is
+        the only thing that may be described as "the order exists".
+        """
+        symbol = str((request or {}).get("symbol") or "")
+        magic = int((request or {}).get("magic") or 0)
+        want_ticket = None
+        want_deal = None
+        if isinstance(raw_result, dict):
+            for key in ("order", "request_id"):
+                try:
+                    val = int(raw_result.get(key) or 0)
+                except (TypeError, ValueError):
+                    val = 0
+                if val and want_ticket is None:
+                    want_ticket = val
+            try:
+                want_deal = int(raw_result.get("deal") or 0) or None
+            except (TypeError, ValueError):
+                want_deal = None
+        rep: Dict[str, Any] = {"queried": True, "symbol": symbol, "magic": magic,
+                               "by_ticket": want_ticket, "by_deal": want_deal,
+                               "positions": [], "orders": [], "verified": False,
+                               "errors": []}
+        try:
+            rows = mt5.positions_get(symbol=symbol) if (MT5_PACKAGE_AVAILABLE and symbol) else None
+            for r in (rows or []):
+                d = _pos_to_dict(r)
+                if int(d.get("magic") or 0) in (magic, 0) or (want_ticket and
+                                                              int(d.get("ticket") or 0) == want_ticket):
+                    rep["positions"].append(d)
+        except Exception as e:                                        # pragma: no cover
+            rep["errors"].append(f"positions_get: {type(e).__name__}: {e}")
+        try:
+            rows = mt5.orders_get(symbol=symbol) if (MT5_PACKAGE_AVAILABLE and symbol) else None
+            for r in (rows or []):
+                d = _order_to_dict(r)
+                if int(d.get("magic") or 0) in (magic, 0) or (want_ticket and
+                                                              int(d.get("ticket") or 0) == want_ticket):
+                    rep["orders"].append(d)
+        except Exception as e:                                        # pragma: no cover
+            rep["errors"].append(f"orders_get: {type(e).__name__}: {e}")
+        rep["verified"] = bool(rep["positions"] or rep["orders"])
+        rep["verdict"] = ("an MT5 position/order for this symbol+magic exists in the terminal"
+                          if rep["verified"] else
+                          "NO position and NO order for this symbol+magic exists in the terminal")
+        return rep
+
     def send_market_order(self, request: Dict) -> Dict:
         """Send a fully-built MT5 order request (market order with real SL/TP).
 
         V5.1a §15 — the request is first put through the terminal's own
         `order_check`. When that check refuses, nothing is sent and the refusal
-        is returned with the terminal's retcode and comment.
+        is returned with the terminal's retcode and comment. A check that PASSES
+        is not an acceptance criterion: the order is then sent exactly once and
+        the ACTUAL `mt5.order_send()` outcome is captured (V5.3 §2.1/§2.2).
+
+        V5.3 §2.1 — the whole sequence (session check -> order_check -> order_send
+        -> post-send verification) runs inside the session lock, so a shutdown/
+        initialize from anywhere else cannot land in the middle of it; and the
+        binding-side outcome is recorded verbatim: `ORDER_SEND_RETURNED_NONE`,
+        `ORDER_SEND_EXCEPTION`, `ORDER_SEND_UNUSABLE_RESULT` or
+        `ORDER_SEND_RETURNED_RESULT` with `mt5.last_error()` BEFORE and AFTER the
+        call. Nothing is retried, nothing is invented.
 
         Returns {"ok", "retcode", "raw": <result as dict>, "unsupported",
-        "exception", "check": <order_check result>}. This is the ONLY place an
-        order leaves the application. Interpretation of the retcode is done by
-        app.mt5.execution.
+        "exception", "check": <order_check result>, "forensics", "session",
+        "verification"}. This is the ONLY place an order leaves the application.
         """
         if not self._connected or not MT5_PACKAGE_AVAILABLE:
             return {"ok": False, "unsupported": True, "retcode": None, "called": False,
                     "error": "MT5 terminal not connected",
+                    "session": session_snapshot(),
                     "diagnostic": self._execution_diagnostic(request, called=False,
                                                              phase="BRIDGE_NOT_CONNECTED")}
-        # V5.2 §1/§20 — the filling mode is derived from the symbol's own metadata
-        # and confirmed by the terminal's read-only order_check before anything is
-        # sent. Never hard-coded, never assumed from the request.
-        request, filling_resolution = self._resolve_request_filling(dict(request))
-        check = self.check_market_order(request)
-        if not check.get("unsupported") and not check.get("ok"):
-            raw_check = check.get("raw") or {}
-            return {"ok": False, "retcode": check.get("retcode"), "raw": raw_check,
-                    "check": check, "request": dict(request), "called": False,
-                    "filling_resolution": filling_resolution,
-                    "refused_by": "mt5.order_check",
-                    "error": (raw_check.get("comment")
-                              or f"order_check refused the order (retcode {check.get('retcode')})"),
-                    "diagnostic": self._execution_diagnostic(request, called=False,
-                                                             phase="ORDER_CHECK_REFUSED",
+        with SESSION_LOCK:
+            # V5.2 §1/§20 — the filling mode is derived from the symbol's own
+            # metadata and confirmed by the terminal's read-only order_check before
+            # anything is sent. Never hard-coded, never assumed from the request.
+            request, filling_resolution = self._resolve_request_filling(dict(request))
+            session = self._ensure_order_session()
+            if not session.get("ok"):
+                return {"ok": False, "retcode": None, "raw": None, "called": False,
+                        "unsupported": False, "session": {**(session or {}), "snapshot": session_snapshot()},
+                        "request": dict(request), "filling_resolution": filling_resolution,
+                        "error": session.get("reason"),
+                        "exception_type": "NoSession",
+                        "diagnostic": self._execution_diagnostic(
+                            request, called=False, phase="ORDER_SESSION_UNAVAILABLE",
+                            filling=filling_resolution)}
+            check = self.check_market_order(request)
+            if not check.get("unsupported") and not check.get("ok"):
+                raw_check = check.get("raw") or {}
+                return {"ok": False, "retcode": check.get("retcode"), "raw": raw_check,
+                        "check": check, "request": dict(request), "called": False,
+                        "session": {**(session or {}), "snapshot": session_snapshot()},
+                        "filling_resolution": filling_resolution,
+                        "refused_by": "mt5.order_check",
+                        "error": (raw_check.get("comment")
+                                  or f"order_check refused the order (retcode {check.get('retcode')})"),
+                        "diagnostic": self._execution_diagnostic(request, called=False,
+                                                                 phase="ORDER_CHECK_REFUSED",
+                                                                 check=check,
+                                                                 filling=filling_resolution)}
+            # ------------------------------------------------------------------
+            # V5.3 §2.1 — THE call. Exactly once. Both last_error() values and the
+            # result object are captured; no exception is swallowed.
+            # ------------------------------------------------------------------
+            last_error_before = self._last_error_safe()
+            result = None
+            raised: Optional[BaseException] = None
+            tb_tail: Optional[List[str]] = None
+            t0 = time.time()
+            try:
+                result = mt5.order_send(dict(request))
+            except BaseException as e:                # noqa: BLE001 - must be reported, not swallowed
+                raised = e
+                tb_tail = traceback.format_exc().strip().splitlines()[-8:]
+                log.error("order_send raised: %s: %s", type(e).__name__, e)
+            elapsed_ms = round((time.time() - t0) * 1000.0, 1)
+            last_error_after = self._last_error_safe()
+            result_repr = None
+            if result is not None:
+                try:
+                    result_repr = repr(result)[:2000]
+                except Exception as e:                                # pragma: no cover
+                    result_repr = f"<repr failed: {type(e).__name__}: {e}>"
+            forensics: Dict[str, Any] = {
+                "order_send_called": True, "call_count": 1,
+                "order_send_returned": result is not None,
+                "order_send_result_type": type(result).__name__ if result is not None else None,
+                "order_send_result_repr": result_repr,
+                "mt5_last_error_before": last_error_before,
+                "mt5_last_error_after": last_error_after,
+                "exception_type": (type(raised).__name__ if raised is not None else None),
+                "exception_message": (str(raised) if raised is not None else None),
+                "traceback_tail": tb_tail,
+                "elapsed_ms": elapsed_ms,
+                "request": dict(request),
+                "type_filling": request.get("type_filling"),
+                "type_filling_name": filling_name(request.get("type_filling")),
+                "outcome": ("ORDER_SEND_EXCEPTION" if raised is not None else
+                            "ORDER_SEND_RETURNED_NONE" if result is None else
+                            "ORDER_SEND_RETURNED_RESULT"),
+            }
+            if raised is not None:
+                return {"ok": False, "retcode": None, "raw": None, "called": True, "call_count": 1,
+                        "exception": str(raised), "exception_type": type(raised).__name__,
+                        "last_error": last_error_after, "forensics": forensics, "session": {**(session or {}), "snapshot": session_snapshot()},
+                        "request": dict(request), "check": check,
+                        "filling_resolution": filling_resolution,
+                        "diagnostic": self._execution_diagnostic(
+                            request, called=True, phase="ORDER_SEND_EXCEPTION",
+                            filling=filling_resolution, check=check,
+                            exception={"type": type(raised).__name__, "message": str(raised),
+                                       "traceback_tail": tb_tail},
+                            forensics=forensics)}
+            if result is None:
+                # §2.1 — the one case that must never be summarised as "UNKNOWN": the
+                # call produced no result object at all. The binding's own last_error()
+                # after the call travels with it.
+                log.error("order_send returned None (last_error_before=%s last_error_after=%s)",
+                          last_error_before, last_error_after)
+                return {"ok": False, "retcode": None, "raw": None, "called": True, "call_count": 1,
+                        "last_error": last_error_after,
+                        "exception": (f"order_send returned None "
+                                      f"(mt5.last_error={last_error_after})"),
+                        "exception_type": "NoResult", "forensics": forensics, "session": {**(session or {}), "snapshot": session_snapshot()},
+                        "filling_resolution": filling_resolution,
+                        "request": dict(request), "check": check,
+                        "diagnostic": self._execution_diagnostic(
+                            request, called=True, phase="ORDER_SEND_RETURNED_NONE", check=check,
+                            last_error=last_error_after, filling=filling_resolution,
+                            forensics=forensics)}
+            raw = _result_to_dict(result)
+            if not isinstance(raw.get("retcode"), int) or isinstance(raw.get("retcode"), bool):
+                # V5.3 §1 — the terminal ANSWERED, but with an object this binding
+                # cannot read (no usable retcode). That is not a broker result.
+                err = last_error_after
+                log.error("order_send returned an unreadable result (retcode missing, keys=%s, "
+                          "last_error=%s)", sorted(raw.keys()), err)
+                return {"ok": False, "retcode": None, "raw": raw, "called": True, "call_count": 1,
+                        "last_error": err, "exception_type": "UnusableResult",
+                        "exception": ("order_send answered with an object that carries no usable "
+                                      f"retcode (keys={sorted(raw.keys())})"),
+                        "forensics": forensics, "session": {**(session or {}), "snapshot": session_snapshot()},
+                        "filling_resolution": filling_resolution,
+                        "request": dict(request), "check": check,
+                        "diagnostic": self._execution_diagnostic(
+                            request, called=True, phase="ORDER_SEND_UNUSABLE_RESULT", check=check,
+                            last_error=err, filling=filling_resolution, forensics=forensics)}
+            log.info("[V4.2] mt5.order_send retcode=%s order=%s deal=%s price=%s vol=%s sl=%s tp=%s comment=%r",
+                     raw.get("retcode"), raw.get("order"), raw.get("deal"), raw.get("price"),
+                     raw.get("volume"), raw.get("sl"), raw.get("tp"), raw.get("comment"))
+            # §2.6 — the terminal is queried for the ACTUAL state. A retcode is not
+            # proof; an existing position/order for this symbol+magic is.
+            verification = self.verify_sent_order(request, raw)
+            forensics["post_send"] = verification
+            return {"ok": bool(raw.get("retcode")), "retcode": raw.get("retcode"), "raw": raw,
+                    "check": check, "filling_resolution": filling_resolution,
+                    "request": dict(request), "called": True, "call_count": 1,
+                    "last_error": last_error_after, "forensics": forensics, "session": {**(session or {}), "snapshot": session_snapshot()},
+                    "verification": verification,
+                    "diagnostic": self._execution_diagnostic(request, called=True,
+                                                             phase="ORDER_SEND_RETURNED_RESULT",
                                                              check=check,
-                                                             filling=filling_resolution)}
-        try:
-            result = mt5.order_send(dict(request))
-        except Exception as e:  # pragma: no cover - terminal dependent
-            log.error("order_send raised: %s", e)
-            return {"ok": False, "exception": str(e), "exception_type": type(e).__name__,
-                    "retcode": None, "raw": None, "called": True, "call_count": 1,
-                    "last_error": self._last_error_safe(),
-                    "request": dict(request), "check": check,
-                    "diagnostic": self._execution_diagnostic(
-                        request, called=True, phase="ORDER_SEND_RAISED",
-                        filling=filling_resolution, check=check,
-                        exception={"type": type(e).__name__, "message": str(e),
-                                   "traceback_tail": traceback.format_exc().strip().splitlines()[-6:]})}
-        if result is None:
-            # The one case the operator must never see as a generic "UNKNOWN": the
-            # terminal accepted the call but produced no result object at all.
-            err = self._last_error_safe()
-            log.error("order_send returned None (last_error=%s)", err)
-            return {"ok": False, "retcode": None, "raw": None, "called": True, "call_count": 1,
-                    "last_error": err,
-                    "exception": f"order_send returned None (mt5.last_error={err})",
-                    "exception_type": "NoResult",
-                    "filling_resolution": filling_resolution,
-                    "request": dict(request), "check": check,
-                    "diagnostic": self._execution_diagnostic(
-                        request, called=True, phase="ORDER_SEND_NO_RESULT", check=check,
-                        last_error=err, filling=filling_resolution)}
-        raw = _result_to_dict(result)
-        if not isinstance(raw.get("retcode"), int) or isinstance(raw.get("retcode"), bool):
-            # V5.3 §1 — the terminal ANSWERED, but with an object this binding cannot
-            # read (no usable retcode). That is not a broker result and must not be
-            # interpreted as one: it gets its own phase and the raw payload travels
-            # with it, so the case can be named instead of collapsed into UNKNOWN.
-            err = self._last_error_safe()
-            log.error("order_send returned an unreadable result (retcode missing, keys=%s, "
-                      "last_error=%s)", sorted(raw.keys()), err)
-            return {"ok": False, "retcode": None, "raw": raw, "called": True, "call_count": 1,
-                    "last_error": err, "exception_type": "UnusableResult",
-                    "exception": ("order_send answered with an object that carries no usable "
-                                  f"retcode (keys={sorted(raw.keys())})"),
-                    "filling_resolution": filling_resolution,
-                    "request": dict(request), "check": check,
-                    "diagnostic": self._execution_diagnostic(
-                        request, called=True, phase="ORDER_SEND_UNUSABLE_RESULT", check=check,
-                        last_error=err, filling=filling_resolution)}
-        log.info("[V4.2] mt5.order_send retcode=%s order=%s deal=%s price=%s vol=%s sl=%s tp=%s comment=%r",
-                 raw.get("retcode"), raw.get("order"), raw.get("deal"), raw.get("price"),
-                 raw.get("volume"), raw.get("sl"), raw.get("tp"), raw.get("comment"))
-        return {"ok": bool(raw.get("retcode")), "retcode": raw.get("retcode"), "raw": raw,
-                "check": check, "filling_resolution": filling_resolution,
-                "request": dict(request), "called": True, "call_count": 1,
-                "last_error": self._last_error_safe(),
-                "diagnostic": self._execution_diagnostic(request, called=True,
-                                                         phase="ORDER_SEND_RETURNED_RESULT",
-                                                         check=check,
-                                                         filling=filling_resolution)}
+                                                             filling=filling_resolution,
+                                                             forensics=forensics)}
 
     def _resolve_request_filling(self, request: Dict) -> Tuple[Dict, Dict]:
         """Make ``request["type_filling"]`` one this terminal accepts for this symbol.
@@ -735,7 +1053,8 @@ class MT5RealBridge(MarketBridge):
                               check: Optional[Dict] = None,
                               last_error: Any = None,
                               exception: Optional[Dict] = None,
-                              filling: Optional[Dict] = None) -> Dict:
+                              filling: Optional[Dict] = None,
+                              forensics: Optional[Dict] = None) -> Dict:
         """Everything needed to explain an order_send outcome without guessing.
 
         Read-only: re-reads the terminal/account/symbol state and returns it
@@ -748,7 +1067,13 @@ class MT5RealBridge(MarketBridge):
             "call_count": 1 if called else 0,
             "request": dict(request or {}),
             "last_error": last_error,
+            "last_error_before": (forensics or {}).get("mt5_last_error_before"),
+            "last_error_after": ((forensics or {}).get("mt5_last_error_after")
+                                 if forensics else last_error),
             "exception": exception,
+            # V5.3 §2.1 — the forensic record of the actual binding call
+            "forensics": forensics,
+            "session": session_snapshot(),
             "check": ({"ok": check.get("ok"), "retcode": check.get("retcode"),
                        "retcode_name": (check.get("verdict") or {}).get("retcode_name")
                                        or retcode_name(check.get("retcode")),

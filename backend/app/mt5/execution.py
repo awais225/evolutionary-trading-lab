@@ -1014,6 +1014,32 @@ def place_demo_order(payload: Dict[str, Any], bridge=None) -> Dict[str, Any]:
                 stage="TRADE_CAPABILITY", details={"trade_capability": capability},
                 http_status=409)
 
+        # V5.3 §2.1 — the terminal's own client-side check (order_check) can pass with
+        # no live IPC session at all: the terminal answers it locally and order_send
+        # then returns None. The session is therefore verified as its own stage, with
+        # the same "definite fact only" rule: no session AND it cannot be
+        # re-established => refuse with the binding's own last_error.
+        ses = None
+        get_session = getattr(bridge, "session_state", None)
+        if callable(get_session):
+            try:
+                ses = get_session()
+            except Exception as e:                                     # pragma: no cover
+                ses = {"error": f"{type(e).__name__}: {e}"}
+            if (ses and ses.get("terminal_info_available") is False
+                    and ses.get("terminal_info_supported") is True
+                    and ses.get("package_importable")):
+                if ses.get("bridge_connected"):
+                    raise MT5ExecutionError(
+                        "ORDER_SESSION_NOT_AVAILABLE",
+                        ("No live MetaTrader5 IPC session: mt5.terminal_info() is None although the "
+                         f"bridge believes it is connected (last shutdown by "
+                         f"{ses.get('last_shutdown_by') or 'unknown'} at "
+                         f"{ses.get('last_shutdown_ts') or 'unknown'}; "
+                         f"mt5.last_error={ses.get('last_error')}). Reconnect the terminal in the "
+                         "account selector and retry - nothing was sent."),
+                        stage="SESSION", details={"session": ses}, http_status=409)
+
         _gate.stage("VALIDATION")
         report = validate_order_request(
             bridge, symbol=symbol, side=side, volume=volume, sl=payload.get("sl"),
@@ -1080,13 +1106,20 @@ def place_demo_order(payload: Dict[str, Any], bridge=None) -> Dict[str, Any]:
         _bridge_retcode = raw.get("retcode") if isinstance(raw, dict) else None
         usable_retcode = _usable_retcode(_bridge_retcode)
         terminal_raised = (raw_result is None and isinstance(raw, dict) and raw.get("exception")
-                           and order_send_phase == "ORDER_SEND_RAISED")
+                           and order_send_phase in ("ORDER_SEND_EXCEPTION",
+                                                    "ORDER_SEND_RAISED"))
         if terminal_raised:
+            fx = raw.get("forensics") if isinstance(raw.get("forensics"), dict) else {}
             raise MT5ExecutionError("MT5_EXCEPTION",
-                                    f"mt5.order_send raised: {raw.get('exception')}",
+                                    f"mt5.order_send raised {fx.get('exception_type') or ''}: "
+                                    f"{fx.get('exception_message') or raw.get('exception')}".strip(),
                                     stage="SENDING",
                                     details={"raw": raw, "diagnostic": diagnostic,
-                                             "last_error": order_send_last_error}, http_status=502)
+                                             "forensics": fx, "session": raw.get("session"),
+                                             "last_error": order_send_last_error,
+                                             "last_error_before": fx.get("mt5_last_error_before"),
+                                             "last_error_after": fx.get("mt5_last_error_after")},
+                                    http_status=502)
         # An answer with no usable retcode is NEVER a broker result — even when the
         # bridge did not say whether the call was made (a legacy bridge): claiming
         # "BROKER_RESULT, retcode None" was exactly how the operator's failure
@@ -1146,7 +1179,29 @@ def place_demo_order(payload: Dict[str, Any], bridge=None) -> Dict[str, Any]:
                                "exception": raw.get("exception"),
                                "retcode": None, "comment": None,
                                "raw_result": raw_result,
-                               "raw_result_repr": _raw_result_repr(raw_result)},
+                               "raw_result_repr": _raw_result_repr(raw_result),
+                               # V5.3 §2.1 — verbatim record of the binding call
+                               "outcome": ((raw.get("forensics") or {}).get("outcome")
+                                           if isinstance(raw.get("forensics"), dict)
+                                           else ("ORDER_SEND_RETURNED_NONE" if no_result
+                                                 else "ORDER_SEND_UNUSABLE_RESULT")),
+                               "last_error_before": (raw.get("forensics") or {}).get(
+                                   "mt5_last_error_before"),
+                               "last_error_after": (raw.get("forensics") or {}).get(
+                                   "mt5_last_error_after"),
+                               "returned": (raw.get("forensics") or {}).get(
+                                   "order_send_returned"),
+                               "result_type": (raw.get("forensics") or {}).get(
+                                   "order_send_result_type"),
+                               "result_repr": (raw.get("forensics") or {}).get(
+                                   "order_send_result_repr"),
+                               "exception_type": (raw.get("forensics") or {}).get(
+                                   "exception_type") or raw.get("exception_type"),
+                               "exception_message": (raw.get("forensics") or {}).get(
+                                   "exception_message")},
+                # V5.3 §2.1 — the IPC session state at the moment of the attempt:
+                # "who shut the terminal down, and when" is part of the evidence.
+                "session": raw.get("session"),
                 "order_check": _order_check_facts(raw),
                 "diagnostic": diagnostic,
                 # V5.3 §1 — the read-only verdict on this terminal/account/symbol, so
@@ -1177,19 +1232,50 @@ def place_demo_order(payload: Dict[str, Any], bridge=None) -> Dict[str, Any]:
             return result
 
         _gate.stage("INTERPRETING")
+        fx_send = raw.get("forensics") if (isinstance(raw, dict)
+                                           and isinstance(raw.get("forensics"), dict)) else {}
         interp = interpret_retcode(raw.get("retcode") if isinstance(raw, dict) else None,
                                    (raw_result or {}).get("comment", "") if isinstance(raw_result, dict) else "")
         ticket = (raw_result or {}).get("order") if isinstance(raw_result, dict) else None
         deal = (raw_result or {}).get("deal") if isinstance(raw_result, dict) else None
 
         _gate.stage("VERIFYING")
+        # §2.6 — verification is asked of the TERMINAL itself, not of our own result
+        # object: the bridge re-reads positions_get/orders_get after the send.
+        terminal_state = raw.get("verification") if isinstance(raw, dict) else None
+        if not isinstance(terminal_state, dict):
+            verify_sent = getattr(bridge, "verify_sent_order", None)
+            terminal_state = (verify_sent(request, raw_result)
+                              if callable(verify_sent) else None)
         verification = verify_execution(bridge, ticket=ticket, symbol=symbol,
                                         sl=norm["sl"], tp=norm["tp"],
                                         magic=norm["magic"], done=(interp["category"] == "EXECUTED"))
+        if isinstance(terminal_state, dict):
+            verification = dict(verification or {})
+            verification["terminal_state"] = terminal_state
+            verification["terminal_position_or_order_exists"] = bool(terminal_state.get("verified"))
+            verification["terminal_state_verdict"] = terminal_state.get("verdict")
 
         status = _final_status(interp, verification)
+        # V5.3 §2.6/§9 — DEMO TRADE ACCEPTANCE. A retcode is not proof: the verdict is
+        # PASS only when the terminal itself shows the position/order for this
+        # symbol+magic. Everything else is named honestly.
+        if isinstance(terminal_state, dict) and terminal_state.get("queried"):
+            if terminal_state.get("verified"):
+                demo_acceptance = "PASS"
+            elif interp["category"] in ("EXECUTED", "PENDING"):
+                demo_acceptance = "FAIL_NO_TERMINAL_STATE"
+            else:
+                demo_acceptance = "BROKER_REJECTED"
+        else:
+            demo_acceptance = ("BROKER_REJECTED" if interp["category"] == "REJECTED"
+                               else "UNVERIFIED_NO_TERMINAL_QUERY")
         result = {
             "ok": interp["category"] in ("EXECUTED", "PENDING"),
+            "demo_trade_acceptance": demo_acceptance,
+            "demo_trade_acceptance_rule": ("PASS requires a position or order for this symbol "
+                                           "+ magic to exist in the terminal itself "
+                                           "(positions_get/orders_get), never a retcode alone"),
             "status": status,
             "label": {"POSITION_OPEN": "ORDER EXECUTED",
                       "PENDING_ORDER": "ORDER ACCEPTED / PENDING",
@@ -1215,7 +1301,16 @@ def place_demo_order(payload: Dict[str, Any], bridge=None) -> Dict[str, Any]:
                                       if isinstance(raw_result, dict) else None,
                            "comment": (raw_result or {}).get("comment")
                                       if isinstance(raw_result, dict) else None,
-                           "raw_result": raw_result},
+                           "raw_result": raw_result,
+                           "outcome": "ORDER_SEND_RETURNED_RESULT",
+                           "last_error_before": (fx_send or {}).get("mt5_last_error_before"),
+                           "last_error_after": (fx_send or {}).get("mt5_last_error_after"),
+                           "returned": (fx_send or {}).get("order_send_returned"),
+                           "result_type": (fx_send or {}).get("order_send_result_type"),
+                           "result_repr": (fx_send or {}).get("order_send_result_repr")},
+            "session": (raw.get("session") if isinstance(raw, dict) else None),
+            "terminal_state": terminal_state,
+            "forensics": fx_send,
             "order_check": _order_check_facts(raw),
             "diagnostic": diagnostic,
             "order": {"ticket": ticket, "deal_ticket": deal,

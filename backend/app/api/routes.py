@@ -4759,6 +4759,47 @@ def nodes_index(
     else:
         _cap = max(1, min(int(limit), 1000))
         page = rows[_offset:_offset + _cap]
+    # ------------------------------------------------------------------ #
+    # V5.3 §3 — the boundary counts, so "Overview says 33, the table says 0"
+    # can never happen again without the hop that lost them being named.
+    # Every number here is measured at this request, from the SAME authority the
+    # population strip uses (`app.research.populations`), never copied from
+    # another endpoint and never hard-coded.
+    # ------------------------------------------------------------------ #
+    boundary: Dict[str, Any] = {}
+    try:
+        from ..research.populations import (populations as _authoritative_populations,
+                                            POPULATION_STATE_KEYS as _STATE_KEYS)
+        _auth = _authoritative_populations(db)
+        _auth_counts = _auth.get("counts") or {}
+        boundary = {
+            "population_total": _auth_counts.get("total"),
+            "population_alive": _auth_counts.get("alive"),
+            "population_qualified": _auth_counts.get("qualified"),
+            "population_live_eligible": _auth_counts.get("live"),
+            "population_live_active": _auth_counts.get("live_active"),
+            # the explicit lifecycle names, derived from the SAME counts
+            "population_state_names": {name: _auth_counts.get(key)
+                                       for name, key in _STATE_KEYS.items()},
+            "authority_notes": _auth.get("notes"),
+        }
+    except Exception as e:                 # never let the counters break the index
+        boundary = {"error": f"populations unavailable: {type(e).__name__}: {e}"}
+    boundary.update({
+        "live_testing_query_result_count": total,
+        "serialized_node_count": len(page),
+        "filter_applied": wanted,
+        "user_filters": {"search": search or None, "symbol": symbol or None,
+                         "timeframe": timeframe or None, "generation": generation,
+                         "starred_only": bool(starred_only),
+                         "sort_by": sort_by, "sort_desc": bool(sort_desc),
+                         "limit": limit, "offset": offset},
+        "rows_withheld": bool(_cap is not None and len(rows) > len(page)),
+        "authority": "app.research.populations (the same function behind /api/nodes/populations)",
+        "rule": ("the table renders every row this response returns; a filter may only "
+                 "reduce the count if the operator set it, and the reason is reported here"),
+    })
+
     return {
         "ok": True,
         "filter": wanted,
@@ -4766,6 +4807,7 @@ def nodes_index(
         "sort_by": sort_by,
         "sort_key": sort_key_name,
         "counts": counts,
+        "boundary_counts": boundary,
         # the count each *filter* would show, so the filter dropdown can label
         # itself with a real number instead of leaving the composite filters blank
         "filter_totals": {

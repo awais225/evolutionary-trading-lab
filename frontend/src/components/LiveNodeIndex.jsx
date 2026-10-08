@@ -189,6 +189,8 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
   const exp = objOrNull(meta?.experiment) || {};
   const range = arr(exp.node_number_range);
   const isPostReset = exp.is_empty === true && total === 0;
+  // V5.3 §3 — the boundary counts the API measured for THIS request
+  const bc = (meta && meta.boundary_counts) || null;
 
   return (
     <Card
@@ -198,6 +200,21 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
         {allRows && total > allRows ? ` · ${allRows} rendered` : ""}
       </Badge>}
     >
+      {/* V5.3 §3 — the hop counts. If this table is ever empty while Overview shows
+        * eligible nodes, the line below names the hop that lost them: the
+        * authoritative population, what this exact query matched, and what the
+        * page actually rendered. */}
+      {bc && (
+        <div className="muted" style={{ fontSize: 11.5, marginBottom: 4 }}>
+          authority <b className="mono">{txt(bc.population_live_eligible)}</b> live-eligible
+          {" · "}query matched <b className="mono">{txt(bc.live_testing_query_result_count)}</b>
+          {" · "}returned <b className="mono">{txt(bc.serialized_node_count)}</b>
+          {" · "}rendered <b className="mono">{arr(rows).length}</b>
+          {bc.filter_applied ? <> · filter <b className="mono">{txt(bc.filter_applied)}</b></> : null}
+          {bc.rows_withheld ? " · rows withheld by a limit" : ""}
+        </div>
+      )}
+
       {/* §27 — which experiment these node numbers belong to, on the table itself. */}
       <div className="muted" style={{ fontSize: 11.5, marginBottom: 6 }}>
         Experiment <b className="mono">{experimentId(exp)}</b>

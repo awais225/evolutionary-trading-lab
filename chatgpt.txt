@@ -3414,3 +3414,44 @@ question, "which build is my machine running?"):
       established by fingerprint - the same rule V5.2.3 established for
       GIT_IDENTITY_MATCH (a checkout with no commit identity is UNKNOWN, never
       FAIL, never a blank line that looks like a missing build).
+
+4. V5.3 DEMO EXECUTION FORENSICS release (2026-10-08) — the demand was: stop
+   patching blindly and prove where the MT5 order disappears.
+
+   FINDINGS BEFORE ANY CODE CHANGED (traced, not guessed):
+   * The order path is one function: dashboard -> /api/mt5-execution/place ->
+     app.mt5.execution.place_demo_order -> MT5RealBridge.send_market_order ->
+     mt5.order_check -> mt5.order_send. Live Testing uses the same service
+     (engine.py: place_demo_order), so there is no second execution path.
+   * `order_check` is answered by the TERMINAL CLIENT and can pass while the
+     Python binding has no live IPC session; `order_send` then needs the session
+     (and the trade-server link) and answers None. That is consistent with the
+     operator's evidence (check PASSED, order_send returned nothing).
+   * There IS a real defect that can produce exactly that: account discovery
+     (`app/mt5/accounts.py: probe_terminal`) called `mt5.shutdown()` at the end of
+     every probe with NO restore, while `MT5RealBridge._connected` stayed True.
+     Pressing "Detect accounts" (or the account selector probing) therefore tore
+     down the very session the order path needs.
+   * Nothing recorded `mt5.last_error()` BEFORE the call, the result object, or
+     the terminal's own state after it, so "retcode null" was the whole story.
+   DECISION: instrument the single call site verbatim (before/after last_error,
+   result type + repr, exception type/message/traceback, phase names
+   ORDER_SEND_RETURNED_NONE / ORDER_SEND_EXCEPTION / ORDER_SEND_UNUSABLE_RESULT /
+   ORDER_SEND_RETURNED_RESULT), serialize every session mutation behind ONE lock,
+   restore the session after probes, verify the result against the TERMINAL
+   (positions_get/orders_get) and add CHECK_DEMO_FORENSICS.bat + a tool that runs
+   this same chain on the operator's machine and prints every value.
+
+   STUDY RESET: measured on the authoritative database - LEGACY_TEST ids 1..791,
+   USER_RESEARCH ids 815..10814, sqlite_sequence['strategies']=10814. DELETE does
+   not lower an AUTOINCREMENT high-water mark, so the "fresh" study's first node
+   really was allocated id 10815 (and most surfaces label a node by its id).
+   DECISION: the reset now lowers the allocator to the highest SURVIVING id (and
+   never below the classifier's legacy id band, 787) in the same transaction as
+   the deletes, and the UI labels a node by its study-local number
+   (research_node_num), which restarts at 1. Both are asserted by tests.
+
+   LIVE TESTING: one population authority (app.research.populations) now reports
+   its numbers at every hop of the /api/nodes request (boundary_counts) so an
+   empty table can never again be unexplained; starred_only accepts true / false /
+   omitted and the string "undefined" is refused with a readable reason.

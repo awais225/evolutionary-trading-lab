@@ -127,24 +127,45 @@ def test_01_the_reset_removes_the_experiment_and_keeps_the_infrastructure(lab):
                   (legacy,))["c"] == 1
 
 
-def test_02_the_next_run_numbers_from_one_again_and_reuses_no_node_id(lab):
+def test_02_the_next_run_numbers_from_one_again_and_the_allocator_restarts(lab):
+    """V5.3 §4 — the identity contract after "delete all previous data".
+
+    The study-local node number restarts at 1 AND the row-id allocator stops
+    continuing the deleted study's range (an AUTOINCREMENT high-water mark is not
+    lowered by DELETE, which is exactly how a fresh study used to start at
+    Node_10788 instead of Node_1). The allocator lands on the surviving
+    population — never below the classifier's legacy id band.
+    """
     db, evo, lc = lab
     run_a = [_node(db, "RUN-A", n) for n in (1, 2, 3)]
     for sid in run_a:
         _dependents(db, sid)
     assert _numbers(db, "RUN-A") == [1, 2, 3]
+    old_high_water = db.one("SELECT seq FROM sqlite_sequence WHERE name='strategies'")["seq"]
 
-    lc.reset_user_research()
+    result = lc.reset_user_research()
     assert lc.counts()["user_research_nodes"] == 0
+    alloc = result["identity_allocator"]
+    surviving_max = db.one("SELECT COALESCE(MAX(id),0) m FROM strategies")["m"]
+    assert alloc["sequence_before"] == old_high_water
+    assert alloc["next_strategy_id_after_reset"] > surviving_max
+    assert alloc["next_strategy_id_after_reset"] > alloc["legacy_id_ceiling"], \
+        "a fresh node must never be allocated an id the classifier calls LEGACY_TEST"
+    assert alloc["next_strategy_id_after_reset"] <= old_high_water, \
+        "the fresh study must not continue the deleted study's row numbering"
+    assert alloc["next_node_number"] == 1
 
     run_b = [_node(db, "RUN-B", n) for n in (1, 2, 3)]
-    # experiment-local numbering restarts at 1 — never 4, 5, 6 or an offset
+    # study-local numbering restarts at 1 — never 4, 5, 6 or an offset
     assert _numbers(db, "RUN-B") == [1, 2, 3]
-    # ids are globally immutable and never reused across experiments
-    assert not (set(run_a) & set(run_b))
-    assert min(run_b) > max(run_a)
+    # the new study's rows are allocated from the surviving population, and its
+    # nodes are part of the research population (never misread as legacy)
+    assert min(run_b) == alloc["next_strategy_id_after_reset"]
+    assert lc.counts()["user_research_nodes"] == 3
     for sid, num in zip(run_b, (1, 2, 3)):
         assert db.get_strategy(sid)["research_node_num"] == num
+    # rows are unique while they exist (ids may be reused only after a delete-all)
+    assert len(set(run_b)) == 3
 
 
 def test_03_nothing_from_the_previous_experiment_follows_the_new_one(lab):
@@ -167,11 +188,16 @@ def test_03_nothing_from_the_previous_experiment_follows_the_new_one(lab):
         _dependents(db, sid)
     fp_b = lc._population_fingerprint()
     assert fp_b["count"] == 1 and fp_b["sha256"] != fp_a["sha256"]
-    # the new experiment carries none of the previous run's records
-    assert db.one("SELECT COUNT(*) c FROM backtests WHERE strategy_id IN "
-                  "(" + ",".join(str(s) for s in a_nodes) + ")")["c"] == 0
-    assert db.one("SELECT COUNT(*) c FROM live_test_configs WHERE strategy_id IN "
-                  "(" + ",".join(str(s) for s in a_nodes) + ")")["c"] == 0
+    # the new experiment carries none of the previous run's records. V5.3 §4: row
+    # ids may be REUSED after a delete-all (that is the allocator reset), so the
+    # check is scoped by the run the rows belong to — which is the property that
+    # actually matters — instead of by id.
+    for tbl in ("backtests", "live_test_configs"):
+        stray = db.q("SELECT t.strategy_id FROM %s t JOIN strategies s ON s.id=t.strategy_id "
+                     "WHERE COALESCE(s.run_id,'') <> 'RUN-B'" % tbl)
+        assert stray == [], f"{tbl} still references the retired experiment: {stray}"
+        assert db.one("SELECT COUNT(*) c FROM %s t JOIN strategies s ON s.id=t.strategy_id "
+                      "WHERE s.run_id='RUN-B'" % tbl)["c"] >= 1
     assert db.one("SELECT COUNT(*) c FROM generation_stats")["c"] == 0
     assert lc.counts()["max_user_generation"] in (0, None) or \
         lc.counts()["max_user_generation"] == 0
