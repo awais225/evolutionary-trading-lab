@@ -707,6 +707,12 @@ def print_report(report: Dict[str, Any], root: Path) -> None:
                      + ("   <-- this IS the latest release" if fp.get("is_latest") else
                         "   <-- NEWER THAN THIS CHECKOUT: pull/clone again")
                      if fp.get("latest_release") else "(index empty)"))
+        elif not fp.get("index_present"):
+            print("FINGERPRINT MATCH:   UNKNOWN — this checkout publishes no fingerprint "
+                  f"index ({fp.get('index_name') or 'BUILD_FINGERPRINTS.json'} is missing), "
+                  "so there is nothing to match against")
+            print(f"                     local src {str(fp.get('src_hash'))[:16]} / "
+                  f"code {str(fp.get('code_hash'))[:16]} (for the publisher to compare)")
         else:
             print(f"FINGERPRINT MATCH:   NONE — src {str(fp.get('src_hash'))[:16]} / code "
                   f"{str(fp.get('code_hash'))[:16]} matches no published release")

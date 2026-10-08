@@ -241,3 +241,38 @@ def test_13_the_launcher_reports_a_zip_checkout_instead_of_git_errors():
     assert "THIS IS NOT A GIT CHECKOUT" in text
     assert "git clone https://github.com/awais225/evolutionary-trading-lab.git" in text
     assert "by FINGERPRINT" in text
+
+
+def test_14_a_checkout_without_the_index_is_unknown_not_a_release(tmp_path):
+    """"matches no published release" and "no index here at all" are different
+    facts; a folder that ships no BUILD_FINGERPRINTS.json must not be blamed for
+    failing a comparison it cannot make."""
+    bf = _load_tool("build_fingerprints")
+    out = bf.match(tmp_path, fp={"src_hash": "a" * 64, "code_hash": "b" * 64})
+    assert out["found"] is False
+    assert out["index_present"] is False
+    assert out["index_name"] == "BUILD_FINGERPRINTS.json"
+    assert out["releases_published"] == 0
+
+    out2 = bf.match(REPO, fp={"src_hash": "a" * 64, "code_hash": "b" * 64})
+    assert out2["found"] is False
+    assert out2["index_present"] is True, "this repository publishes an index"
+    assert out2["releases_published"] >= 3
+
+
+def test_15_an_older_published_release_is_flagged_as_behind_not_as_latest():
+    """A V5.2.1 or V5.2.2 tree (the operator's machine is V5.2.1) must be told it
+    is older than the newest published release, so "which build do I run" has an
+    answer that also says whether an update is waiting."""
+    bf = _load_tool("build_fingerprints")
+    data = json.loads(IDENTITY_FILE.read_text(encoding="utf-8"))
+    newest = data["releases"][-1]
+    for old in data["releases"][:-1]:
+        out = bf.match(REPO, fp={"src_hash": old["src_hash"], "code_hash": old["code_hash"]})
+        assert out["found"] is True and out["release"] == old["release"]
+        assert out["is_latest"] is False
+        assert out["latest_release"] == newest["release"]
+
+    out_new = bf.match(REPO, fp={"src_hash": newest["src_hash"], "code_hash": newest["code_hash"]})
+    assert out_new["is_latest"] is True
+    assert out_new["latest_release"] == newest["release"]

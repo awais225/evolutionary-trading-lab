@@ -109,6 +109,7 @@ def save_index(data: Dict[str, Any], root: Path = REPO_ROOT) -> Path:
 def match(root: Path = REPO_ROOT, fp: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Which published release is this tree?  Never guesses."""
     fp = fp or tree_fingerprints(root)
+    index_present = (root / INDEX_NAME).exists()
     index = load_index(root)
     releases: List[Dict[str, Any]] = list(index.get("releases") or [])
 
@@ -128,6 +129,8 @@ def match(root: Path = REPO_ROOT, fp: Optional[Dict[str, Any]] = None) -> Dict[s
     latest = releases[-1] if releases else None
     return {
         "found": bool(hit),
+        "index_present": bool(index_present),
+        "index_name": INDEX_NAME,
         "release": (hit or {}).get("release"),
         "commit": (hit or {}).get("commit"),
         "commit_short": ((hit or {}).get("commit") or "")[:7] or None,
