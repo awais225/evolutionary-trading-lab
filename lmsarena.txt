@@ -5521,3 +5521,70 @@ I4  IDENTITY
     unchanged and the tool's own identity is pinned by commit 8986322.  Recorded:
     BUILD_FINGERPRINTS.json V5.4 @ 8986322 (2026-10-08T13:54:49Z); --match printed
     FINGERPRINT_MATCH V5.4 (commit 8986322).
+
+================================================================================
+§J  V5.4 FOLLOW-UP — THE THIRD DERIVATION (legacy *_nodes aliases)
+    commit c86680f   (backend + tests, pushed f16d567..c86680f)
+    full suite: 864 passed / 0 failed (only the fingerprint gate pending, re-recorded
+    right after the commit: CODE_HASH cadbdc2cff9239ec5091a26be3235b931c429cbd6e3f3274005561aaeeb5878b)
+================================================================================
+
+J1  WHAT WAS FOUND (from the live payload, not from reading code)
+    /api/lab/status   dead_nodes 9991   qualified_nodes 5
+    /api/status.node_state   DEAD 9996   QUALIFIED 41          <- the authority
+    Two widgets print those aliases:
+      frontend/src/components/PopulationSummary.jsx:47-48   KPI "Dead" / "Qualified"
+        (Population page; fetches api.labStatus())
+      frontend/src/components/LiveActivitySidebar.jsx:451,454  "Dead:" / "Qualified:"
+        (fetches /api/status -> stage_state = get_unified_task_state())
+    They were fed by EvolutionEngine.get_node_generation_state(), i.e. the raw
+    status formula (db.count_by_status + TERMINAL_STATES/QUALIFIED_STATES), which
+    is a SECOND derivation. Overview printed 9996/41 and the Population page
+    9991/5 — the same class of defect as BLOCKER B, one layer deeper.
+
+J2  THE FIX (display contract only; no formula and no gate of the engine changed)
+    backend/app/research/populations.py
+      AUTHORITATIVE_ALIASES  = {alive_nodes: ALIVE, dead_nodes: DEAD,
+        qualified_nodes: QUALIFIED, backtesting_nodes: BACKTESTING,
+        validating_nodes: VALIDATING, target_nodes: TARGET,
+        remaining_nodes: REMAINING, generation_number: CURRENT_GENERATION}
+      authoritative_aliases(state)  -> only the aliases the snapshot actually
+        carries; a missing snapshot never invents a number.
+    backend/app/orchestrator/lab.py  status()
+      the aliases above resolve from the snapshot; the engine's raw values stay
+      under engine_* (engine_dead_nodes 9991, engine_qualified_nodes 5,
+      engine_current_nodes 10040, engine_progress_pct 92.7 on the live DB).
+      `current_nodes` keeps its own meaning — the experiment-scope node count,
+      which V5.4 §1 already publishes explicitly as experiment_nodes with
+      progress_scope "current experiment" — so it was NOT repointed at TOTAL.
+    backend/app/orchestrator/stages.py  get_unified_task_state()
+      the same resolution for the Live Activity panel; on any failure the engine
+      values stay in place and a warning is logged (never a fabricated 0, which
+      the panel's `?? 0` fallback would then print).
+
+J3  LIVE PROOF (runtime pid 10230, after restart)
+    authority                TOTAL 10827 | ALIVE 44 | DEAD 9996 | QUALIFIED 41 |
+                             TARGET 10827 | REMAINING 787 | CURRENT_GENERATION 39
+    lab aliases              alive_nodes 44, dead_nodes 9996, qualified_nodes 41,
+                             backtesting_nodes 0, validating_nodes 0,
+                             target_nodes 10827, remaining_nodes 787,
+                             generation_number 39            -> all == authority
+    lab engine_*             engine_dead_nodes 9991, engine_qualified_nodes 5,
+                             engine_current_nodes 10040, engine_progress_pct 92.7
+    stage_state              dead_nodes 9996, qualified_nodes 41,
+                             engine_dead_nodes 9991, engine_qualified_nodes 5
+    Cost measured in-process: populations() 227-278 ms, node_state_snapshot()
+    233-266 ms, i.e. one extra ~0.25 s read per status poll — the same derivation,
+    not a second formula. No cache was added (staleness would be a new risk).
+
+J4  TESTS  tests/test_v5_4_node_authority.py (13 -> 15)
+    test_14 Lab.status() aliases == the authority while the engine returns a
+            DELIBERATELY DIVERGENT snapshot (alive/dead/qualified 1, target 1 …),
+            and engine_* still carries the raw values; also pins that
+            experiment_nodes keeps the experiment scope. Requests the `client`
+            fixture on purpose: that is what binds get_db to the scratch database
+            (test_07's leak) — without it the test read the LIVE database in a
+            full-suite run and failed, which is exactly how the leak was found.
+    test_15 /api/status.stage_state (the Live Activity source) reports the
+            authority's numbers with the same divergent engine stub, and asserts
+            the panel cannot fall back to a 0 that no source stated.
