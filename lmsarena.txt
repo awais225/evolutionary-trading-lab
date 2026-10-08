@@ -5645,3 +5645,10 @@ K5  TESTS
     Full suite on this tree: 865 passed / 0 failed / 1 warning in 150.85 s
     (/tmp/full_v54_m.txt). Earlier in the same day: 863P (pre-inventory),
     864P (pre-alias), 865P after the alias fix — no test was weakened.
+
+K6  RELEASE COMMIT
+    22f7283  "fix: V5.4 unify node authority and repair MT5 manual execution"
+             (the release record: V5_4_REPORT.md moved into the repo root next to
+             V5_1A_REPORT.md / V2_7_…_REPORT.md, and this §K wave log)
+    pushed: f0f98f4..22f7283 -> origin/main = 22f7283ec38acae97d9fa0b4a6fd1c2ce094cb13
+    final suite on this tree: 865 passed / 0 failed / 1 warning in 148.46 s

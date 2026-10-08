@@ -444,7 +444,10 @@ workspace must not claim them.
 No source file is dirty; nothing machine-local, no `node_modules`, no `.venv`, no
 secrets are committed.
 
-**16 · Commit hashes.** V5.4 was delivered as focused commits (not one blob):
+**16 · Commit hashes.** V5.4 was delivered as focused commits (not one blob); the
+release/record commit carrying this report is **`22f7283`**
+("fix: V5.4 unify node authority and repair MT5 manual execution"), whose body maps
+each code commit:
 
 ```
 f0f98f4 docs: chatgpt.txt entry 8 — one authority means one derivation
@@ -460,7 +463,13 @@ f16d567 docs: V5.4 pre-send exposure inventory recorded (lmsarena.txt §I, chatg
 remaining entries are the release records (docs, fingerprints, this report).
 
 **17 · Pushed to `origin/main`.** Yes — `git ls-remote origin refs/heads/main`
-equals the local HEAD and `git rev-list --count origin/main..HEAD` is `0`.
+= `22f7283ec38acae97d9fa0b4a6fd1c2ce094cb13` (push log `f0f98f4..22f7283`) and
+`git rev-list --count origin/main..HEAD` is `0`.
+
+**Tests on the final tree** (after the release commit): **865 passed / 0 failed /
+1 warning in 148.46 s** (`/tmp/full_v54_n.txt`); the fingerprint self-consistency
+gate `test_12` is green and `build_fingerprints.py --match` prints
+`FINGERPRINT_MATCH: V5.4 (commit c86680f)`.
 
 ### What remains — device-local only
 
