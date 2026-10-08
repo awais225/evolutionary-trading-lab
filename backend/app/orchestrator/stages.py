@@ -482,6 +482,21 @@ class StageManager:
             out["node_completed"] = node_state["current_nodes"]
             out["generation"] = node_state["generation_number"]
             out["remaining_nodes"] = node_state["remaining_nodes"]
+            # V5.4 §1 follow-up — this payload feeds the Live Activity panel,
+            # which prints its own DEAD / QUALIFIED counters. The engine's raw
+            # formula drifted from the authority (9991 / 5 vs 9996 / 41), so the
+            # same aliases as `Lab.status()` are resolved from the ONE snapshot;
+            # the raw engine values stay under their `engine_*` names.
+            try:
+                from ..research.populations import node_state_snapshot, authoritative_aliases
+                snap_state = (node_state_snapshot(db=None, engine=evo).get("state") or {})
+                for key, value in node_state.items():
+                    if key in ("alive_nodes", "dead_nodes", "qualified_nodes",
+                               "backtesting_nodes", "validating_nodes"):
+                        out[f"engine_{key}"] = value
+                out.update(authoritative_aliases(snap_state))
+            except Exception as e:                                # pragma: no cover
+                log.warning("unified task state: snapshot unavailable: %s", e)
         except Exception as e:
             log.warning("get_unified_task_state node_state fetch warning: %s", e)
 

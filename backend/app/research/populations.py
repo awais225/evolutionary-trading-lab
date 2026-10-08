@@ -317,6 +317,41 @@ POPULATION_STATE_DEFINITIONS: Dict[str, str] = {
 }
 
 
+#: V5.4 §1 follow-up — the LEGACY alias names a dashboard widget may still read
+#: (`lab.dead_nodes`, `stage_state.qualified_nodes`, …). They were filled by the
+#: engine's own raw-status formula, which is a DIFFERENT derivation from the
+#: authority: on the live research database it reported DEAD 9991 / QUALIFIED 5
+#: while Overview, Stats and Live Testing printed 9996 / 41 from the snapshot —
+#: i.e. the exact "two panels, two numbers" defect V5.4 exists to remove. Every
+#: alias below is therefore resolved from the ONE snapshot, and the engine's raw
+#: value stays available, clearly named, for the diagnostics that want it.
+AUTHORITATIVE_ALIASES: Dict[str, str] = {
+    "alive_nodes": "ALIVE",
+    "dead_nodes": "DEAD",
+    "qualified_nodes": "QUALIFIED",
+    "backtesting_nodes": "BACKTESTING",
+    "validating_nodes": "VALIDATING",
+    "target_nodes": "TARGET",
+    "remaining_nodes": "REMAINING",
+    "generation_number": "CURRENT_GENERATION",
+}
+
+
+def authoritative_aliases(state: Any) -> Dict[str, int]:
+    """The legacy alias keys, resolved from a snapshot's ``state`` block.
+
+    A missing snapshot never invents a number: an unknown alias is simply absent
+    from the returned mapping, so the caller keeps whatever it had.
+    """
+    state = state if isinstance(state, dict) else {}
+    out: Dict[str, int] = {}
+    for alias, name in AUTHORITATIVE_ALIASES.items():
+        value = state.get(name)
+        if isinstance(value, int):
+            out[alias] = value
+    return out
+
+
 #: V5.4 §1 — the COMPLETE state vocabulary. Every panel (Overview, PROGRESS, the
 #: NODES strip, Deep Testing, Live Testing, summary cards) reads these names; the
 #: six population keys are a subset kept for backwards compatibility.

@@ -327,3 +327,70 @@ def test_13_no_page_adds_its_own_population_numbers():
     for path in (REPO / "frontend/src").rglob("*.jsx"):
         text = path.read_text(encoding="utf-8")
         assert not pattern.search(text), f"{path.name} re-adds the population counters"
+
+
+# --------------------------------------------------------------------------- #
+# 14-15. the LEGACY alias keys a panel reads (lab.dead_nodes, stage_state.…)
+# --------------------------------------------------------------------------- #
+#: a deliberately wrong engine snapshot: if any surface reports these values
+#: instead of the authority's numbers, a second derivation is back.
+DIVERGENT_ENGINE_STATE = {
+    "alive_nodes": 1, "dead_nodes": 1, "qualified_nodes": 1,
+    "backtesting_nodes": 9, "validating_nodes": 9, "pending_nodes": 9,
+    "current_nodes": 1, "target_nodes": 1, "remaining_nodes": 99,
+    "generation_number": 1, "progress_pct": 1.0, "is_target_reached": True,
+    "generation_status": "COMPLETE",
+}
+
+
+def test_14_lab_status_aliases_resolve_from_the_authority(client, scratch_engine, monkeypatch):
+    """`client` is requested (not used) because it is what binds every module's
+    `get_db` to the scratch database — in a FULL-suite run a bare `Lab()` would
+    otherwise read the live database, the leak test_07 documents."""
+    from app.orchestrator.lab import Lab
+
+    monkeypatch.setattr(scratch_engine, "get_node_generation_state",
+                        lambda *a, **k: dict(DIVERGENT_ENGINE_STATE), raising=True)
+    lab = Lab()
+    lab.evo = scratch_engine
+    got = lab.status()
+    state = expect()
+
+    # the aliases a panel prints are the AUTHORITY's numbers
+    assert got["alive_nodes"] == state["ALIVE"] == 3
+    assert got["dead_nodes"] == state["DEAD"] == 4
+    assert got["qualified_nodes"] == state["QUALIFIED"] == 3
+    assert got["backtesting_nodes"] == state["BACKTESTING"] == 0
+    assert got["validating_nodes"] == state["VALIDATING"] == 0
+    assert got["target_nodes"] == state["TARGET"] == 10
+    assert got["remaining_nodes"] == state["REMAINING"] == 3
+    assert got["generation_number"] == state["CURRENT_GENERATION"] == 4
+
+    # …and the engine's raw values are still there under their own names
+    assert got["engine_dead_nodes"] == 1 and got["engine_qualified_nodes"] == 1
+    assert got["engine_alive_nodes"] == 1 and got["engine_progress_pct"] == 1.0
+    assert got["engine_current_nodes"] == 1, "the experiment count keeps its own key"
+    assert got["experiment_nodes"] == 7, "the experiment scope is unchanged"
+
+
+def test_15_the_live_activity_task_state_uses_the_same_authority(client, monkeypatch):
+    """`/api/status.stage_state` feeds the Live Activity DEAD / QUALIFIED rows."""
+    import app.evolution.engine as engine_mod
+
+    class _StubEngine:
+        def get_node_generation_state(self, *a, **k):
+            return dict(DIVERGENT_ENGINE_STATE)
+
+    monkeypatch.setattr(engine_mod, "get_evo_engine", lambda *a, **k: _StubEngine(),
+                        raising=True)
+    stage = client.get("/api/status").json()["stage_state"]
+    state = expect()
+    assert stage["dead_nodes"] == state["DEAD"] == 4
+    assert stage["qualified_nodes"] == state["QUALIFIED"] == 3
+    assert stage["alive_nodes"] == state["ALIVE"] == 3
+    assert stage["backtesting_nodes"] == state["BACKTESTING"] == 0
+    assert stage["validating_nodes"] == state["VALIDATING"] == 0
+    assert stage["engine_dead_nodes"] == 1, "the raw engine value stays visible"
+    assert stage["engine_qualified_nodes"] == 1
+    # the panel's own fallback (`?? 0`) can no longer print a number no source said
+    assert stage["dead_nodes"] != 0 and stage["qualified_nodes"] != 0

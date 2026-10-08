@@ -277,14 +277,28 @@ class Lab:
         # (total_nodes()/is_target_reached()) are untouched: this is the display
         # contract only, and `progress` names the experiment scope explicitly.
         try:
-            from ..research.populations import node_state_snapshot
+            from ..research.populations import node_state_snapshot, authoritative_aliases
             snapshot = node_state_snapshot(db=self.db, engine=self.evo)
         except Exception as e:                                    # pragma: no cover
             snapshot = None
+            authoritative_aliases = None                          # type: ignore[assignment]
             log.warning("node-state snapshot unavailable: %s", e)
         snap_state = (snapshot or {}).get("state") or {}
         snap_progress = (snapshot or {}).get("progress") or {}
         snap_counts = (snapshot or {}).get("counts") or {}
+        # V5.4 §1 follow-up — the legacy `*_nodes` aliases were a SECOND
+        # derivation (the engine's raw-status formula) and had drifted from the
+        # authority on the live database (DEAD 9991 vs 9996, QUALIFIED 5 vs 41).
+        # A panel reading `lab.dead_nodes` therefore disagreed with Overview.
+        # The aliases now resolve from the ONE snapshot, and the engine's raw
+        # values keep their own names, so no number is lost or hidden.
+        _ENGINE_ONLY = ("alive_nodes", "dead_nodes", "qualified_nodes",
+                        "backtesting_nodes", "validating_nodes", "pending_nodes",
+                        "current_nodes", "progress_pct", "is_target_reached")
+        engine_aliases = {f"engine_{k}": node_state[k] for k in _ENGINE_ONLY
+                          if k in node_state}
+        authority_aliases = (authoritative_aliases(snap_state)
+                             if callable(authoritative_aliases) else {})
         return {
             "running": self.running, "paused": self.paused,
             "safe_paused": getattr(self, "safe_paused", False),
@@ -331,6 +345,9 @@ class Lab:
             "progress_pct": (snap_progress.get("pct") if snapshot
                              else node_state["progress_pct"]),
             # V5.4 §1 — the complete snapshot travels with the status payload
+            # V5.4 §1 follow-up — see engine_aliases / authority_aliases above
+            **engine_aliases,
+            **authority_aliases,
             "node_state": snapshot,
             "next_strategy_id": reconstructed["next_strategy_id"],
             "ancestry": reconstructed["ancestry"],
