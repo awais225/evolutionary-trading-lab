@@ -5106,3 +5106,116 @@ code commit 55e890a4862c0e25bde0dc3de632f5e46c0ea38d  (2026-10-08)
       * the LIVE TESTING table lists all 33 eligible nodes in one scroll and
         CHECK_RUNNING_DASHBOARD.bat shows fingerprint identity, not blank git
         lines.
+
+
+================================================================================
+§F  V5.3.1 — DEMO EXECUTION FORENSICS, LIVE TESTING POPULATION, STUDY RESET
+    2026-10-08  ·  release V5.3.1  ·  commits 11415f6 -> 258b2fd -> 9d62a10
+================================================================================
+
+TASK (operator, blocking)
+    Stop patching blindly: trace the real execution path and prove exactly where
+    the MT5 DEMO order disappears.  Also: the Live Testing table stayed empty
+    while Overview reported LIVE ELIGIBLE 33, and "Delete all previous data" did
+    not reset the node identity.
+
+F1  THE ORDER PATH, TRACED BEFORE ANY EDIT
+    Live Testing UI -> /api/mt5-execution/place (manual) or the Live Testing
+    engine -> app/mt5/execution.py :: place_demo_order -> MT5RealBridge
+    .send_market_order -> mt5.order_check -> mt5.order_send.
+    There is ONE send site (asserted by tests/test_v4_2_mt5_execution.py with an
+    AST guard) and one filling resolver.  Three source-level facts explained the
+    reported symptom (retcode null, "no result object", UNKNOWN):
+      (a) app/mt5/accounts.py :: probe_terminal() called mt5.shutdown() with no
+          restore while MT5RealBridge._connected still said True -> the next
+          order_send ran against a dead IPC session and answered None;
+      (b) nothing recorded mt5.last_error() before/after the call or the result
+          object, so "UNKNOWN" hid the real state;
+      (c) there was no pre-send session check, so a dead session was entered
+          silently.
+
+F2  WHAT WAS CHANGED (targeted, no redesign)
+    * app/mt5/mt5_real.py :: send_market_order — instrumented the ONE send:
+      mt5_last_error_before -> order_send(request) -> mt5_last_error_after,
+      result type + repr preserved, exception type/message/traceback kept, phase
+      ORDER_SEND_RETURNED_RESULT | _RETURNED_NONE | _EXCEPTION | _UNUSABLE_RESULT.
+    * SESSION_LOCK (reentrant) serialises initialize/shutdown against the order
+      path; session_snapshot()/restore_session_from_snapshot() put a probed
+      session back exactly as it was; _ensure_order_session() re-establishes a
+      lost session before the send and refuses with ORDER_SESSION_NOT_AVAILABLE
+      if it cannot (never a retry — no order has been sent at that point).
+    * verify_sent_order(): post-send terminal query (positions_get/orders_get
+      filtered by symbol + magic + ticket) plus demo_trade_acceptance =
+      PASS | FAIL_NO_TERMINAL_STATE | BROKER_REJECTED | UNVERIFIED_NO_TERMINAL_QUERY;
+      PASS requires the TERMINAL to show the position/order.
+    * backend/tools/mt5_demo_forensics.py + CHECK_DEMO_FORENSICS.bat — the tool
+      the operator runs on Windows: read-only by default, ONE send only with
+      --send --confirm PLACE_DEMO_ORDER, full §6 report to LOGS\MT5_DEMO_
+      FORENSICS_<stamp>.txt, exit 0/2/3/4/5, and never an invented value.
+      Driving it in the tests found two real defects and both are fixed:
+        - --root defaulted to the cwd -> FileNotFoundError from any other folder;
+        - client_order_id was forensic-<epoch-seconds>, which the executor's
+          duplicate gate rightly refuses when two runs land in one second, so a
+          second deliberate run read as REFUSED_BEFORE_SEND.  Each run now mints
+          forensic-<UTC stamp>-<nonce> and prints it in the report.
+
+F3  LIVE TESTING (Blocker B)
+    * GET /api/nodes now carries top-level boundary_counts from the ONE authority
+      (app.research.populations): population_total/alive/qualified/live_eligible/
+      live_active, live_testing_query_result_count, serialized_node_count,
+      filter_applied, user_filters, rows_withheld, authority, rule.
+    * frontend/lib LiveNodeIndex line: "authority 33 live-eligible · query
+      matched 33 · returned 33 · rendered 33 · filter qualified".
+    * starred_only accepts true / false / omitted; "undefined" is refused with a
+      readable 422.  api.js qs() strips undefined/null and the table omits the
+      parameter when the filter is off.
+    * live evidence (port 8787): populations live=33; /api/nodes?filter=qualified
+      &sort_by=fitness&sort_desc=true&limit=0 -> returned 33, total 33,
+      boundary_counts as above; jsdom render of the rebuilt bundle -> 33 rows in
+      ONE .table-scroll body, 0 console errors.
+
+F4  STUDY RESET (Blocker C)
+    Measured first: 10,787 rows (787 LEGACY_TEST ids 1..791 + 10,000
+    USER_RESEARCH ids 815..10814), sqlite_sequence['strategies'] = 10814.
+    DELETE never lowers an AUTOINCREMENT mark, so the "fresh" study's first row
+    took id 10815 and most surfaces label a node by its id.
+    * app/research_run/lifecycle.py — the reset lowers sqlite_sequence to the
+      highest SURVIVING id inside the SAME transaction as the deletes, never
+      below LEGACY_ID_CEILING (787, the classifier's legacy band), and reports
+      sequence_before / next_strategy_id_after_reset / next_node_number.
+    * identity is displayed as the study-local number (research_node_num), not the
+      row id: ui.jsx nodeLabel() is used by BacktestMatrixTable,
+      NodeResearchDetail, HistoricalRunResults and DeepDataPanel (deep_data now
+      ships research_node_num with each requirement row).
+    * regression: tests/test_v5_1a_fresh_run_isolation.py (allocator restarts,
+      first number 1, run-scoped dependents) + tests/test_v5_3_study_reset_
+      identity.py (10 tests).
+
+F5  TESTS
+    python -m pytest tests/ -q      ->  839 passed, 0 failed (160.3 s)
+    new: test_v5_3_demo_execution_forensics.py 22P
+         test_v5_3_forensics_tool_report.py 11P
+         test_v5_3_study_reset_identity.py 10P
+    changed on purpose (new required behaviour, not weakened): phase names in
+    three MT5 suites; fresh-run identity contract; PRODUCT_RELEASE = V5.3.1.
+
+F6  IDENTITY
+    HEAD 9d62a10 (= origin/main; ls-remote identical)
+      src_hash    41aba9122348ee6ace63a622c91c2c32ee0fcd850f429d0e99e63a67fe3b99f1
+      index_sha256 60a9885bb4eae6042c9d63a56283ce540504903d3e0a4b3321f9395125a3b048
+      code_hash   e28730a43fdce173dd93f14a4dac14d7450fbe6f345d2b0610c62ae2ad2c50e2
+      entry assets assets/index-ekHgcA2E.js, assets/index-DG45pVtK.css
+      BUILD_FINGERPRINTS.json entry V5.3.1 recorded (commit 11415f6)
+      frontend/dist/build-info.json git_head 9d62a10, built_at 2026-10-08T09:37:55Z
+    Runtime: pid 7142, port 8787, token LAB-V53-FORENSICS, /system/build shows
+    release V5.3.1 + git_commit 9d62a10 + dist FRESH + dist_matches_src true.
+
+F7  WHAT THIS MACHINE CANNOT DO
+    Linux cannot import MetaTrader5, so the bridge here is SIMULATOR and NO DEMO
+    order is claimed.  mt5_demo_forensics.py exits 3 with "the active bridge is
+    NOT a real MT5 terminal" — the honest answer, not a fabricated chain.
+    Windows acceptance stays authoritative: run CHECK_DEMO_FORENSICS.bat
+    (read-only), then SEND_DEMO_ORDER=1 for ONE order, and attach
+    LOGS\MT5_DEMO_FORENSICS_<stamp>.txt.  The verdict is taken from the terminal
+    (positions_get/orders_get), never from HTTP 200, a UI message, or a passing
+    order_check.
