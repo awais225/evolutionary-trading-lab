@@ -1317,20 +1317,39 @@ def place_demo_order(payload: Dict[str, Any], bridge=None) -> Dict[str, Any]:
                 "broker": {"retcode": None, "comment": "",
                            "message": detail_msg, "category": "UNKNOWN",
                            "warning": interp.get("warning"),
-                           "safe_to_retry": False},
+                           "safe_to_retry": False,
+                           # V5.4 §2 — honesty about the ONE thing we can tell apart:
+                           # order_send WAS called -> nothing may NOT be claimed as
+                           # "nothing sent"; the bridge says it was not called -> it
+                           # was not; nobody said -> unknown (never guessed).
+                           "nothing_sent": (False if called else
+                                            True if called_reported else None)},
                 "order_send": {"called": (called_flag if isinstance(called_flag, bool) else None),
                                "called_reported": isinstance(called_flag, bool),
                                "call_count": raw.get("call_count", 1),
+                               # the phase is WHAT HAPPENED; the derived value is used only
+                               # when the bridge itself reported none (legacy bridge)
+                               "phase": (phase or (
+                                   "ORDER_SEND_RETURNED_CHECK_RESULT" if check_shaped_case
+                                   else "ORDER_SEND_RETURNED_NONE" if no_result
+                                   else "ORDER_SEND_UNUSABLE_RESULT")),
+                               "phase_reported": bool(phase),
                                "last_error": order_send_last_error,
                                "exception": raw.get("exception"),
                                "retcode": None, "comment": None,
                                "raw_result": raw_result,
                                "raw_result_repr": _raw_result_repr(raw_result),
-                               # V5.3 §2.1 — verbatim record of the binding call
+                               # V5.3 §2.1 — verbatim record of the binding call. V5.4 §2:
+                               # when the bridge reported no phase, the DERIVED phase still
+                               # names the exact layer — an order_check result sitting in the
+                               # send slot gets its own name instead of a generic "unusable".
                                "outcome": ((raw.get("forensics") or {}).get("outcome")
-                                           if isinstance(raw.get("forensics"), dict)
-                                           else ("ORDER_SEND_RETURNED_NONE" if no_result
-                                                 else "ORDER_SEND_UNUSABLE_RESULT")),
+                                           if (isinstance(raw.get("forensics"), dict)
+                                               and (raw.get("forensics") or {}).get("outcome"))
+                                           else phase or (
+                                               "ORDER_SEND_RETURNED_CHECK_RESULT" if check_shaped_case
+                                               else "ORDER_SEND_RETURNED_NONE" if no_result
+                                               else "ORDER_SEND_UNUSABLE_RESULT")),
                                "last_error_before": (raw.get("forensics") or {}).get(
                                    "mt5_last_error_before"),
                                "last_error_after": (raw.get("forensics") or {}).get(
@@ -1524,6 +1543,13 @@ _CONTRACT_FIELDS = (
     "sl_requested", "sl_broker", "tp_requested", "tp_broker", "sl_tp_verified",
     "order_check_called", "order_check_passed", "order_send_called", "order_send_phase",
     "safe_to_retry", "nothing_sent",
+    # V5.4 §2 — the field names the operator's response contract asks for, as
+    # aliases of the same values above (no new information, one read path).
+    # NOTE: ``order``/``deal``/``position`` live in the nested ``contract`` block —
+    # ``result["order"]`` is the STRUCTURED order object and must not be clobbered
+    # by a scalar (doing so broke persistence).
+    "retcode", "requested_sl", "broker_sl", "requested_tp", "broker_tp",
+    "contract",
 )
 
 
@@ -1555,6 +1581,29 @@ def contract_fields(result: Dict[str, Any]) -> Dict[str, Any]:
         "order_send_phase": send.get("phase") or send.get("outcome"),
         "safe_to_retry": broker.get("safe_to_retry"),
         "nothing_sent": broker.get("nothing_sent"),
+        # the operator's own vocabulary, same values
+        "retcode": broker.get("retcode"),
+        "requested_sl": ex_.get("sl_requested"), "broker_sl": ex_.get("sl_broker"),
+        "requested_tp": ex_.get("tp_requested"), "broker_tp": ex_.get("tp_broker"),
+        # …and the block that spells out the requested contract under its own
+        # names, so ``result["order"]`` (the structured object) stays intact.
+        "contract": {
+            "ok": result.get("ok"), "status": result.get("status"),
+            "result_class": result.get("result_class"),
+            "result_class_detail": result.get("result_class_detail"),
+            "retcode": broker.get("retcode"), "ticket": order.get("ticket"),
+            "order": order.get("ticket"), "deal": order.get("deal_ticket"),
+            "position": order.get("position_ticket"),
+            "fill_price": ex_.get("exec_price"), "volume": ex_.get("volume"),
+            "requested_sl": ex_.get("sl_requested"), "broker_sl": ex_.get("sl_broker"),
+            "requested_tp": ex_.get("tp_requested"), "broker_tp": ex_.get("tp_broker"),
+            "broker_comment": broker.get("comment"),
+            "broker_message": broker.get("message"),
+            "client_order_id": result.get("client_order_id"),
+            "order_check_called": check.get("called"),
+            "order_send_called": send.get("called"),
+            "order_send_phase": send.get("phase") or send.get("outcome"),
+        },
     }
     return {k: out.get(k) for k in _CONTRACT_FIELDS}
 
