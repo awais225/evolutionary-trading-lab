@@ -5006,3 +5006,103 @@ found while proving the delivery above.
     QUALIFIED drifts while the research engine writes (33 early today, 36 later);
     every number in this log was measured live at the moment it is written and
     none of them is hard-coded anywhere in the code or the tests.
+
+================================================================================
+V5.3 — "LIVE TRADE EXPLAINED, LIVE TESTING TABLE RESTORED, ZIP IDENTITY HONEST"
+code commit 55e890a4862c0e25bde0dc3de632f5e46c0ea38d  (2026-10-08)
+================================================================================
+
+§A  WHAT THE OPERATOR REPORTED (build V5.2.3 on their Windows machine)
+    1. A CONFIRMED 0.03 XAUUSD demo order came back
+         {"ok": false, "status": "UNKNOWN", "label": "RESULT UNKNOWN",
+          "result_class": "BROKER_RESULT", "retcode": null}
+       with no mt5.last_error(), no diagnosis of WHICH layer failed, and the
+       panel itself printed "Account: no account · DEMO ONLY" although the
+       terminal was logged in to DEMO 53071066 (ICMarketsSC-Demo).
+    2. LIVE TESTING rendered no node table at all and printed
+         422: query.starred_only: Input should be a valid boolean, unable to
+         interpret input
+       while the overview reported 33 live-eligible nodes.
+    3. A GitHub "Download ZIP" checkout (no .git) still produced the legacy
+       git block: empty "[git] HEAD/branch/commit/origin/origin-main" lines and
+       an unconditional "HEAD == origin/main" line.
+
+§B  ROOT CAUSES (source-level)
+    (1) backend/app/mt5/execution.py — place_demo_order's classifier fell
+        through to the BROKER_RESULT branch with raw.get("retcode") = None:
+        the bridge HAD called mt5.order_send, the returned MqlTradeResult was
+        not readable as a retcode, and the response collapsed three different
+        situations (never called / no object / object without retcode) into one
+        dead-end UNKNOWN.  execution_state() also never returned the account
+        dict the panel renders.
+    (2) frontend/src/api.js built query strings with a raw URLSearchParams:
+        `starred_only: starredOnly || undefined` becomes the *string*
+        "undefined".  BaseModel bool parsing then rejects the whole request, so
+        the table was empty for a filter that was merely switched off.
+    (3) CHECK_RUNNING_DASHBOARD.bat printed the git fields unconditionally.
+
+§C  THE FIX (all of it pinned by tests/test_v5_3_manual_order_capability.py)
+    §1 an answer with no usable retcode is NEVER a broker result:
+         result_class NO_USABLE_RESULT, label "RESULT UNKNOWN — mt5.order_send
+         RETURNED NO USABLE RESULT", badge phase ORDER_SEND_UNUSABLE_RESULT;
+         a legacy bridge that does not even claim a call is reported verbatim
+         (result_class is still NO_USABLE_RESULT, called_reported=false), never
+         dressed up as "BROKER_RESULT, retcode None".  A true None keeps
+         result_class NO_RESULT.
+       the response carries the raw payload (_raw_result_repr), the
+       mt5.last_error() captured at the moment of the call, the request, the
+       symbol/filling facts, the read-only pre-flight verdict and ranked
+       next_actions (verify in MT5 FIRST — never resubmit, one send only).
+    §2 NEW read-only pre-flight trade_capability(bridge, symbol, side):
+         terminal trade_allowed / tradeapi_disabled / connected, account
+         trade_allowed / trade_expert / trade_mode_name, symbol trade_mode per
+         requested side, filling_mode.  Only a value MT5 *reports as off* can
+         block; unknowns are reported and never block; a non-MT5 bridge answers
+         "not applicable" instead of "trading capability confirmed".
+         Definite blockers refuse with HTTP 409 + stage TRADE_CAPABILITY before
+         any request is built (TERMINAL_ALGO_TRADING_OFF,
+         TERMINAL_API_TRADING_DISABLED, TERMINAL_NOT_CONNECTED,
+         ACCOUNT_TRADE_DISABLED, ACCOUNT_TRADE_EXPERT_OFF,
+         SYMBOL_TRADE_DISABLED|CLOSE_ONLY|LONG_ONLY|SHORT_ONLY).
+       execution_state() now also returns account, account_type and
+       trade_capability -> the panel prints the real login/server.
+    §3 the Live Testing table can no longer 422: every endpoint query goes
+         through qs() (drops undefined/null/""/"undefined"/"null"); the live
+         index sends starred_only only when it is true and no offset;
+         RequestValidationError answers with a readable 422
+         (error VALIDATION_ERROR, message naming the parameter and the received
+         value, detail, hint, path, method) — measured live below.
+    §4 the launcher prints git fields only when git produced a value and says
+         identity comes from FINGERPRINTS otherwise (CRLF preserved, still
+         pauses for a key press).
+
+§D  VERIFICATION (this tree, this session)
+    * full suite: 796 passed, 0 failed, 1 warning in 133.66 s
+      (V5.2.3 was 778; +18 new V5.3 tests)
+    * tests/test_v5_3_manual_order_capability.py — 18 passed
+    * LIVE, against the running backend (token LAB-V53-CAPABILITY):
+        GET /api/nodes?filter=qualified&limit=0
+            -> 200, total 33, nodes 33, all_rows true, truncated false
+        GET /api/nodes?filter=qualified&limit=0&starred_only=undefined
+            -> 422 {ok:false, error:VALIDATION_ERROR,
+                    message:"query.starred_only: Input should be a valid
+                    boolean … (received 'undefined')", hint:…, path:/api/nodes}
+        GET /api/mt5-execution/state
+            -> trade_capability present; on this Linux box the bridge is
+               "simulator" -> applicable:false, headline "not applicable — the
+               active bridge is 'SIMULATOR', not a real MT5 terminal", blockers [].
+    * frontend dist rebuilt + re-stamped; frontend/dist/build-info.json
+        src_hash ab99325bbaa7d9f0c8a71e4f8d496a58df9c5f68d932f5ea000161d2df614e17
+        git_head 55e890a4862c0e25bde0dc3de632f5e46c0ea38d
+
+§E  WHAT STILL NEEDS THE OPERATOR'S WINDOWS MACHINE
+    Linux cannot import MetaTrader5, so no real-MT5 claim is made here.  On the
+    operator's box the same three checks appear inside the dashboard:
+      * the capability strip above BUY/SELL names the account (53071066 ·
+        ICMarketsSC-Demo) and the switch that would stop an order;
+      * if order_send still answers unreadably, the panel now prints
+        order_send called / mt5.last_error() / diagnostic phase / result_class
+        and the next action — with the order still unverified, never retried;
+      * the LIVE TESTING table lists all 33 eligible nodes in one scroll and
+        CHECK_RUNNING_DASHBOARD.bat shows fingerprint identity, not blank git
+        lines.

@@ -42,6 +42,20 @@
       "release": "V5.2.3",
       "src_file_count": 61,
       "src_hash": "829ec13885f5eb8491626d53041dfda38359f83d907cd54a77554c82ffa57822"
+    },
+    {
+      "code_files": 111,
+      "code_hash": "301c68afbeb534c09cbb7849b73a7d14c5445264b75db79e994cb7bdb143c251",
+      "commit": "55e890a4862c0e25bde0dc3de632f5e46c0ea38d",
+      "entry_assets": [
+        "assets/index-DEqOa0-3.js",
+        "assets/index-DG45pVtK.css"
+      ],
+      "index_sha256": "7aef0f39290aa03a8b3c622eaef0f8776873789efb34dc2d367bd24acd0357ac",
+      "recorded_at": "2026-10-08T07:51:39Z",
+      "release": "V5.3",
+      "src_file_count": 61,
+      "src_hash": "ab99325bbaa7d9f0c8a71e4f8d496a58df9c5f68d932f5ea000161d2df614e17"
     }
   ],
   "schema": 1

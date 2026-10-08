@@ -3392,3 +3392,25 @@ question, "which build is my machine running?"):
    digest or a backtest fingerprint — this was a label bug, not a DATA event.
    test_16 fails if the dashboard label and the published index ever disagree
    again, so the two identity sources can no longer drift apart silently.
+
+3. V5.3 (2026-10-08) — three defects fixed and pushed as 55e890a.
+
+   1) "LIVE MANUAL TRADE" failed at the operator with no cause.  DECISION: an
+      answer from mt5.order_send that carries no usable retcode must never be
+      presented as a broker result; it is now RESULT UNKNOWN — NO USABLE RESULT
+      with the raw payload, mt5.last_error() and a ranked next-action list.
+      Together with a new read-only pre-flight (terminal Algo Trading / API
+      trading flags, account permissions, symbol trade mode) the operator is
+      told WHICH switch to flip instead of being handed a dead end.  The one
+      send site, the no-retry rule and the demo guard are untouched.
+   2) LIVE TESTING stayed empty behind a 422 that the operator could not act
+      on.  DECISION: the frontend may not put a JavaScript "undefined" into a
+      query string at all (every URLSearchParams use is funnelled through
+      qs()), and the backend answers a validation error with the parameter, the
+      received value and a hint.  A filter that is switched off must mean "no
+      restriction", never "reject the request".
+   3) A ZIP checkout must not be scolded by the launcher.  DECISION: the git
+      block prints only what git actually produced and states that identity is
+      established by fingerprint - the same rule V5.2.3 established for
+      GIT_IDENTITY_MATCH (a checkout with no commit identity is UNKNOWN, never
+      FAIL, never a blank line that looks like a missing build).
