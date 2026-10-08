@@ -3531,3 +3531,35 @@ question, "which build is my machine running?"):
       order / deal / position / retcode / requested+broker SL/TP …); the
       order/deal/position scalars deliberately live in that block because
       result["order"] is the structured order object that persistence reads.
+
+--------------------------------------------------------------------------------
+ENTRY 7 — 2026-10-08 — "do not send the same request again" is a MECHANISM
+--------------------------------------------------------------------------------
+
+REQUEST (V5.4 brief): "before ANY new manual test, inspect MT5 trades/history for
+magic 777000"; the demo order must really go through, and nothing may be sent
+twice.
+
+DECISION 1 — THE PRE-SEND INVENTORY IS PART OF THE ORDER PATH, NOT ADVICE.
+  A README line ("check the terminal first") is not a guarantee; the repair has
+  to make the duplicate impossible.  The forensic tool therefore reads
+  positions_get/orders_get for the symbol filtered by the manual magic (777000)
+  and its own forensic magic (777900) BEFORE it builds a request, prints that
+  inventory as its own report section on every run, and refuses to send while
+  any exposure exists: exit 6, REFUSED_BEFORE_SEND, result_class
+  EXISTING_EXPOSURE, detail NOT_SENT, order_send.called=false, safe_to_retry
+  false, zero transmitted requests.  --force is deliberate, operator-owned, and
+  still exactly one order_send.
+
+DECISION 2 — A REFUSAL MUST STILL PRODUCE EVIDENCE.
+  The refusal originally returned before the report's JSON block was written, so
+  the operator would have seen a printed message and NO artifact to attach.
+  _write_json() is now shared by both paths: a refused run writes the same
+  .json/.txt report as a normal one — an unexecuted order is a result too.
+
+DECISION 3 — THE OLD "TWO RUNS = TWO SENDS" TEST WAS REWRITTEN, NOT WEAKENED.
+  test_11 proved unique client_order_ids across two deliberate runs by sending
+  twice into the same fake terminal.  With the inventory in place, the second
+  run is refused (correctly).  The test now clears the terminal's open positions
+  between the runs — the operator closing the inspected position — so the
+  uniqueness guarantee is still proven while the new guard stays enforced.

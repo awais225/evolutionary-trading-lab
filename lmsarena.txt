@@ -5460,3 +5460,64 @@ H5  ENVIRONMENT NOTE (this workspace)
     Gen 39 / experiment 10,000 of 10,000) — i.e. exactly the numbers in the V5.4
     brief — and the live lab continued generating afterwards (10,803 / 36 at
     13:41Z). No DATA was deleted, reset or regenerated.
+
+================================================================================
+§I  V5.4 — PRE-SEND EXPOSURE INVENTORY (never resend a filled order blindly)
+    commit 8986322   (code + tool + bat + tests, pushed 3bca4f7..8986322)
+    full suite: 863 passed / 0 failed / 1 warning in 171.71 s
+================================================================================
+
+I1  WHY THIS EXISTS
+    V5.4 §2 orders: "before ANY new manual test, inspect MT5 trades/history for
+    magic 777000 … never send twice".  The forensic tool could still fire a
+    fresh order_send while the PREVIOUS attempt's position was open in the
+    terminal — a 0.03 XAUUSD order that actually filled would then be silently
+    duplicated by the next diagnostic run.  The tool now reads the exposure
+    first and refuses to send while any exists.
+
+I2  FILES AND SYMBOLS
+    backend/tools/mt5_demo_forensics.py
+      MANUAL_MAGIC = 777000, FORENSIC_MAGIC = 777900, _EXPOSURE_MAGICS
+      _existing_exposure(bridge, symbol)  -> {queried, positions[], orders[],
+                                               count, verdict, errors[]}
+        bridge.positions_get(symbol) + bridge.orders_get(symbol), filtered by the
+        two magics; the terminal is the only source, nothing is invented.
+      _print_exposure(exposure)  -> "EXISTING EXPOSURE (checked BEFORE anything
+        is sent)" section, printed on EVERY run including read-only.
+      _write_json(args, facts, payload) -> the refusal path writes the same
+        .json/.txt artifacts as a normal run (previously it returned before the
+        JSON block, so a refusal produced no machine-readable evidence).
+      main(): facts["existing_exposure"] collected right after the read-only
+        pre-flight; the --send branch checks it BEFORE the tick/price work and
+        returns 6 with REFUSED_BEFORE_SEND / EXISTING_EXPOSURE / detail NOT_SENT,
+        named tickets, safe_to_retry=false and three next actions (Trade/History,
+        decide by hand, re-run).  --force is the operator's explicit overrule and
+        still performs exactly ONE order_send (it is not a retry).
+    CHECK_DEMO_FORENSICS.bat
+      documents the check, FORCE_DEMO_ORDER=1, and exit code 6 in both the header
+      and the exit-code legend.
+    tests/test_v5_3_forensics_tool_report.py  (11 -> 14 tests)
+      test_09 read-only reports the earlier manual position (magic 777000) and
+              transmits nothing (only the 3 filling-probe order_checks happen);
+      test_10 that position stops the send: exit 6, zero order_send, zero sent
+              requests, status REFUSED_BEFORE_SEND, detail NOT_SENT,
+              safe_to_retry=false, acceptance != PASS;
+      test_11 --force sends exactly one and the report still shows what was open;
+      test_11 (pre-existing, id uniqueness) now clears the exposure between two
+              deliberate runs — as the operator would after inspecting the
+              terminal — so the duplicate-id guarantee is still proven.
+
+I3  WHAT THE TOOL PRINTS BEFORE IT SENDS (operator's machine)
+    EXISTING EXPOSURE (checked BEFORE anything is sent) : symbol / magics checked
+    (777000, 777900) / positions found + their tickets / pending orders found /
+    verdict ("no open position/order … the path is clear to send ONE order" or
+    "EXISTING EXPOSURE FOUND — do NOT resend; inspect it in the terminal first").
+
+I4  IDENTITY
+    SRC_HASH  7e46d547d96b4b719fcfe4483f01e410341cdc450ed8f426b68f3b9fa5616461
+    CODE_HASH eb3e07df0b551ca074dab2adad25c7f0c5e40893342182d6b8fd97bdf023e5cd
+    The runtime CODE_HASH covers the backend `app` package (111 files); this change
+    is in `backend/tools/` (a tool, not served code), so the runtime hash is
+    unchanged and the tool's own identity is pinned by commit 8986322.  Recorded:
+    BUILD_FINGERPRINTS.json V5.4 @ 8986322 (2026-10-08T13:54:49Z); --match printed
+    FINGERPRINT_MATCH V5.4 (commit 8986322).
