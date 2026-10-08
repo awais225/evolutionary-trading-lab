@@ -5588,3 +5588,60 @@ J4  TESTS  tests/test_v5_4_node_authority.py (13 -> 15)
     test_15 /api/status.stage_state (the Live Activity source) reports the
             authority's numbers with the same divergent engine stub, and asserts
             the panel cannot fall back to a 0 that no source stated.
+
+================================================================================
+§K  V5.4 CLOSING RECORD — build re-proof, acceptance sweep, environment wipe #8
+================================================================================
+
+K1  ENVIRONMENT (sandbox wipe #8)
+    /opt/lmsarena-storage (DATA + venv), the running backend, frontend/node_modules
+    and frontend/dist are snapshot-excluded and were gone at the start of this
+    turn. restore_env.sh re-provisioned them; the repository was intact at
+    f0f98f4 with only the known machine-local drift. No DATA was deleted, reset
+    or regenerated — the restored DATA is the operator-shaped dataset, and its
+    authority now reads exactly the numbers in the brief:
+    TOTAL 10,787 / ALIVE 33 / DEAD 9967 / QUALIFIED 33 / FINAL 0 / DEEP 33 /
+    LIVE 33 / LIVE ACTIVE 0 / Gen 39 (the lab continues generating afterwards).
+
+K2  FRONTEND BUILD PROOF (brief item 13)
+    cd frontend && npm install --no-audit --no-fund   -> up to date (104 packages)
+    npm run build                                     -> built in 5.33s
+    The rebuilt bundle is BYTE-IDENTICAL to the published V5.4 fingerprint:
+      sha256(dist/index.html) = 0a320fc0e4087504182b100ea38e4c087ee1f633942ae58fab96fd9a2b8f303d
+      entry assets            = assets/index-CtPUGZPn.js + assets/index-DG45pVtK.css
+      src_hash                = 7e46d547d96b4b719fcfe4483f01e410341cdc450ed8f426b68f3b9fa5616461
+      build_fingerprints.py --match -> FINGERPRINT_MATCH: V5.4 (commit c86680f)
+    The dist stamp was written the NORMAL way (the tool Prerequisite.bat calls):
+      backend/tools/frontend_build_guard.py --root . --stamp
+      -> built_at 2026-10-08T14:35:41Z, built_by frontend_build_guard, git_head f0f98f4…
+    So "a stale bundle is impossible" is now re-proven from a clean tree, not
+    assumed from the earlier build.
+
+K3  ACCEPTANCE SWEEP (runtime pid 2206, commit f0f98f4, dist FRESH, src 7e46d547…)
+    authority  app.research.populations.node_state_snapshot
+    state      TOTAL 10787 | ALIVE 33 | DEAD 9967 | BACKTESTING 0 | VALIDATING 0 |
+               QUALIFIED 33 | FINAL 0 | DEEP 33 | LIVE 33 | LIVE ACTIVE 0 |
+               CURRENT_GENERATION 39 | TARGET 10000 | REMAINING 0
+    progress   {"scope": "current experiment", "nodes": 10000, "target": 10000,
+                "remaining": 0, "pct": 100.0, "ceiling_reached": true} — the
+                experiment ceiling is labelled as such and is NEVER shown as TOTAL
+    partition  33 + 9967 + 787 = 10787  ✓
+    identical on /api/status.node_state, /api/lab/status.node_state,
+    /api/lab/status flat keys, /api/lab/status legacy aliases,
+    /api/status.stage_state (Live Activity), /api/stats/overview.population,
+    /api/research/facets.population, /api/nodes/deep-testing/state.populations
+    (TOTAL 10787 / ALIVE 33 / QUALIFIED 33 / DEEP 33)
+    Live Testing table total 33 == LIVE_TESTING_ELIGIBLE 33
+    workspace preview probe: V54_UI_AUTHORITY PASS (table 33 == authority 33,
+    ceiling-as-total false, 0 console errors) — rebuilt from this build.
+
+K4  MT5 ON THIS HOST (unchanged, honest)
+    MetaTrader5 is not importable on Linux -> bridge SIMULATOR -> place_demo_order
+    raises MT5_UNAVAILABLE @ ACCOUNT_SAFETY (503). No DEMO retcode is claimed
+    here. The send path returns retcode 10009 against the instrumented fake
+    terminal; the real controlled trade is the Windows acceptance (§2.3).
+
+K5  TESTS
+    Full suite on this tree: 865 passed / 0 failed / 1 warning in 150.85 s
+    (/tmp/full_v54_m.txt). Earlier in the same day: 863P (pre-inventory),
+    864P (pre-alias), 865P after the alias fix — no test was weakened.
