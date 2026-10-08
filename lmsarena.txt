@@ -4951,3 +4951,58 @@ IMPLEMENTATION / TESTING LOG — V5.2.3    2026-10-08 06:35 UTC
   git ls-remote origin refs/heads/main == 1983f8a154e5040df7288af81afbfb7a98201746.
   BUILD_FINGERPRINTS.json records V5.2.3 = commit 1983f8a, src 829ec13885f5eb84…,
   index 0a4dd14b5c4357b5…, code 1546c94c7136caae….
+
+================================================================================
+IMPLEMENTATION / TESTING LOG — V5.2.3 ADDENDUM    2026-10-08 06:45 UTC
+================================================================================
+Two follow-up items, both about the same question — "which build am I running?" —
+found while proving the delivery above.
+
+§A  A CHECKOUT WITH NO PUBLISHED INDEX IS NOT A MISMATCH
+    build_fingerprints.match() now reports index_present / index_name, and the
+    diagnostic's source-export branch prints
+
+      FINGERPRINT MATCH: UNKNOWN — this checkout publishes no fingerprint index
+      (BUILD_FINGERPRINTS.json is missing), so there is nothing to match against
+                         local src <hash> / code <hash> (for the publisher to compare)
+
+    instead of "NONE — … matches no published release", which claimed a
+    comparison that never happened.  Verified in the ZIP-export simulation with
+    the index removed.  Regression tests test_14 (no index != mismatch) and
+    test_15 (an older published tree — V5.2.1 / V5.2.2, i.e. the operator's
+    machine — is identified as that release and flagged as older than the newest).
+
+§B  THE BUILD CHIP NAMED THE WRONG RELEASE
+    backend/app/versions.py held PRODUCT_RELEASE = "V5.1a" while the release
+    being shipped (and published in BUILD_FINGERPRINTS.json) is V5.2.3; the
+    dashboard's Build chip and GET /system/build show that label, so the operator
+    asking "which build is running" would have been told V5.1a.  The label is
+    deliberately OUTSIDE versions.manifest() (it is not digested into stored
+    experiments or backtest fingerprints — checked: PRODUCT_RELEASE does not
+    appear in the manifest JSON), so renaming it invalidates nothing.  It now
+    equals the newest published release, and test_16 pins both halves: the label
+    == the newest release name in BUILD_FINGERPRINTS.json, /system/build reports
+    it, and it stays out of manifest().
+
+§C  EFFECT ON THE IDENTITY INDEX
+    backend/app is part of code_hash, so the release-label change invalidated the
+    recorded V5.2.3 code hash — the self-consistency gate (test_12) failed
+    exactly as designed until the index was re-recorded.  BUILD_FINGERPRINTS.json
+    now reads:
+
+      V5.2.1  7d9cc7f  src 72fa9506a777  index 725f45455c4b  code 6266586e3fc0
+      V5.2.2  da93126  src e7680bfc2e43  index 92a8ff95cc8b  code c561ff1edebb
+      V5.2.3  69e48c3  src 829ec13885f5  index 0a4dd14b5c43  code faa943055185
+
+    (V5.2.3 spans the commits 1983f8a → 200a9b2 → 6081d5e → 69e48c3; the entry
+    names the newest code commit, which is what a ZIP of main contains.)
+
+§D  FINAL VERIFICATION OF THIS ADDENDUM
+    Full suite on the frozen tree: 778 passed, 0 failed, 1 warning in 131.02 s
+    (777 after the table/identity work, +1 for the release-label test; the file
+    tests/test_v5_2_3_one_table_and_zip_identity.py is 16 passed on its own).
+
+§E  WHERE THE NUMBER 33 vs 36 vs 37 COMES FROM
+    QUALIFIED drifts while the research engine writes (33 early today, 36 later);
+    every number in this log was measured live at the moment it is written and
+    none of them is hard-coded anywhere in the code or the tests.

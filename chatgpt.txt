@@ -3365,3 +3365,30 @@ DECISIONS TAKEN:
   * No UI redesign: the V5 theme, spacing, buttons and icons are untouched — the
     pager controls were replaced by the existing table styling extended with
     `.table-scroll`, and the Final Testing table's height uses the same theme.
+
+================================================================================
+REQUEST / DECISION HISTORY — V5.2.3 ADDENDUM    2026-10-08 06:45 UTC
+================================================================================
+FOLLOW-UP ITEMS FOUND WHILE PROVING THE DELIVERY (both on the operator's own
+question, "which build is my machine running?"):
+
+1. A checkout that ships no BUILD_FINGERPRINTS.json was told
+   "FINGERPRINT MATCH: NONE — … matches no published release".  That claimed a
+   comparison that could not happen.  DECISION: such a checkout now reports
+   UNKNOWN — "this checkout publishes no fingerprint index … so there is nothing
+   to match against", plus its local src/code hashes so the publisher can compare
+   them.  NONE is reserved for a tree that really does not match a published
+   release.  Regression tests test_14 / test_15 pin both, and test_15 also pins
+   that an older published tree (V5.2.1 / V5.2.2 — the operator's machine is
+   V5.2.1) is identified as that release AND flagged "NEWER THAN THIS CHECKOUT:
+   pull/clone again".
+
+2. The dashboard's Build chip and GET /system/build reported
+   PRODUCT_RELEASE = "V5.1a" although V5.2.3 is the release being shipped — the
+   operator reading the dashboard would be told the wrong release name.
+   DECISION: the label now equals the newest release published in
+   BUILD_FINGERPRINTS.json.  It is documented and tested to stay OUT of
+   versions.manifest(), i.e. naming a release cannot change a stored experiment's
+   digest or a backtest fingerprint — this was a label bug, not a DATA event.
+   test_16 fails if the dashboard label and the published index ever disagree
+   again, so the two identity sources can no longer drift apart silently.
