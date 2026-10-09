@@ -157,7 +157,20 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
       const res = action === "start"
         ? await api.liveTestingStartNode(row.node_id)
         : await api.liveTestingStopNode(row.node_id);
-      setMsg(`${txt(row.node_label, `Node_${row.node_id}`)}: ${action === "start" ? "STARTED" : "STOPPED"} — ${txt(res?.note, "")}`);
+      // V6 — the button only ever reflects BACKEND-confirmed worker state. The
+      // UI never flips START -> STOP on its own: load() below re-reads the table
+      // (worker state included) after the backend has confirmed the outcome.
+      const worker = objOrNull(res?.worker) || {};
+      const confirmed = action === "start"
+        ? (res?.worker_running === true || worker.running === true)
+        : (res?.worker_stopped === true || worker.running === false);
+      setMsg(`${txt(row.node_label, `Node_${row.node_id}`)}: ${
+        action === "start"
+          ? (confirmed ? "STARTED — live-testing worker running (backend-confirmed)"
+                       : "START requested — worker NOT confirmed running")
+          : (confirmed ? "STOPPED — live-testing worker stopped (backend-confirmed)"
+                       : "STOP requested — worker NOT confirmed stopped")
+      } — ${txt(res?.note, "")}`);
       await load();
       if (onRiskChanged) onRiskChanged();
     } catch (e) {
@@ -348,15 +361,25 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
                       <span className="muted"> · {n0(live.closed)}/{n0(live.trades)}</span>
                     </td>
                     <td>
-                      {live.status === "ACTIVE" || r.is_active
-                        ? <button className="btn danger" disabled={busyId === r.node_id}
-                                  onClick={() => act(r, "stop")}>
-                            {busyId === r.node_id ? "…" : "STOP"}
-                          </button>
-                        : <button className="btn success" disabled={busyId === r.node_id}
-                                  onClick={() => act(r, "start")}>
-                            {busyId === r.node_id ? "…" : "START"}
-                          </button>}
+                      {(() => {
+                        // V6 — reconstructed from BACKEND state on every render
+                        // (rows come from the API; a page refresh shows the truth):
+                        // a node with a running worker shows STOP, otherwise START.
+                        const worker = objOrNull(r.worker) || {};
+                        const workerRunning = worker.running === true || worker.state === "RUNNING";
+                        const running = workerRunning || live.status === "ACTIVE" || !!r.is_active;
+                        return running
+                          ? <button className="btn danger" disabled={busyId === r.node_id}
+                                    onClick={() => act(r, "stop")}
+                                    title={worker.state ? `worker ${worker.state} (backend)` : "enrolled in the live engine"}>
+                              {busyId === r.node_id ? "…" : "STOP"}
+                            </button>
+                          : <button className="btn success" disabled={busyId === r.node_id}
+                                    onClick={() => act(r, "start")}
+                                    title="start this node's live-testing worker">
+                              {busyId === r.node_id ? "…" : "START"}
+                            </button>;
+                      })()}
                     </td>
                   </tr>
                   {detail === r.node_id && (

@@ -434,8 +434,10 @@ def api(monkeypatch, db, bridge, term):
     monkeypatch.setattr(ex, "_db", lambda: db)
     client = TestClient(app)
     yield client
-    # never leave the loop running for the next test
+    # never leave the loop (or a V6 per-node worker) running for the next test
     from app.live_testing.engine import get_live_testing_engine
+    from app.live_testing.workers import get_worker_manager
+    get_worker_manager().stop_all(timeout=5.0)
     e = get_live_testing_engine()
     e.stop(interrupted=True, reason="test teardown")
     e.reset()

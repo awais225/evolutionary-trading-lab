@@ -2003,6 +2003,323 @@ def post_mt5_disconnect() -> Dict:
     return {"ok": True, "status": status}
 
 
+def _log_manual_order(msg: str) -> None:
+    logging.getLogger("mt5.manual_order").info("%s", msg)
+
+
+@router.post("/mt5/manual_order")
+def post_mt5_manual_order(body: Dict = Body(...)) -> Dict:
+    """Manual order execution for MT5 DEMO accounts only (MT5 handoff).
+
+    Architecture (the proven path): Manual Trade -> MT5RealBridge ->
+    symbol_select -> DEAL request -> mt5.order_send() with the IOC -> FOK ->
+    RETURN filling fallback -> the ACTUAL MT5 result. A simulated fill is never
+    accepted here, and nothing is ever fabricated.
+
+    Safety gates (distinct negative retcodes so the cause is unambiguous):
+        -1  the active bridge is the simulator / MT5 is not connected
+        -2  the account is REAL (trade_mode == 2) -> 403 SAFETY LOCK
+        -3  demo status could not be verified and confirm_demo was not passed
+        -4  no stop loss supplied and confirm_no_sl was not passed
+        -5  no live tick available for the symbol
+    """
+    from starlette.responses import JSONResponse
+
+    symbol = str(body.get("symbol") or "XAUUSD").strip().upper()
+    side = str(body.get("side") or "BUY").strip().upper()
+    if side not in ("BUY", "SELL"):
+        raise HTTPException(400, "side must be BUY or SELL")
+
+    try:
+        lots = float(body.get("lots", 0.01))
+    except (ValueError, TypeError):
+        raise HTTPException(400, "Invalid lots value")
+
+    sl_pips_raw = body.get("sl_pips")
+    sl_pips = float(sl_pips_raw) if sl_pips_raw not in (None, "", "null") else None
+    tp_pips_raw = body.get("tp_pips")
+    tp_pips = float(tp_pips_raw) if tp_pips_raw not in (None, "", "null") else None
+
+    amount_usd = body.get("amount_usd")
+    confirm_demo = bool(body.get("confirm_demo", False))
+    confirm_no_sl = bool(body.get("confirm_no_sl", False))
+
+    b = get_bridge()
+    bridge_source = getattr(b, "source", "SIMULATOR")
+    is_sim = (
+        bridge_source == "SIMULATOR"
+        or getattr(b, "name", "") != "mt5_real"
+        or not getattr(b, "_connected", False)
+    )
+
+    # Check 1: Refuse if the bridge is simulated (a simulated fill must NEVER be
+    # reported as a real MT5 execution, and never as a manual real order).
+    if is_sim:
+        _log_manual_order(f"REJECTED: Active bridge is {bridge_source} (REAL MT5 required) "
+                          f"| symbol={symbol} side={side} lots={lots}")
+        return JSONResponse(
+            status_code=400,
+            content={
+                "ok": False,
+                "retcode": -1,
+                "comment": (f"Manual order rejected: Active bridge is {bridge_source}. "
+                            f"A connected Real MT5 terminal is required to place real manual "
+                            f"orders. No order was sent."),
+                "bridge_source": bridge_source,
+                "order_send": {"called": False, "call_count": 0},
+                "request": body,
+            },
+        )
+
+    # Check 2: DEMO safety. trade_mode == 2 is a REAL account — hard refuse.
+    ai = b.account_info()
+    is_demo = False
+    server_name = getattr(ai, "server", "") if ai else ""
+    trade_mode = None
+    try:
+        import MetaTrader5 as mt5  # noqa: WPS433 - guarded upstream; diag only
+        raw_ai = mt5.account_info()
+        if raw_ai is not None:
+            trade_mode = getattr(raw_ai, "trade_mode", None)
+            if trade_mode == 0:
+                is_demo = True
+            elif trade_mode == 2:
+                _log_manual_order(f"REJECTED: Live/Real account detected (trade_mode=2, "
+                                  f"login={raw_ai.login})")
+                return JSONResponse(
+                    status_code=403,
+                    content={
+                        "ok": False,
+                        "retcode": -2,
+                        "comment": ("SAFETY LOCK: Manual orders are strictly prohibited on REAL "
+                                    "accounts. Only DEMO accounts are permitted."),
+                        "bridge_source": bridge_source,
+                        "trade_mode": trade_mode,
+                        "server": raw_ai.server,
+                        "order_send": {"called": False, "call_count": 0},
+                    },
+                )
+            if "demo" in (raw_ai.server or "").lower():
+                is_demo = True
+    except Exception:
+        pass
+
+    if not is_demo and ai and getattr(ai, "is_demo", False):
+        is_demo = True
+    if not is_demo and "demo" in server_name.lower():
+        is_demo = True
+
+    if not is_demo and not confirm_demo:
+        _log_manual_order(f"REJECTED: Demo account unverified on server {server_name} "
+                          f"and confirm_demo is false")
+        return JSONResponse(
+            status_code=400,
+            content={
+                "ok": False,
+                "retcode": -3,
+                "comment": (f"Demo account unverified on server '{server_name}'. "
+                            f"Explicit confirm_demo=true required."),
+                "bridge_source": bridge_source,
+                "server": server_name,
+                "order_send": {"called": False, "call_count": 0},
+            },
+        )
+
+    # Check 3: SL check
+    if (sl_pips is None or sl_pips <= 0) and not confirm_no_sl:
+        _log_manual_order(f"REJECTED: Order without SL attempted without confirmation "
+                          f"| symbol={symbol}")
+        return JSONResponse(
+            status_code=400,
+            content={
+                "ok": False,
+                "retcode": -4,
+                "comment": ("Stop Loss (SL) is required. To place an order without SL, clear "
+                            "the SL field and pass confirm_no_sl=true."),
+                "bridge_source": bridge_source,
+                "order_send": {"called": False, "call_count": 0},
+            },
+        )
+
+    # Check 4: Price & pips conversion needs a live tick
+    tick = b.latest_tick(symbol)
+    if not tick:
+        _log_manual_order(f"REJECTED: No live tick available for {symbol}")
+        return JSONResponse(
+            status_code=400,
+            content={
+                "ok": False,
+                "retcode": -5,
+                "comment": f"No live market tick available from MT5 for {symbol}",
+                "bridge_source": bridge_source,
+                "order_send": {"called": False, "call_count": 0},
+            },
+        )
+
+    si = b.symbol_info(symbol)
+    digits = getattr(si, "digits", 2 if ("XAU" in symbol or "JPY" in symbol) else 5)
+    point = getattr(si, "point", 0.01 if ("XAU" in symbol or "JPY" in symbol) else 0.00001)
+
+    # A pip is 10 points on 3/5-digit symbols, 1 point on 2/4-digit symbols —
+    # always derived from the symbol's own digits (never hardcoded).
+    pip_size = 10.0 * point if digits in (3, 5) else 1.0 * point
+    current_price = tick.ask if side == "BUY" else tick.bid
+
+    contract_size = float(
+        getattr(si, "trade_contract_size", 100.0 if "XAU" in symbol else 100000.0) or 100.0
+    )
+    vol_min = float(getattr(si, "volume_min", 0.01) or 0.01)
+    vol_max = float(getattr(si, "volume_max", 100.0) or 100.0)
+    vol_step = float(getattr(si, "volume_step", 0.01) or 0.01)
+
+    # RISK-BASED SIZING — "Amount" is the money the user is willing to LOSE if
+    # the stop is hit; it is NOT margin. Lots are FLOORED to volume_step (never
+    # round up), and a size below the broker minimum is skipped, not clamped up
+    # (clamping up would silently increase the risk).
+    amount_usd_val = None
+    try:
+        if amount_usd not in (None, "", "null"):
+            amount_usd_val = float(amount_usd)
+    except (ValueError, TypeError):
+        amount_usd_val = None
+
+    sl_distance = (sl_pips * pip_size) if (sl_pips and sl_pips > 0) else 0.0
+    loss_per_lot = contract_size * sl_distance if sl_distance > 0 else 0.0
+    projected_loss_usd = None
+    sizing_skipped = None
+
+    if amount_usd_val and amount_usd_val > 0 and loss_per_lot > 0:
+        raw_lots = amount_usd_val / loss_per_lot
+        if vol_step > 0:
+            steps = int(raw_lots // vol_step)          # floor: never risk more than asked
+            calc_lots = steps * vol_step
+        else:
+            calc_lots = raw_lots
+        if calc_lots < vol_min:
+            sizing_skipped = (f"risk-based size {calc_lots:.4f} is below the broker minimum "
+                              f"{vol_min} — the order is skipped rather than rounding up past "
+                              f"the intended risk")
+            _log_manual_order(f"SKIPPED: {sizing_skipped}")
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "ok": False,
+                    "retcode": -6,
+                    "comment": sizing_skipped,
+                    "bridge_source": bridge_source,
+                    "raw_lots": raw_lots,
+                    "volume_min": vol_min,
+                    "order_send": {"called": False, "call_count": 0},
+                },
+            )
+        lots = round(min(max(calc_lots, vol_min), vol_max), 8)
+        projected_loss_usd = round(lots * contract_size * sl_distance, 2)
+    elif amount_usd_val and amount_usd_val > 0 and not (sl_pips and sl_pips > 0):
+        _log_manual_order("NOTICE: amount_usd supplied but no SL set - risk-based sizing "
+                          "impossible, using the lot size supplied by the client.")
+
+    sl_price = None
+    if sl_pips is not None and sl_pips > 0:
+        sl_price = round(current_price - (sl_pips * pip_size), digits) if side == "BUY" \
+            else round(current_price + (sl_pips * pip_size), digits)
+
+    tp_price = None
+    if tp_pips is not None and tp_pips > 0:
+        tp_price = round(current_price + (tp_pips * pip_size), digits) if side == "BUY" \
+            else round(current_price - (tp_pips * pip_size), digits)
+
+    req_dict = {
+        "action": "TRADE_ACTION_DEAL",
+        "symbol": symbol,
+        "side": side,
+        "volume": lots,
+        "price": current_price,
+        "sl": sl_price,
+        "tp": tp_price,
+        "sl_pips": sl_pips,
+        "tp_pips": tp_pips,
+        "digits": digits,
+        "point": point,
+        "pip_size": pip_size,
+        "contract_size": contract_size,
+        "sl_distance": round(sl_distance, 8),
+        "loss_per_lot": round(loss_per_lot, 4),
+        "amount_usd": amount_usd_val,
+        "projected_loss_usd": projected_loss_usd,
+        "volume_min": vol_min,
+        "volume_max": vol_max,
+        "volume_step": vol_step,
+        "sizing_mode": "RISK" if projected_loss_usd is not None else "LOTS",
+        "comment": "MANUAL_ORDER",
+    }
+
+    _log_manual_order(
+        f"ATTEMPT: symbol={symbol} side={side} lots={lots} risk=${amount_usd_val} "
+        f"projected_loss=${projected_loss_usd} price={current_price} "
+        f"sl={sl_price} ({sl_pips} pips) tp={tp_price} ({tp_pips} pips) bridge={bridge_source}"
+    )
+
+    # THE proven order path: MT5RealBridge.place_order -> symbol_select ->
+    # DEAL request -> mt5.order_send() with the IOC -> FOK -> RETURN fallback.
+    order_res = b.place_order(
+        symbol=symbol,
+        side=side,
+        lots=lots,
+        sl_price=sl_price,
+        tp_price=tp_price,
+        comment="MANUAL_ORDER",
+    )
+
+    retcode = getattr(order_res, "retcode", None)
+    is_success = (retcode == 10009)          # TRADE_RETCODE_DONE is the ONLY success
+    comment = getattr(order_res, "comment", "")
+    order_id = getattr(order_res, "order_id", None)
+    deal_id = getattr(order_res, "deal_id", None) or order_id
+    exec_price = getattr(order_res, "exec_price", None)
+    attempts = getattr(order_res, "attempts", []) or []
+
+    _log_manual_order(
+        f"RESULT: ok={is_success} retcode={retcode} comment={comment} "
+        f"order={order_id} deal={deal_id} price={exec_price} "
+        f"attempts={len(attempts)} filling={getattr(order_res, 'filling', None)}"
+    )
+
+    return {
+        "ok": is_success,
+        "retcode": retcode,
+        "comment": comment or ("DONE" if is_success else "FAILED"),
+        "order": order_id,
+        "deal": deal_id,
+        "price": exec_price,
+        "volume": lots,
+        "amount_usd": amount_usd_val,
+        "projected_loss_usd": projected_loss_usd,
+        "contract_size": contract_size,
+        "pip_size": pip_size,
+        "sl_distance": round(sl_distance, 8),
+        "sizing_mode": "RISK" if projected_loss_usd is not None else "LOTS",
+        "request": req_dict,
+        "bridge_source": bridge_source,
+        # V6 order-send forensics — how (and whether) the order left the app
+        "order_send": {
+            "called": bool(getattr(order_res, "order_send_called", False)),
+            "call_count": int(getattr(order_res, "call_count", 0) or 0),
+            "attempts": attempts,
+            "filling": getattr(order_res, "filling", None),
+            "result_type": type(order_res).__name__,
+        },
+        "last_error": getattr(order_res, "last_error", None),
+    }
+
+
+@router.get("/live-testing/nodes/{sid}/worker")
+def live_testing_node_worker_state(sid: int) -> Dict[str, Any]:
+    """V6 — the backend's live-testing worker state for one node (refresh-safe)."""
+    state = _worker_state(sid)
+    return {"ok": True, "strategy_id": sid, "worker": state,
+            "running": bool(state.get("running"))}
+
+
 # ---------------- backup & versions (spec §40, §41) ----------------
 def _user_scoped_active_population(lab: Any) -> int:
     """V4.4: the research population shown to users is the USER_RESEARCH scope.
@@ -3180,6 +3497,16 @@ def live_test_results(
 # Demo-only, INACTIVE by default, explicit activation, no automatic retries.
 # These routes sit ON TOP of the V4.2 execution path (app.mt5.execution); they
 # never bypass the account guard, validation or duplicate protection.
+
+def _worker_state(sid: int) -> Dict[str, Any]:
+    """V6 — the backend's live-testing worker state for one node."""
+    try:
+        from ..live_testing.workers import get_worker_manager
+        return get_worker_manager().state(int(sid))
+    except Exception as e:                                  # pragma: no cover
+        return {"node_id": int(sid), "state": "UNKNOWN", "running": False,
+                "error": str(e)[:200]}
+
 
 def _live_engine():
     return get_live_testing_engine()
@@ -5029,6 +5356,9 @@ def live_testing_nodes_table(
             "global_risk_pct": global_pct,
             "is_active": bool(cfg.get("is_active")),
             "schedule": schedule,
+            # V6 — the BACKEND's live-testing worker state for this node. The
+            # START/STOP buttons are rendered from this, never from React state.
+            "worker": _worker_state(sid),
         })
 
     if search_clean:
@@ -5402,13 +5732,34 @@ def live_testing_node_start(sid: int, payload: Dict = Body(default_factory=dict)
     else:
         res = {"ok": True, "already_active": True}
 
+    # V6 — the node's OWN live-testing worker: created here, and the response is
+    # only "started" once the backend confirms the worker is actually running.
+    from ..live_testing.workers import get_worker_manager
+    wm = get_worker_manager()
+    wres = wm.start_worker(sid)
+    if not wres.get("ok"):
+        cfg = db.get_live_test_config(sid) or {}
+        cfg["is_active"] = False
+        cfg["status"] = "STOPPED"
+        db.set_live_test_config(sid, cfg)
+        raise HTTPException(status_code=422, detail={
+            "ok": False, "code": "WORKER_START_FAILED", "strategy_id": sid,
+            "worker": wres.get("worker"), "error": wres.get("error"),
+            "message": (f"the live-testing worker for node {sid} did not reach RUNNING "
+                        f"({wres.get('error')}); the node was NOT left enrolled")})
+
     node = {"id": sid, "config": db.get_live_test_config(sid) or {},
             "genome": _genome_of(strat)}
+    worker_state = wres["worker"]
     return {"ok": True, "strategy_id": sid, "is_active": True, "status": "RUNNING",
             "engine": {"active": True, "started_now": started_engine, "result": res},
+            "worker": worker_state,
+            "worker_running": bool(worker_state.get("running")),
+            "already_running": bool(wres.get("already_running")),
             "schedule": eng.schedule_state(node),
-            "note": ("the node is enrolled and the engine loop is running; orders still require a "
-                     "connected, positively-identified DEMO terminal and a live entry signal")}
+            "note": ("the node's live-testing worker is running (backend-confirmed); orders still "
+                     "require a connected, positively-identified DEMO terminal and a live entry "
+                     "signal")}
 
 
 @router.post("/live-testing/nodes/{sid}/stop")
@@ -5433,6 +5784,12 @@ def live_testing_node_stop(sid: int) -> Dict[str, Any]:
     except Exception:
         pass
 
+    # V6 — STOP also cancels the node's live-testing worker and CONFIRMS it is
+    # stopped. Idempotent: a second STOP is a no-op that still reports success.
+    from ..live_testing.workers import get_worker_manager
+    wm = get_worker_manager()
+    wres = wm.stop_worker(sid)
+
     eng = _live_engine()
     remaining = 0
     try:
@@ -5440,10 +5797,15 @@ def live_testing_node_stop(sid: int) -> Dict[str, Any]:
                          if (n.get("config") or {}).get("is_active")])
     except Exception:
         pass
+    worker_state = wres.get("worker") or {}
     return {"ok": True, "strategy_id": sid, "is_active": False, "status": "STOPPED",
             "enrolled_active_nodes": remaining,
-            "note": ("the node is out of the engine's active set; any position it already opened "
-                     "remains at the broker until it is closed explicitly"),
+            "worker": worker_state,
+            "worker_stopped": bool(wres.get("ok")) and not worker_state.get("running"),
+            "already_stopped": bool(wres.get("already_stopped")),
+            "note": ("the node is out of the engine's active set and its live-testing worker is "
+                     "stopped; any position it already opened remains at the broker until it is "
+                     "closed explicitly"),
             "positions_touched": False}
 
 

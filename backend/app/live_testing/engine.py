@@ -755,6 +755,21 @@ class LiveTestingEngine:
         if not nodes:
             self._last_noop_reason = "no eligible live-test nodes configured"
             return
+        # V6 — a node with its own dedicated live-testing worker is evaluated by
+        # that worker only. The shared loop must never double-evaluate it: one
+        # node = one live-testing worker = one order path (no duplicate orders).
+        try:
+            from .workers import get_worker_manager
+            _mgr = get_worker_manager()
+            owned = [n for n in nodes if _mgr.is_running(int(n.get("id")))]
+            if owned:
+                nodes = [n for n in nodes if not _mgr.is_running(int(n.get("id")))]
+                if not nodes:
+                    self._last_noop_reason = ("all eligible nodes are running under their own "
+                                              "per-node live-testing workers")
+                    return
+        except Exception:
+            pass
         self._last_noop_reason = None
         # pre-flight: broker state (spec §20) - never trade while disconnected, and
         # an interrupted session must never auto-resume when MT5 comes back.

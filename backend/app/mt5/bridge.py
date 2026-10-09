@@ -100,6 +100,14 @@ class OrderResult:
     comment: str = ""
     rejected_by: Optional[str] = None   # e.g. "RISK_MANAGER"
     source: str = "SIMULATOR"
+    # V6 order-send forensics (MT5 handoff) — every real result states exactly
+    # how (and whether) the order left the application. Never fabricated.
+    deal_id: Optional[int] = None
+    filling: Optional[str] = None        # "IOC" | "FOK" | "RETURN" | None
+    order_send_called: bool = False
+    call_count: int = 0                  # number of real mt5.order_send attempts
+    attempts: List[Dict] = field(default_factory=list)
+    last_error: Optional[List] = None    # mt5.last_error() after the last attempt
 
 
 class MarketBridge(abc.ABC):
@@ -182,6 +190,16 @@ class MarketBridge(abc.ABC):
         """Real execution. Disabled unless the bridge explicitly supports it
         AND the user has activated real trading (risk layer double-checks)."""
         return OrderResult(ok=False, comment="real execution not supported by this bridge",
+                           rejected_by="BRIDGE", source=self.source)
+
+    def place_order(self, symbol: str, side: str, lots: float,
+                    sl_price: float | None = None, tp_price: float | None = None,
+                    comment: str = "", position_ticket: int | None = None) -> OrderResult:
+        """THE proven order path (MT5 handoff): market DEAL with SL/TP keys
+        omitted when absent, and the IOC -> FOK -> RETURN filling fallback built
+        from REAL mt5.order_send() calls. Implementations override this; the
+        base contract reports honestly that it cannot execute."""
+        return OrderResult(ok=False, comment="order execution is not supported by this bridge",
                            rejected_by="BRIDGE", source=self.source)
 
     # ---- V4.2 execution primitives -------------------------------------

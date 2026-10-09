@@ -333,3 +333,25 @@ class SimulatorBridge(MarketBridge):
                            requested_price=base, slippage_points=slip_pts,
                            delay_ms=delay_ms, retcode=10009, comment="simulated fill",
                            source=self.source)
+
+    def place_order(self, symbol: str, side: str, lots: float,
+                    sl_price: float | None = None, tp_price: float | None = None,
+                    comment: str = "", position_ticket: int | None = None) -> OrderResult:
+        """Simulated fill, recording sl_price/tp_price with source = 'SIMULATOR'.
+
+        Nothing synthetic is ever presented as real: the result is labelled
+        SIMULATOR on every record (MT5 handoff Part 1)."""
+        res = self.simulate_market_order(symbol, side, lots)
+        parts = ["simulated fill"]
+        if sl_price is not None:
+            parts.append(f"sl={sl_price:.2f}")
+        if tp_price is not None:
+            parts.append(f"tp={tp_price:.2f}")
+        if position_ticket is not None:
+            parts.append(f"position={position_ticket}")
+        if comment:
+            parts.append(comment)
+        res.comment = " ".join(parts)
+        res.source = self.source
+        res.order_send_called = False       # no broker call was ever made
+        return res

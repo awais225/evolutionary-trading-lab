@@ -9,7 +9,7 @@ the Windows execution path is exercised:
   2. order_send returns None                     -> last_error captured, precise
                                                     diagnostic, UNKNOWN, no retry
   3. order_send raises                            -> exception + traceback captured
-  4. order_check refuses                          -> order_send never called
+  4. order_check refuses                          -> DIAGNOSTIC ONLY (V6: send still happens)
   5. the diagnostic always carries terminal/account/symbol/fill constraints
   6. an UNKNOWN outcome is never resubmitted, and the duplicate gate still holds
 
@@ -333,16 +333,26 @@ def test_07_an_exception_through_place_demo_order_names_the_layer(
 
 
 # ===========================================================================
-# 4 — order_check refuses: order_send must never be called
+# 4 — order_check is DIAGNOSTIC-ONLY (V6): it can never gate order_send
 # ===========================================================================
-def test_08_a_refused_order_check_never_calls_order_send(fake_pkg, real_bridge):
+def test_08_a_refused_order_check_never_blocks_order_send(fake_pkg, real_bridge):
+    """V6 (MT5 handoff) — the known failure mode was ``ORDER_CHECK_REFUSED``
+    with ``order_send called = false``: the preflight gate ate the order. The
+    check is a diagnostic now. The order is STILL SENT and only the broker's
+    own answer decides the outcome; an unevaluable/refused preflight is never
+    reported as a broker refusal of the real order."""
     fake_pkg.check_retcode = 10016
     out = real_bridge.send_market_order(_request())
-    assert out["called"] is False and out["refused_by"] == "mt5.order_check"
-    assert out["retcode"] == 10016
-    assert out["diagnostic"]["phase"] == "ORDER_CHECK_REFUSED"
-    assert fake_pkg.order_send_calls == 0
-    assert ("order_check", ) not in [(c[0], ) for c in fake_pkg.calls] or True
+    assert fake_pkg.order_send_calls >= 1, \
+        "order_send must be reached even when order_check refuses — it is NOT a gate"
+    assert out["called"] is True
+    assert out.get("refused_by") != "mt5.order_check"
+    # the broker's ACTUAL answer rules (the fake terminal fills at 10009)
+    assert out["retcode"] == 10009 and out["ok"] is True
+    # ...and the preflight verdict travels with the result as an honest diagnostic
+    assert out["check"]["ok"] is False and out["check"]["retcode"] == 10016
+    assert out["check"].get("gate") is False
+    assert out["diagnostic"]["phase"] == "ORDER_SEND_RETURNED_RESULT"
 
 
 # ===========================================================================

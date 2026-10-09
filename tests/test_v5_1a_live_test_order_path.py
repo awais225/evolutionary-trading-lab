@@ -133,10 +133,10 @@ def _events(engine):
 def test_01_live_order_goes_through_send_market_order_only(wired, db):
     """The engine's order leaves via the single V4.2 bridge call.
 
-    ``order_check`` is the *first* thing ``MT5RealBridge.send_market_order`` does
-    (proven in tests/test_v5_1a_mt5_order_diagnostics.py::test_08 with the real
-    bridge code), so the engine must reach the bridge through that one method and
-    never through a second, unvalidated sending path.
+    The engine must reach the bridge through that one method and never through
+    a second, unvalidated sending path (V6: the preflight ``order_check`` is
+    diagnostic-only inside ``send_market_order`` — see tests/test_v5_1a_mt5_order_diagnostics.py
+    ::test_08 — and every send rides the proven filling-fallback chain).
     """
     _node(db)
     eng = _v43.fresh_engine()

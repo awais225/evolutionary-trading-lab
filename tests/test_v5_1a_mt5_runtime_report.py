@@ -334,15 +334,18 @@ REQUEST = {"symbol": "XAUUSD", "volume": 0.01, "type": 0, "price": 2000.0,
            "sl": 1900.0, "tp": 2100.0, "type_filling": 1, "magic": 1}
 
 
-def test_19_a_refused_order_check_stops_the_order_before_it_is_sent(monkeypatch):
+def test_19_a_refused_order_check_is_diagnostic_only_and_never_blocks_the_send(monkeypatch):
+    """V6 (MT5 handoff) — order_check must never prevent the proven
+    order_send() path. The preflight verdict travels as a diagnostic; only the
+    broker's own order_send answer decides the order's fate."""
     term = _FakeTerminal(check_retcode=10019, comment="No money")
     bridge = _real_bridge(monkeypatch, term)
     out = bridge.send_market_order(REQUEST)
-    assert out["ok"] is False
-    assert out["retcode"] == 10019
-    assert out["refused_by"] == "mt5.order_check"
-    assert out["check"]["ok"] is False
-    assert term.sent == [], "order_send was called although order_check refused"
+    assert term.sent, "order_send must be reached even when order_check refuses — it is NOT a gate"
+    assert out["called"] is True
+    assert out.get("refused_by") != "mt5.order_check"
+    assert out["check"]["ok"] is False               # the preflight verdict, honestly labelled
+    assert out["retcode"] == 10009                   # the broker's ACTUAL answer
     assert term.checked and term.checked[0]["symbol"] == "XAUUSD"
 
 

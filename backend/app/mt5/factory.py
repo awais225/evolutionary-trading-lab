@@ -27,7 +27,10 @@ def build_bridge(cfg=None, explicit_path: Optional[str] = None) -> MarketBridge:
         real = MT5RealBridge(login=cfg.login, password=cfg.password,
                              server=cfg.server, path=target_path or "",
                              timeout_ms=cfg.timeout_ms)
-        if MT5_PACKAGE_AVAILABLE and real.connect():
+        # connect() itself records the failure reason (including "package not
+        # importable") into status()/last_error — an explicit REAL request must
+        # expose a clear unavailable state, never silently swap the simulator in.
+        if real.connect():
             log.info("Using REAL MT5 bridge (Path: %s)", target_path or "auto-discovered")
             return real
         if mode == "real":

@@ -278,6 +278,8 @@ export const api = {
   liveTestingSchedule: (sid) => req(`/api/live-testing/schedule/${sid}`),
   saveLiveTestingSchedule: (sid, body) =>
     req(`/api/live-testing/schedule/${sid}`, { method: "POST", body }),
+  manualOrder: (body = {}) => req("/api/mt5/manual_order", { method: "POST", body }),
+  liveTestingNodeWorker: (sid) => req(`/api/live-testing/nodes/${sid}/worker`),
   liveTestingStartNode: (sid) =>
     req(`/api/live-testing/nodes/${sid}/start`, { method: "POST", body: { confirmed: true } }),
   liveTestingStopNode: (sid) => req(`/api/live-testing/nodes/${sid}/stop`, { method: "POST" }),

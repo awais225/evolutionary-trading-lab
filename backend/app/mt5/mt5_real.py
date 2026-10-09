@@ -689,13 +689,15 @@ class MT5RealBridge(MarketBridge):
 
     # ---------- V4.2 execution primitives ----------
     def check_market_order(self, request: Dict) -> Dict:
-        """V5.1a §15 — `mt5.order_check` on the *same* request before it is sent.
+        """`mt5.order_check` on the *same* request — DIAGNOSTIC-ONLY (V6).
 
         The terminal answers whether the order would be accepted (margin,
-        volume step, stop distance, filling mode, market state) and returns its
-        own retcode. A non-DONE check is a refusal with the broker's reason —
-        the order is then never sent. Nothing is interpreted locally: the
-        retcode and comment come straight from the terminal.
+        volume step, stop distance, filling mode, market state). This verdict is
+        recorded with the result for the panel/forensics, but it NEVER gates the
+        send: an unevaluable check (None) is not a broker refusal, and only the
+        real `mt5.order_send()` answer decides the order's fate. Nothing is
+        interpreted locally: the retcode and comment come straight from the
+        terminal.
 
         Returns {"ok", "retcode", "raw", "unsupported", "error"}.
         """
@@ -827,11 +829,10 @@ class MT5RealBridge(MarketBridge):
     def send_market_order(self, request: Dict) -> Dict:
         """Send a fully-built MT5 order request (market order with real SL/TP).
 
-        V5.1a §15 — the request is first put through the terminal's own
-        `order_check`. When that check refuses, nothing is sent and the refusal
-        is returned with the terminal's retcode and comment. A check that PASSES
-        is not an acceptance criterion: the order is then sent exactly once and
-        the ACTUAL `mt5.order_send()` outcome is captured (V5.3 §2.1/§2.2).
+        V6 (MT5 handoff) — `order_check` runs for DIAGNOSTICS ONLY and can never
+        stop the send; the order goes out through the proven filling-mode
+        fallback chain (real `mt5.order_send()` calls, 10029/10030 advance the
+        chain) and the ACTUAL broker outcome is what gets reported.
 
         V5.3 §2.1 — the whole sequence (session check -> order_check -> order_send
         -> post-send verification) runs inside the session lock, so a shutdown/
@@ -867,36 +868,35 @@ class MT5RealBridge(MarketBridge):
                             request, called=False, phase="ORDER_SESSION_UNAVAILABLE",
                             filling=filling_resolution)}
             check = self.check_market_order(request)
+            # V6 (MT5 handoff) — order_check is DIAGNOSTIC-ONLY. It must never
+            # gate the proven order_send path: an unevaluable check (None) is NOT
+            # a broker refusal, and even an explicit preflight refusal is only an
+            # opinion — the broker's own order_send answer is the truth. Nothing
+            # below may return early because of `check`.
             if not check.get("unsupported") and not check.get("ok"):
-                raw_check = check.get("raw") or {}
-                return {"ok": False, "retcode": check.get("retcode"), "raw": raw_check,
-                        "check": check, "request": dict(request), "called": False,
-                        "session": {**(session or {}), "snapshot": session_snapshot()},
-                        "filling_resolution": filling_resolution,
-                        "refused_by": "mt5.order_check",
-                        "error": (raw_check.get("comment")
-                                  or f"order_check refused the order (retcode {check.get('retcode')})"),
-                        "diagnostic": self._execution_diagnostic(request, called=False,
-                                                                 phase="ORDER_CHECK_REFUSED",
-                                                                 check=check,
-                                                                 filling=filling_resolution)}
+                log.info("order_check preflight did not pass (retcode=%s) — recorded as a "
+                         "diagnostic; the order is STILL SENT and the broker decides",
+                         check.get("retcode"))
+            check = dict(check)
+            check["role"] = ("diagnostic-only (V6: order_check never gates order_send)")
+            check["gate"] = False
             # ------------------------------------------------------------------
-            # V5.3 §2.1 — THE call. Exactly once. Both last_error() values and the
-            # result object are captured; no exception is swallowed.
+            # V6 (MT5 handoff) — THE calls: the filling-mode fallback chain, each
+            # mode a REAL mt5.order_send(). Only the filling retcodes 10029/10030
+            # advance the chain; None/exception/any other retcode stops it and is
+            # reported verbatim. Nothing is retried blindly.
             # ------------------------------------------------------------------
-            last_error_before = self._last_error_safe()
-            result = None
-            raised: Optional[BaseException] = None
-            tb_tail: Optional[List[str]] = None
-            t0 = time.time()
-            try:
-                result = mt5.order_send(dict(request))
-            except BaseException as e:                # noqa: BLE001 - must be reported, not swallowed
-                raised = e
-                tb_tail = traceback.format_exc().strip().splitlines()[-8:]
-                log.error("order_send raised: %s: %s", type(e).__name__, e)
-            elapsed_ms = round((time.time() - t0) * 1000.0, 1)
-            last_error_after = self._last_error_safe()
+            chain = self._send_with_filling_fallback(
+                dict(request), _fallback_sequence(request.get("type_filling")))
+            request = chain["request"]
+            result = chain["result"] if chain["result"] is not None else chain["last_res"]
+            raised = chain["raised"]
+            tb_tail = chain["tb_tail"]
+            elapsed_ms = chain["elapsed_ms"]
+            last_error_before = chain["last_error_before"]
+            last_error_after = chain["last_error_after"]
+            attempts = chain["attempts"]
+            call_count = max(1, len(attempts))
             result_repr = None
             if result is not None:
                 try:
@@ -904,7 +904,8 @@ class MT5RealBridge(MarketBridge):
                 except Exception as e:                                # pragma: no cover
                     result_repr = f"<repr failed: {type(e).__name__}: {e}>"
             forensics: Dict[str, Any] = {
-                "order_send_called": True, "call_count": 1,
+                "order_send_called": True, "call_count": call_count,
+                "order_send_attempts": attempts,
                 "order_send_returned": result is not None,
                 "order_send_result_type": type(result).__name__ if result is not None else None,
                 "order_send_result_repr": result_repr,
@@ -922,7 +923,7 @@ class MT5RealBridge(MarketBridge):
                             "ORDER_SEND_RETURNED_RESULT"),
             }
             if raised is not None:
-                return {"ok": False, "retcode": None, "raw": None, "called": True, "call_count": 1,
+                return {"ok": False, "retcode": None, "raw": None, "called": True, "call_count": call_count,
                         "exception": str(raised), "exception_type": type(raised).__name__,
                         "last_error": last_error_after, "forensics": forensics, "session": {**(session or {}), "snapshot": session_snapshot()},
                         "request": dict(request), "check": check,
@@ -939,7 +940,7 @@ class MT5RealBridge(MarketBridge):
                 # after the call travels with it.
                 log.error("order_send returned None (last_error_before=%s last_error_after=%s)",
                           last_error_before, last_error_after)
-                return {"ok": False, "retcode": None, "raw": None, "called": True, "call_count": 1,
+                return {"ok": False, "retcode": None, "raw": None, "called": True, "call_count": call_count,
                         "last_error": last_error_after,
                         "exception": (f"order_send returned None "
                                       f"(mt5.last_error={last_error_after})"),
@@ -957,7 +958,7 @@ class MT5RealBridge(MarketBridge):
                 err = last_error_after
                 log.error("order_send returned an unreadable result (retcode missing, keys=%s, "
                           "last_error=%s)", sorted(raw.keys()), err)
-                return {"ok": False, "retcode": None, "raw": raw, "called": True, "call_count": 1,
+                return {"ok": False, "retcode": None, "raw": raw, "called": True, "call_count": call_count,
                         "last_error": err, "exception_type": "UnusableResult",
                         "exception": ("order_send answered with an object that carries no usable "
                                       f"retcode (keys={sorted(raw.keys())})"),
@@ -974,9 +975,10 @@ class MT5RealBridge(MarketBridge):
             # proof; an existing position/order for this symbol+magic is.
             verification = self.verify_sent_order(request, raw)
             forensics["post_send"] = verification
-            return {"ok": bool(raw.get("retcode")), "retcode": raw.get("retcode"), "raw": raw,
+            return {"ok": raw.get("retcode") == getattr(mt5, "TRADE_RETCODE_DONE", 10009),
+                    "retcode": raw.get("retcode"), "raw": raw,
                     "check": check, "filling_resolution": filling_resolution,
-                    "request": dict(request), "called": True, "call_count": 1,
+                    "request": dict(request), "called": True, "call_count": call_count,
                     "last_error": last_error_after, "forensics": forensics, "session": {**(session or {}), "snapshot": session_snapshot()},
                     "verification": verification,
                     "diagnostic": self._execution_diagnostic(request, called=True,
@@ -1064,7 +1066,7 @@ class MT5RealBridge(MarketBridge):
         diag: Dict = {
             "phase": phase,
             "order_send_called": bool(called),
-            "call_count": 1 if called else 0,
+            "call_count": int((forensics or {}).get("call_count") or (1 if called else 0)),
             "request": dict(request or {}),
             "last_error": last_error,
             "last_error_before": (forensics or {}).get("mt5_last_error_before"),
@@ -1237,47 +1239,190 @@ class MT5RealBridge(MarketBridge):
                 "request": request, "raw": raw,
                 "error": res.get("error") or res.get("exception")}
 
-    def real_market_order(self, symbol: str, side: str, lots: float) -> OrderResult:
-        """Send a REAL market order to MT5. Only callable through the risk layer."""
+    # ---------- execution: the proven MT5 handoff order path (V6) ----------
+    def _send_with_filling_fallback(self, request: Dict, mode_sequence) -> Dict:
+        """THE one place ``mt5.order_send`` is called (MT5 handoff, V6).
+
+        Walks ``mode_sequence`` — literally IOC -> FOK -> RETURN for
+        ``place_order`` (and the metadata-resolved mode first for the older
+        instrumented entry points). Only the documented filling-related broker
+        retcodes advance to the next mode:
+
+            10029  TRADE_RETCODE_INVALID_ORDER  ("not this way")
+            10030  TRADE_RETCODE_INVALID_FILL   ("not this way")
+
+        Success is ``retcode == 10009`` and nothing else. Any other broker
+        answer stops the chain immediately and is returned verbatim ("do not
+        retry arbitrary broker errors"). A ``None`` answer or an exception also
+        stops the chain and is reported honestly — an unknown outcome is never
+        blindly resent (that is how duplicate orders are born).
+        """
+        attempts: List[Dict] = []
+        t0 = time.time()
+        last_error_before = self._last_error_safe()
+        result = None
+        last_res = None
+        raised: Optional[BaseException] = None
+        tb_tail: Optional[List[str]] = None
+        used_req = dict(request)
+        for fill_name, fill_mode in mode_sequence:
+            req = dict(request)
+            req["type_filling"] = int(fill_mode)
+            used_req = req
+            try:
+                res = mt5.order_send(req)
+            except BaseException as e:            # noqa: BLE001 - reported, not swallowed
+                raised = e
+                tb_tail = traceback.format_exc().strip().splitlines()[-8:]
+                log.error("order_send raised (%s): %s: %s", fill_name, type(e).__name__, e)
+                attempts.append({"filling": fill_name, "filling_mode": int(fill_mode),
+                                 "outcome": "ORDER_SEND_EXCEPTION",
+                                 "exception_type": type(e).__name__, "exception": str(e)})
+                break
+            err_after = self._last_error_safe()
+            if res is None:
+                attempts.append({"filling": fill_name, "filling_mode": int(fill_mode),
+                                 "outcome": "ORDER_SEND_RETURNED_NONE", "retcode": None,
+                                 "last_error": err_after})
+                log.warning("order_send returned None (filling %s, mt5.last_error=%s)",
+                            fill_name, err_after)
+                break
+            raw = _result_to_dict(res)
+            rc = raw.get("retcode")
+            attempts.append({"filling": fill_name, "filling_mode": int(fill_mode),
+                             "outcome": "ORDER_SEND_RETURNED_RESULT", "retcode": rc,
+                             "comment": raw.get("comment"), "order": raw.get("order"),
+                             "deal": raw.get("deal"), "price": raw.get("price"),
+                             "volume": raw.get("volume")})
+            last_res = res
+            if rc == getattr(mt5, "TRADE_RETCODE_DONE", 10009):
+                result = res
+                break
+            if rc in (getattr(mt5, "TRADE_RETCODE_INVALID_ORDER", 10029),
+                      getattr(mt5, "TRADE_RETCODE_INVALID_FILL", 10030)):
+                log.warning("filling mode %s rejected (retcode %s) — trying the next mode",
+                            fill_name, rc)
+                continue
+            log.info("broker answered retcode=%s comment=%r (filling %s) — not a filling "
+                     "rejection, stopping the chain", rc, raw.get("comment"), fill_name)
+            break
+        return {"result": result, "last_res": last_res, "raised": raised,
+                "tb_tail": tb_tail, "attempts": attempts, "request": used_req,
+                "last_error_before": last_error_before,
+                "last_error_after": self._last_error_safe(),
+                "elapsed_ms": round((time.time() - t0) * 1000.0, 1)}
+
+    def place_order(self, symbol: str, side: str, lots: float,
+                    sl_price: float | None = None, tp_price: float | None = None,
+                    comment: str = "", position_ticket: int | None = None) -> OrderResult:
+        """Send a real market DEAL to MT5 (the MT5 handoff's proven path).
+
+        symbol_select -> live tick -> DEAL request (SL/TP keys OMITTED when
+        absent — never ``sl: 0.0``) -> filling fallback IOC -> FOK -> RETURN,
+        each mode a REAL ``mt5.order_send()`` call. Success is retcode 10009.
+        Nothing is ever fabricated: a None answer is reported as None.
+        """
         if not self._connected or not MT5_PACKAGE_AVAILABLE:
             return OrderResult(ok=False, comment="MT5 not connected",
-                               rejected_by="BRIDGE", source=self.source)
+                               rejected_by="BRIDGE", source=self.source, retcode=-1)
         t0 = time.time()
+        # handoff rule: symbol_select BEFORE any symbol query or order call
+        try:
+            mt5.symbol_select(symbol, True)
+        except Exception as e:                    # pragma: no cover - terminal dependent
+            log.warning("symbol_select(%s) raised: %s", symbol, e)
         tick = self.latest_tick(symbol)
         if tick is None:
-            return OrderResult(ok=False, comment="no tick", rejected_by="BRIDGE",
-                               source=self.source)
-        order_type = mt5.ORDER_TYPE_BUY if side == "buy" else mt5.ORDER_TYPE_SELL
-        price = tick.ask if side == "buy" else tick.bid
-        request = {
-            "action": mt5.TRADE_ACTION_DEAL, "symbol": symbol, "volume": float(lots),
-            "type": order_type, "price": price, "deviation": 20,
-            "magic": 777001, "comment": "evolab", "type_time": mt5.ORDER_TIME_GTC,
-            "type_filling": mt5.ORDER_FILLING_IOC,
+            return OrderResult(ok=False, comment="no live tick from MT5",
+                               rejected_by="BRIDGE", source=self.source, retcode=-2,
+                               order_send_called=False, call_count=0)
+        side_l = str(side).lower()
+        order_type = (getattr(mt5, "ORDER_TYPE_BUY", 0) if side_l == "buy"
+                      else getattr(mt5, "ORDER_TYPE_SELL", 1))
+        price = tick.ask if side_l == "buy" else tick.bid
+        base_request: Dict[str, Any] = {
+            "action": getattr(mt5, "TRADE_ACTION_DEAL", 1),
+            "symbol": symbol,
+            "volume": float(lots),
+            "type": order_type,
+            "price": price,
+            "deviation": 20,
+            "magic": 777001,
+            "comment": str(comment or "evolab")[:31],
+            "type_time": getattr(mt5, "ORDER_TIME_GTC", 0),
         }
-        try:
-            result = mt5.order_send(request)
-        except Exception as e:
-            return OrderResult(ok=False,
-                               comment=(f"order_send exception {type(e).__name__}: {e} "
-                                        f"| mt5.last_error={self._last_error_safe()}"),
-                               rejected_by="BRIDGE", source=self.source)
+        if sl_price is not None and sl_price > 0:
+            base_request["sl"] = float(sl_price)
+        if tp_price is not None and tp_price > 0:
+            base_request["tp"] = float(tp_price)
+        if position_ticket is not None:
+            base_request["position"] = int(position_ticket)
+
+        chain = self._send_with_filling_fallback(base_request, _filling_chain())
+        attempts = chain["attempts"]
+        used = chain["request"]
         exec_ts = time.time()
-        if result is None:
-            # never a bare "returned None": the terminal's own last_error is the
-            # diagnostic, and the outcome is uncertain (the order may exist).
-            return OrderResult(ok=False,
-                               comment=(f"order_send returned no result object "
-                                        f"(mt5.last_error={self._last_error_safe()}) — "
-                                        f"verify open positions/orders in MT5"),
-                               rejected_by="BRIDGE", source=self.source)
-        ok = result.retcode == mt5.TRADE_RETCODE_DONE
-        ep = float(result.price or 0)
-        return OrderResult(ok=ok, order_id=getattr(result, "order", None),
-                           exec_price=ep, exec_ts=exec_ts, requested_price=price,
-                           slippage_points=(abs(ep - price) / 0.01) if ep else None,
-                           delay_ms=(exec_ts - t0) * 1000.0, retcode=result.retcode,
-                           comment=getattr(result, "comment", ""), source=self.source)
+        common = {"source": self.source, "requested_price": price,
+                  "order_send_called": bool(attempts), "call_count": len(attempts),
+                  "attempts": attempts, "last_error": chain["last_error_after"]}
+        if chain["result"] is not None:
+            raw = _result_to_dict(chain["result"])
+            ep = float(raw.get("price") or price)
+            return OrderResult(
+                ok=True, order_id=raw.get("order") or raw.get("deal"),
+                deal_id=raw.get("deal"), exec_price=ep, exec_ts=exec_ts,
+                slippage_points=(abs(ep - price) / 0.01) if ep else 0.0,
+                delay_ms=(exec_ts - t0) * 1000.0, retcode=raw.get("retcode"),
+                comment=str(raw.get("comment") or "DONE"),
+                filling=filling_name(used.get("type_filling")), **common)
+        if chain["raised"] is not None:
+            return OrderResult(ok=False, retcode=None,
+                               comment=f"order_send exception: {chain['raised']}",
+                               rejected_by="BRIDGE", exec_ts=exec_ts,
+                               delay_ms=(exec_ts - t0) * 1000.0,
+                               filling=filling_name(used.get("type_filling")), **common)
+        last = chain["last_res"]
+        if last is None:
+            return OrderResult(ok=False, retcode=None, comment="order_send returned None",
+                               rejected_by="BRIDGE", exec_ts=exec_ts,
+                               delay_ms=(exec_ts - t0) * 1000.0,
+                               filling=filling_name(used.get("type_filling")), **common)
+        raw = _result_to_dict(last)
+        return OrderResult(ok=False, retcode=raw.get("retcode"),
+                           comment=str(raw.get("comment") or "FAILED"),
+                           order_id=raw.get("order"), deal_id=raw.get("deal"),
+                           exec_ts=exec_ts,
+                           delay_ms=(exec_ts - t0) * 1000.0,
+                           filling=filling_name(used.get("type_filling")), **common)
+
+    def real_market_order(self, symbol: str, side: str, lots: float) -> OrderResult:
+        """Send a REAL market order to MT5. Only callable through the risk layer.
+
+        V6: rides the SAME proven filling-fallback chain as ``place_order`` —
+        every send is a real ``mt5.order_send()`` call.
+        """
+        return self.place_order(symbol, side, lots, comment="evolab")
+
+def _filling_chain():
+    """The MT5 handoff's literal fallback order: IOC -> FOK -> RETURN."""
+    return [("IOC", getattr(mt5, "ORDER_FILLING_IOC", 1)),
+            ("FOK", getattr(mt5, "ORDER_FILLING_FOK", 0)),
+            ("RETURN", getattr(mt5, "ORDER_FILLING_RETURN", 2))]
+
+
+def _fallback_sequence(preferred):
+    """Chain order for send_market_order: the metadata-resolved mode first,
+    then the remaining modes in the handoff order IOC -> FOK -> RETURN."""
+    chain = _filling_chain()
+    if preferred is None:
+        return chain
+    try:
+        pref = int(preferred)
+    except (TypeError, ValueError):
+        return chain
+    return ([(n, v) for (n, v) in chain if int(v) == pref]
+            + [(n, v) for (n, v) in chain if int(v) != pref])
+
 
 def _filling_modes(si) -> List[int]:
     """``type_filling`` values this symbol accepts, from its own metadata.
