@@ -1,8 +1,0 @@
-
-==== 2026-09-25 12:20:29 migration failed at user_version 0 -> 2 ====
-Traceback (most recent call last):
-  File "/home/user/evolutionary-trading-lab/backend/app/db/migrations.py", line 163, in migrate
-    conn.executescript(V2_INDEXES)
-    ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
-sqlite3.OperationalError: no such table: main.datasets
-
