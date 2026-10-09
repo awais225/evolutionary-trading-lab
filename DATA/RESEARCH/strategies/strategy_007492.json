@@ -1,37 +1,47 @@
 {
-  "hash": "2306b95a09b235225ffe37adf9384e6a",
-  "parent_id": 234,
-  "generation": 3,
+  "hash": "af61048688258c752b49310d0f4db3c2",
+  "parent_id": 6658,
+  "generation": 8,
   "symbol": "XAUUSD",
-  "timeframe": "M5",
+  "timeframe": "M15",
   "direction": "short",
   "status": "BORN",
-  "creation_reason": "mutation of #234: replaced vwap with volume:50",
-  "mutation_type": "indicator_replacement",
-  "species_key": "M5|short|bb,roc,volume",
+  "creation_reason": "mutation of #6658: added indicator sma:200",
+  "mutation_type": "indicator_addition",
+  "species_key": "M15|short|bb,sma",
   "genome": {
     "symbol": "XAUUSD",
-    "timeframe": "M5",
+    "timeframe": "M15",
     "direction": "short",
     "features": [
-      "volume:50",
-      "roc:24",
-      "bb:20:2.0"
+      "bb:20:2.5",
+      "sma:200"
     ],
     "entry_long": null,
     "entry_short": {
-      "type": "compare",
-      "left": "relvol:50",
-      "cmp": ">",
-      "right": 1.31
+      "op": "and",
+      "clauses": [
+        {
+          "type": "compare",
+          "left": "bb_pctb:20:2.5",
+          "cmp": ">",
+          "right": 0.85
+        },
+        {
+          "type": "compare",
+          "left": "sma:200",
+          "cmp": "<",
+          "right": "close"
+        }
+      ]
     },
     "exit": {
-      "atr_spec": "atr:7",
-      "sl_atr_mult": 2.94,
-      "tp_atr_mult": 3.42,
+      "atr_spec": "atr:21",
+      "sl_atr_mult": 2.42,
+      "tp_atr_mult": 3.52,
       "trailing": null,
-      "min_hold_bars": 2,
-      "max_hold_bars": 24,
+      "min_hold_bars": 0,
+      "max_hold_bars": 12,
       "exit_condition": null
     },
     "sessions": null,
@@ -45,11 +55,11 @@
   "complexity": 4,
   "origin": "mutation",
   "hypothesis_id": null,
-  "seed": 1128443887,
+  "seed": 1494985159,
   "mutation_params": null,
   "config_version": "73f86ee16ce4b5fd",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 7492
 }

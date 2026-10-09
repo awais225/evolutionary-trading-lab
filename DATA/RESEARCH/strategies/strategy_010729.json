@@ -1,61 +1,62 @@
 {
-  "hash": "55d232f6b4fbef1f2522c7029387baa1",
+  "hash": "4e0d12f612c15f927f28e9871a4fc3a8",
   "parent_id": null,
-  "generation": 38,
+  "generation": 22,
   "symbol": "XAUUSD",
   "timeframe": "M15",
   "direction": "both",
   "status": "BORN",
-  "creation_reason": "Gen 38 candidate exploration (filling shortfall)",
+  "creation_reason": "Gen 22 candidate exploration (filling shortfall)",
   "mutation_type": "random_exploration",
-  "species_key": "M15|both|adx",
+  "species_key": "M15|both|momentum,sma,volume",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
     "direction": "both",
     "features": [
-      "adx:21"
+      "momentum:5",
+      "volume:20",
+      "sma:10"
     ],
     "entry_long": {
       "type": "compare",
-      "left": "adx:21",
+      "left": "relvol:20",
       "cmp": ">",
-      "right": 25
+      "right": 1.59
     },
     "entry_short": {
       "type": "compare",
-      "left": "adx:21",
+      "left": "momentum:5",
       "cmp": ">",
-      "right": 28
+      "right": 0.94
     },
     "exit": {
-      "atr_spec": "atr:21",
-      "sl_atr_mult": 2.89,
-      "tp_atr_mult": 1.36,
+      "atr_spec": "atr:10",
+      "sl_atr_mult": 2.63,
+      "tp_atr_mult": 1.08,
       "trailing": null,
-      "min_hold_bars": 2,
-      "max_hold_bars": 96,
+      "min_hold_bars": 1,
+      "max_hold_bars": 144,
       "exit_condition": null
     },
-    "sessions": [
-      "london",
-      "asia"
-    ],
+    "sessions": null,
     "days": null,
-    "regime_filters": null,
+    "regime_filters": [
+      "low_volatility"
+    ],
     "risk": {
       "risk_per_trade": 0.005,
       "max_concurrent": 1
     }
   },
-  "complexity": 3,
+  "complexity": 5,
   "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 226510628,
+  "seed": 796859900,
   "mutation_params": null,
   "config_version": "73f86ee16ce4b5fd",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 10729
 }

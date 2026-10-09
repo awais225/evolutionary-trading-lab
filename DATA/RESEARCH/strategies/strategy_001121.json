@@ -1,5 +1,5 @@
 {
-  "hash": "e077b1579813ee7752b7a12234d09e9d",
+  "hash": "494d08dde6dac6ab7293f931cc425c0b",
   "parent_id": null,
   "generation": 0,
   "symbol": "XAUUSD",
@@ -8,47 +8,52 @@
   "status": "BORN",
   "creation_reason": "generation-0 random seed",
   "mutation_type": "random_exploration",
-  "species_key": "M15|long|momentum,volatility",
+  "species_key": "M15|long|roc,volume",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
     "direction": "long",
     "features": [
-      "volatility:50",
-      "momentum:5"
+      "roc:6",
+      "volume:20"
     ],
     "entry_long": {
       "type": "compare",
-      "left": "momentum:5",
-      "cmp": "<",
-      "right": -0.51
+      "left": "relvol:20",
+      "cmp": ">",
+      "right": 1.04
     },
     "entry_short": null,
     "exit": {
-      "atr_spec": "atr:10",
-      "sl_atr_mult": 1.09,
-      "tp_atr_mult": 1.0,
+      "atr_spec": "atr:21",
+      "sl_atr_mult": 2.4,
+      "tp_atr_mult": 1.95,
       "trailing": null,
       "min_hold_bars": 0,
-      "max_hold_bars": 48,
+      "max_hold_bars": 96,
       "exit_condition": null
     },
     "sessions": null,
-    "days": null,
+    "days": [
+      1,
+      2,
+      3,
+      4
+    ],
     "regime_filters": null,
     "risk": {
       "risk_per_trade": 0.005,
       "max_concurrent": 1
     }
   },
-  "complexity": 3,
+  "complexity": 4,
   "origin": "seed",
   "hypothesis_id": null,
-  "seed": 283102449,
+  "seed": 1307573506,
   "mutation_params": null,
-  "config_version": "8881aded8886ae26",
+  "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 1121
 }

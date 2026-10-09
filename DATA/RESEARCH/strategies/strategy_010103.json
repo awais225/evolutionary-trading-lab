@@ -1,66 +1,58 @@
 {
-  "hash": "cda2ea541a42de03744be2e4db63c475",
+  "hash": "83fda8aefa17d9ff3e146427e046ef3d",
   "parent_id": null,
-  "generation": 36,
+  "generation": 21,
   "symbol": "XAUUSD",
   "timeframe": "M15",
-  "direction": "short",
+  "direction": "both",
   "status": "BORN",
-  "creation_reason": "Gen 36 candidate exploration (filling shortfall)",
+  "creation_reason": "Gen 21 candidate exploration (filling shortfall)",
   "mutation_type": "random_exploration",
-  "species_key": "M15|short|bb,volatility,vwap",
+  "species_key": "M15|both|stoch",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
-    "direction": "short",
+    "direction": "both",
     "features": [
-      "volatility:20",
-      "bb:50:2.0",
-      "vwap"
+      "stoch:9:3"
     ],
-    "entry_long": null,
+    "entry_long": {
+      "type": "crossover",
+      "a": "stoch_k:9:3",
+      "b": "stoch_d:9:3",
+      "dir": "down"
+    },
     "entry_short": {
-      "type": "compare",
-      "left": "vwap_dist",
-      "cmp": "<",
-      "right": 0.099
+      "type": "crossover",
+      "a": "stoch_k:9:3",
+      "b": "stoch_d:9:3",
+      "dir": "up"
     },
     "exit": {
       "atr_spec": "atr:7",
-      "sl_atr_mult": 0.8,
-      "tp_atr_mult": 3.55,
-      "trailing": {
-        "atr_mult": 2.71,
-        "activation_mult": 0.51
-      },
-      "min_hold_bars": 2,
-      "max_hold_bars": 24,
+      "sl_atr_mult": 2.58,
+      "tp_atr_mult": 0.92,
+      "trailing": null,
+      "min_hold_bars": 1,
+      "max_hold_bars": 48,
       "exit_condition": null
     },
-    "sessions": [
-      "london",
-      "asia"
-    ],
-    "days": [
-      0,
-      1,
-      2,
-      4
-    ],
+    "sessions": null,
+    "days": null,
     "regime_filters": null,
     "risk": {
       "risk_per_trade": 0.005,
       "max_concurrent": 1
     }
   },
-  "complexity": 7,
+  "complexity": 2,
   "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 1378924338,
+  "seed": 364872686,
   "mutation_params": null,
   "config_version": "73f86ee16ce4b5fd",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 10103
 }

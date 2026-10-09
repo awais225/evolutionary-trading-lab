@@ -1,45 +1,47 @@
 {
-  "hash": "931a22d64fa0fa8c11c9357eb04a7192",
+  "hash": "6d2e7ca0aa146350a1172cd60aa213bc",
   "parent_id": null,
-  "generation": 22,
+  "generation": 11,
   "symbol": "XAUUSD",
   "timeframe": "M15",
-  "direction": "short",
+  "direction": "both",
   "status": "BORN",
-  "creation_reason": "Gen 22 candidate exploration (filling shortfall)",
+  "creation_reason": "Gen 11 candidate exploration (filling shortfall)",
   "mutation_type": "random_exploration",
-  "species_key": "M15|short|momentum",
+  "species_key": "M15|both|macd,prev_day,sma",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
-    "direction": "short",
+    "direction": "both",
     "features": [
-      "momentum:20"
+      "prev_day",
+      "macd:12:26:9",
+      "sma:100"
     ],
-    "entry_long": null,
+    "entry_long": {
+      "type": "compare",
+      "left": "sma:100",
+      "cmp": "<",
+      "right": "close"
+    },
     "entry_short": {
       "type": "compare",
-      "left": "momentum:20",
+      "left": "sma:100",
       "cmp": ">",
-      "right": 1.14
+      "right": "close"
     },
     "exit": {
-      "atr_spec": "atr:21",
-      "sl_atr_mult": 1.01,
-      "tp_atr_mult": 3.65,
+      "atr_spec": "atr:7",
+      "sl_atr_mult": 1.49,
+      "tp_atr_mult": 1.64,
       "trailing": null,
-      "min_hold_bars": 1,
-      "max_hold_bars": 24,
+      "min_hold_bars": 0,
+      "max_hold_bars": 48,
       "exit_condition": null
     },
-    "sessions": [
-      "newyork",
-      "london"
-    ],
+    "sessions": null,
     "days": null,
-    "regime_filters": [
-      "expansion"
-    ],
+    "regime_filters": null,
     "risk": {
       "risk_per_trade": 0.005,
       "max_concurrent": 1
@@ -48,11 +50,11 @@
   "complexity": 4,
   "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 1405990954,
+  "seed": 1480155339,
   "mutation_params": null,
   "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 5778
 }

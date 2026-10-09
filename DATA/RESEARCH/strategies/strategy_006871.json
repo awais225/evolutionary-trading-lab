@@ -1,64 +1,53 @@
 {
-  "hash": "7be1e710d859509e21474f65e1de4bf8",
-  "parent_id": 228,
-  "generation": 3,
+  "hash": "7e69e390695cd6b5a3ea2d99f8f59360",
+  "parent_id": null,
+  "generation": 14,
   "symbol": "XAUUSD",
-  "timeframe": "H1",
-  "direction": "both",
+  "timeframe": "M15",
+  "direction": "long",
   "status": "BORN",
-  "creation_reason": "crossover of #228 x #300: crossover of features/filters/exit (5 indicators)",
-  "mutation_type": "crossover",
-  "species_key": "H1|both|bb,momentum,prev_day,roc,vwap",
+  "creation_reason": "Gen 14 candidate exploration (filling shortfall)",
+  "mutation_type": "random_exploration",
+  "species_key": "M15|long|stoch",
   "genome": {
     "symbol": "XAUUSD",
-    "timeframe": "H1",
-    "direction": "both",
+    "timeframe": "M15",
+    "direction": "long",
     "features": [
-      "vwap",
-      "roc:24",
-      "bb:20:2.0",
-      "prev_day",
-      "momentum:5"
+      "stoch:14:3"
     ],
     "entry_long": {
-      "type": "compare",
-      "left": "break_prev_day_high",
-      "cmp": ">",
-      "right": 0.5
+      "type": "crossover",
+      "a": "stoch_k:14:3",
+      "b": "stoch_d:14:3",
+      "dir": "up"
     },
-    "entry_short": {
-      "type": "compare",
-      "left": "vwap_dist",
-      "cmp": "<",
-      "right": -0.368
-    },
+    "entry_short": null,
     "exit": {
       "atr_spec": "atr:7",
-      "sl_atr_mult": 2.34,
-      "tp_atr_mult": 1.74,
+      "sl_atr_mult": 1.34,
+      "tp_atr_mult": 4.38,
       "trailing": null,
-      "min_hold_bars": 0,
-      "max_hold_bars": 96,
+      "min_hold_bars": 1,
+      "max_hold_bars": 72,
       "exit_condition": null
     },
     "sessions": null,
     "days": null,
-    "regime_filters": [
-      "trending"
-    ],
+    "regime_filters": null,
     "risk": {
       "risk_per_trade": 0.005,
       "max_concurrent": 1
     }
   },
-  "complexity": 7,
-  "origin": "crossover",
+  "complexity": 2,
+  "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 791979195,
+  "seed": 1764531619,
   "mutation_params": null,
   "config_version": "73f86ee16ce4b5fd",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 6871
 }

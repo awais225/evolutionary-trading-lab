@@ -1,0 +1,107 @@
+{
+  "trades": 2,
+  "net_profit": 45.91,
+  "gross_profit": 45.91,
+  "gross_loss": 0.0,
+  "profit_factor": 10.0,
+  "profit_factor_raw": null,
+  "win_rate": 1.0,
+  "avg_trade": 22.953,
+  "expectancy": 0.002295,
+  "max_drawdown_pct": 0.0,
+  "sharpe": 79.432,
+  "sortino": 50287714.153,
+  "total_return_pct": 0.0046,
+  "final_equity": 10045.91,
+  "consistency": 1.0,
+  "monthly_pnl": {
+    "2026-09": 45.91
+  },
+  "avg_hold_bars": 7.5,
+  "avg_trade_duration_seconds": 8550.0,
+  "min_trade_duration_seconds": 2700.0,
+  "max_trade_duration_seconds": 14400.0,
+  "avg_trade_duration_minutes": 142.5,
+  "min_trade_duration_minutes": 45.0,
+  "exit_reasons": {
+    "TP": 1,
+    "MAX_HOLD": 1
+  },
+  "avg_slippage_points": 1.605,
+  "total_spread_cost": 0.24,
+  "stage": "detail",
+  "dataset_id": "XAUUSD_M15",
+  "window": [
+    0,
+    1551
+  ],
+  "stress": {
+    "spread_mult": 1.0,
+    "slippage_mult": 1.0,
+    "commission_mult": 1.0,
+    "perturb": 0.0,
+    "mc_skip_prob": 0.0
+  },
+  "execution_model": {
+    "symbol": "XAUUSD",
+    "specs_source": "TABLE",
+    "specs_verified": false,
+    "specs_notes": "Gold vs USD, 100 oz per lot, 0.01 quote step",
+    "contract_size": 100.0,
+    "point": 0.01,
+    "tick_size": 0.01,
+    "tick_value": 1.0,
+    "volume_min": 0.01,
+    "volume_max": 100.0,
+    "volume_step": 0.01,
+    "stops_level_points": 0,
+    "default_spread_points": 18.0,
+    "commission_per_lot": 7.0,
+    "swap_per_lot_per_day": -2.5,
+    "slippage_model": "normal",
+    "slippage_mean_points": 0.8,
+    "execution_delay_ms": 120,
+    "fill_rule": "signals evaluated on bar close; market fills at next bar open with spread+slippage",
+    "stops_level_skips": 0
+  },
+  "genome_hash": "fb548f4271da27d92115ef78ed2e9cfd",
+  "schedule": {
+    "applied": false
+  },
+  "conditions": {},
+  "runtime_ms": 3.6,
+  "trades_sample": [
+    {
+      "side": "sell",
+      "entry_ts": 1790279100.0,
+      "entry_price": 4274.361,
+      "exit_ts": 1790281800.0,
+      "exit_price": 4260.577,
+      "lots": 0.02,
+      "pnl": 27.4297,
+      "exit_reason": "TP",
+      "session": "newyork",
+      "dow": 3,
+      "regime": "trending",
+      "slippage_points": 2.37,
+      "spread_paid": 0.1,
+      "hold_bars": 3
+    },
+    {
+      "side": "sell",
+      "entry_ts": 1790289900.0,
+      "entry_price": 4274.377,
+      "exit_ts": 1790304300.0,
+      "exit_price": 4265.073,
+      "lots": 0.02,
+      "pnl": 18.4764,
+      "exit_reason": "MAX_HOLD",
+      "session": "off",
+      "dow": 3,
+      "regime": "trending",
+      "slippage_points": 0.84,
+      "spread_paid": 0.14,
+      "hold_bars": 12
+    }
+  ]
+}

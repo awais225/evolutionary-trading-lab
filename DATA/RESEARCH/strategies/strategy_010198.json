@@ -1,32 +1,37 @@
 {
-  "hash": "bbb4933bfb380917ec30c04049961c23",
-  "parent_id": 226,
-  "generation": 3,
+  "hash": "d74ccf54e4140293648b5451de11e00c",
+  "parent_id": null,
+  "generation": 21,
   "symbol": "XAUUSD",
-  "timeframe": "M5",
-  "direction": "short",
+  "timeframe": "M15",
+  "direction": "both",
   "status": "BORN",
-  "creation_reason": "mutation of #226: replaced vwap with volume:50",
-  "mutation_type": "indicator_replacement",
-  "species_key": "M5|short|volume",
+  "creation_reason": "Gen 21 candidate exploration (filling shortfall)",
+  "mutation_type": "random_exploration",
+  "species_key": "M15|both|adx",
   "genome": {
     "symbol": "XAUUSD",
-    "timeframe": "M5",
-    "direction": "short",
+    "timeframe": "M15",
+    "direction": "both",
     "features": [
-      "volume:50"
+      "adx:21"
     ],
-    "entry_long": null,
+    "entry_long": {
+      "type": "compare",
+      "left": "adx:21",
+      "cmp": ">",
+      "right": 22
+    },
     "entry_short": {
       "type": "compare",
-      "left": "relvol:50",
+      "left": "adx:21",
       "cmp": ">",
-      "right": 2.43
+      "right": 18
     },
     "exit": {
-      "atr_spec": "atr:7",
-      "sl_atr_mult": 2.34,
-      "tp_atr_mult": 2.14,
+      "atr_spec": "atr:14",
+      "sl_atr_mult": 1.98,
+      "tp_atr_mult": 1.5,
       "trailing": null,
       "min_hold_bars": 2,
       "max_hold_bars": 24,
@@ -41,13 +46,13 @@
     }
   },
   "complexity": 2,
-  "origin": "mutation",
+  "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 585293387,
+  "seed": 1606298637,
   "mutation_params": null,
   "config_version": "73f86ee16ce4b5fd",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 10198
 }

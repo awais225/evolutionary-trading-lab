@@ -1,46 +1,40 @@
 {
-  "hash": "11739ef449c580fde4858b0eca7d763b",
-  "parent_id": null,
-  "generation": 20,
+  "hash": "ca2ca9952b18a43a2be97493a17b3260",
+  "parent_id": 4423,
+  "generation": 8,
   "symbol": "XAUUSD",
   "timeframe": "M15",
-  "direction": "both",
+  "direction": "short",
   "status": "BORN",
-  "creation_reason": "Gen 20 random exploration birth",
-  "mutation_type": "random_exploration",
-  "species_key": "M15|both|rsi",
+  "creation_reason": "mutation of #4423: sessions -> ['asia']",
+  "mutation_type": "session_mutation",
+  "species_key": "M15|short|bb",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
-    "direction": "both",
+    "direction": "short",
     "features": [
-      "rsi:14"
+      "bb:20:2.5"
     ],
-    "entry_long": {
-      "type": "compare",
-      "left": "rsi:14",
-      "cmp": ">",
-      "right": 65
-    },
+    "entry_long": null,
     "entry_short": {
       "type": "compare",
-      "left": "rsi:14",
+      "left": "bb_pctb:20:2.5",
       "cmp": ">",
-      "right": 75
+      "right": 0.85
     },
     "exit": {
-      "atr_spec": "atr:7",
-      "sl_atr_mult": 2.58,
-      "tp_atr_mult": 2.48,
-      "trailing": {
-        "atr_mult": 2.4,
-        "activation_mult": 1.3
-      },
-      "min_hold_bars": 3,
-      "max_hold_bars": 96,
+      "atr_spec": "atr:21",
+      "sl_atr_mult": 2.42,
+      "tp_atr_mult": 3.51,
+      "trailing": null,
+      "min_hold_bars": 5,
+      "max_hold_bars": 12,
       "exit_condition": null
     },
-    "sessions": null,
+    "sessions": [
+      "asia"
+    ],
     "days": null,
     "regime_filters": null,
     "risk": {
@@ -49,13 +43,13 @@
     }
   },
   "complexity": 3,
-  "origin": "exploration",
+  "origin": "mutation",
   "hypothesis_id": null,
-  "seed": 764111764,
+  "seed": 442259821,
   "mutation_params": null,
   "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 5061
 }

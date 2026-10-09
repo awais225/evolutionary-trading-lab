@@ -1,47 +1,37 @@
 {
-  "hash": "56f9d8eac04887f811f2a9a3fd366520",
-  "parent_id": 287,
-  "generation": 4,
+  "hash": "bbce005a954cada4f91bb09f58b07aaa",
+  "parent_id": null,
+  "generation": 3,
   "symbol": "XAUUSD",
-  "timeframe": "M5",
+  "timeframe": "M15",
   "direction": "short",
   "status": "BORN",
-  "creation_reason": "mutation of #287: added indicator volume:50",
-  "mutation_type": "indicator_addition",
-  "species_key": "M5|short|volume,vwap",
+  "creation_reason": "Gen 3 random exploration birth",
+  "mutation_type": "random_exploration",
+  "species_key": "M15|short|macd,sma,stoch",
   "genome": {
     "symbol": "XAUUSD",
-    "timeframe": "M5",
+    "timeframe": "M15",
     "direction": "short",
     "features": [
-      "vwap",
-      "volume:50"
+      "macd:12:26:9",
+      "sma:10",
+      "stoch:9:3"
     ],
     "entry_long": null,
     "entry_short": {
-      "op": "and",
-      "clauses": [
-        {
-          "type": "compare",
-          "left": "vwap_dist",
-          "cmp": "<",
-          "right": -0.368
-        },
-        {
-          "type": "compare",
-          "left": "relvol:50",
-          "cmp": ">",
-          "right": 1.59
-        }
-      ]
+      "type": "compare",
+      "left": "macd_hist:12:26:9",
+      "cmp": ">",
+      "right": 0.0
     },
     "exit": {
-      "atr_spec": "atr:7",
-      "sl_atr_mult": 2.34,
-      "tp_atr_mult": 2.14,
+      "atr_spec": "atr:14",
+      "sl_atr_mult": 0.79,
+      "tp_atr_mult": 4.65,
       "trailing": null,
       "min_hold_bars": 1,
-      "max_hold_bars": 24,
+      "max_hold_bars": 72,
       "exit_condition": null
     },
     "sessions": null,
@@ -53,13 +43,13 @@
     }
   },
   "complexity": 4,
-  "origin": "mutation",
+  "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 42897893,
+  "seed": 1463362064,
   "mutation_params": null,
   "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 2206
 }

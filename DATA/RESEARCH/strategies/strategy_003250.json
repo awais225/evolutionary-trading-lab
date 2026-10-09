@@ -1,38 +1,41 @@
 {
-  "hash": "cec4d5335eb6bfbce007d72638956afb",
-  "parent_id": 234,
-  "generation": 7,
+  "hash": "33c8dd35ade486479844243f89f44a32",
+  "parent_id": null,
+  "generation": 5,
   "symbol": "XAUUSD",
-  "timeframe": "M5",
-  "direction": "short",
+  "timeframe": "M15",
+  "direction": "both",
   "status": "BORN",
-  "creation_reason": "crossover of #234 x #274: crossover of features/filters/exit (4 indicators)",
-  "mutation_type": "crossover",
-  "species_key": "M5|short|adx,bb,roc,vwap",
+  "creation_reason": "Gen 5 candidate exploration (filling shortfall)",
+  "mutation_type": "random_exploration",
+  "species_key": "M15|both|adx,prev_day",
   "genome": {
     "symbol": "XAUUSD",
-    "timeframe": "M5",
-    "direction": "short",
+    "timeframe": "M15",
+    "direction": "both",
     "features": [
-      "vwap",
-      "roc:24",
-      "bb:20:2.0",
-      "adx:10"
+      "prev_day",
+      "adx:21"
     ],
-    "entry_long": null,
+    "entry_long": {
+      "type": "compare",
+      "left": "adx:21",
+      "cmp": ">",
+      "right": 25
+    },
     "entry_short": {
       "type": "compare",
-      "left": "vwap_dist",
-      "cmp": "<",
-      "right": -0.368
+      "left": "adx:21",
+      "cmp": ">",
+      "right": 30
     },
     "exit": {
-      "atr_spec": "atr:7",
-      "sl_atr_mult": 2.94,
-      "tp_atr_mult": 3.42,
+      "atr_spec": "atr:10",
+      "sl_atr_mult": 0.8,
+      "tp_atr_mult": 1.04,
       "trailing": null,
       "min_hold_bars": 1,
-      "max_hold_bars": 144,
+      "max_hold_bars": 96,
       "exit_condition": null
     },
     "sessions": null,
@@ -43,14 +46,14 @@
       "max_concurrent": 1
     }
   },
-  "complexity": 5,
-  "origin": "crossover",
+  "complexity": 3,
+  "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 1766821940,
+  "seed": 322054887,
   "mutation_params": null,
   "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 3250
 }

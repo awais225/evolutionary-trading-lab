@@ -1,35 +1,66 @@
 {
-  "hash": "8c567abbc6556f0fa99e703510a26d16",
+  "hash": "b7a00937c6d0d1116857ac06d25d4b74",
   "parent_id": null,
-  "generation": 13,
+  "generation": 3,
   "symbol": "XAUUSD",
   "timeframe": "M15",
-  "direction": "short",
+  "direction": "both",
   "status": "BORN",
-  "creation_reason": "Gen 13 random exploration birth",
+  "creation_reason": "Gen 3 candidate exploration (filling shortfall)",
   "mutation_type": "random_exploration",
-  "species_key": "M15|short|sma",
+  "species_key": "M15|both|prev_day,volume",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
-    "direction": "short",
+    "direction": "both",
     "features": [
-      "sma:100"
+      "volume:20",
+      "prev_day"
     ],
-    "entry_long": null,
+    "entry_long": {
+      "op": "and",
+      "clauses": [
+        {
+          "type": "compare",
+          "left": "relvol:20",
+          "cmp": ">",
+          "right": 2.32
+        },
+        {
+          "type": "compare",
+          "left": "relvol:20",
+          "cmp": ">",
+          "right": 2.05
+        }
+      ]
+    },
     "entry_short": {
-      "type": "compare",
-      "left": "sma:100",
-      "cmp": "<",
-      "right": "close"
+      "op": "and",
+      "clauses": [
+        {
+          "type": "compare",
+          "left": "relvol:20",
+          "cmp": ">",
+          "right": 2.48
+        },
+        {
+          "type": "compare",
+          "left": "relvol:20",
+          "cmp": ">",
+          "right": 2.38
+        }
+      ]
     },
     "exit": {
       "atr_spec": "atr:21",
-      "sl_atr_mult": 1.07,
-      "tp_atr_mult": 3.21,
-      "trailing": null,
+      "sl_atr_mult": 1.05,
+      "tp_atr_mult": 1.83,
+      "trailing": {
+        "atr_mult": 1.44,
+        "activation_mult": 1.92
+      },
       "min_hold_bars": 1,
-      "max_hold_bars": 12,
+      "max_hold_bars": 24,
       "exit_condition": null
     },
     "sessions": null,
@@ -40,14 +71,14 @@
       "max_concurrent": 1
     }
   },
-  "complexity": 2,
+  "complexity": 5,
   "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 1658301229,
+  "seed": 86429404,
   "mutation_params": null,
   "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 2300
 }

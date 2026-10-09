@@ -1,52 +1,81 @@
 {
-  "hash": "5d1e732b6aeb37e92e852669921dcf7a",
-  "parent_id": 243,
-  "generation": 4,
+  "hash": "fe4dc2d95e4cba241ffbc084db39aff1",
+  "parent_id": null,
+  "generation": 3,
   "symbol": "XAUUSD",
-  "timeframe": "M5",
-  "direction": "short",
+  "timeframe": "M15",
+  "direction": "both",
   "status": "BORN",
-  "creation_reason": "mutation of #243: replaced prev_day with volume:50",
-  "mutation_type": "indicator_replacement",
-  "species_key": "M5|short|roc,sma,volume,vwap",
+  "creation_reason": "Gen 3 candidate exploration (filling shortfall)",
+  "mutation_type": "random_exploration",
+  "species_key": "M15|both|momentum,prev_day,stoch",
   "genome": {
     "symbol": "XAUUSD",
-    "timeframe": "M5",
-    "direction": "short",
+    "timeframe": "M15",
+    "direction": "both",
     "features": [
-      "vwap",
-      "sma:100",
-      "roc:12",
-      "volume:50"
+      "stoch:9:3",
+      "momentum:20",
+      "prev_day"
     ],
-    "entry_long": null,
+    "entry_long": {
+      "op": "and",
+      "clauses": [
+        {
+          "type": "compare",
+          "left": "break_prev_day_high",
+          "cmp": ">",
+          "right": 0.5
+        },
+        {
+          "type": "compare",
+          "left": "break_prev_day_low",
+          "cmp": ">",
+          "right": 0.5
+        },
+        {
+          "type": "compare",
+          "left": "momentum:20",
+          "cmp": "<",
+          "right": 1.59
+        }
+      ]
+    },
     "entry_short": {
       "op": "and",
       "clauses": [
         {
           "type": "compare",
-          "left": "vwap_dist",
-          "cmp": "<",
-          "right": -0.359
+          "left": "break_prev_day_low",
+          "cmp": ">",
+          "right": 0.5
         },
         {
           "type": "compare",
-          "left": "relvol:50",
+          "left": "break_prev_day_high",
           "cmp": ">",
-          "right": 1.43
+          "right": 0.5
+        },
+        {
+          "type": "crossover",
+          "a": "stoch_k:9:3",
+          "b": "stoch_d:9:3",
+          "dir": "down"
         }
       ]
     },
     "exit": {
       "atr_spec": "atr:7",
-      "sl_atr_mult": 2.34,
-      "tp_atr_mult": 1.74,
+      "sl_atr_mult": 1.27,
+      "tp_atr_mult": 0.91,
       "trailing": null,
-      "min_hold_bars": 2,
-      "max_hold_bars": 24,
+      "min_hold_bars": 1,
+      "max_hold_bars": 144,
       "exit_condition": null
     },
-    "sessions": null,
+    "sessions": [
+      "london"
+    ],
     "days": null,
     "regime_filters": null,
     "risk": {
@@ -55,13 +84,13 @@
     }
   },
   "complexity": 6,
-  "origin": "mutation",
+  "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 485393931,
+  "seed": 381816766,
   "mutation_params": null,
   "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 2231
 }

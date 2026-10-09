@@ -1,38 +1,40 @@
 {
-  "hash": "373f354a4c88dd41c637d66c2b76e46b",
-  "parent_id": 243,
-  "generation": 4,
+  "hash": "9473de009b7667865b1fc09459073cc0",
+  "parent_id": null,
+  "generation": 8,
   "symbol": "XAUUSD",
-  "timeframe": "M5",
-  "direction": "short",
+  "timeframe": "M15",
+  "direction": "both",
   "status": "BORN",
-  "creation_reason": "mutation of #243: entry_short: jittered thresholds",
-  "mutation_type": "entry_condition_mutation",
-  "species_key": "M5|short|prev_day,roc,sma,vwap",
+  "creation_reason": "Gen 8 candidate exploration (filling shortfall)",
+  "mutation_type": "random_exploration",
+  "species_key": "M15|both|cci",
   "genome": {
     "symbol": "XAUUSD",
-    "timeframe": "M5",
-    "direction": "short",
+    "timeframe": "M15",
+    "direction": "both",
     "features": [
-      "vwap",
-      "sma:100",
-      "roc:12",
-      "prev_day"
+      "cci:34"
     ],
-    "entry_long": null,
+    "entry_long": {
+      "type": "compare",
+      "left": "cci:34",
+      "cmp": "<",
+      "right": -50
+    },
     "entry_short": {
       "type": "compare",
-      "left": "vwap_dist",
+      "left": "cci:34",
       "cmp": "<",
-      "right": -0.37
+      "right": 0
     },
     "exit": {
-      "atr_spec": "atr:7",
-      "sl_atr_mult": 2.34,
-      "tp_atr_mult": 1.74,
+      "atr_spec": "atr:14",
+      "sl_atr_mult": 1.73,
+      "tp_atr_mult": 2.81,
       "trailing": null,
-      "min_hold_bars": 2,
-      "max_hold_bars": 24,
+      "min_hold_bars": 1,
+      "max_hold_bars": 72,
       "exit_condition": null
     },
     "sessions": null,
@@ -43,14 +45,14 @@
       "max_concurrent": 1
     }
   },
-  "complexity": 5,
-  "origin": "mutation",
+  "complexity": 2,
+  "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 1123286304,
+  "seed": 1237695009,
   "mutation_params": null,
   "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 4704
 }

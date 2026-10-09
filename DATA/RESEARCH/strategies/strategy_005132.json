@@ -1,76 +1,58 @@
 {
-  "hash": "6e9fd3775dc93e4edda9056d40c8d1ee",
+  "hash": "927283cc9c4bd693e8591883c0e51ef4",
   "parent_id": null,
-  "generation": 20,
+  "generation": 9,
   "symbol": "XAUUSD",
   "timeframe": "M15",
-  "direction": "short",
+  "direction": "long",
   "status": "BORN",
-  "creation_reason": "Gen 20 candidate exploration (filling shortfall)",
+  "creation_reason": "Gen 9 candidate exploration (filling shortfall)",
   "mutation_type": "random_exploration",
-  "species_key": "M15|short|adx,atr,roc",
+  "species_key": "M15|long|volume",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
-    "direction": "short",
+    "direction": "long",
     "features": [
-      "roc:24",
-      "adx:14",
-      "atr:14"
+      "volume:20"
     ],
-    "entry_long": null,
-    "entry_short": {
-      "op": "and",
-      "clauses": [
-        {
-          "type": "compare",
-          "left": "roc:24",
-          "cmp": "<",
-          "right": -0.233
-        },
-        {
-          "type": "compare",
-          "left": "adx:14",
-          "cmp": ">",
-          "right": 20
-        },
-        {
-          "type": "compare",
-          "left": "adx:14",
-          "cmp": ">",
-          "right": 30
-        }
-      ]
+    "entry_long": {
+      "type": "compare",
+      "left": "relvol:20",
+      "cmp": ">",
+      "right": 1.98
     },
+    "entry_short": null,
     "exit": {
-      "atr_spec": "atr:14",
-      "sl_atr_mult": 2.7,
-      "tp_atr_mult": 4.05,
-      "trailing": null,
-      "min_hold_bars": 3,
+      "atr_spec": "atr:7",
+      "sl_atr_mult": 1.99,
+      "tp_atr_mult": 4.82,
+      "trailing": {
+        "atr_mult": 2.22,
+        "activation_mult": 1.36
+      },
+      "min_hold_bars": 2,
       "max_hold_bars": 96,
       "exit_condition": null
     },
-    "sessions": [
-      "newyork"
-    ],
+    "sessions": null,
     "days": null,
     "regime_filters": [
-      "momentum"
+      "breakout"
     ],
     "risk": {
       "risk_per_trade": 0.005,
       "max_concurrent": 1
     }
   },
-  "complexity": 7,
+  "complexity": 4,
   "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 1352506968,
+  "seed": 957346728,
   "mutation_params": null,
   "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 5132
 }

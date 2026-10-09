@@ -1,39 +1,43 @@
 {
-  "hash": "d7fe1726fa2bc64cadd1f9c433c0b2ed",
+  "hash": "8e6abdd1da7ea608601cfae24465b287",
   "parent_id": null,
-  "generation": 33,
+  "generation": 19,
   "symbol": "XAUUSD",
   "timeframe": "M15",
   "direction": "long",
   "status": "BORN",
-  "creation_reason": "Gen 33 candidate exploration (filling shortfall)",
+  "creation_reason": "Gen 19 candidate exploration (filling shortfall)",
   "mutation_type": "random_exploration",
-  "species_key": "M15|long|adx,vwap",
+  "species_key": "M15|long|stoch",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
     "direction": "long",
     "features": [
-      "vwap",
-      "adx:14"
+      "stoch:9:3"
     ],
     "entry_long": {
       "type": "compare",
-      "left": "adx:14",
+      "left": "stoch_k:9:3",
       "cmp": ">",
-      "right": 22
+      "right": 25
     },
     "entry_short": null,
     "exit": {
-      "atr_spec": "atr:10",
-      "sl_atr_mult": 2.93,
-      "tp_atr_mult": 3.51,
-      "trailing": null,
+      "atr_spec": "atr:7",
+      "sl_atr_mult": 2.03,
+      "tp_atr_mult": 2.36,
+      "trailing": {
+        "atr_mult": 1.9,
+        "activation_mult": 0.58
+      },
       "min_hold_bars": 2,
       "max_hold_bars": 72,
       "exit_condition": null
     },
-    "sessions": null,
+    "sessions": [
+      "london"
+    ],
     "days": null,
     "regime_filters": null,
     "risk": {
@@ -41,14 +45,14 @@
       "max_concurrent": 1
     }
   },
-  "complexity": 3,
+  "complexity": 4,
   "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 779855260,
+  "seed": 1221790435,
   "mutation_params": null,
   "config_version": "73f86ee16ce4b5fd",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 9213
 }

@@ -1,21 +1,21 @@
 {
-  "hash": "8e046124165ad6efbba0661509180826",
-  "parent_id": null,
-  "generation": 28,
+  "hash": "f39fd5df01b914d0f20b9da398d08731",
+  "parent_id": 6658,
+  "generation": 8,
   "symbol": "XAUUSD",
   "timeframe": "M15",
   "direction": "short",
   "status": "BORN",
-  "creation_reason": "Gen 28 candidate exploration (filling shortfall)",
-  "mutation_type": "random_exploration",
-  "species_key": "M15|short|roc,vwap",
+  "creation_reason": "mutation of #6658: added indicator regime",
+  "mutation_type": "indicator_addition",
+  "species_key": "M15|short|bb,regime",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
     "direction": "short",
     "features": [
-      "roc:6",
-      "vwap"
+      "bb:20:2.5",
+      "regime"
     ],
     "entry_long": null,
     "entry_short": {
@@ -23,25 +23,25 @@
       "clauses": [
         {
           "type": "compare",
-          "left": "roc:6",
+          "left": "bb_pctb:20:2.5",
           "cmp": ">",
-          "right": -0.078
+          "right": 0.85
         },
         {
           "type": "compare",
-          "left": "roc:6",
-          "cmp": "<",
-          "right": 0.413
+          "left": "regime:breakout",
+          "cmp": ">",
+          "right": 0.5
         }
       ]
     },
     "exit": {
-      "atr_spec": "atr:7",
-      "sl_atr_mult": 0.93,
-      "tp_atr_mult": 4.59,
+      "atr_spec": "atr:21",
+      "sl_atr_mult": 2.42,
+      "tp_atr_mult": 3.52,
       "trailing": null,
-      "min_hold_bars": 2,
-      "max_hold_bars": 96,
+      "min_hold_bars": 0,
+      "max_hold_bars": 12,
       "exit_condition": null
     },
     "sessions": null,
@@ -53,13 +53,13 @@
     }
   },
   "complexity": 4,
-  "origin": "exploration",
+  "origin": "mutation",
   "hypothesis_id": null,
-  "seed": 15958536,
+  "seed": 52816374,
   "mutation_params": null,
   "config_version": "73f86ee16ce4b5fd",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 7563
 }

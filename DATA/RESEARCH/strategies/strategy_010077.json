@@ -1,53 +1,70 @@
 {
-  "hash": "90364935fde5becc313d8adb75c0d388",
+  "hash": "f1c13507611ce795c2a6280f492a8b80",
   "parent_id": null,
-  "generation": 36,
+  "generation": 21,
   "symbol": "XAUUSD",
   "timeframe": "M15",
-  "direction": "short",
+  "direction": "both",
   "status": "BORN",
-  "creation_reason": "Gen 36 random exploration birth",
+  "creation_reason": "Gen 21 random exploration birth",
   "mutation_type": "random_exploration",
-  "species_key": "M15|short|rsi",
+  "species_key": "M15|both|stoch",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
-    "direction": "short",
+    "direction": "both",
     "features": [
-      "rsi:7"
+      "stoch:9:3"
     ],
-    "entry_long": null,
-    "entry_short": {
+    "entry_long": {
       "type": "compare",
-      "left": "rsi:7",
+      "left": "stoch_k:9:3",
       "cmp": ">",
-      "right": 65
+      "right": 50
+    },
+    "entry_short": {
+      "type": "crossover",
+      "a": "stoch_k:9:3",
+      "b": "stoch_d:9:3",
+      "dir": "down"
     },
     "exit": {
       "atr_spec": "atr:21",
-      "sl_atr_mult": 1.21,
-      "tp_atr_mult": 2.23,
-      "trailing": null,
-      "min_hold_bars": 3,
-      "max_hold_bars": 96,
+      "sl_atr_mult": 0.71,
+      "tp_atr_mult": 4.3,
+      "trailing": {
+        "atr_mult": 1.63,
+        "activation_mult": 1.19
+      },
+      "min_hold_bars": 1,
+      "max_hold_bars": 12,
       "exit_condition": null
     },
-    "sessions": null,
-    "days": null,
-    "regime_filters": null,
+    "sessions": [
+      "asia",
+      "london"
+    ],
+    "days": [
+      1,
+      3,
+      4
+    ],
+    "regime_filters": [
+      "high_volatility"
+    ],
     "risk": {
       "risk_per_trade": 0.005,
       "max_concurrent": 1
     }
   },
-  "complexity": 2,
+  "complexity": 6,
   "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 1660629802,
+  "seed": 467543362,
   "mutation_params": null,
   "config_version": "73f86ee16ce4b5fd",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 10077
 }

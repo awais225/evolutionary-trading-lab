@@ -1,46 +1,46 @@
 {
-  "hash": "a8f5d8a9cf3a6d3b820817f072111eba",
+  "hash": "b2feef8d3f724257ea787ceec25f560b",
   "parent_id": null,
-  "generation": 13,
+  "generation": 3,
   "symbol": "XAUUSD",
   "timeframe": "M15",
   "direction": "both",
   "status": "BORN",
-  "creation_reason": "Gen 13 candidate exploration (filling shortfall)",
+  "creation_reason": "Gen 3 candidate exploration (filling shortfall)",
   "mutation_type": "random_exploration",
-  "species_key": "M15|both|macd,regime",
+  "species_key": "M15|both|volatility",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
     "direction": "both",
     "features": [
-      "macd:8:21:5",
-      "regime"
+      "volatility:20"
     ],
     "entry_long": {
       "type": "compare",
-      "left": "regime:trending",
+      "left": "range_expansion:20",
       "cmp": ">",
-      "right": 0.5
+      "right": 0.85
     },
     "entry_short": {
       "type": "compare",
-      "left": "macd_hist:8:21:5",
+      "left": "range_expansion:20",
       "cmp": ">",
-      "right": 0.0
+      "right": 0.92
     },
     "exit": {
-      "atr_spec": "atr:14",
-      "sl_atr_mult": 1.23,
-      "tp_atr_mult": 3.18,
-      "trailing": null,
-      "min_hold_bars": 0,
-      "max_hold_bars": 48,
+      "atr_spec": "atr:7",
+      "sl_atr_mult": 2.69,
+      "tp_atr_mult": 3.7,
+      "trailing": {
+        "atr_mult": 3.0,
+        "activation_mult": 1.14
+      },
+      "min_hold_bars": 1,
+      "max_hold_bars": 72,
       "exit_condition": null
     },
-    "sessions": [
-      "asia"
-    ],
+    "sessions": null,
     "days": null,
     "regime_filters": null,
     "risk": {
@@ -48,14 +48,14 @@
       "max_concurrent": 1
     }
   },
-  "complexity": 4,
+  "complexity": 3,
   "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 1066368597,
+  "seed": 1412074088,
   "mutation_params": null,
   "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 2351
 }

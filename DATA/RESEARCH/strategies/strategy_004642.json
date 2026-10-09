@@ -1,38 +1,49 @@
 {
-  "hash": "a23a42a864d5c909678df4b52d431840",
+  "hash": "d84bac2de4316245c984809c92185133",
   "parent_id": null,
-  "generation": 19,
+  "generation": 8,
   "symbol": "XAUUSD",
   "timeframe": "M15",
-  "direction": "long",
+  "direction": "both",
   "status": "BORN",
-  "creation_reason": "Gen 19 random exploration birth",
+  "creation_reason": "Gen 8 candidate exploration (filling shortfall)",
   "mutation_type": "random_exploration",
-  "species_key": "M15|long|cci",
+  "species_key": "M15|both|volume",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
-    "direction": "long",
+    "direction": "both",
     "features": [
-      "cci:34"
+      "volume:50"
     ],
     "entry_long": {
       "type": "compare",
-      "left": "cci:34",
+      "left": "relvol:50",
       "cmp": ">",
-      "right": -100
+      "right": 1.52
     },
-    "entry_short": null,
+    "entry_short": {
+      "type": "compare",
+      "left": "relvol:50",
+      "cmp": ">",
+      "right": 1.38
+    },
     "exit": {
-      "atr_spec": "atr:7",
-      "sl_atr_mult": 1.56,
-      "tp_atr_mult": 3.86,
-      "trailing": null,
-      "min_hold_bars": 0,
-      "max_hold_bars": 96,
+      "atr_spec": "atr:14",
+      "sl_atr_mult": 2.66,
+      "tp_atr_mult": 4.69,
+      "trailing": {
+        "atr_mult": 2.73,
+        "activation_mult": 1.47
+      },
+      "min_hold_bars": 1,
+      "max_hold_bars": 48,
       "exit_condition": null
     },
-    "sessions": null,
+    "sessions": [
+      "asia",
+      "london"
+    ],
     "days": null,
     "regime_filters": null,
     "risk": {
@@ -40,14 +51,14 @@
       "max_concurrent": 1
     }
   },
-  "complexity": 2,
+  "complexity": 4,
   "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 1885760923,
+  "seed": 1109370017,
   "mutation_params": null,
   "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 4642
 }

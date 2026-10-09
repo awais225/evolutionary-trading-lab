@@ -1,37 +1,47 @@
 {
-  "hash": "c2543859f0fefeb84dc2a2aacea0162c",
-  "parent_id": 228,
-  "generation": 3,
+  "hash": "81ed2a286995f6dd14a04aaa6c1d6e73",
+  "parent_id": 4423,
+  "generation": 8,
   "symbol": "XAUUSD",
-  "timeframe": "M5",
+  "timeframe": "M15",
   "direction": "short",
   "status": "BORN",
-  "creation_reason": "mutation of #228: threshold jitter (1 values)",
-  "mutation_type": "param_mutation",
-  "species_key": "M5|short|bb,roc,vwap",
+  "creation_reason": "mutation of #4423: added indicator macd:12:26:9",
+  "mutation_type": "indicator_addition",
+  "species_key": "M15|short|bb,macd",
   "genome": {
     "symbol": "XAUUSD",
-    "timeframe": "M5",
+    "timeframe": "M15",
     "direction": "short",
     "features": [
-      "vwap",
-      "roc:24",
-      "bb:20:2.0"
+      "bb:20:2.5",
+      "macd:12:26:9"
     ],
     "entry_long": null,
     "entry_short": {
-      "type": "compare",
-      "left": "vwap_dist",
-      "cmp": "<",
-      "right": -0.373
+      "op": "and",
+      "clauses": [
+        {
+          "type": "compare",
+          "left": "bb_pctb:20:2.5",
+          "cmp": ">",
+          "right": 0.85
+        },
+        {
+          "type": "compare",
+          "left": "macd_hist:12:26:9",
+          "cmp": ">",
+          "right": 0.0
+        }
+      ]
     },
     "exit": {
-      "atr_spec": "atr:7",
-      "sl_atr_mult": 2.34,
-      "tp_atr_mult": 1.74,
+      "atr_spec": "atr:21",
+      "sl_atr_mult": 2.42,
+      "tp_atr_mult": 3.51,
       "trailing": null,
-      "min_hold_bars": 1,
-      "max_hold_bars": 24,
+      "min_hold_bars": 5,
+      "max_hold_bars": 12,
       "exit_condition": null
     },
     "sessions": null,
@@ -45,11 +55,11 @@
   "complexity": 4,
   "origin": "mutation",
   "hypothesis_id": null,
-  "seed": 1478666364,
+  "seed": 1908658477,
   "mutation_params": null,
   "config_version": "73f86ee16ce4b5fd",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 5950
 }

@@ -1,47 +1,35 @@
 {
-  "hash": "539e838d7ef7494d811603aba03e3c53",
-  "parent_id": null,
-  "generation": 35,
+  "hash": "a2b00b92a580bb618f2f1962df9881df",
+  "parent_id": 6658,
+  "generation": 8,
   "symbol": "XAUUSD",
   "timeframe": "M15",
-  "direction": "long",
+  "direction": "short",
   "status": "BORN",
-  "creation_reason": "Gen 35 random exploration birth",
-  "mutation_type": "random_exploration",
-  "species_key": "M15|long|ema,stoch",
+  "creation_reason": "mutation of #6658: TP -> 3.1xATR",
+  "mutation_type": "tp_mutation",
+  "species_key": "M15|short|bb",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
-    "direction": "long",
+    "direction": "short",
     "features": [
-      "stoch:9:3",
-      "ema:9"
+      "bb:20:2.5"
     ],
-    "entry_long": {
-      "op": "and",
-      "clauses": [
-        {
-          "type": "compare",
-          "left": "ema:9",
-          "cmp": "<",
-          "right": "close"
-        },
-        {
-          "type": "compare",
-          "left": "stoch_k:9:3",
-          "cmp": ">",
-          "right": 50
-        }
-      ]
+    "entry_long": null,
+    "entry_short": {
+      "type": "compare",
+      "left": "bb_pctb:20:2.5",
+      "cmp": ">",
+      "right": 0.85
     },
-    "entry_short": null,
     "exit": {
-      "atr_spec": "atr:14",
-      "sl_atr_mult": 2.84,
-      "tp_atr_mult": 2.08,
+      "atr_spec": "atr:21",
+      "sl_atr_mult": 2.42,
+      "tp_atr_mult": 3.1,
       "trailing": null,
-      "min_hold_bars": 1,
-      "max_hold_bars": 24,
+      "min_hold_bars": 0,
+      "max_hold_bars": 12,
       "exit_condition": null
     },
     "sessions": null,
@@ -52,14 +40,14 @@
       "max_concurrent": 1
     }
   },
-  "complexity": 4,
-  "origin": "exploration",
+  "complexity": 2,
+  "origin": "mutation",
   "hypothesis_id": null,
-  "seed": 615026940,
+  "seed": 315510237,
   "mutation_params": null,
   "config_version": "73f86ee16ce4b5fd",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 9811
 }

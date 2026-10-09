@@ -1,38 +1,69 @@
 {
-  "hash": "6ed51704a05dc1b007d9c3692d8b9ef2",
-  "parent_id": 226,
+  "hash": "7795dad9aa20ab7c36889d058e330a15",
+  "parent_id": null,
   "generation": 3,
   "symbol": "XAUUSD",
-  "timeframe": "M5",
-  "direction": "short",
+  "timeframe": "M15",
+  "direction": "both",
   "status": "BORN",
-  "creation_reason": "mutation of #226: threshold jitter (1 values)",
-  "mutation_type": "param_mutation",
-  "species_key": "M5|short|vwap",
+  "creation_reason": "Gen 3 random exploration birth",
+  "mutation_type": "random_exploration",
+  "species_key": "M15|both|regime,roc,volatility",
   "genome": {
     "symbol": "XAUUSD",
-    "timeframe": "M5",
-    "direction": "short",
+    "timeframe": "M15",
+    "direction": "both",
     "features": [
-      "vwap"
+      "regime",
+      "volatility:50",
+      "roc:24"
     ],
-    "entry_long": null,
+    "entry_long": {
+      "op": "and",
+      "clauses": [
+        {
+          "type": "compare",
+          "left": "regime:expansion",
+          "cmp": ">",
+          "right": 0.5
+        },
+        {
+          "type": "compare",
+          "left": "range_expansion:50",
+          "cmp": ">",
+          "right": 1.28
+        }
+      ]
+    },
     "entry_short": {
-      "type": "compare",
-      "left": "vwap_dist",
-      "cmp": "<",
-      "right": -0.394
+      "op": "and",
+      "clauses": [
+        {
+          "type": "compare",
+          "left": "range_expansion:50",
+          "cmp": ">",
+          "right": 1.26
+        },
+        {
+          "type": "compare",
+          "left": "regime:momentum",
+          "cmp": ">",
+          "right": 0.5
+        }
+      ]
     },
     "exit": {
-      "atr_spec": "atr:7",
-      "sl_atr_mult": 2.34,
-      "tp_atr_mult": 2.14,
+      "atr_spec": "atr:14",
+      "sl_atr_mult": 0.76,
+      "tp_atr_mult": 2.77,
       "trailing": null,
       "min_hold_bars": 2,
-      "max_hold_bars": 24,
+      "max_hold_bars": 12,
       "exit_condition": null
     },
-    "sessions": null,
+    "sessions": [
+      "london"
+    ],
     "days": null,
     "regime_filters": null,
     "risk": {
@@ -40,14 +71,14 @@
       "max_concurrent": 1
     }
   },
-  "complexity": 2,
-  "origin": "mutation",
+  "complexity": 6,
+  "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 1237741773,
+  "seed": 1053770423,
   "mutation_params": null,
   "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 2197
 }

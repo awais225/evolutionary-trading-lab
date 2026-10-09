@@ -1,21 +1,21 @@
 {
-  "hash": "9cba385af5f9207be73ec20d7694163f",
-  "parent_id": 237,
-  "generation": 3,
+  "hash": "0ad8c9a140993e3b8349788a1cf0811a",
+  "parent_id": 924,
+  "generation": 1,
   "symbol": "XAUUSD",
-  "timeframe": "M5",
+  "timeframe": "M15",
   "direction": "short",
   "status": "BORN",
-  "creation_reason": "mutation of #237: added indicator volatility:50",
-  "mutation_type": "indicator_addition",
-  "species_key": "M5|short|volatility,vwap",
+  "creation_reason": "mutation of #924: replaced stoch:9:3 with ema:20",
+  "mutation_type": "indicator_replacement",
+  "species_key": "M15|short|bb,ema",
   "genome": {
     "symbol": "XAUUSD",
-    "timeframe": "M5",
+    "timeframe": "M15",
     "direction": "short",
     "features": [
-      "vwap",
-      "volatility:50"
+      "bb:20:2.5",
+      "ema:20"
     ],
     "entry_long": null,
     "entry_short": {
@@ -23,25 +23,25 @@
       "clauses": [
         {
           "type": "compare",
-          "left": "vwap_dist",
-          "cmp": "<",
-          "right": -0.359
+          "left": "bb_pctb:20:2.5",
+          "cmp": ">",
+          "right": 0.85
         },
         {
           "type": "compare",
-          "left": "range_expansion:50",
+          "left": "ema:20",
           "cmp": "<",
-          "right": 1.23
+          "right": "close"
         }
       ]
     },
     "exit": {
-      "atr_spec": "atr:7",
-      "sl_atr_mult": 2.34,
-      "tp_atr_mult": 1.74,
+      "atr_spec": "atr:21",
+      "sl_atr_mult": 2.85,
+      "tp_atr_mult": 3.12,
       "trailing": null,
       "min_hold_bars": 2,
-      "max_hold_bars": 24,
+      "max_hold_bars": 12,
       "exit_condition": null
     },
     "sessions": null,
@@ -55,11 +55,11 @@
   "complexity": 4,
   "origin": "mutation",
   "hypothesis_id": null,
-  "seed": 1034372647,
+  "seed": 267672706,
   "mutation_params": null,
   "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 1562
 }

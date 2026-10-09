@@ -1,74 +1,99 @@
 {
-  "hash": "fb5583782d56551c14ab639fa926fa19",
-  "parent_id": 243,
-  "generation": 4,
+  "hash": "6311cbb0f845119b8ca0da5a4b8e68c4",
+  "parent_id": null,
+  "generation": 0,
   "symbol": "XAUUSD",
-  "timeframe": "M1",
+  "timeframe": "M15",
   "direction": "both",
   "status": "BORN",
-  "creation_reason": "crossover of #243 x #186: crossover of features/filters/exit (6 indicators)",
-  "mutation_type": "crossover",
-  "species_key": "M1|both|bb,prev_day,roc,sma,vwap",
+  "creation_reason": "generation-0 random seed",
+  "mutation_type": "random_exploration",
+  "species_key": "M15|both|momentum,volatility,vwap",
   "genome": {
     "symbol": "XAUUSD",
-    "timeframe": "M1",
+    "timeframe": "M15",
     "direction": "both",
     "features": [
-      "vwap",
-      "sma:100",
-      "roc:12",
-      "prev_day",
-      "bb:20:2.0",
-      "roc:24"
+      "momentum:20",
+      "volatility:20",
+      "vwap"
     ],
     "entry_long": {
       "op": "and",
       "clauses": [
         {
           "type": "compare",
-          "left": "bb_pctb:20:2.0",
+          "left": "momentum:20",
           "cmp": ">",
-          "right": 0.95
+          "right": 1.32
         },
         {
           "type": "compare",
-          "left": "roc:24",
+          "left": "momentum:20",
           "cmp": "<",
-          "right": 0.247
+          "right": -0.91
+        },
+        {
+          "type": "compare",
+          "left": "range_expansion:20",
+          "cmp": ">",
+          "right": 0.86
         }
       ]
     },
     "entry_short": {
-      "type": "compare",
-      "left": "vwap_dist",
-      "cmp": "<",
-      "right": -0.368
+      "op": "and",
+      "clauses": [
+        {
+          "type": "compare",
+          "left": "vwap_dist",
+          "cmp": "<",
+          "right": 0.373
+        },
+        {
+          "type": "compare",
+          "left": "vwap_dist",
+          "cmp": "<",
+          "right": 0.394
+        },
+        {
+          "type": "compare",
+          "left": "momentum:20",
+          "cmp": ">",
+          "right": -0.17
+        }
+      ]
     },
     "exit": {
-      "atr_spec": "atr:7",
-      "sl_atr_mult": 2.94,
-      "tp_atr_mult": 3.42,
+      "atr_spec": "atr:14",
+      "sl_atr_mult": 2.42,
+      "tp_atr_mult": 1.63,
       "trailing": null,
-      "min_hold_bars": 1,
-      "max_hold_bars": 24,
+      "min_hold_bars": 2,
+      "max_hold_bars": 12,
       "exit_condition": null
     },
-    "sessions": null,
+    "sessions": [
+      "asia",
+      "london"
+    ],
     "days": null,
-    "regime_filters": null,
+    "regime_filters": [
+      "breakout"
+    ],
     "risk": {
       "risk_per_trade": 0.005,
       "max_concurrent": 1
     }
   },
-  "complexity": 8,
-  "origin": "crossover",
+  "complexity": 7,
+  "origin": "seed",
   "hypothesis_id": null,
-  "seed": 1836839316,
+  "seed": 1229433343,
   "mutation_params": null,
-  "config_version": "8881aded8886ae26",
+  "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 1358
 }

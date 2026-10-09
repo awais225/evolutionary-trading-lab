@@ -1,51 +1,45 @@
 {
-  "hash": "ee338b41b0c401d4acc2f9372a66cf0c",
+  "hash": "3e6cd455ff0fb7a1e5a55630261e657b",
   "parent_id": null,
-  "generation": 15,
+  "generation": 5,
   "symbol": "XAUUSD",
   "timeframe": "M15",
-  "direction": "short",
+  "direction": "both",
   "status": "BORN",
-  "creation_reason": "Gen 15 random exploration birth",
+  "creation_reason": "Gen 5 candidate exploration (filling shortfall)",
   "mutation_type": "random_exploration",
-  "species_key": "M15|short|atr,macd,sma",
+  "species_key": "M15|both|prev_day",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
-    "direction": "short",
+    "direction": "both",
     "features": [
-      "sma:10",
-      "atr:14",
-      "macd:8:21:5"
+      "prev_day"
     ],
-    "entry_long": null,
+    "entry_long": {
+      "type": "compare",
+      "left": "break_prev_day_low",
+      "cmp": ">",
+      "right": 0.5
+    },
     "entry_short": {
-      "op": "and",
-      "clauses": [
-        {
-          "type": "compare",
-          "left": "macd_hist:8:21:5",
-          "cmp": "<",
-          "right": 0.0
-        },
-        {
-          "type": "compare",
-          "left": "sma:10",
-          "cmp": "<",
-          "right": "close"
-        }
-      ]
+      "type": "compare",
+      "left": "break_prev_day_high",
+      "cmp": ">",
+      "right": 0.5
     },
     "exit": {
-      "atr_spec": "atr:14",
-      "sl_atr_mult": 2.28,
-      "tp_atr_mult": 0.94,
+      "atr_spec": "atr:10",
+      "sl_atr_mult": 1.68,
+      "tp_atr_mult": 1.54,
       "trailing": null,
       "min_hold_bars": 3,
-      "max_hold_bars": 12,
+      "max_hold_bars": 96,
       "exit_condition": null
     },
-    "sessions": null,
+    "sessions": [
+      "london"
+    ],
     "days": null,
     "regime_filters": null,
     "risk": {
@@ -53,14 +47,14 @@
       "max_concurrent": 1
     }
   },
-  "complexity": 5,
+  "complexity": 3,
   "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 1901594699,
+  "seed": 58280786,
   "mutation_params": null,
   "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 3279
 }

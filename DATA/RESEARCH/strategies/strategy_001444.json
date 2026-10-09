@@ -1,53 +1,56 @@
 {
-  "hash": "1c487fab2f98197c0aea3379cfcf2d0f",
-  "parent_id": null,
-  "generation": 10,
+  "hash": "318b3a1e79b2309b0599acb6832a94a4",
+  "parent_id": 1182,
+  "generation": 1,
   "symbol": "XAUUSD",
   "timeframe": "M15",
-  "direction": "long",
+  "direction": "short",
   "status": "BORN",
-  "creation_reason": "Gen 10 random exploration birth",
-  "mutation_type": "random_exploration",
-  "species_key": "M15|long|macd",
+  "creation_reason": "mutation of #1182: regime filter -> {'ranging'}",
+  "mutation_type": "regime_mutation",
+  "species_key": "M15|short|stoch,vwap",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
-    "direction": "long",
+    "direction": "short",
     "features": [
-      "macd:12:26:9"
+      "stoch:9:3",
+      "vwap"
     ],
-    "entry_long": {
+    "entry_long": null,
+    "entry_short": {
       "type": "compare",
-      "left": "macd_hist:12:26:9",
+      "left": "stoch_k:9:3",
       "cmp": "<",
-      "right": 0.0
+      "right": 25
     },
-    "entry_short": null,
     "exit": {
-      "atr_spec": "atr:7",
-      "sl_atr_mult": 2.41,
-      "tp_atr_mult": 1.54,
+      "atr_spec": "atr:21",
+      "sl_atr_mult": 0.76,
+      "tp_atr_mult": 1.62,
       "trailing": null,
       "min_hold_bars": 1,
-      "max_hold_bars": 72,
+      "max_hold_bars": 12,
       "exit_condition": null
     },
     "sessions": null,
     "days": null,
-    "regime_filters": null,
+    "regime_filters": [
+      "ranging"
+    ],
     "risk": {
       "risk_per_trade": 0.005,
       "max_concurrent": 1
     }
   },
-  "complexity": 2,
-  "origin": "exploration",
+  "complexity": 4,
+  "origin": "mutation",
   "hypothesis_id": null,
-  "seed": 961649505,
+  "seed": 1457925134,
   "mutation_params": null,
-  "config_version": "8881aded8886ae26",
+  "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 1444
 }

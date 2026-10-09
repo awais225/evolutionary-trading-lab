@@ -1,48 +1,35 @@
 {
-  "hash": "4ca9231cce475e2231dc275fc087442d",
-  "parent_id": 234,
-  "generation": 3,
+  "hash": "1c34aee9a73614bc9d7d24c1f5792ca9",
+  "parent_id": null,
+  "generation": 21,
   "symbol": "XAUUSD",
-  "timeframe": "M5",
-  "direction": "short",
+  "timeframe": "M15",
+  "direction": "long",
   "status": "BORN",
-  "creation_reason": "mutation of #234: replaced roc:24 with volume:50",
-  "mutation_type": "indicator_replacement",
-  "species_key": "M5|short|bb,volume,vwap",
+  "creation_reason": "Gen 21 candidate exploration (filling shortfall)",
+  "mutation_type": "random_exploration",
+  "species_key": "M15|long|rsi",
   "genome": {
     "symbol": "XAUUSD",
-    "timeframe": "M5",
-    "direction": "short",
+    "timeframe": "M15",
+    "direction": "long",
     "features": [
-      "vwap",
-      "volume:50",
-      "bb:20:2.0"
+      "rsi:21"
     ],
-    "entry_long": null,
-    "entry_short": {
-      "op": "and",
-      "clauses": [
-        {
-          "type": "compare",
-          "left": "vwap_dist",
-          "cmp": "<",
-          "right": -0.368
-        },
-        {
-          "type": "compare",
-          "left": "relvol:50",
-          "cmp": ">",
-          "right": 1.66
-        }
-      ]
+    "entry_long": {
+      "type": "compare",
+      "left": "rsi:21",
+      "cmp": "<",
+      "right": 45
     },
+    "entry_short": null,
     "exit": {
       "atr_spec": "atr:7",
-      "sl_atr_mult": 2.94,
-      "tp_atr_mult": 3.42,
+      "sl_atr_mult": 2.42,
+      "tp_atr_mult": 4.56,
       "trailing": null,
-      "min_hold_bars": 2,
-      "max_hold_bars": 24,
+      "min_hold_bars": 1,
+      "max_hold_bars": 72,
       "exit_condition": null
     },
     "sessions": null,
@@ -53,14 +40,14 @@
       "max_concurrent": 1
     }
   },
-  "complexity": 5,
-  "origin": "mutation",
+  "complexity": 2,
+  "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 435100721,
+  "seed": 1030087399,
   "mutation_params": null,
   "config_version": "73f86ee16ce4b5fd",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 10245
 }

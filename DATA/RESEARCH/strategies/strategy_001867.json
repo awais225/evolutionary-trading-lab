@@ -1,43 +1,48 @@
 {
-  "hash": "122fe9f3acad9b4ffa788be703218691",
+  "hash": "d41cfc46525f463da0a1cf85e44d9008",
   "parent_id": null,
-  "generation": 11,
+  "generation": 2,
   "symbol": "XAUUSD",
   "timeframe": "M15",
   "direction": "both",
   "status": "BORN",
-  "creation_reason": "Gen 11 random exploration birth",
+  "creation_reason": "Gen 2 random exploration birth",
   "mutation_type": "random_exploration",
-  "species_key": "M15|both|adx,momentum,volume",
+  "species_key": "M15|both|adx,momentum,roc",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
     "direction": "both",
     "features": [
-      "adx:21",
-      "momentum:5",
-      "volume:20"
+      "adx:14",
+      "momentum:10",
+      "roc:12"
     ],
     "entry_long": {
-      "op": "and",
+      "op": "or",
       "clauses": [
         {
           "type": "compare",
-          "left": "relvol:20",
+          "left": "momentum:10",
           "cmp": ">",
-          "right": 2.36
+          "right": 1.9
         },
         {
-          "type": "compare",
-          "left": "momentum:5",
-          "cmp": "<",
-          "right": -1.15
-        },
-        {
-          "type": "compare",
-          "left": "relvol:20",
-          "cmp": ">",
-          "right": 1.48
+          "op": "and",
+          "clauses": [
+            {
+              "type": "compare",
+              "left": "adx:14",
+              "cmp": ">",
+              "right": 20
+            },
+            {
+              "type": "compare",
+              "left": "momentum:10",
+              "cmp": "<",
+              "right": 0.8
+            }
+          ]
         }
       ]
     },
@@ -46,31 +51,34 @@
       "clauses": [
         {
           "type": "compare",
-          "left": "adx:21",
+          "left": "momentum:10",
           "cmp": ">",
-          "right": 18
+          "right": -0.7
         },
         {
           "type": "compare",
-          "left": "relvol:20",
+          "left": "adx:14",
           "cmp": ">",
-          "right": 2.41
+          "right": 20
         },
         {
           "type": "compare",
-          "left": "relvol:20",
+          "left": "adx:14",
           "cmp": ">",
-          "right": 1.88
+          "right": 25
         }
       ]
     },
     "exit": {
       "atr_spec": "atr:14",
-      "sl_atr_mult": 1.54,
-      "tp_atr_mult": 0.95,
-      "trailing": null,
+      "sl_atr_mult": 2.39,
+      "tp_atr_mult": 1.49,
+      "trailing": {
+        "atr_mult": 2.15,
+        "activation_mult": 1.39
+      },
       "min_hold_bars": 0,
-      "max_hold_bars": 48,
+      "max_hold_bars": 12,
       "exit_condition": null
     },
     "sessions": null,
@@ -81,14 +89,14 @@
       "max_concurrent": 1
     }
   },
-  "complexity": 5,
+  "complexity": 6,
   "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 561977268,
+  "seed": 1185891934,
   "mutation_params": null,
   "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 1867
 }

@@ -1,38 +1,46 @@
 {
-  "hash": "31fd4129f019d062b8e05ea332786e88",
-  "parent_id": 226,
-  "generation": 3,
+  "hash": "e299cf1e90abeb66d1c8d421c832ffb3",
+  "parent_id": null,
+  "generation": 23,
   "symbol": "XAUUSD",
-  "timeframe": "M5",
-  "direction": "short",
+  "timeframe": "M15",
+  "direction": "both",
   "status": "BORN",
-  "creation_reason": "mutation of #226: replaced vwap with momentum:10",
-  "mutation_type": "indicator_replacement",
-  "species_key": "M5|short|momentum",
+  "creation_reason": "Gen 23 candidate exploration (filling shortfall)",
+  "mutation_type": "random_exploration",
+  "species_key": "M15|both|stoch",
   "genome": {
     "symbol": "XAUUSD",
-    "timeframe": "M5",
-    "direction": "short",
+    "timeframe": "M15",
+    "direction": "both",
     "features": [
-      "momentum:10"
+      "stoch:9:3"
     ],
-    "entry_long": null,
+    "entry_long": {
+      "type": "crossover",
+      "a": "stoch_k:9:3",
+      "b": "stoch_d:9:3",
+      "dir": "down"
+    },
     "entry_short": {
       "type": "compare",
-      "left": "momentum:10",
-      "cmp": ">",
-      "right": -1.33
+      "left": "stoch_k:9:3",
+      "cmp": "<",
+      "right": 20
     },
     "exit": {
       "atr_spec": "atr:7",
-      "sl_atr_mult": 2.34,
-      "tp_atr_mult": 2.14,
+      "sl_atr_mult": 2.95,
+      "tp_atr_mult": 4.84,
       "trailing": null,
       "min_hold_bars": 2,
       "max_hold_bars": 24,
       "exit_condition": null
     },
-    "sessions": null,
+    "sessions": [
+      "asia",
+      "newyork"
+    ],
     "days": null,
     "regime_filters": null,
     "risk": {
@@ -40,14 +48,14 @@
       "max_concurrent": 1
     }
   },
-  "complexity": 2,
-  "origin": "mutation",
+  "complexity": 3,
+  "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 1023320279,
+  "seed": 448832874,
   "mutation_params": null,
   "config_version": "73f86ee16ce4b5fd",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 10786
 }

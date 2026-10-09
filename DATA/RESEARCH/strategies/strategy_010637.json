@@ -1,41 +1,60 @@
 {
-  "hash": "7f337ffb61fbcdfc9cb1accea4632a39",
-  "parent_id": 243,
-  "generation": 4,
+  "hash": "1ae312c80165fde963a51296cb4071d8",
+  "parent_id": null,
+  "generation": 22,
   "symbol": "XAUUSD",
-  "timeframe": "M5",
-  "direction": "short",
+  "timeframe": "M15",
+  "direction": "long",
   "status": "BORN",
-  "creation_reason": "mutation of #243: replaced sma:100 with atr:10",
-  "mutation_type": "indicator_replacement",
-  "species_key": "M5|short|atr,prev_day,roc,vwap",
+  "creation_reason": "Gen 22 candidate exploration (filling shortfall)",
+  "mutation_type": "random_exploration",
+  "species_key": "M15|long|atr,macd,prev_day",
   "genome": {
     "symbol": "XAUUSD",
-    "timeframe": "M5",
-    "direction": "short",
+    "timeframe": "M15",
+    "direction": "long",
     "features": [
-      "vwap",
-      "atr:10",
-      "roc:12",
-      "prev_day"
+      "prev_day",
+      "atr:14",
+      "macd:12:26:9"
     ],
-    "entry_long": null,
-    "entry_short": {
-      "type": "compare",
-      "left": "vwap_dist",
-      "cmp": "<",
-      "right": -0.359
+    "entry_long": {
+      "op": "and",
+      "clauses": [
+        {
+          "type": "compare",
+          "left": "macd_hist:12:26:9",
+          "cmp": "<",
+          "right": 0.0
+        },
+        {
+          "type": "compare",
+          "left": "break_prev_day_high",
+          "cmp": ">",
+          "right": 0.5
+        },
+        {
+          "type": "compare",
+          "left": "break_prev_day_low",
+          "cmp": ">",
+          "right": 0.5
+        }
+      ]
     },
+    "entry_short": null,
     "exit": {
-      "atr_spec": "atr:7",
-      "sl_atr_mult": 2.34,
-      "tp_atr_mult": 1.74,
+      "atr_spec": "atr:14",
+      "sl_atr_mult": 2.52,
+      "tp_atr_mult": 1.17,
       "trailing": null,
-      "min_hold_bars": 2,
-      "max_hold_bars": 24,
+      "min_hold_bars": 0,
+      "max_hold_bars": 48,
       "exit_condition": null
     },
-    "sessions": null,
+    "sessions": [
+      "asia",
+      "newyork"
+    ],
     "days": null,
     "regime_filters": null,
     "risk": {
@@ -43,14 +62,14 @@
       "max_concurrent": 1
     }
   },
-  "complexity": 5,
-  "origin": "mutation",
+  "complexity": 6,
+  "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 853105272,
+  "seed": 869064134,
   "mutation_params": null,
   "config_version": "73f86ee16ce4b5fd",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 10637
 }

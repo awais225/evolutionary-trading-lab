@@ -1,64 +1,35 @@
 {
-  "hash": "7b9883c66f6175c65c3e50995e7a55af",
-  "parent_id": 186,
-  "generation": 2,
+  "hash": "3e8e7b903def3bf6dfb916c67fa442a9",
+  "parent_id": 2885,
+  "generation": 5,
   "symbol": "XAUUSD",
-  "timeframe": "M1",
-  "direction": "both",
+  "timeframe": "M15",
+  "direction": "short",
   "status": "BORN",
-  "creation_reason": "mutation of #186: replaced bb:20:2.0 with cci:14",
+  "creation_reason": "mutation of #2885: replaced bb:20:2.5 with prev_day",
   "mutation_type": "indicator_replacement",
-  "species_key": "M1|both|cci,roc,vwap",
+  "species_key": "M15|short|prev_day",
   "genome": {
     "symbol": "XAUUSD",
-    "timeframe": "M1",
-    "direction": "both",
+    "timeframe": "M15",
+    "direction": "short",
     "features": [
-      "cci:14",
-      "roc:24",
-      "vwap"
+      "prev_day"
     ],
-    "entry_long": {
-      "op": "and",
-      "clauses": [
-        {
-          "type": "compare",
-          "left": "roc:24",
-          "cmp": "<",
-          "right": 0.247
-        },
-        {
-          "type": "compare",
-          "left": "cci:14",
-          "cmp": "<",
-          "right": -100
-        }
-      ]
-    },
+    "entry_long": null,
     "entry_short": {
-      "op": "and",
-      "clauses": [
-        {
-          "type": "compare",
-          "left": "vwap_dist",
-          "cmp": "<",
-          "right": -0.368
-        },
-        {
-          "type": "compare",
-          "left": "cci:14",
-          "cmp": "<",
-          "right": -100
-        }
-      ]
+      "type": "compare",
+      "left": "break_prev_day_high",
+      "cmp": ">",
+      "right": 0.5
     },
     "exit": {
-      "atr_spec": "atr:14",
-      "sl_atr_mult": 2.94,
-      "tp_atr_mult": 3.42,
+      "atr_spec": "atr:21",
+      "sl_atr_mult": 2.44,
+      "tp_atr_mult": 3.51,
       "trailing": null,
-      "min_hold_bars": 1,
-      "max_hold_bars": 24,
+      "min_hold_bars": 2,
+      "max_hold_bars": 12,
       "exit_condition": null
     },
     "sessions": null,
@@ -69,14 +40,14 @@
       "max_concurrent": 1
     }
   },
-  "complexity": 5,
+  "complexity": 2,
   "origin": "mutation",
   "hypothesis_id": null,
-  "seed": 27041118,
+  "seed": 1937873229,
   "mutation_params": null,
   "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 3528
 }

@@ -1,12 +1,12 @@
 {
-  "hash": "d62875f33c6b788a1296c522058446c2",
+  "hash": "9584db51560cb134688e53dba63750de",
   "parent_id": null,
-  "generation": 33,
+  "generation": 19,
   "symbol": "XAUUSD",
   "timeframe": "M15",
   "direction": "short",
   "status": "BORN",
-  "creation_reason": "Gen 33 candidate exploration (filling shortfall)",
+  "creation_reason": "Gen 19 candidate exploration (filling shortfall)",
   "mutation_type": "random_exploration",
   "species_key": "M15|short|sma",
   "genome": {
@@ -20,19 +20,21 @@
     "entry_short": {
       "type": "compare",
       "left": "sma:20",
-      "cmp": "<",
+      "cmp": ">",
       "right": "close"
     },
     "exit": {
-      "atr_spec": "atr:10",
-      "sl_atr_mult": 2.63,
-      "tp_atr_mult": 1.85,
+      "atr_spec": "atr:7",
+      "sl_atr_mult": 2.76,
+      "tp_atr_mult": 4.04,
       "trailing": null,
-      "min_hold_bars": 3,
-      "max_hold_bars": 48,
+      "min_hold_bars": 1,
+      "max_hold_bars": 96,
       "exit_condition": null
     },
-    "sessions": null,
+    "sessions": [
+      "london"
+    ],
     "days": null,
     "regime_filters": null,
     "risk": {
@@ -40,14 +42,14 @@
       "max_concurrent": 1
     }
   },
-  "complexity": 2,
+  "complexity": 3,
   "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 565232551,
+  "seed": 1855284179,
   "mutation_params": null,
   "config_version": "73f86ee16ce4b5fd",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 9243
 }

@@ -1,46 +1,39 @@
 {
-  "hash": "e3cd085ee46b78a8bb621e3168294300",
-  "parent_id": null,
-  "generation": 11,
+  "hash": "c66a943536189f89a56d5a5f133702a2",
+  "parent_id": 1528,
+  "generation": 2,
   "symbol": "XAUUSD",
   "timeframe": "M15",
-  "direction": "both",
+  "direction": "short",
   "status": "BORN",
-  "creation_reason": "Gen 11 candidate exploration (filling shortfall)",
-  "mutation_type": "random_exploration",
-  "species_key": "M15|both|atr",
+  "creation_reason": "mutation of #1528: threshold jitter (1 values)",
+  "mutation_type": "param_mutation",
+  "species_key": "M15|short|bb,stoch",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
-    "direction": "both",
+    "direction": "short",
     "features": [
-      "atr:14"
+      "bb:20:2.5",
+      "stoch:9:3"
     ],
-    "entry_long": {
-      "type": "compare",
-      "left": "atr_pct:14",
-      "cmp": ">",
-      "right": 0.188
-    },
+    "entry_long": null,
     "entry_short": {
       "type": "compare",
-      "left": "atr_pct:14",
-      "cmp": "<",
-      "right": 0.167
+      "left": "bb_pctb:20:2.5",
+      "cmp": ">",
+      "right": 0.854
     },
     "exit": {
-      "atr_spec": "atr:14",
-      "sl_atr_mult": 0.99,
-      "tp_atr_mult": 3.66,
+      "atr_spec": "atr:21",
+      "sl_atr_mult": 2.62,
+      "tp_atr_mult": 3.12,
       "trailing": null,
-      "min_hold_bars": 1,
-      "max_hold_bars": 144,
+      "min_hold_bars": 2,
+      "max_hold_bars": 12,
       "exit_condition": null
     },
-    "sessions": [
-      "asia",
-      "london"
-    ],
+    "sessions": null,
     "days": null,
     "regime_filters": null,
     "risk": {
@@ -49,13 +42,13 @@
     }
   },
   "complexity": 3,
-  "origin": "exploration",
+  "origin": "mutation",
   "hypothesis_id": null,
-  "seed": 1982433141,
+  "seed": 526659395,
   "mutation_params": null,
   "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 1953
 }

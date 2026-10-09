@@ -1,63 +1,58 @@
 {
-  "hash": "5afcfe5ae9665bf2a05c9dce975c5d7f",
+  "hash": "3f6ea8e9b82e6a05eeb4fe33f0fb1fae",
   "parent_id": null,
-  "generation": 26,
+  "generation": 14,
   "symbol": "XAUUSD",
   "timeframe": "M15",
   "direction": "both",
   "status": "BORN",
-  "creation_reason": "Gen 26 candidate exploration (filling shortfall)",
+  "creation_reason": "Gen 14 candidate exploration (filling shortfall)",
   "mutation_type": "random_exploration",
-  "species_key": "M15|both|sma",
+  "species_key": "M15|both|stoch",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
     "direction": "both",
     "features": [
-      "sma:100"
+      "stoch:9:3"
     ],
     "entry_long": {
-      "type": "compare",
-      "left": "sma:100",
-      "cmp": "<",
-      "right": "close"
+      "type": "crossover",
+      "a": "stoch_k:9:3",
+      "b": "stoch_d:9:3",
+      "dir": "up"
     },
     "entry_short": {
-      "type": "compare",
-      "left": "sma:100",
-      "cmp": "<",
-      "right": "close"
+      "type": "crossover",
+      "a": "stoch_k:9:3",
+      "b": "stoch_d:9:3",
+      "dir": "down"
     },
     "exit": {
-      "atr_spec": "atr:14",
-      "sl_atr_mult": 1.72,
-      "tp_atr_mult": 0.83,
+      "atr_spec": "atr:10",
+      "sl_atr_mult": 1.74,
+      "tp_atr_mult": 4.49,
       "trailing": null,
-      "min_hold_bars": 1,
+      "min_hold_bars": 0,
       "max_hold_bars": 72,
       "exit_condition": null
     },
     "sessions": null,
-    "days": [
-      0,
-      1,
-      2,
-      3
-    ],
+    "days": null,
     "regime_filters": null,
     "risk": {
       "risk_per_trade": 0.005,
       "max_concurrent": 1
     }
   },
-  "complexity": 3,
+  "complexity": 2,
   "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 1564053436,
+  "seed": 843512125,
   "mutation_params": null,
   "config_version": "73f86ee16ce4b5fd",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 6897
 }

@@ -1,49 +1,35 @@
 {
-  "hash": "3acbe003093b84908cb6dd7b3aa5d5e2",
-  "parent_id": 243,
-  "generation": 4,
+  "hash": "c2fbd9ee7e71d78ebe7e69c8f791201b",
+  "parent_id": 4380,
+  "generation": 8,
   "symbol": "XAUUSD",
-  "timeframe": "M5",
+  "timeframe": "M15",
   "direction": "short",
   "status": "BORN",
-  "creation_reason": "mutation of #243: replaced sma:100 with ema:100",
+  "creation_reason": "mutation of #4380: replaced bb:20:2.5 with volatility:20",
   "mutation_type": "indicator_replacement",
-  "species_key": "M5|short|ema,prev_day,roc,vwap",
+  "species_key": "M15|short|volatility",
   "genome": {
     "symbol": "XAUUSD",
-    "timeframe": "M5",
+    "timeframe": "M15",
     "direction": "short",
     "features": [
-      "vwap",
-      "ema:100",
-      "roc:12",
-      "prev_day"
+      "volatility:20"
     ],
     "entry_long": null,
     "entry_short": {
-      "op": "and",
-      "clauses": [
-        {
-          "type": "compare",
-          "left": "vwap_dist",
-          "cmp": "<",
-          "right": -0.359
-        },
-        {
-          "type": "compare",
-          "left": "ema:100",
-          "cmp": "<",
-          "right": "close"
-        }
-      ]
+      "type": "compare",
+      "left": "range_expansion:20",
+      "cmp": "<",
+      "right": 1.02
     },
     "exit": {
-      "atr_spec": "atr:7",
-      "sl_atr_mult": 2.34,
-      "tp_atr_mult": 1.74,
+      "atr_spec": "atr:21",
+      "sl_atr_mult": 2.42,
+      "tp_atr_mult": 3.51,
       "trailing": null,
       "min_hold_bars": 2,
-      "max_hold_bars": 24,
+      "max_hold_bars": 12,
       "exit_condition": null
     },
     "sessions": null,
@@ -54,14 +40,14 @@
       "max_concurrent": 1
     }
   },
-  "complexity": 6,
+  "complexity": 2,
   "origin": "mutation",
   "hypothesis_id": null,
-  "seed": 1252444793,
+  "seed": 1947729576,
   "mutation_params": null,
   "config_version": "73f86ee16ce4b5fd",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 5893
 }

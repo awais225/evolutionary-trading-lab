@@ -1,43 +1,50 @@
 {
-  "hash": "71a1dda660bf6ed84c4b989417d523c1",
-  "parent_id": null,
-  "generation": 28,
+  "hash": "249ba80a019b921ac3fab7bf78be7b9d",
+  "parent_id": 6930,
+  "generation": 9,
   "symbol": "XAUUSD",
   "timeframe": "M15",
-  "direction": "long",
+  "direction": "short",
   "status": "BORN",
-  "creation_reason": "Gen 28 candidate exploration (filling shortfall)",
-  "mutation_type": "random_exploration",
-  "species_key": "M15|long|macd,prev_day,volatility",
+  "creation_reason": "mutation of #6930: added indicator vwap",
+  "mutation_type": "indicator_addition",
+  "species_key": "M15|short|bb,vwap",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
-    "direction": "long",
+    "direction": "short",
     "features": [
-      "macd:12:26:9",
-      "prev_day",
-      "volatility:20"
+      "bb:20:2.5",
+      "vwap"
     ],
-    "entry_long": {
-      "type": "compare",
-      "left": "range_expansion:20",
-      "cmp": ">",
-      "right": 0.76
+    "entry_long": null,
+    "entry_short": {
+      "op": "and",
+      "clauses": [
+        {
+          "type": "compare",
+          "left": "bb_pctb:20:2.5",
+          "cmp": ">",
+          "right": 0.85
+        },
+        {
+          "type": "compare",
+          "left": "vwap_dist",
+          "cmp": ">",
+          "right": -0.206
+        }
+      ]
     },
-    "entry_short": null,
     "exit": {
-      "atr_spec": "atr:7",
-      "sl_atr_mult": 2.33,
-      "tp_atr_mult": 1.38,
+      "atr_spec": "atr:21",
+      "sl_atr_mult": 2.42,
+      "tp_atr_mult": 3.52,
       "trailing": null,
-      "min_hold_bars": 1,
-      "max_hold_bars": 48,
+      "min_hold_bars": 2,
+      "max_hold_bars": 12,
       "exit_condition": null
     },
-    "sessions": [
-      "asia",
-      "london"
-    ],
+    "sessions": null,
     "days": null,
     "regime_filters": null,
     "risk": {
@@ -45,14 +52,14 @@
       "max_concurrent": 1
     }
   },
-  "complexity": 5,
-  "origin": "exploration",
+  "complexity": 4,
+  "origin": "mutation",
   "hypothesis_id": null,
-  "seed": 13824847,
+  "seed": 339193620,
   "mutation_params": null,
   "config_version": "73f86ee16ce4b5fd",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 7570
 }

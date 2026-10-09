@@ -1,80 +1,67 @@
 {
-  "hash": "122dd01d471d1179d8a88a7cd64212b3",
+  "hash": "2953670a28e4fbc1e481c8efb3986d34",
   "parent_id": null,
-  "generation": 15,
+  "generation": 5,
   "symbol": "XAUUSD",
   "timeframe": "M15",
   "direction": "both",
   "status": "BORN",
-  "creation_reason": "Gen 15 candidate exploration (filling shortfall)",
+  "creation_reason": "Gen 5 candidate exploration (filling shortfall)",
   "mutation_type": "random_exploration",
-  "species_key": "M15|both|macd,sma,volume",
+  "species_key": "M15|both|atr,stoch,volume",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
     "direction": "both",
     "features": [
-      "sma:200",
-      "macd:12:26:9",
-      "volume:50"
+      "atr:21",
+      "volume:50",
+      "stoch:9:3"
     ],
     "entry_long": {
       "op": "and",
       "clauses": [
         {
-          "type": "compare",
-          "left": "macd_hist:12:26:9",
-          "cmp": "<",
-          "right": 0.0
+          "type": "crossover",
+          "a": "stoch_k:9:3",
+          "b": "stoch_d:9:3",
+          "dir": "up"
         },
         {
           "type": "compare",
-          "left": "relvol:50",
+          "left": "stoch_k:9:3",
           "cmp": ">",
-          "right": 2.34
+          "right": 50
         }
       ]
     },
     "entry_short": {
-      "op": "or",
+      "op": "and",
       "clauses": [
         {
           "type": "compare",
-          "left": "sma:200",
+          "left": "atr_pct:21",
           "cmp": "<",
-          "right": "close"
+          "right": 0.285
         },
         {
-          "op": "and",
-          "clauses": [
-            {
-              "type": "compare",
-              "left": "relvol:50",
-              "cmp": ">",
-              "right": 1.56
-            },
-            {
-              "type": "compare",
-              "left": "sma:200",
-              "cmp": ">",
-              "right": "close"
-            }
-          ]
+          "type": "compare",
+          "left": "stoch_k:9:3",
+          "cmp": "<",
+          "right": 50
         }
       ]
     },
     "exit": {
       "atr_spec": "atr:21",
-      "sl_atr_mult": 1.89,
-      "tp_atr_mult": 3.74,
+      "sl_atr_mult": 1.24,
+      "tp_atr_mult": 1.27,
       "trailing": null,
-      "min_hold_bars": 3,
-      "max_hold_bars": 12,
+      "min_hold_bars": 1,
+      "max_hold_bars": 144,
       "exit_condition": null
     },
-    "sessions": [
-      "london"
-    ],
+    "sessions": null,
     "days": null,
     "regime_filters": null,
     "risk": {
@@ -82,14 +69,14 @@
       "max_concurrent": 1
     }
   },
-  "complexity": 6,
+  "complexity": 5,
   "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 665266403,
+  "seed": 1425799359,
   "mutation_params": null,
   "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 3329
 }

@@ -1,37 +1,40 @@
 {
-  "hash": "67fdc33ca9fff871346e67b9e15ce7b9",
-  "parent_id": 234,
-  "generation": 3,
+  "hash": "e731bc5a7e3702884fdce41750e65ef2",
+  "parent_id": null,
+  "generation": 20,
   "symbol": "XAUUSD",
-  "timeframe": "M5",
-  "direction": "short",
+  "timeframe": "M15",
+  "direction": "long",
   "status": "BORN",
-  "creation_reason": "mutation of #234: SL -> 3.24xATR",
-  "mutation_type": "sl_mutation",
-  "species_key": "M5|short|bb,roc,vwap",
+  "creation_reason": "Gen 20 random exploration birth",
+  "mutation_type": "random_exploration",
+  "species_key": "M15|long|bb,ema,roc",
   "genome": {
     "symbol": "XAUUSD",
-    "timeframe": "M5",
-    "direction": "short",
+    "timeframe": "M15",
+    "direction": "long",
     "features": [
-      "vwap",
-      "roc:24",
-      "bb:20:2.0"
+      "bb:20:2.5",
+      "roc:6",
+      "ema:14"
     ],
-    "entry_long": null,
-    "entry_short": {
+    "entry_long": {
       "type": "compare",
-      "left": "vwap_dist",
-      "cmp": "<",
-      "right": -0.368
+      "left": "roc:6",
+      "cmp": ">",
+      "right": -0.488
     },
+    "entry_short": null,
     "exit": {
-      "atr_spec": "atr:7",
-      "sl_atr_mult": 3.24,
-      "tp_atr_mult": 3.42,
-      "trailing": null,
-      "min_hold_bars": 2,
-      "max_hold_bars": 24,
+      "atr_spec": "atr:10",
+      "sl_atr_mult": 1.38,
+      "tp_atr_mult": 2.26,
+      "trailing": {
+        "atr_mult": 1.1,
+        "activation_mult": 1.27
+      },
+      "min_hold_bars": 0,
+      "max_hold_bars": 72,
       "exit_condition": null
     },
     "sessions": null,
@@ -42,14 +45,14 @@
       "max_concurrent": 1
     }
   },
-  "complexity": 4,
-  "origin": "mutation",
+  "complexity": 5,
+  "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 10662276,
+  "seed": 490779095,
   "mutation_params": null,
   "config_version": "73f86ee16ce4b5fd",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 9630
 }

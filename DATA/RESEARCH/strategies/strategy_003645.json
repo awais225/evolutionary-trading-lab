@@ -1,34 +1,40 @@
 {
-  "hash": "e3f0c72d05bc46ff003cf4ad90458b27",
-  "parent_id": 237,
-  "generation": 3,
+  "hash": "dd7b51f8d92783b8bc33899e0064c5c1",
+  "parent_id": null,
+  "generation": 6,
   "symbol": "XAUUSD",
-  "timeframe": "M5",
-  "direction": "short",
+  "timeframe": "M15",
+  "direction": "both",
   "status": "BORN",
-  "creation_reason": "mutation of #237: TP -> 1.23xATR",
-  "mutation_type": "tp_mutation",
-  "species_key": "M5|short|vwap",
+  "creation_reason": "Gen 6 random exploration birth",
+  "mutation_type": "random_exploration",
+  "species_key": "M15|both|cci,sma",
   "genome": {
     "symbol": "XAUUSD",
-    "timeframe": "M5",
-    "direction": "short",
+    "timeframe": "M15",
+    "direction": "both",
     "features": [
-      "vwap"
+      "cci:14",
+      "sma:100"
     ],
-    "entry_long": null,
+    "entry_long": {
+      "type": "compare",
+      "left": "cci:14",
+      "cmp": "<",
+      "right": 0
+    },
     "entry_short": {
       "type": "compare",
-      "left": "vwap_dist",
-      "cmp": "<",
-      "right": -0.359
+      "left": "cci:14",
+      "cmp": ">",
+      "right": -200
     },
     "exit": {
       "atr_spec": "atr:7",
-      "sl_atr_mult": 2.34,
-      "tp_atr_mult": 1.23,
+      "sl_atr_mult": 1.63,
+      "tp_atr_mult": 4.32,
       "trailing": null,
-      "min_hold_bars": 2,
+      "min_hold_bars": 1,
       "max_hold_bars": 24,
       "exit_condition": null
     },
@@ -40,14 +46,14 @@
       "max_concurrent": 1
     }
   },
-  "complexity": 2,
-  "origin": "mutation",
+  "complexity": 3,
+  "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 1848158635,
+  "seed": 981299542,
   "mutation_params": null,
   "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 3645
 }

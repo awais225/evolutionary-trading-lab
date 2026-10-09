@@ -1,48 +1,47 @@
 {
-  "hash": "57387816302722d9053c23fb1f988ca1",
+  "hash": "690a28e10f372e85654026e0ad2780c0",
   "parent_id": null,
-  "generation": 22,
+  "generation": 10,
   "symbol": "XAUUSD",
   "timeframe": "M15",
-  "direction": "long",
+  "direction": "short",
   "status": "BORN",
-  "creation_reason": "Gen 22 candidate exploration (filling shortfall)",
+  "creation_reason": "Gen 10 candidate exploration (filling shortfall)",
   "mutation_type": "random_exploration",
-  "species_key": "M15|long|adx,momentum,volatility",
+  "species_key": "M15|short|ema,rsi",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
-    "direction": "long",
+    "direction": "short",
     "features": [
-      "adx:21",
-      "volatility:50",
-      "momentum:20"
+      "rsi:7",
+      "ema:100"
     ],
-    "entry_long": {
+    "entry_long": null,
+    "entry_short": {
       "op": "and",
       "clauses": [
         {
           "type": "compare",
-          "left": "momentum:20",
+          "left": "rsi:7",
           "cmp": ">",
-          "right": 1.68
+          "right": 55
         },
         {
           "type": "compare",
-          "left": "adx:21",
+          "left": "ema:100",
           "cmp": ">",
-          "right": 28
+          "right": "close"
         }
       ]
     },
-    "entry_short": null,
     "exit": {
       "atr_spec": "atr:14",
-      "sl_atr_mult": 1.62,
-      "tp_atr_mult": 3.7,
+      "sl_atr_mult": 1.95,
+      "tp_atr_mult": 1.44,
       "trailing": null,
-      "min_hold_bars": 1,
-      "max_hold_bars": 12,
+      "min_hold_bars": 3,
+      "max_hold_bars": 24,
       "exit_condition": null
     },
     "sessions": null,
@@ -53,14 +52,14 @@
       "max_concurrent": 1
     }
   },
-  "complexity": 5,
+  "complexity": 4,
   "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 1127311332,
+  "seed": 411203790,
   "mutation_params": null,
   "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 5748
 }

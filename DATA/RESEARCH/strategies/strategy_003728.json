@@ -1,37 +1,41 @@
 {
-  "hash": "71ad91cff122197ee72ff95534b09bdd",
-  "parent_id": 162,
-  "generation": 4,
+  "hash": "da65bd234e9c92fdfe0882e7ba0054fd",
+  "parent_id": null,
+  "generation": 6,
   "symbol": "XAUUSD",
-  "timeframe": "M5",
-  "direction": "long",
+  "timeframe": "M15",
+  "direction": "both",
   "status": "BORN",
-  "creation_reason": "crossover of #162 x #243: crossover of features/filters/exit (4 indicators)",
-  "mutation_type": "crossover",
-  "species_key": "M5|long|prev_day,roc,sma,vwap",
+  "creation_reason": "Gen 6 candidate exploration (filling shortfall)",
+  "mutation_type": "random_exploration",
+  "species_key": "M15|both|adx,roc,volume",
   "genome": {
     "symbol": "XAUUSD",
-    "timeframe": "M5",
-    "direction": "long",
+    "timeframe": "M15",
+    "direction": "both",
     "features": [
+      "adx:21",
       "roc:12",
-      "sma:100",
-      "prev_day",
-      "vwap"
+      "volume:50"
     ],
     "entry_long": {
       "type": "compare",
-      "left": "break_prev_day_high",
+      "left": "relvol:50",
       "cmp": ">",
-      "right": 0.5
+      "right": 2.27
     },
-    "entry_short": null,
+    "entry_short": {
+      "type": "compare",
+      "left": "relvol:50",
+      "cmp": ">",
+      "right": 2.34
+    },
     "exit": {
-      "atr_spec": "atr:10",
-      "sl_atr_mult": 2.88,
-      "tp_atr_mult": 1.97,
+      "atr_spec": "atr:7",
+      "sl_atr_mult": 1.47,
+      "tp_atr_mult": 3.84,
       "trailing": null,
-      "min_hold_bars": 0,
+      "min_hold_bars": 2,
       "max_hold_bars": 144,
       "exit_condition": null
     },
@@ -43,14 +47,14 @@
       "max_concurrent": 1
     }
   },
-  "complexity": 5,
-  "origin": "crossover",
+  "complexity": 4,
+  "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 116833386,
+  "seed": 906852657,
   "mutation_params": null,
   "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 3728
 }

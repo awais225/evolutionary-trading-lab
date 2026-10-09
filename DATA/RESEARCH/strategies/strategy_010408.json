@@ -1,47 +1,47 @@
 {
-  "hash": "0b72a533a2004ba156cbafd8f078ba2a",
-  "parent_id": null,
-  "generation": 37,
+  "hash": "6a26ee85e1297b0a2d3b61bf82cca471",
+  "parent_id": 6658,
+  "generation": 8,
   "symbol": "XAUUSD",
   "timeframe": "M15",
-  "direction": "long",
+  "direction": "short",
   "status": "BORN",
-  "creation_reason": "Gen 37 random exploration birth",
-  "mutation_type": "random_exploration",
-  "species_key": "M15|long|regime,volume",
+  "creation_reason": "mutation of #6658: added indicator rsi:14",
+  "mutation_type": "indicator_addition",
+  "species_key": "M15|short|bb,rsi",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
-    "direction": "long",
+    "direction": "short",
     "features": [
-      "regime",
-      "volume:20"
+      "bb:20:2.5",
+      "rsi:14"
     ],
-    "entry_long": {
+    "entry_long": null,
+    "entry_short": {
       "op": "and",
       "clauses": [
         {
           "type": "compare",
-          "left": "regime:low_volatility",
+          "left": "bb_pctb:20:2.5",
           "cmp": ">",
-          "right": 0.5
+          "right": 0.85
         },
         {
           "type": "compare",
-          "left": "relvol:20",
-          "cmp": ">",
-          "right": 1.76
+          "left": "rsi:14",
+          "cmp": "<",
+          "right": 35
         }
       ]
     },
-    "entry_short": null,
     "exit": {
-      "atr_spec": "atr:7",
-      "sl_atr_mult": 2.79,
-      "tp_atr_mult": 3.49,
+      "atr_spec": "atr:21",
+      "sl_atr_mult": 2.42,
+      "tp_atr_mult": 3.52,
       "trailing": null,
-      "min_hold_bars": 2,
-      "max_hold_bars": 24,
+      "min_hold_bars": 0,
+      "max_hold_bars": 12,
       "exit_condition": null
     },
     "sessions": null,
@@ -53,13 +53,13 @@
     }
   },
   "complexity": 4,
-  "origin": "exploration",
+  "origin": "mutation",
   "hypothesis_id": null,
-  "seed": 813382725,
+  "seed": 1124727996,
   "mutation_params": null,
   "config_version": "73f86ee16ce4b5fd",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 10408
 }

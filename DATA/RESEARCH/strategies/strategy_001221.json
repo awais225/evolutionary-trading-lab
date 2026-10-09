@@ -1,39 +1,39 @@
 {
-  "hash": "f25c79ff3b96a7dc5640d9afdddf5347",
-  "parent_id": 237,
-  "generation": 3,
+  "hash": "5f115894cc9684bebff50ec1ecac1240",
+  "parent_id": null,
+  "generation": 0,
   "symbol": "XAUUSD",
-  "timeframe": "M5",
+  "timeframe": "M15",
   "direction": "short",
   "status": "BORN",
-  "creation_reason": "mutation of #237: sessions -> ['london_ny_overlap']",
-  "mutation_type": "session_mutation",
-  "species_key": "M5|short|vwap",
+  "creation_reason": "generation-0 random seed",
+  "mutation_type": "random_exploration",
+  "species_key": "M15|short|atr",
   "genome": {
     "symbol": "XAUUSD",
-    "timeframe": "M5",
+    "timeframe": "M15",
     "direction": "short",
     "features": [
-      "vwap"
+      "atr:21"
     ],
     "entry_long": null,
     "entry_short": {
       "type": "compare",
-      "left": "vwap_dist",
+      "left": "atr_pct:21",
       "cmp": "<",
-      "right": -0.359
+      "right": 0.206
     },
     "exit": {
-      "atr_spec": "atr:7",
-      "sl_atr_mult": 2.34,
-      "tp_atr_mult": 1.74,
+      "atr_spec": "atr:21",
+      "sl_atr_mult": 2.18,
+      "tp_atr_mult": 2.11,
       "trailing": null,
-      "min_hold_bars": 2,
-      "max_hold_bars": 24,
+      "min_hold_bars": 1,
+      "max_hold_bars": 48,
       "exit_condition": null
     },
     "sessions": [
-      "london_ny_overlap"
+      "newyork"
     ],
     "days": null,
     "regime_filters": null,
@@ -43,13 +43,13 @@
     }
   },
   "complexity": 3,
-  "origin": "mutation",
+  "origin": "seed",
   "hypothesis_id": null,
-  "seed": 463360491,
+  "seed": 1129227923,
   "mutation_params": null,
-  "config_version": "8881aded8886ae26",
+  "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 1221
 }

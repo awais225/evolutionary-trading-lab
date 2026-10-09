@@ -1,76 +1,47 @@
 {
-  "hash": "95af4742fab9e1609023fc98baa208a7",
-  "parent_id": 274,
-  "generation": 7,
+  "hash": "03e82ad7958c09eafef4cfb051d8855e",
+  "parent_id": 6975,
+  "generation": 9,
   "symbol": "XAUUSD",
-  "timeframe": "M5",
-  "direction": "long",
+  "timeframe": "M15",
+  "direction": "short",
   "status": "BORN",
-  "creation_reason": "crossover of #274 x #243: crossover of features/filters/exit (7 indicators)",
-  "mutation_type": "crossover",
-  "species_key": "M5|long|adx,bb,prev_day,roc,sma,vwap",
+  "creation_reason": "mutation of #6975: added indicator roc:6",
+  "mutation_type": "indicator_addition",
+  "species_key": "M15|short|bb,roc",
   "genome": {
     "symbol": "XAUUSD",
-    "timeframe": "M5",
-    "direction": "long",
+    "timeframe": "M15",
+    "direction": "short",
     "features": [
-      "bb:20:2.0",
-      "roc:24",
-      "adx:10",
-      "roc:12",
-      "prev_day",
-      "vwap",
-      "sma:100"
+      "bb:20:2.5",
+      "roc:6"
     ],
-    "entry_long": {
+    "entry_long": null,
+    "entry_short": {
       "op": "and",
       "clauses": [
         {
           "type": "compare",
-          "left": "bb_pctb:20:2.0",
+          "left": "bb_pctb:20:2.5",
           "cmp": ">",
-          "right": 0.905
+          "right": 0.85
         },
         {
           "type": "compare",
-          "left": "roc:24",
-          "cmp": "<",
-          "right": 0.247
-        },
-        {
-          "type": "compare",
-          "left": "adx:10",
+          "left": "roc:6",
           "cmp": ">",
-          "right": 25.0
-        },
-        {
-          "type": "compare",
-          "left": "adx:10",
-          "cmp": ">",
-          "right": 25.0
-        },
-        {
-          "type": "compare",
-          "left": "adx:10",
-          "cmp": ">",
-          "right": 25.0
-        },
-        {
-          "type": "compare",
-          "left": "adx:10",
-          "cmp": ">",
-          "right": 25.0
+          "right": 0.085
         }
       ]
     },
-    "entry_short": null,
     "exit": {
-      "atr_spec": "atr:14",
-      "sl_atr_mult": 2.34,
-      "tp_atr_mult": 1.74,
+      "atr_spec": "atr:21",
+      "sl_atr_mult": 2.42,
+      "tp_atr_mult": 3.52,
       "trailing": null,
-      "min_hold_bars": 1,
-      "max_hold_bars": 24,
+      "min_hold_bars": 5,
+      "max_hold_bars": 12,
       "exit_condition": null
     },
     "sessions": null,
@@ -81,14 +52,14 @@
       "max_concurrent": 1
     }
   },
-  "complexity": 9,
-  "origin": "crossover",
+  "complexity": 4,
+  "origin": "mutation",
   "hypothesis_id": null,
-  "seed": 271432152,
+  "seed": 135953974,
   "mutation_params": null,
   "config_version": "73f86ee16ce4b5fd",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 7883
 }

@@ -1,73 +1,36 @@
 {
-  "hash": "35bd06a99041569dc6e982dae393b07d",
-  "parent_id": 274,
-  "generation": 7,
+  "hash": "710b1e7693cf91a1bfda926ee3c6f568",
+  "parent_id": null,
+  "generation": 10,
   "symbol": "XAUUSD",
-  "timeframe": "M1",
+  "timeframe": "M15",
   "direction": "long",
   "status": "BORN",
-  "creation_reason": "crossover of #274 x #287: crossover of features/filters/exit (4 indicators)",
-  "mutation_type": "crossover",
-  "species_key": "M1|long|adx,bb,roc,vwap",
+  "creation_reason": "Gen 10 candidate exploration (filling shortfall)",
+  "mutation_type": "random_exploration",
+  "species_key": "M15|long|cci,sma",
   "genome": {
     "symbol": "XAUUSD",
-    "timeframe": "M1",
+    "timeframe": "M15",
     "direction": "long",
     "features": [
-      "bb:20:2.0",
-      "roc:24",
-      "adx:10",
-      "vwap"
+      "cci:14",
+      "sma:10"
     ],
     "entry_long": {
-      "op": "and",
-      "clauses": [
-        {
-          "type": "compare",
-          "left": "bb_pctb:20:2.0",
-          "cmp": ">",
-          "right": 0.905
-        },
-        {
-          "type": "compare",
-          "left": "roc:24",
-          "cmp": "<",
-          "right": 0.247
-        },
-        {
-          "type": "compare",
-          "left": "adx:10",
-          "cmp": ">",
-          "right": 25.0
-        },
-        {
-          "type": "compare",
-          "left": "adx:10",
-          "cmp": ">",
-          "right": 25.0
-        },
-        {
-          "type": "compare",
-          "left": "adx:10",
-          "cmp": ">",
-          "right": 25.0
-        },
-        {
-          "type": "compare",
-          "left": "adx:10",
-          "cmp": ">",
-          "right": 25.0
-        }
-      ]
+      "type": "compare",
+      "left": "cci:14",
+      "cmp": "<",
+      "right": 0
     },
     "entry_short": null,
     "exit": {
       "atr_spec": "atr:14",
-      "sl_atr_mult": 2.34,
-      "tp_atr_mult": 2.14,
+      "sl_atr_mult": 2.96,
+      "tp_atr_mult": 1.57,
       "trailing": null,
-      "min_hold_bars": 1,
-      "max_hold_bars": 144,
+      "min_hold_bars": 2,
+      "max_hold_bars": 12,
       "exit_condition": null
     },
     "sessions": null,
@@ -78,14 +41,14 @@
       "max_concurrent": 1
     }
   },
-  "complexity": 6,
-  "origin": "crossover",
+  "complexity": 3,
+  "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 1570671802,
+  "seed": 1249876367,
   "mutation_params": null,
   "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 5629
 }

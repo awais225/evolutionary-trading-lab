@@ -1,38 +1,54 @@
 {
-  "hash": "a00a5df1e2252d6ebd53ff008970506f",
-  "parent_id": 162,
-  "generation": 4,
+  "hash": "0a88214dc9c971ddafa21e8ab9b9c3b7",
+  "parent_id": null,
+  "generation": 16,
   "symbol": "XAUUSD",
-  "timeframe": "M5",
-  "direction": "long",
+  "timeframe": "M15",
+  "direction": "short",
   "status": "BORN",
-  "creation_reason": "crossover of #162 x #243: crossover of features/filters/exit (4 indicators)",
-  "mutation_type": "crossover",
-  "species_key": "M5|long|prev_day,roc,sma,vwap",
+  "creation_reason": "Gen 16 candidate exploration (filling shortfall)",
+  "mutation_type": "random_exploration",
+  "species_key": "M15|short|cci,roc,sma",
   "genome": {
     "symbol": "XAUUSD",
-    "timeframe": "M5",
-    "direction": "long",
+    "timeframe": "M15",
+    "direction": "short",
     "features": [
+      "cci:34",
       "roc:12",
-      "sma:100",
-      "prev_day",
-      "vwap"
+      "sma:100"
     ],
-    "entry_long": {
-      "type": "compare",
-      "left": "break_prev_day_high",
-      "cmp": ">",
-      "right": 0.5
+    "entry_long": null,
+    "entry_short": {
+      "op": "and",
+      "clauses": [
+        {
+          "type": "compare",
+          "left": "sma:100",
+          "cmp": ">",
+          "right": "close"
+        },
+        {
+          "type": "compare",
+          "left": "roc:12",
+          "cmp": ">",
+          "right": -0.118
+        },
+        {
+          "type": "compare",
+          "left": "cci:34",
+          "cmp": "<",
+          "right": -50
+        }
+      ]
     },
-    "entry_short": null,
     "exit": {
-      "atr_spec": "atr:10",
-      "sl_atr_mult": 2.88,
-      "tp_atr_mult": 1.97,
+      "atr_spec": "atr:7",
+      "sl_atr_mult": 1.1,
+      "tp_atr_mult": 2.55,
       "trailing": null,
-      "min_hold_bars": 0,
-      "max_hold_bars": 24,
+      "min_hold_bars": 3,
+      "max_hold_bars": 72,
       "exit_condition": null
     },
     "sessions": null,
@@ -44,13 +60,13 @@
     }
   },
   "complexity": 5,
-  "origin": "crossover",
+  "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 1063991470,
+  "seed": 872444617,
   "mutation_params": null,
   "config_version": "73f86ee16ce4b5fd",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 7852
 }

@@ -1,0 +1,15 @@
+{
+  "generation": 4,
+  "born": 1,
+  "tested": 3240,
+  "failed": 883,
+  "survived": 9,
+  "validated": 12,
+  "qualified": 10,
+  "killed": 257,
+  "retired": 880,
+  "duplicates_blocked": 1581,
+  "best_fitness": 0.74231,
+  "avg_fitness": 0.6582,
+  "ts": 1791523085.4465697
+}

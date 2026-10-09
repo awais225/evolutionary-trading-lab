@@ -1,60 +1,64 @@
 {
-  "hash": "27a3887695881438d90b01ad95215c99",
+  "hash": "dd9de0a4d786a07f53272d5f8c0590bb",
   "parent_id": null,
-  "generation": 15,
+  "generation": 5,
   "symbol": "XAUUSD",
   "timeframe": "M15",
   "direction": "both",
   "status": "BORN",
-  "creation_reason": "Gen 15 candidate exploration (filling shortfall)",
+  "creation_reason": "Gen 5 candidate exploration (filling shortfall)",
   "mutation_type": "random_exploration",
-  "species_key": "M15|both|prev_day",
+  "species_key": "M15|both|atr,bb,macd",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
     "direction": "both",
     "features": [
-      "prev_day"
+      "bb:20:2.0",
+      "macd:12:26:9",
+      "atr:10"
     ],
     "entry_long": {
       "type": "compare",
-      "left": "break_prev_day_low",
+      "left": "atr_pct:10",
       "cmp": ">",
-      "right": 0.5
+      "right": 0.132
     },
     "entry_short": {
       "type": "compare",
-      "left": "break_prev_day_high",
+      "left": "bb_pctb:20:2.0",
       "cmp": ">",
-      "right": 0.5
+      "right": 0.85
     },
     "exit": {
-      "atr_spec": "atr:21",
-      "sl_atr_mult": 1.02,
-      "tp_atr_mult": 3.78,
+      "atr_spec": "atr:10",
+      "sl_atr_mult": 2.51,
+      "tp_atr_mult": 1.48,
       "trailing": null,
-      "min_hold_bars": 3,
-      "max_hold_bars": 144,
+      "min_hold_bars": 1,
+      "max_hold_bars": 96,
       "exit_condition": null
     },
     "sessions": null,
-    "days": null,
-    "regime_filters": [
-      "high_volatility"
+    "days": [
+      0,
+      1,
+      2
     ],
+    "regime_filters": null,
     "risk": {
       "risk_per_trade": 0.005,
       "max_concurrent": 1
     }
   },
-  "complexity": 3,
+  "complexity": 5,
   "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 1261101453,
+  "seed": 1985107155,
   "mutation_params": null,
   "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 3326
 }

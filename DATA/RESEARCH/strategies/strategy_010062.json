@@ -1,56 +1,73 @@
 {
-  "hash": "a1c46cc31b094e886131b7b0dd5103a7",
-  "parent_id": 287,
-  "generation": 4,
+  "hash": "eb0e540d45a7ee15afc02cf7c3135714",
+  "parent_id": null,
+  "generation": 21,
   "symbol": "XAUUSD",
   "timeframe": "M15",
-  "direction": "short",
+  "direction": "long",
   "status": "BORN",
-  "creation_reason": "crossover of #287 x #162: crossover of features/filters/exit (4 indicators)",
-  "mutation_type": "crossover",
-  "species_key": "M15|short|prev_day,roc,sma,vwap",
+  "creation_reason": "Gen 21 random exploration birth",
+  "mutation_type": "random_exploration",
+  "species_key": "M15|long|cci,rsi,vwap",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
-    "direction": "short",
+    "direction": "long",
     "features": [
       "vwap",
-      "sma:100",
-      "roc:12",
-      "prev_day"
+      "rsi:14",
+      "cci:14"
     ],
-    "entry_long": null,
-    "entry_short": {
-      "type": "compare",
-      "left": "vwap_dist",
-      "cmp": "<",
-      "right": -0.368
+    "entry_long": {
+      "op": "and",
+      "clauses": [
+        {
+          "type": "compare",
+          "left": "cci:14",
+          "cmp": "<",
+          "right": 50
+        },
+        {
+          "type": "compare",
+          "left": "rsi:14",
+          "cmp": "<",
+          "right": 30
+        }
+      ]
     },
+    "entry_short": null,
     "exit": {
-      "atr_spec": "atr:7",
-      "sl_atr_mult": 2.88,
-      "tp_atr_mult": 1.97,
-      "trailing": null,
+      "atr_spec": "atr:21",
+      "sl_atr_mult": 0.99,
+      "tp_atr_mult": 2.38,
+      "trailing": {
+        "atr_mult": 1.8,
+        "activation_mult": 1.95
+      },
       "min_hold_bars": 1,
       "max_hold_bars": 144,
       "exit_condition": null
     },
     "sessions": null,
-    "days": null,
+    "days": [
+      0,
+      2,
+      3
+    ],
     "regime_filters": null,
     "risk": {
       "risk_per_trade": 0.005,
       "max_concurrent": 1
     }
   },
-  "complexity": 5,
-  "origin": "crossover",
+  "complexity": 7,
+  "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 257924708,
+  "seed": 736949021,
   "mutation_params": null,
   "config_version": "73f86ee16ce4b5fd",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 10062
 }

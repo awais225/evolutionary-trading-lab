@@ -1,67 +1,57 @@
 {
-  "hash": "b8353a999d90ad2b96efea1cfe4679bd",
-  "parent_id": 234,
+  "hash": "33647ac60d761cb4040e98cd72ce13c9",
+  "parent_id": null,
   "generation": 3,
   "symbol": "XAUUSD",
-  "timeframe": "M5",
-  "direction": "short",
+  "timeframe": "M15",
+  "direction": "long",
   "status": "BORN",
-  "creation_reason": "mutation of #234: added indicator cci:34",
-  "mutation_type": "indicator_addition",
-  "species_key": "M5|short|bb,cci,roc,vwap",
+  "creation_reason": "Gen 3 random exploration birth",
+  "mutation_type": "random_exploration",
+  "species_key": "M15|long|rsi",
   "genome": {
     "symbol": "XAUUSD",
-    "timeframe": "M5",
-    "direction": "short",
+    "timeframe": "M15",
+    "direction": "long",
     "features": [
-      "vwap",
-      "roc:24",
-      "bb:20:2.0",
-      "cci:34"
+      "rsi:21"
     ],
-    "entry_long": null,
-    "entry_short": {
-      "op": "and",
-      "clauses": [
-        {
-          "type": "compare",
-          "left": "vwap_dist",
-          "cmp": "<",
-          "right": -0.368
-        },
-        {
-          "type": "compare",
-          "left": "cci:34",
-          "cmp": "<",
-          "right": 50
-        }
-      ]
+    "entry_long": {
+      "type": "compare",
+      "left": "rsi:21",
+      "cmp": "<",
+      "right": 30
     },
+    "entry_short": null,
     "exit": {
       "atr_spec": "atr:7",
-      "sl_atr_mult": 2.94,
-      "tp_atr_mult": 3.42,
+      "sl_atr_mult": 1.28,
+      "tp_atr_mult": 0.97,
       "trailing": null,
-      "min_hold_bars": 2,
+      "min_hold_bars": 1,
       "max_hold_bars": 24,
       "exit_condition": null
     },
     "sessions": null,
-    "days": null,
+    "days": [
+      0,
+      2,
+      3
+    ],
     "regime_filters": null,
     "risk": {
       "risk_per_trade": 0.005,
       "max_concurrent": 1
     }
   },
-  "complexity": 6,
-  "origin": "mutation",
+  "complexity": 3,
+  "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 134687497,
+  "seed": 1148934070,
   "mutation_params": null,
   "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 2191
 }

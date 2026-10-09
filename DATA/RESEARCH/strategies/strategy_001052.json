@@ -1,50 +1,84 @@
 {
-  "hash": "a332ef9326c6d1f48f8f0a9f31988be0",
+  "hash": "549cc5c635beaad3a746e987ed2cff4a",
   "parent_id": null,
   "generation": 0,
   "symbol": "XAUUSD",
   "timeframe": "M15",
-  "direction": "short",
+  "direction": "both",
   "status": "BORN",
   "creation_reason": "generation-0 random seed",
   "mutation_type": "random_exploration",
-  "species_key": "M15|short|cci,regime",
+  "species_key": "M15|both|adx,momentum,sma",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
-    "direction": "short",
+    "direction": "both",
     "features": [
-      "regime",
-      "cci:20"
+      "sma:200",
+      "momentum:5",
+      "adx:14"
     ],
-    "entry_long": null,
+    "entry_long": {
+      "op": "and",
+      "clauses": [
+        {
+          "type": "compare",
+          "left": "adx:14",
+          "cmp": ">",
+          "right": 30
+        },
+        {
+          "type": "compare",
+          "left": "momentum:5",
+          "cmp": ">",
+          "right": 1.56
+        },
+        {
+          "type": "compare",
+          "left": "momentum:5",
+          "cmp": "<",
+          "right": -1.98
+        }
+      ]
+    },
     "entry_short": {
       "op": "and",
       "clauses": [
         {
           "type": "compare",
-          "left": "regime:trending",
+          "left": "adx:14",
           "cmp": ">",
-          "right": 0.5
+          "right": 20
         },
         {
           "type": "compare",
-          "left": "regime:high_volatility",
+          "left": "momentum:5",
+          "cmp": "<",
+          "right": 0.81
+        },
+        {
+          "type": "compare",
+          "left": "adx:14",
           "cmp": ">",
-          "right": 0.5
+          "right": 30
         }
       ]
     },
     "exit": {
       "atr_spec": "atr:10",
-      "sl_atr_mult": 2.87,
-      "tp_atr_mult": 4.35,
-      "trailing": null,
+      "sl_atr_mult": 2.2,
+      "tp_atr_mult": 1.49,
+      "trailing": {
+        "atr_mult": 1.83,
+        "activation_mult": 0.79
+      },
       "min_hold_bars": 3,
-      "max_hold_bars": 96,
+      "max_hold_bars": 144,
       "exit_condition": null
     },
-    "sessions": null,
+    "sessions": [
+      "london"
+    ],
     "days": null,
     "regime_filters": null,
     "risk": {
@@ -52,14 +86,14 @@
       "max_concurrent": 1
     }
   },
-  "complexity": 4,
+  "complexity": 7,
   "origin": "seed",
   "hypothesis_id": null,
-  "seed": 334543833,
+  "seed": 905510032,
   "mutation_params": null,
-  "config_version": "8881aded8886ae26",
+  "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 1052
 }

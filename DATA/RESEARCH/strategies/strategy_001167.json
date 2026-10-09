@@ -1,5 +1,5 @@
 {
-  "hash": "3ddcfe38536fd91f09f0de74660efe36",
+  "hash": "cdb9dee58f03fb3ffc1d46763aa08e8b",
   "parent_id": null,
   "generation": 0,
   "symbol": "XAUUSD",
@@ -8,32 +8,49 @@
   "status": "BORN",
   "creation_reason": "generation-0 random seed",
   "mutation_type": "random_exploration",
-  "species_key": "M15|long|ema,macd",
+  "species_key": "M15|long|regime,stoch,volatility",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
     "direction": "long",
     "features": [
-      "ema:20",
-      "macd:8:21:5"
+      "volatility:20",
+      "regime",
+      "stoch:9:3"
     ],
     "entry_long": {
-      "type": "compare",
-      "left": "macd_hist:8:21:5",
-      "cmp": "<",
-      "right": 0.0
+      "op": "and",
+      "clauses": [
+        {
+          "type": "compare",
+          "left": "regime:low_volatility",
+          "cmp": ">",
+          "right": 0.5
+        },
+        {
+          "type": "crossover",
+          "a": "stoch_k:9:3",
+          "b": "stoch_d:9:3",
+          "dir": "up"
+        }
+      ]
     },
     "entry_short": null,
     "exit": {
-      "atr_spec": "atr:14",
-      "sl_atr_mult": 2.94,
-      "tp_atr_mult": 2.37,
-      "trailing": null,
-      "min_hold_bars": 0,
+      "atr_spec": "atr:21",
+      "sl_atr_mult": 2.69,
+      "tp_atr_mult": 2.46,
+      "trailing": {
+        "atr_mult": 2.95,
+        "activation_mult": 1.49
+      },
+      "min_hold_bars": 1,
       "max_hold_bars": 144,
       "exit_condition": null
     },
-    "sessions": null,
+    "sessions": [
+      "asia"
+    ],
     "days": null,
     "regime_filters": null,
     "risk": {
@@ -41,14 +58,14 @@
       "max_concurrent": 1
     }
   },
-  "complexity": 3,
+  "complexity": 7,
   "origin": "seed",
   "hypothesis_id": null,
-  "seed": 778032582,
+  "seed": 686085024,
   "mutation_params": null,
-  "config_version": "8881aded8886ae26",
+  "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 1167
 }

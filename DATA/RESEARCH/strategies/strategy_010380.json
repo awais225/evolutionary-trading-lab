@@ -1,64 +1,53 @@
 {
-  "hash": "d018f18e468dd8d4b43273028cadd814",
-  "parent_id": 243,
-  "generation": 4,
+  "hash": "8d63cff2450bc80ec35cd7f40f45b862",
+  "parent_id": 6975,
+  "generation": 9,
   "symbol": "XAUUSD",
-  "timeframe": "M5",
-  "direction": "both",
+  "timeframe": "M15",
+  "direction": "short",
   "status": "BORN",
-  "creation_reason": "crossover of #243 x #298: crossover of features/filters/exit (5 indicators)",
-  "mutation_type": "crossover",
-  "species_key": "M5|both|momentum,prev_day,roc,sma,vwap",
+  "creation_reason": "mutation of #6975: replaced bb:20:2.5 with momentum:5",
+  "mutation_type": "indicator_replacement",
+  "species_key": "M15|short|momentum",
   "genome": {
     "symbol": "XAUUSD",
-    "timeframe": "M5",
-    "direction": "both",
+    "timeframe": "M15",
+    "direction": "short",
     "features": [
-      "vwap",
-      "sma:100",
-      "roc:12",
-      "prev_day",
       "momentum:5"
     ],
-    "entry_long": {
-      "type": "compare",
-      "left": "break_prev_day_high",
-      "cmp": ">",
-      "right": 0.5
-    },
+    "entry_long": null,
     "entry_short": {
       "type": "compare",
-      "left": "vwap_dist",
+      "left": "momentum:5",
       "cmp": "<",
-      "right": -0.359
+      "right": -1.07
     },
     "exit": {
-      "atr_spec": "atr:7",
-      "sl_atr_mult": 2.34,
-      "tp_atr_mult": 1.74,
+      "atr_spec": "atr:21",
+      "sl_atr_mult": 2.42,
+      "tp_atr_mult": 3.52,
       "trailing": null,
-      "min_hold_bars": 0,
-      "max_hold_bars": 24,
+      "min_hold_bars": 5,
+      "max_hold_bars": 12,
       "exit_condition": null
     },
     "sessions": null,
     "days": null,
-    "regime_filters": [
-      "trending"
-    ],
+    "regime_filters": null,
     "risk": {
       "risk_per_trade": 0.005,
       "max_concurrent": 1
     }
   },
-  "complexity": 7,
-  "origin": "crossover",
+  "complexity": 2,
+  "origin": "mutation",
   "hypothesis_id": null,
-  "seed": 364736644,
+  "seed": 878556216,
   "mutation_params": null,
   "config_version": "73f86ee16ce4b5fd",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 10380
 }

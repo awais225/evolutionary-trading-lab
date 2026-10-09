@@ -1,37 +1,42 @@
 {
-  "hash": "df715aa8a26ec627ad89f7b906bba6f9",
-  "parent_id": 234,
-  "generation": 3,
+  "hash": "8f35f05728d48e9f7ff33c1e3ceb3868",
+  "parent_id": null,
+  "generation": 14,
   "symbol": "XAUUSD",
-  "timeframe": "M5",
-  "direction": "short",
+  "timeframe": "M15",
+  "direction": "both",
   "status": "BORN",
-  "creation_reason": "mutation of #234: replaced roc:24 with momentum:20",
-  "mutation_type": "indicator_replacement",
-  "species_key": "M5|short|bb,momentum,vwap",
+  "creation_reason": "Gen 14 candidate exploration (filling shortfall)",
+  "mutation_type": "random_exploration",
+  "species_key": "M15|both|bb,cci,macd",
   "genome": {
     "symbol": "XAUUSD",
-    "timeframe": "M5",
-    "direction": "short",
+    "timeframe": "M15",
+    "direction": "both",
     "features": [
-      "vwap",
-      "momentum:20",
-      "bb:20:2.0"
+      "bb:50:2.0",
+      "macd:12:26:9",
+      "cci:20"
     ],
-    "entry_long": null,
+    "entry_long": {
+      "type": "compare",
+      "left": "cci:20",
+      "cmp": ">",
+      "right": 50
+    },
     "entry_short": {
       "type": "compare",
-      "left": "vwap_dist",
+      "left": "bb_pctb:50:2.0",
       "cmp": "<",
-      "right": -0.368
+      "right": 0.05
     },
     "exit": {
-      "atr_spec": "atr:7",
-      "sl_atr_mult": 2.94,
-      "tp_atr_mult": 3.42,
+      "atr_spec": "atr:14",
+      "sl_atr_mult": 0.96,
+      "tp_atr_mult": 2.64,
       "trailing": null,
-      "min_hold_bars": 2,
-      "max_hold_bars": 24,
+      "min_hold_bars": 0,
+      "max_hold_bars": 144,
       "exit_condition": null
     },
     "sessions": null,
@@ -43,13 +48,13 @@
     }
   },
   "complexity": 4,
-  "origin": "mutation",
+  "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 474241402,
+  "seed": 1038402853,
   "mutation_params": null,
   "config_version": "73f86ee16ce4b5fd",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 6794
 }

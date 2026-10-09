@@ -1,64 +1,44 @@
 {
-  "hash": "bebbbcc21c52d3282aa142dde5ab749e",
-  "parent_id": 186,
-  "generation": 2,
+  "hash": "c45b6e69f051e6e38f5984204bb22d11",
+  "parent_id": null,
+  "generation": 16,
   "symbol": "XAUUSD",
-  "timeframe": "M1",
+  "timeframe": "M15",
   "direction": "both",
   "status": "BORN",
-  "creation_reason": "mutation of #186: replaced bb:20:2.0 with momentum:20",
-  "mutation_type": "indicator_replacement",
-  "species_key": "M1|both|momentum,roc,vwap",
+  "creation_reason": "Gen 16 candidate exploration (filling shortfall)",
+  "mutation_type": "random_exploration",
+  "species_key": "M15|both|cci,regime",
   "genome": {
     "symbol": "XAUUSD",
-    "timeframe": "M1",
+    "timeframe": "M15",
     "direction": "both",
     "features": [
-      "momentum:20",
-      "roc:24",
-      "vwap"
+      "regime",
+      "cci:20"
     ],
     "entry_long": {
-      "op": "and",
-      "clauses": [
-        {
-          "type": "compare",
-          "left": "roc:24",
-          "cmp": "<",
-          "right": 0.247
-        },
-        {
-          "type": "compare",
-          "left": "momentum:20",
-          "cmp": "<",
-          "right": 0.22
-        }
-      ]
+      "type": "compare",
+      "left": "cci:20",
+      "cmp": "<",
+      "right": -100
     },
     "entry_short": {
-      "op": "and",
-      "clauses": [
-        {
-          "type": "compare",
-          "left": "vwap_dist",
-          "cmp": "<",
-          "right": -0.368
-        },
-        {
-          "type": "compare",
-          "left": "momentum:20",
-          "cmp": "<",
-          "right": 0.22
-        }
-      ]
+      "type": "compare",
+      "left": "regime:compression",
+      "cmp": ">",
+      "right": 0.5
     },
     "exit": {
-      "atr_spec": "atr:14",
-      "sl_atr_mult": 2.94,
-      "tp_atr_mult": 3.42,
-      "trailing": null,
+      "atr_spec": "atr:10",
+      "sl_atr_mult": 2.01,
+      "tp_atr_mult": 0.93,
+      "trailing": {
+        "atr_mult": 2.21,
+        "activation_mult": 0.51
+      },
       "min_hold_bars": 1,
-      "max_hold_bars": 24,
+      "max_hold_bars": 96,
       "exit_condition": null
     },
     "sessions": null,
@@ -69,14 +49,14 @@
       "max_concurrent": 1
     }
   },
-  "complexity": 5,
-  "origin": "mutation",
+  "complexity": 4,
+  "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 645750921,
+  "seed": 1358765554,
   "mutation_params": null,
   "config_version": "73f86ee16ce4b5fd",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 7809
 }

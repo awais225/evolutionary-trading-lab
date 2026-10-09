@@ -1,40 +1,38 @@
 {
-  "hash": "942ee3f9191c6424857f0126ff0c7570",
-  "parent_id": 228,
-  "generation": 3,
+  "hash": "455cc982080ca0a74259cf2c817e5221",
+  "parent_id": null,
+  "generation": 22,
   "symbol": "XAUUSD",
   "timeframe": "M15",
-  "direction": "short",
+  "direction": "long",
   "status": "BORN",
-  "creation_reason": "crossover of #228 x #162: crossover of features/filters/exit (6 indicators)",
-  "mutation_type": "crossover",
-  "species_key": "M15|short|bb,prev_day,roc,sma,vwap",
+  "creation_reason": "Gen 22 candidate exploration (filling shortfall)",
+  "mutation_type": "random_exploration",
+  "species_key": "M15|long|stoch",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
-    "direction": "short",
+    "direction": "long",
     "features": [
-      "vwap",
-      "roc:24",
-      "bb:20:2.0",
-      "roc:12",
-      "sma:100",
-      "prev_day"
+      "stoch:9:3"
     ],
-    "entry_long": null,
-    "entry_short": {
+    "entry_long": {
       "type": "compare",
-      "left": "vwap_dist",
-      "cmp": "<",
-      "right": -0.368
+      "left": "stoch_k:9:3",
+      "cmp": ">",
+      "right": 50
     },
+    "entry_short": null,
     "exit": {
       "atr_spec": "atr:7",
-      "sl_atr_mult": 2.34,
-      "tp_atr_mult": 1.74,
-      "trailing": null,
+      "sl_atr_mult": 1.01,
+      "tp_atr_mult": 1.85,
+      "trailing": {
+        "atr_mult": 2.39,
+        "activation_mult": 0.94
+      },
       "min_hold_bars": 1,
-      "max_hold_bars": 24,
+      "max_hold_bars": 48,
       "exit_condition": null
     },
     "sessions": null,
@@ -45,14 +43,14 @@
       "max_concurrent": 1
     }
   },
-  "complexity": 7,
-  "origin": "crossover",
+  "complexity": 3,
+  "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 1970246196,
+  "seed": 1005916245,
   "mutation_params": null,
   "config_version": "73f86ee16ce4b5fd",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 10696
 }

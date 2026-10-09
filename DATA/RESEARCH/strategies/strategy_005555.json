@@ -1,53 +1,62 @@
 {
-  "hash": "710b06443a69686af4fe650b7e534c75",
-  "parent_id": 237,
-  "generation": 3,
+  "hash": "2fb596a5c4e0b55f7387ce0cd571fcdb",
+  "parent_id": null,
+  "generation": 10,
   "symbol": "XAUUSD",
-  "timeframe": "M5",
-  "direction": "short",
+  "timeframe": "M15",
+  "direction": "both",
   "status": "BORN",
-  "creation_reason": "mutation of #237: replaced vwap with sma:20",
-  "mutation_type": "indicator_replacement",
-  "species_key": "M5|short|sma",
+  "creation_reason": "Gen 10 random exploration birth",
+  "mutation_type": "random_exploration",
+  "species_key": "M15|both|momentum,roc,vwap",
   "genome": {
     "symbol": "XAUUSD",
-    "timeframe": "M5",
-    "direction": "short",
+    "timeframe": "M15",
+    "direction": "both",
     "features": [
-      "sma:20"
+      "vwap",
+      "momentum:5",
+      "roc:24"
     ],
-    "entry_long": null,
+    "entry_long": {
+      "type": "compare",
+      "left": "momentum:5",
+      "cmp": "<",
+      "right": 0.54
+    },
     "entry_short": {
       "type": "compare",
-      "left": "sma:20",
+      "left": "momentum:5",
       "cmp": ">",
-      "right": "close"
+      "right": -1.68
     },
     "exit": {
       "atr_spec": "atr:7",
-      "sl_atr_mult": 2.34,
-      "tp_atr_mult": 1.74,
+      "sl_atr_mult": 2.23,
+      "tp_atr_mult": 2.06,
       "trailing": null,
-      "min_hold_bars": 2,
-      "max_hold_bars": 24,
+      "min_hold_bars": 0,
+      "max_hold_bars": 96,
       "exit_condition": null
     },
     "sessions": null,
     "days": null,
-    "regime_filters": null,
+    "regime_filters": [
+      "compression"
+    ],
     "risk": {
       "risk_per_trade": 0.005,
       "max_concurrent": 1
     }
   },
-  "complexity": 2,
-  "origin": "mutation",
+  "complexity": 5,
+  "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 913989884,
+  "seed": 141148791,
   "mutation_params": null,
   "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 5555
 }

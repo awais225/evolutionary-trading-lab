@@ -1,35 +1,35 @@
 {
-  "hash": "f0e1c809cbc8adab965b60991043b3f6",
-  "parent_id": 226,
-  "generation": 3,
+  "hash": "eb16f3e6c41f47eeb3c118cef69540ef",
+  "parent_id": 3006,
+  "generation": 5,
   "symbol": "XAUUSD",
-  "timeframe": "M5",
+  "timeframe": "M15",
   "direction": "short",
   "status": "BORN",
-  "creation_reason": "mutation of #226: replaced vwap with roc:12",
-  "mutation_type": "indicator_replacement",
-  "species_key": "M5|short|roc",
+  "creation_reason": "mutation of #3006: SL -> 2.93xATR",
+  "mutation_type": "sl_mutation",
+  "species_key": "M15|short|bb",
   "genome": {
     "symbol": "XAUUSD",
-    "timeframe": "M5",
+    "timeframe": "M15",
     "direction": "short",
     "features": [
-      "roc:12"
+      "bb:20:2.5"
     ],
     "entry_long": null,
     "entry_short": {
       "type": "compare",
-      "left": "roc:12",
+      "left": "bb_pctb:20:2.5",
       "cmp": ">",
-      "right": 0.471
+      "right": 0.85
     },
     "exit": {
-      "atr_spec": "atr:7",
-      "sl_atr_mult": 2.34,
-      "tp_atr_mult": 2.14,
+      "atr_spec": "atr:21",
+      "sl_atr_mult": 2.93,
+      "tp_atr_mult": 3.49,
       "trailing": null,
       "min_hold_bars": 2,
-      "max_hold_bars": 24,
+      "max_hold_bars": 12,
       "exit_condition": null
     },
     "sessions": null,
@@ -43,11 +43,11 @@
   "complexity": 2,
   "origin": "mutation",
   "hypothesis_id": null,
-  "seed": 1265054888,
+  "seed": 1242390651,
   "mutation_params": null,
   "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 3519
 }

@@ -1,35 +1,35 @@
 {
-  "hash": "0d1cad034cabf916d6aecd89a5b660de",
-  "parent_id": 287,
-  "generation": 4,
+  "hash": "01fa33e966472c47f71deac6adc44654",
+  "parent_id": 1967,
+  "generation": 3,
   "symbol": "XAUUSD",
-  "timeframe": "M5",
+  "timeframe": "M15",
   "direction": "short",
   "status": "BORN",
-  "creation_reason": "mutation of #287: replaced vwap with stoch:14:3",
-  "mutation_type": "indicator_replacement",
-  "species_key": "M5|short|stoch",
+  "creation_reason": "mutation of #1967: threshold jitter (1 values)",
+  "mutation_type": "param_mutation",
+  "species_key": "M15|short|bb",
   "genome": {
     "symbol": "XAUUSD",
-    "timeframe": "M5",
+    "timeframe": "M15",
     "direction": "short",
     "features": [
-      "stoch:14:3"
+      "bb:20:2.5"
     ],
     "entry_long": null,
     "entry_short": {
-      "type": "crossover",
-      "a": "stoch_k:14:3",
-      "b": "stoch_d:14:3",
-      "dir": "up"
+      "type": "compare",
+      "left": "bb_pctb:20:2.5",
+      "cmp": "<=",
+      "right": 0.85
     },
     "exit": {
-      "atr_spec": "atr:7",
-      "sl_atr_mult": 2.34,
-      "tp_atr_mult": 2.14,
+      "atr_spec": "atr:21",
+      "sl_atr_mult": 2.62,
+      "tp_atr_mult": 3.12,
       "trailing": null,
-      "min_hold_bars": 1,
-      "max_hold_bars": 24,
+      "min_hold_bars": 2,
+      "max_hold_bars": 12,
       "exit_condition": null
     },
     "sessions": null,
@@ -43,11 +43,11 @@
   "complexity": 2,
   "origin": "mutation",
   "hypothesis_id": null,
-  "seed": 1131701230,
+  "seed": 6946917,
   "mutation_params": null,
   "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 2507
 }

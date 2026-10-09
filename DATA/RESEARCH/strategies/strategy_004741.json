@@ -1,33 +1,48 @@
 {
-  "hash": "30e532eafcf16745a41f0057d90e3178",
-  "parent_id": 123,
-  "generation": 2,
+  "hash": "623254e25dd6ee3adbcbc70d9a5697a5",
+  "parent_id": null,
+  "generation": 8,
   "symbol": "XAUUSD",
-  "timeframe": "M5",
-  "direction": "short",
+  "timeframe": "M15",
+  "direction": "long",
   "status": "BORN",
-  "creation_reason": "mutation of #123: threshold jitter (1 values)",
-  "mutation_type": "param_mutation",
-  "species_key": "M5|short|vwap",
+  "creation_reason": "Gen 8 candidate exploration (filling shortfall)",
+  "mutation_type": "random_exploration",
+  "species_key": "M15|long|bb,roc",
   "genome": {
     "symbol": "XAUUSD",
-    "timeframe": "M5",
-    "direction": "short",
+    "timeframe": "M15",
+    "direction": "long",
     "features": [
-      "vwap"
+      "roc:6",
+      "bb:50:2.0"
     ],
-    "entry_long": null,
-    "entry_short": {
-      "type": "compare",
-      "left": "vwap_dist",
-      "cmp": "<",
-      "right": -0.406
+    "entry_long": {
+      "op": "and",
+      "clauses": [
+        {
+          "type": "compare",
+          "left": "bb_pctb:50:2.0",
+          "cmp": "<",
+          "right": 0.95
+        },
+        {
+          "type": "compare",
+          "left": "roc:6",
+          "cmp": ">",
+          "right": -0.088
+        }
+      ]
     },
+    "entry_short": null,
     "exit": {
-      "atr_spec": "atr:7",
-      "sl_atr_mult": 2.34,
-      "tp_atr_mult": 1.74,
-      "trailing": null,
+      "atr_spec": "atr:14",
+      "sl_atr_mult": 2.48,
+      "tp_atr_mult": 1.32,
+      "trailing": {
+        "atr_mult": 2.86,
+        "activation_mult": 0.86
+      },
       "min_hold_bars": 2,
       "max_hold_bars": 24,
       "exit_condition": null
@@ -40,14 +55,14 @@
       "max_concurrent": 1
     }
   },
-  "complexity": 2,
-  "origin": "mutation",
+  "complexity": 5,
+  "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 1129066542,
+  "seed": 700751499,
   "mutation_params": null,
   "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 4741
 }

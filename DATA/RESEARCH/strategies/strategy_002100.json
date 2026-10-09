@@ -1,36 +1,36 @@
 {
-  "hash": "1bdbaa4582253a5ccf70bf992768b49c",
-  "parent_id": 162,
+  "hash": "39f27a1b9449e238f5bcdd1af814c01c",
+  "parent_id": 1528,
   "generation": 2,
   "symbol": "XAUUSD",
   "timeframe": "M15",
-  "direction": "long",
+  "direction": "short",
   "status": "BORN",
-  "creation_reason": "mutation of #162: removed indicator roc:12 (simplification)",
-  "mutation_type": "indicator_removal",
-  "species_key": "M15|long|prev_day,sma",
+  "creation_reason": "mutation of #1528: threshold jitter (1 values)",
+  "mutation_type": "param_mutation",
+  "species_key": "M15|short|bb,stoch",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
-    "direction": "long",
+    "direction": "short",
     "features": [
-      "sma:100",
-      "prev_day"
+      "bb:20:2.5",
+      "stoch:9:3"
     ],
-    "entry_long": {
+    "entry_long": null,
+    "entry_short": {
       "type": "compare",
-      "left": "break_prev_day_high",
+      "left": "bb_pctb:20:2.5",
       "cmp": ">",
-      "right": 0.5
+      "right": 0.836
     },
-    "entry_short": null,
     "exit": {
-      "atr_spec": "atr:10",
-      "sl_atr_mult": 2.88,
-      "tp_atr_mult": 1.97,
+      "atr_spec": "atr:21",
+      "sl_atr_mult": 2.62,
+      "tp_atr_mult": 3.12,
       "trailing": null,
-      "min_hold_bars": 0,
-      "max_hold_bars": 144,
+      "min_hold_bars": 2,
+      "max_hold_bars": 12,
       "exit_condition": null
     },
     "sessions": null,
@@ -44,11 +44,11 @@
   "complexity": 3,
   "origin": "mutation",
   "hypothesis_id": null,
-  "seed": 1420289235,
+  "seed": 336643846,
   "mutation_params": null,
   "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 2100
 }

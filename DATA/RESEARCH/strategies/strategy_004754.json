@@ -1,50 +1,40 @@
 {
-  "hash": "834f57df9d9b0cb90a35852202f752ba",
-  "parent_id": 287,
-  "generation": 4,
+  "hash": "a30eca88ac5e364e79d74f6fd98e96ff",
+  "parent_id": null,
+  "generation": 8,
   "symbol": "XAUUSD",
-  "timeframe": "M5",
-  "direction": "short",
+  "timeframe": "M15",
+  "direction": "long",
   "status": "BORN",
-  "creation_reason": "mutation of #287: added indicator regime",
-  "mutation_type": "indicator_addition",
-  "species_key": "M5|short|regime,vwap",
+  "creation_reason": "Gen 8 candidate exploration (filling shortfall)",
+  "mutation_type": "random_exploration",
+  "species_key": "M15|long|roc",
   "genome": {
     "symbol": "XAUUSD",
-    "timeframe": "M5",
-    "direction": "short",
+    "timeframe": "M15",
+    "direction": "long",
     "features": [
-      "vwap",
-      "regime"
+      "roc:12"
     ],
-    "entry_long": null,
-    "entry_short": {
-      "op": "and",
-      "clauses": [
-        {
-          "type": "compare",
-          "left": "vwap_dist",
-          "cmp": "<",
-          "right": -0.368
-        },
-        {
-          "type": "compare",
-          "left": "regime:trending",
-          "cmp": ">",
-          "right": 0.5
-        }
-      ]
+    "entry_long": {
+      "type": "compare",
+      "left": "roc:12",
+      "cmp": ">",
+      "right": 0.339
     },
+    "entry_short": null,
     "exit": {
-      "atr_spec": "atr:7",
+      "atr_spec": "atr:14",
       "sl_atr_mult": 2.34,
-      "tp_atr_mult": 2.14,
+      "tp_atr_mult": 0.81,
       "trailing": null,
-      "min_hold_bars": 1,
+      "min_hold_bars": 2,
       "max_hold_bars": 24,
       "exit_condition": null
     },
-    "sessions": null,
+    "sessions": [
+      "newyork"
+    ],
     "days": null,
     "regime_filters": null,
     "risk": {
@@ -52,14 +42,14 @@
       "max_concurrent": 1
     }
   },
-  "complexity": 4,
-  "origin": "mutation",
+  "complexity": 3,
+  "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 888720060,
+  "seed": 1484406676,
   "mutation_params": null,
   "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 4754
 }

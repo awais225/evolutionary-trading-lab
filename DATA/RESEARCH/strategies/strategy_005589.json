@@ -1,38 +1,48 @@
 {
-  "hash": "2abefbb0e134350b12a24048a9f0777a",
-  "parent_id": 186,
-  "generation": 2,
+  "hash": "ca98ce559bf77d5c61dccf2cdf2119f8",
+  "parent_id": null,
+  "generation": 10,
   "symbol": "XAUUSD",
-  "timeframe": "M1",
+  "timeframe": "M15",
   "direction": "both",
   "status": "BORN",
-  "creation_reason": "mutation of #186: added indicator macd:8:21:5",
-  "mutation_type": "indicator_addition",
-  "species_key": "M1|both|bb,macd,roc,vwap",
+  "creation_reason": "Gen 10 random exploration birth",
+  "mutation_type": "random_exploration",
+  "species_key": "M15|both|bb,regime,rsi",
   "genome": {
     "symbol": "XAUUSD",
-    "timeframe": "M1",
+    "timeframe": "M15",
     "direction": "both",
     "features": [
-      "bb:20:2.0",
-      "roc:24",
-      "vwap",
-      "macd:8:21:5"
+      "rsi:14",
+      "bb:50:2.0",
+      "regime"
     ],
     "entry_long": {
-      "op": "and",
+      "op": "or",
       "clauses": [
         {
           "type": "compare",
-          "left": "bb_pctb:20:2.0",
+          "left": "rsi:14",
           "cmp": ">",
-          "right": 0.95
+          "right": 60
         },
         {
-          "type": "compare",
-          "left": "roc:24",
-          "cmp": "<",
-          "right": 0.247
+          "op": "and",
+          "clauses": [
+            {
+              "type": "compare",
+              "left": "regime:ranging",
+              "cmp": ">",
+              "right": 0.5
+            },
+            {
+              "type": "compare",
+              "left": "rsi:14",
+              "cmp": ">",
+              "right": 65
+            }
+          ]
         }
       ]
     },
@@ -41,25 +51,34 @@
       "clauses": [
         {
           "type": "compare",
-          "left": "vwap_dist",
-          "cmp": "<",
-          "right": -0.368
+          "left": "rsi:14",
+          "cmp": ">",
+          "right": 65
         },
         {
           "type": "compare",
-          "left": "macd_hist:8:21:5",
-          "cmp": "<",
-          "right": 0.0
+          "left": "bb_pctb:50:2.0",
+          "cmp": ">",
+          "right": 0.5
+        },
+        {
+          "type": "compare",
+          "left": "regime:compression",
+          "cmp": ">",
+          "right": 0.5
         }
       ]
     },
     "exit": {
-      "atr_spec": "atr:14",
-      "sl_atr_mult": 2.94,
-      "tp_atr_mult": 3.42,
-      "trailing": null,
-      "min_hold_bars": 1,
-      "max_hold_bars": 24,
+      "atr_spec": "atr:10",
+      "sl_atr_mult": 2.2,
+      "tp_atr_mult": 0.92,
+      "trailing": {
+        "atr_mult": 1.48,
+        "activation_mult": 1.92
+      },
+      "min_hold_bars": 3,
+      "max_hold_bars": 12,
       "exit_condition": null
     },
     "sessions": null,
@@ -71,13 +90,13 @@
     }
   },
   "complexity": 6,
-  "origin": "mutation",
+  "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 32383437,
+  "seed": 1273837391,
   "mutation_params": null,
   "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 5589
 }

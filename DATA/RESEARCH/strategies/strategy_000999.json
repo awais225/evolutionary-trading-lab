@@ -1,52 +1,49 @@
 {
-  "hash": "743e04384eca307d6788bbff6c1c02f7",
+  "hash": "724769b75b6f61c4e5487256eafa22e7",
   "parent_id": null,
   "generation": 0,
   "symbol": "XAUUSD",
   "timeframe": "M15",
-  "direction": "both",
+  "direction": "long",
   "status": "BORN",
   "creation_reason": "generation-0 random seed",
   "mutation_type": "random_exploration",
-  "species_key": "M15|both|adx,volatility",
+  "species_key": "M15|long|atr",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
-    "direction": "both",
+    "direction": "long",
     "features": [
-      "adx:10",
-      "volatility:50"
+      "atr:7"
     ],
     "entry_long": {
       "type": "compare",
-      "left": "adx:10",
+      "left": "atr_pct:7",
       "cmp": ">",
-      "right": 25
+      "right": 0.082
     },
-    "entry_short": {
-      "type": "compare",
-      "left": "adx:10",
-      "cmp": ">",
-      "right": 20
-    },
+    "entry_short": null,
     "exit": {
-      "atr_spec": "atr:10",
-      "sl_atr_mult": 2.87,
-      "tp_atr_mult": 2.42,
-      "trailing": null,
-      "min_hold_bars": 2,
-      "max_hold_bars": 24,
+      "atr_spec": "atr:7",
+      "sl_atr_mult": 2.64,
+      "tp_atr_mult": 3.83,
+      "trailing": {
+        "atr_mult": 1.61,
+        "activation_mult": 1.05
+      },
+      "min_hold_bars": 0,
+      "max_hold_bars": 96,
       "exit_condition": null
     },
-    "sessions": [
-      "newyork"
-    ],
+    "sessions": null,
     "days": [
+      0,
       2,
-      3,
       4
     ],
-    "regime_filters": null,
+    "regime_filters": [
+      "compression"
+    ],
     "risk": {
       "risk_per_trade": 0.005,
       "max_concurrent": 1
@@ -55,11 +52,11 @@
   "complexity": 5,
   "origin": "seed",
   "hypothesis_id": null,
-  "seed": 605138669,
+  "seed": 347033790,
   "mutation_params": null,
-  "config_version": "8881aded8886ae26",
+  "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 999
 }

@@ -1,47 +1,36 @@
 {
-  "hash": "f3d9d6c7684d9a6dc5d2d0b15c60b5df",
-  "parent_id": 226,
-  "generation": 3,
+  "hash": "9adfc1c18bc96a18fe8ad747be7591bb",
+  "parent_id": 1528,
+  "generation": 2,
   "symbol": "XAUUSD",
-  "timeframe": "M5",
+  "timeframe": "M15",
   "direction": "short",
   "status": "BORN",
-  "creation_reason": "mutation of #226: added indicator atr:7",
-  "mutation_type": "indicator_addition",
-  "species_key": "M5|short|atr,vwap",
+  "creation_reason": "mutation of #1528: replaced bb:20:2.5 with roc:6",
+  "mutation_type": "indicator_replacement",
+  "species_key": "M15|short|roc,stoch",
   "genome": {
     "symbol": "XAUUSD",
-    "timeframe": "M5",
+    "timeframe": "M15",
     "direction": "short",
     "features": [
-      "vwap",
-      "atr:7"
+      "roc:6",
+      "stoch:9:3"
     ],
     "entry_long": null,
     "entry_short": {
-      "op": "and",
-      "clauses": [
-        {
-          "type": "compare",
-          "left": "vwap_dist",
-          "cmp": "<",
-          "right": -0.368
-        },
-        {
-          "type": "compare",
-          "left": "atr_pct:7",
-          "cmp": ">",
-          "right": 0.09
-        }
-      ]
+      "type": "compare",
+      "left": "roc:6",
+      "cmp": "<",
+      "right": 0.483
     },
     "exit": {
-      "atr_spec": "atr:7",
-      "sl_atr_mult": 2.34,
-      "tp_atr_mult": 2.14,
+      "atr_spec": "atr:21",
+      "sl_atr_mult": 2.62,
+      "tp_atr_mult": 3.12,
       "trailing": null,
       "min_hold_bars": 2,
-      "max_hold_bars": 24,
+      "max_hold_bars": 12,
       "exit_condition": null
     },
     "sessions": null,
@@ -52,14 +41,14 @@
       "max_concurrent": 1
     }
   },
-  "complexity": 4,
+  "complexity": 3,
   "origin": "mutation",
   "hypothesis_id": null,
-  "seed": 289038971,
+  "seed": 635233566,
   "mutation_params": null,
   "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 2140
 }

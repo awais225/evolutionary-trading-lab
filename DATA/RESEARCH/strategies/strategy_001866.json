@@ -1,64 +1,40 @@
 {
-  "hash": "aaf5ba32ab4150b070accfcb9975a86f",
+  "hash": "23f787e52276b4e46dc2d551eb4541d4",
   "parent_id": null,
-  "generation": 11,
+  "generation": 2,
   "symbol": "XAUUSD",
   "timeframe": "M15",
   "direction": "both",
   "status": "BORN",
-  "creation_reason": "Gen 11 random exploration birth",
+  "creation_reason": "Gen 2 random exploration birth",
   "mutation_type": "random_exploration",
-  "species_key": "M15|both|atr,bb,prev_day",
+  "species_key": "M15|both|volume",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
     "direction": "both",
     "features": [
-      "prev_day",
-      "bb:20:2.0",
-      "atr:10"
+      "volume:50"
     ],
     "entry_long": {
-      "op": "and",
-      "clauses": [
-        {
-          "type": "compare",
-          "left": "atr_pct:10",
-          "cmp": ">",
-          "right": 0.073
-        },
-        {
-          "type": "compare",
-          "left": "bb_pctb:20:2.0",
-          "cmp": "<",
-          "right": 0.05
-        }
-      ]
+      "type": "compare",
+      "left": "relvol:50",
+      "cmp": ">",
+      "right": 1.89
     },
     "entry_short": {
-      "op": "and",
-      "clauses": [
-        {
-          "type": "compare",
-          "left": "atr_pct:10",
-          "cmp": "<",
-          "right": 0.12
-        },
-        {
-          "type": "compare",
-          "left": "atr_pct:10",
-          "cmp": ">",
-          "right": 0.222
-        }
-      ]
+      "type": "compare",
+      "left": "relvol:50",
+      "cmp": ">",
+      "right": 2.27
     },
     "exit": {
-      "atr_spec": "atr:10",
+      "atr_spec": "atr:14",
       "sl_atr_mult": 1.23,
-      "tp_atr_mult": 4.89,
+      "tp_atr_mult": 2.04,
       "trailing": null,
       "min_hold_bars": 2,
-      "max_hold_bars": 12,
+      "max_hold_bars": 96,
       "exit_condition": null
     },
     "sessions": null,
@@ -69,14 +45,14 @@
       "max_concurrent": 1
     }
   },
-  "complexity": 5,
+  "complexity": 2,
   "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 979137877,
+  "seed": 1096893391,
   "mutation_params": null,
   "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 1866
 }

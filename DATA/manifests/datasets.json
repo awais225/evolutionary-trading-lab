@@ -1,18 +1,23 @@
 {
   "datasets": {
     "XAUUSD_M15": {
-      "file_size_bytes": 96529,
+      "broker": "Raw Trading Ltd",
+      "dataset_id": "XAUUSD_M15_MT5_Raw Trading Ltd_ICMarketsSC-Demo_v2",
+      "end_time": "2026-10-09T05:15:00+00:00",
+      "file_size_bytes": 115060,
       "first_ts": 1788742800.0,
-      "last_ts": 1791179100.0,
-      "last_updated": 1791281886.0457113,
+      "last_ts": 1791522900.0,
+      "last_updated": 1791523040.983677,
       "normalized_path": "MT5/normalized/XAUUSD_M15.parquet",
       "raw_path": "MT5/XAUUSD/M15.parquet",
-      "rows": 1850,
+      "rows": 2216,
+      "server": "ICMarketsSC-Demo",
       "source": "MT5",
+      "start_time": "2026-09-07T01:00:00+00:00",
       "symbol": "XAUUSD",
       "timeframe": "M15"
     }
   },
-  "updated_at": 1791281912.1471975,
+  "updated_at": 1791525315.3518343,
   "version": 1
 }

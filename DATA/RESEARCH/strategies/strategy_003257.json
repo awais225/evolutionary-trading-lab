@@ -1,50 +1,81 @@
 {
-  "hash": "bc31e1c6c62738a228285f9334a5e269",
-  "parent_id": 298,
-  "generation": 4,
+  "hash": "a17caa84516d5b805a265d71b3166244",
+  "parent_id": null,
+  "generation": 5,
   "symbol": "XAUUSD",
-  "timeframe": "M30",
+  "timeframe": "M15",
   "direction": "both",
   "status": "BORN",
-  "creation_reason": "crossover of #298 x #226: crossover of features/filters/exit (3 indicators)",
-  "mutation_type": "crossover",
-  "species_key": "M30|both|momentum,prev_day,vwap",
+  "creation_reason": "Gen 5 candidate exploration (filling shortfall)",
+  "mutation_type": "random_exploration",
+  "species_key": "M15|both|prev_day,regime,stoch",
   "genome": {
     "symbol": "XAUUSD",
-    "timeframe": "M30",
+    "timeframe": "M15",
     "direction": "both",
     "features": [
-      "prev_day",
-      "momentum:5",
-      "vwap"
+      "stoch:9:3",
+      "regime",
+      "prev_day"
     ],
     "entry_long": {
-      "type": "compare",
-      "left": "break_prev_day_high",
-      "cmp": ">",
-      "right": 0.5
+      "op": "or",
+      "clauses": [
+        {
+          "type": "compare",
+          "left": "break_prev_day_high",
+          "cmp": ">",
+          "right": 0.5
+        },
+        {
+          "op": "and",
+          "clauses": [
+            {
+              "type": "compare",
+              "left": "regime:high_volatility",
+              "cmp": ">",
+              "right": 0.5
+            },
+            {
+              "type": "compare",
+              "left": "stoch_k:9:3",
+              "cmp": "<",
+              "right": 20
+            }
+          ]
+        }
+      ]
     },
     "entry_short": {
-      "type": "compare",
-      "left": "vwap_dist",
-      "cmp": "<",
-      "right": -0.368
+      "op": "and",
+      "clauses": [
+        {
+          "type": "compare",
+          "left": "regime:high_volatility",
+          "cmp": ">",
+          "right": 0.5
+        },
+        {
+          "type": "compare",
+          "left": "break_prev_day_high",
+          "cmp": ">",
+          "right": 0.5
+        }
+      ]
     },
     "exit": {
-      "atr_spec": "atr:7",
-      "sl_atr_mult": 2.34,
-      "tp_atr_mult": 4.65,
+      "atr_spec": "atr:21",
+      "sl_atr_mult": 1.9,
+      "tp_atr_mult": 4.06,
       "trailing": null,
-      "min_hold_bars": 2,
-      "max_hold_bars": 24,
+      "min_hold_bars": 1,
+      "max_hold_bars": 144,
       "exit_condition": null
     },
-    "sessions": [
-      "newyork"
-    ],
+    "sessions": null,
     "days": null,
     "regime_filters": [
-      "trending"
+      "expansion"
     ],
     "risk": {
       "risk_per_trade": 0.005,
@@ -52,13 +83,13 @@
     }
   },
   "complexity": 6,
-  "origin": "crossover",
+  "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 1062684022,
+  "seed": 717678349,
   "mutation_params": null,
   "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 3257
 }

@@ -1,51 +1,50 @@
 {
-  "hash": "ea6a309af3057da3a122da557daad2c3",
+  "hash": "fdf1dbddaa8ee464258ab18b8644aa7c",
   "parent_id": null,
-  "generation": 16,
+  "generation": 6,
   "symbol": "XAUUSD",
   "timeframe": "M15",
-  "direction": "short",
+  "direction": "both",
   "status": "BORN",
-  "creation_reason": "Gen 16 random exploration birth",
+  "creation_reason": "Gen 6 candidate exploration (filling shortfall)",
   "mutation_type": "random_exploration",
-  "species_key": "M15|short|bb,regime,sma",
+  "species_key": "M15|both|momentum,roc",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
-    "direction": "short",
+    "direction": "both",
     "features": [
-      "bb:20:2.5",
-      "sma:10",
-      "regime"
+      "roc:12",
+      "momentum:20"
     ],
-    "entry_long": null,
+    "entry_long": {
+      "type": "compare",
+      "left": "momentum:20",
+      "cmp": ">",
+      "right": 0.44
+    },
     "entry_short": {
-      "op": "and",
-      "clauses": [
-        {
-          "type": "compare",
-          "left": "sma:10",
-          "cmp": ">",
-          "right": "close"
-        },
-        {
-          "type": "compare",
-          "left": "regime:momentum",
-          "cmp": ">",
-          "right": 0.5
-        }
-      ]
+      "type": "compare",
+      "left": "momentum:20",
+      "cmp": "<",
+      "right": 1.62
     },
     "exit": {
       "atr_spec": "atr:21",
-      "sl_atr_mult": 2.98,
-      "tp_atr_mult": 3.33,
-      "trailing": null,
+      "sl_atr_mult": 2.38,
+      "tp_atr_mult": 4.64,
+      "trailing": {
+        "atr_mult": 2.73,
+        "activation_mult": 0.96
+      },
       "min_hold_bars": 3,
-      "max_hold_bars": 24,
+      "max_hold_bars": 144,
       "exit_condition": null
     },
-    "sessions": null,
+    "sessions": [
+      "asia",
+      "london"
+    ],
     "days": null,
     "regime_filters": null,
     "risk": {
@@ -56,11 +55,11 @@
   "complexity": 5,
   "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 695908,
+  "seed": 603967679,
   "mutation_params": null,
   "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 3777
 }

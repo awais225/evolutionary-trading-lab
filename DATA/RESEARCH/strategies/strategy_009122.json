@@ -1,61 +1,62 @@
 {
-  "hash": "ae102cf1abebc9a9897ee5a83b82db1f",
+  "hash": "ffbf0441391eeeaf68e6159b6d8a8aba",
   "parent_id": null,
-  "generation": 33,
+  "generation": 19,
   "symbol": "XAUUSD",
   "timeframe": "M15",
-  "direction": "both",
+  "direction": "long",
   "status": "BORN",
-  "creation_reason": "Gen 33 random exploration birth",
+  "creation_reason": "Gen 19 random exploration birth",
   "mutation_type": "random_exploration",
-  "species_key": "M15|both|prev_day",
+  "species_key": "M15|long|atr,roc,rsi",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
-    "direction": "both",
+    "direction": "long",
     "features": [
-      "prev_day"
+      "rsi:7",
+      "atr:7",
+      "roc:6"
     ],
     "entry_long": {
       "type": "compare",
-      "left": "break_prev_day_low",
+      "left": "roc:6",
       "cmp": ">",
-      "right": 0.5
+      "right": 0.259
     },
-    "entry_short": {
-      "type": "compare",
-      "left": "break_prev_day_low",
-      "cmp": ">",
-      "right": 0.5
-    },
+    "entry_short": null,
     "exit": {
-      "atr_spec": "atr:10",
-      "sl_atr_mult": 2.84,
-      "tp_atr_mult": 3.06,
+      "atr_spec": "atr:7",
+      "sl_atr_mult": 1.42,
+      "tp_atr_mult": 3.7,
       "trailing": null,
-      "min_hold_bars": 0,
-      "max_hold_bars": 72,
+      "min_hold_bars": 2,
+      "max_hold_bars": 144,
       "exit_condition": null
     },
     "sessions": [
-      "london",
-      "asia"
+      "newyork"
     ],
-    "days": null,
+    "days": [
+      0,
+      1,
+      2,
+      3
+    ],
     "regime_filters": null,
     "risk": {
       "risk_per_trade": 0.005,
       "max_concurrent": 1
     }
   },
-  "complexity": 3,
+  "complexity": 6,
   "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 1002954824,
+  "seed": 737764053,
   "mutation_params": null,
   "config_version": "73f86ee16ce4b5fd",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 9122
 }

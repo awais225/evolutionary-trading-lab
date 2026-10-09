@@ -1,65 +1,73 @@
 {
-  "hash": "eb5ff4a040accfd0b20261972c2dccf4",
-  "parent_id": 270,
-  "generation": 5,
+  "hash": "cdcff216ed38e14acc453cf18057d7d9",
+  "parent_id": null,
+  "generation": 15,
   "symbol": "XAUUSD",
-  "timeframe": "M1",
-  "direction": "long",
+  "timeframe": "M15",
+  "direction": "both",
   "status": "BORN",
-  "creation_reason": "crossover of #270 x #237: crossover of features/filters/exit (4 indicators)",
-  "mutation_type": "crossover",
-  "species_key": "M1|long|adx,bb,roc,vwap",
+  "creation_reason": "Gen 15 candidate exploration (filling shortfall)",
+  "mutation_type": "random_exploration",
+  "species_key": "M15|both|cci,sma,volatility",
   "genome": {
     "symbol": "XAUUSD",
-    "timeframe": "M1",
-    "direction": "long",
+    "timeframe": "M15",
+    "direction": "both",
     "features": [
-      "bb:20:2.0",
-      "roc:24",
-      "adx:10",
-      "vwap"
+      "cci:20",
+      "volatility:50",
+      "sma:20"
     ],
     "entry_long": {
       "op": "and",
       "clauses": [
         {
           "type": "compare",
-          "left": "bb_pctb:20:2.0",
+          "left": "cci:20",
           "cmp": ">",
-          "right": 0.905
+          "right": -100
         },
         {
           "type": "compare",
-          "left": "roc:24",
+          "left": "cci:20",
           "cmp": "<",
-          "right": 0.247
-        },
-        {
-          "type": "compare",
-          "left": "adx:10",
-          "cmp": ">",
-          "right": 25.0
-        },
-        {
-          "type": "compare",
-          "left": "adx:10",
-          "cmp": ">",
-          "right": 25.0
+          "right": 100
         }
       ]
     },
-    "entry_short": null,
+    "entry_short": {
+      "op": "and",
+      "clauses": [
+        {
+          "type": "compare",
+          "left": "cci:20",
+          "cmp": "<",
+          "right": 200
+        },
+        {
+          "type": "compare",
+          "left": "range_expansion:50",
+          "cmp": "<",
+          "right": 1.11
+        }
+      ]
+    },
     "exit": {
       "atr_spec": "atr:14",
-      "sl_atr_mult": 2.94,
-      "tp_atr_mult": 3.42,
+      "sl_atr_mult": 1.71,
+      "tp_atr_mult": 4.28,
       "trailing": null,
-      "min_hold_bars": 1,
-      "max_hold_bars": 144,
+      "min_hold_bars": 2,
+      "max_hold_bars": 72,
       "exit_condition": null
     },
     "sessions": null,
-    "days": null,
+    "days": [
+      0,
+      1,
+      2,
+      3
+    ],
     "regime_filters": null,
     "risk": {
       "risk_per_trade": 0.005,
@@ -67,13 +75,13 @@
     }
   },
   "complexity": 6,
-  "origin": "crossover",
+  "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 1044321157,
+  "seed": 569043304,
   "mutation_params": null,
   "config_version": "73f86ee16ce4b5fd",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 7247
 }

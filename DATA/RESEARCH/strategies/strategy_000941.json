@@ -1,5 +1,5 @@
 {
-  "hash": "2b3c62357a24e1724a3596ea62eb068a",
+  "hash": "637df11d3f5f20334d6b5a3fb94b582a",
   "parent_id": null,
   "generation": 0,
   "symbol": "XAUUSD",
@@ -8,33 +8,33 @@
   "status": "BORN",
   "creation_reason": "generation-0 random seed",
   "mutation_type": "random_exploration",
-  "species_key": "M15|both|adx",
+  "species_key": "M15|both|ema",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
     "direction": "both",
     "features": [
-      "adx:14"
+      "ema:9"
     ],
     "entry_long": {
       "type": "compare",
-      "left": "adx:14",
-      "cmp": ">",
-      "right": 18
+      "left": "ema:9",
+      "cmp": "<",
+      "right": "close"
     },
     "entry_short": {
       "type": "compare",
-      "left": "adx:14",
+      "left": "ema:9",
       "cmp": ">",
-      "right": 35
+      "right": "close"
     },
     "exit": {
-      "atr_spec": "atr:14",
-      "sl_atr_mult": 2.42,
-      "tp_atr_mult": 3.56,
+      "atr_spec": "atr:10",
+      "sl_atr_mult": 2.06,
+      "tp_atr_mult": 2.74,
       "trailing": null,
       "min_hold_bars": 1,
-      "max_hold_bars": 24,
+      "max_hold_bars": 12,
       "exit_condition": null
     },
     "sessions": null,
@@ -48,11 +48,11 @@
   "complexity": 2,
   "origin": "seed",
   "hypothesis_id": null,
-  "seed": 292625519,
+  "seed": 349212478,
   "mutation_params": null,
-  "config_version": "8881aded8886ae26",
+  "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 941
 }

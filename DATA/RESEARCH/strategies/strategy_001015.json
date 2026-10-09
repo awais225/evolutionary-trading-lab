@@ -1,5 +1,5 @@
 {
-  "hash": "8c12d508c8903fd29cd93ec12c7d18ca",
+  "hash": "a4550417be0541eadc7298f1b00f38b8",
   "parent_id": null,
   "generation": 0,
   "symbol": "XAUUSD",
@@ -8,56 +8,54 @@
   "status": "BORN",
   "creation_reason": "generation-0 random seed",
   "mutation_type": "random_exploration",
-  "species_key": "M15|both|stoch",
+  "species_key": "M15|both|cci",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
     "direction": "both",
     "features": [
-      "stoch:9:3"
+      "cci:20"
     ],
     "entry_long": {
       "type": "compare",
-      "left": "stoch_k:9:3",
-      "cmp": ">",
-      "right": 25
+      "left": "cci:20",
+      "cmp": "<",
+      "right": 100
     },
     "entry_short": {
       "type": "compare",
-      "left": "stoch_k:9:3",
+      "left": "cci:20",
       "cmp": "<",
-      "right": 25
+      "right": 0
     },
     "exit": {
-      "atr_spec": "atr:21",
-      "sl_atr_mult": 0.93,
-      "tp_atr_mult": 0.92,
-      "trailing": {
-        "atr_mult": 2.69,
-        "activation_mult": 1.25
-      },
-      "min_hold_bars": 1,
-      "max_hold_bars": 12,
+      "atr_spec": "atr:7",
+      "sl_atr_mult": 2.86,
+      "tp_atr_mult": 4.49,
+      "trailing": null,
+      "min_hold_bars": 3,
+      "max_hold_bars": 24,
       "exit_condition": null
     },
-    "sessions": null,
-    "days": null,
-    "regime_filters": [
-      "momentum"
+    "sessions": [
+      "london",
+      "newyork"
     ],
+    "days": null,
+    "regime_filters": null,
     "risk": {
       "risk_per_trade": 0.005,
       "max_concurrent": 1
     }
   },
-  "complexity": 4,
+  "complexity": 3,
   "origin": "seed",
   "hypothesis_id": null,
-  "seed": 452387368,
+  "seed": 381734109,
   "mutation_params": null,
-  "config_version": "8881aded8886ae26",
+  "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 1015
 }

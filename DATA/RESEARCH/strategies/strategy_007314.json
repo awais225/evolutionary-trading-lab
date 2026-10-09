@@ -1,44 +1,42 @@
 {
-  "hash": "45b4740b46ad2ffad58d9cab49ada746",
+  "hash": "33ca0a300bc1ad5f8ec3d866480c1af6",
   "parent_id": null,
-  "generation": 27,
+  "generation": 15,
   "symbol": "XAUUSD",
   "timeframe": "M15",
-  "direction": "both",
+  "direction": "long",
   "status": "BORN",
-  "creation_reason": "Gen 27 candidate exploration (filling shortfall)",
+  "creation_reason": "Gen 15 candidate exploration (filling shortfall)",
   "mutation_type": "random_exploration",
-  "species_key": "M15|both|rsi,stoch",
+  "species_key": "M15|long|atr,bb,macd",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
-    "direction": "both",
+    "direction": "long",
     "features": [
-      "rsi:10",
-      "stoch:14:3"
+      "macd:12:26:9",
+      "bb:50:2.0",
+      "atr:14"
     ],
     "entry_long": {
       "type": "compare",
-      "left": "rsi:10",
-      "cmp": "<",
-      "right": 25
+      "left": "macd_hist:12:26:9",
+      "cmp": ">",
+      "right": 0.0
     },
-    "entry_short": {
-      "type": "crossover",
-      "a": "stoch_k:14:3",
-      "b": "stoch_d:14:3",
-      "dir": "down"
-    },
+    "entry_short": null,
     "exit": {
-      "atr_spec": "atr:10",
-      "sl_atr_mult": 0.76,
-      "tp_atr_mult": 3.9,
+      "atr_spec": "atr:14",
+      "sl_atr_mult": 1.19,
+      "tp_atr_mult": 3.97,
       "trailing": null,
-      "min_hold_bars": 2,
-      "max_hold_bars": 24,
+      "min_hold_bars": 3,
+      "max_hold_bars": 12,
       "exit_condition": null
     },
-    "sessions": null,
+    "sessions": [
+      "newyork"
+    ],
     "days": null,
     "regime_filters": null,
     "risk": {
@@ -46,14 +44,14 @@
       "max_concurrent": 1
     }
   },
-  "complexity": 3,
+  "complexity": 5,
   "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 125028058,
+  "seed": 492681348,
   "mutation_params": null,
   "config_version": "73f86ee16ce4b5fd",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 7314
 }

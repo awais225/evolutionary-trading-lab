@@ -1,39 +1,39 @@
 {
-  "hash": "b7bc7726ff092484218c26191fce3a88",
+  "hash": "0efaf65a37fd64aa32e5d2840b24244c",
   "parent_id": null,
-  "generation": 36,
+  "generation": 21,
   "symbol": "XAUUSD",
   "timeframe": "M15",
   "direction": "short",
   "status": "BORN",
-  "creation_reason": "Gen 36 candidate exploration (filling shortfall)",
+  "creation_reason": "Gen 21 candidate exploration (filling shortfall)",
   "mutation_type": "random_exploration",
-  "species_key": "M15|short|stoch",
+  "species_key": "M15|short|sma",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
     "direction": "short",
     "features": [
-      "stoch:14:3"
+      "sma:100"
     ],
     "entry_long": null,
     "entry_short": {
       "type": "compare",
-      "left": "stoch_k:14:3",
-      "cmp": ">",
-      "right": 80
+      "left": "sma:100",
+      "cmp": "<",
+      "right": "close"
     },
     "exit": {
-      "atr_spec": "atr:21",
-      "sl_atr_mult": 1.52,
-      "tp_atr_mult": 2.07,
+      "atr_spec": "atr:7",
+      "sl_atr_mult": 0.78,
+      "tp_atr_mult": 2.99,
       "trailing": null,
       "min_hold_bars": 1,
-      "max_hold_bars": 72,
+      "max_hold_bars": 12,
       "exit_condition": null
     },
     "sessions": [
-      "asia"
+      "london"
     ],
     "days": null,
     "regime_filters": null,
@@ -45,11 +45,11 @@
   "complexity": 3,
   "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 1339278057,
+  "seed": 1903787132,
   "mutation_params": null,
   "config_version": "73f86ee16ce4b5fd",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 10129
 }

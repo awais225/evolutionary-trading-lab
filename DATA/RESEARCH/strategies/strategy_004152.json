@@ -1,37 +1,44 @@
 {
-  "hash": "6f0442d88f6c69c47abdf9ba93714bc5",
-  "parent_id": 234,
-  "generation": 3,
+  "hash": "ac39dab72f855d8dc4b2c91eaafdbce1",
+  "parent_id": null,
+  "generation": 7,
   "symbol": "XAUUSD",
-  "timeframe": "M5",
-  "direction": "short",
+  "timeframe": "M15",
+  "direction": "both",
   "status": "BORN",
-  "creation_reason": "mutation of #234: threshold jitter (1 values)",
-  "mutation_type": "param_mutation",
-  "species_key": "M5|short|bb,roc,vwap",
+  "creation_reason": "Gen 7 random exploration birth",
+  "mutation_type": "random_exploration",
+  "species_key": "M15|both|ema,macd",
   "genome": {
     "symbol": "XAUUSD",
-    "timeframe": "M5",
-    "direction": "short",
+    "timeframe": "M15",
+    "direction": "both",
     "features": [
-      "vwap",
-      "roc:24",
-      "bb:20:2.0"
+      "ema:34",
+      "macd:12:26:9"
     ],
-    "entry_long": null,
+    "entry_long": {
+      "type": "compare",
+      "left": "macd_hist:12:26:9",
+      "cmp": ">",
+      "right": 0.0
+    },
     "entry_short": {
       "type": "compare",
-      "left": "vwap_dist",
+      "left": "ema:34",
       "cmp": "<",
-      "right": -0.344
+      "right": "close"
     },
     "exit": {
-      "atr_spec": "atr:7",
-      "sl_atr_mult": 2.94,
-      "tp_atr_mult": 3.42,
-      "trailing": null,
-      "min_hold_bars": 2,
-      "max_hold_bars": 24,
+      "atr_spec": "atr:14",
+      "sl_atr_mult": 0.96,
+      "tp_atr_mult": 4.25,
+      "trailing": {
+        "atr_mult": 2.68,
+        "activation_mult": 1.0
+      },
+      "min_hold_bars": 1,
+      "max_hold_bars": 96,
       "exit_condition": null
     },
     "sessions": null,
@@ -43,13 +50,13 @@
     }
   },
   "complexity": 4,
-  "origin": "mutation",
+  "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 146757174,
+  "seed": 1047967777,
   "mutation_params": null,
   "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 4152
 }

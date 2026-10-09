@@ -1,15 +1,15 @@
 {
   "generation": 10,
-  "born": 1,
-  "tested": 490,
-  "failed": 1090,
-  "survived": 9,
-  "validated": 6,
-  "qualified": 135,
-  "killed": 37,
-  "retired": 183,
-  "duplicates_blocked": 417,
-  "best_fitness": 0.98255,
-  "avg_fitness": 0.7326,
-  "ts": 1791179598.119235
+  "born": 0,
+  "tested": 7956,
+  "failed": 1939,
+  "survived": 10,
+  "validated": 30,
+  "qualified": 27,
+  "killed": 688,
+  "retired": 2261,
+  "duplicates_blocked": 6950,
+  "best_fitness": 0.74916,
+  "avg_fitness": 0.67,
+  "ts": 1791523157.0959687
 }

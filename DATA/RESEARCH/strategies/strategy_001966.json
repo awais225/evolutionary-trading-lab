@@ -1,35 +1,36 @@
 {
-  "hash": "711e396edfb8324bcd6d4b1dab9165c8",
-  "parent_id": 226,
-  "generation": 3,
+  "hash": "93df00f59ff94973919b1a3a0e832d2d",
+  "parent_id": 1528,
+  "generation": 2,
   "symbol": "XAUUSD",
-  "timeframe": "M5",
+  "timeframe": "M15",
   "direction": "short",
   "status": "BORN",
-  "creation_reason": "mutation of #226: replaced vwap with volume:50",
-  "mutation_type": "indicator_replacement",
-  "species_key": "M5|short|volume",
+  "creation_reason": "mutation of #1528: SL -> 2.37xATR",
+  "mutation_type": "sl_mutation",
+  "species_key": "M15|short|bb,stoch",
   "genome": {
     "symbol": "XAUUSD",
-    "timeframe": "M5",
+    "timeframe": "M15",
     "direction": "short",
     "features": [
-      "volume:50"
+      "bb:20:2.5",
+      "stoch:9:3"
     ],
     "entry_long": null,
     "entry_short": {
       "type": "compare",
-      "left": "relvol:50",
+      "left": "bb_pctb:20:2.5",
       "cmp": ">",
-      "right": 2.17
+      "right": 0.85
     },
     "exit": {
-      "atr_spec": "atr:7",
-      "sl_atr_mult": 2.34,
-      "tp_atr_mult": 2.14,
+      "atr_spec": "atr:21",
+      "sl_atr_mult": 2.37,
+      "tp_atr_mult": 3.12,
       "trailing": null,
       "min_hold_bars": 2,
-      "max_hold_bars": 24,
+      "max_hold_bars": 12,
       "exit_condition": null
     },
     "sessions": null,
@@ -40,14 +41,14 @@
       "max_concurrent": 1
     }
   },
-  "complexity": 2,
+  "complexity": 3,
   "origin": "mutation",
   "hypothesis_id": null,
-  "seed": 387199193,
+  "seed": 1146065918,
   "mutation_params": null,
   "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 1966
 }

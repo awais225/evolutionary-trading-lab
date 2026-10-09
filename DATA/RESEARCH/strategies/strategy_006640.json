@@ -1,37 +1,47 @@
 {
-  "hash": "cb65d9b84b8c87e73e35827d4ade8ad5",
-  "parent_id": null,
-  "generation": 25,
+  "hash": "7bd3ba0f5e2307347b11a206ab5f3c2c",
+  "parent_id": 4380,
+  "generation": 8,
   "symbol": "XAUUSD",
   "timeframe": "M15",
   "direction": "short",
   "status": "BORN",
-  "creation_reason": "Gen 25 random exploration birth",
-  "mutation_type": "random_exploration",
-  "species_key": "M15|short|bb,macd,volatility",
+  "creation_reason": "mutation of #4380: added indicator adx:21",
+  "mutation_type": "indicator_addition",
+  "species_key": "M15|short|adx,bb",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
     "direction": "short",
     "features": [
-      "bb:50:2.0",
-      "macd:12:26:9",
-      "volatility:20"
+      "bb:20:2.5",
+      "adx:21"
     ],
     "entry_long": null,
     "entry_short": {
-      "type": "compare",
-      "left": "bb_pctb:50:2.0",
-      "cmp": ">",
-      "right": 0.5
+      "op": "and",
+      "clauses": [
+        {
+          "type": "compare",
+          "left": "bb_pctb:20:2.5",
+          "cmp": ">",
+          "right": 0.85
+        },
+        {
+          "type": "compare",
+          "left": "adx:21",
+          "cmp": ">",
+          "right": 25
+        }
+      ]
     },
     "exit": {
-      "atr_spec": "atr:7",
-      "sl_atr_mult": 2.78,
-      "tp_atr_mult": 4.37,
+      "atr_spec": "atr:21",
+      "sl_atr_mult": 2.42,
+      "tp_atr_mult": 3.51,
       "trailing": null,
-      "min_hold_bars": 0,
-      "max_hold_bars": 96,
+      "min_hold_bars": 2,
+      "max_hold_bars": 12,
       "exit_condition": null
     },
     "sessions": null,
@@ -43,13 +53,13 @@
     }
   },
   "complexity": 4,
-  "origin": "exploration",
+  "origin": "mutation",
   "hypothesis_id": null,
-  "seed": 1291246387,
+  "seed": 669977814,
   "mutation_params": null,
   "config_version": "73f86ee16ce4b5fd",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 6640
 }

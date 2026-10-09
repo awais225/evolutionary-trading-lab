@@ -1,63 +1,62 @@
 {
-  "hash": "c4ed05e911bad53d7b2edded20ef177a",
+  "hash": "bba39641c4ababfa58971988f10c6635",
   "parent_id": null,
-  "generation": 13,
+  "generation": 3,
   "symbol": "XAUUSD",
   "timeframe": "M15",
   "direction": "both",
   "status": "BORN",
-  "creation_reason": "Gen 13 random exploration birth",
+  "creation_reason": "Gen 3 candidate exploration (filling shortfall)",
   "mutation_type": "random_exploration",
-  "species_key": "M15|both|cci",
+  "species_key": "M15|both|volatility",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
     "direction": "both",
     "features": [
-      "cci:20"
+      "volatility:20"
     ],
     "entry_long": {
       "type": "compare",
-      "left": "cci:20",
-      "cmp": ">",
-      "right": -50
+      "left": "range_expansion:20",
+      "cmp": "<",
+      "right": 0.8
     },
     "entry_short": {
       "type": "compare",
-      "left": "cci:20",
+      "left": "range_expansion:20",
       "cmp": "<",
-      "right": -100
+      "right": 1.13
     },
     "exit": {
-      "atr_spec": "atr:21",
-      "sl_atr_mult": 0.86,
-      "tp_atr_mult": 4.27,
+      "atr_spec": "atr:7",
+      "sl_atr_mult": 1.98,
+      "tp_atr_mult": 4.62,
       "trailing": null,
-      "min_hold_bars": 0,
-      "max_hold_bars": 48,
+      "min_hold_bars": 3,
+      "max_hold_bars": 72,
       "exit_condition": null
     },
-    "sessions": null,
-    "days": [
-      0,
-      1,
-      2,
-      4
+    "sessions": [
+      "london"
     ],
-    "regime_filters": null,
+    "days": null,
+    "regime_filters": [
+      "ranging"
+    ],
     "risk": {
       "risk_per_trade": 0.005,
       "max_concurrent": 1
     }
   },
-  "complexity": 3,
+  "complexity": 4,
   "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 79283738,
+  "seed": 1398312305,
   "mutation_params": null,
   "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 2333
 }

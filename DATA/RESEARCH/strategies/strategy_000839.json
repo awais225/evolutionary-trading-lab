@@ -1,72 +1,63 @@
 {
-  "hash": "805b1f33edcc2c618c5965a7f6b56106",
+  "hash": "509aa93a01c7b0966875a24dfb1636b1",
   "parent_id": null,
   "generation": 0,
   "symbol": "XAUUSD",
   "timeframe": "M15",
-  "direction": "both",
+  "direction": "long",
   "status": "BORN",
   "creation_reason": "generation-0 random seed",
   "mutation_type": "random_exploration",
-  "species_key": "M15|both|atr,macd",
+  "species_key": "M15|long|cci,roc,volatility",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
-    "direction": "both",
+    "direction": "long",
     "features": [
-      "atr:7",
-      "macd:12:26:9"
+      "volatility:20",
+      "cci:34",
+      "roc:24"
     ],
     "entry_long": {
       "type": "compare",
-      "left": "macd_hist:12:26:9",
-      "cmp": ">",
-      "right": 0.0
+      "left": "cci:34",
+      "cmp": "<",
+      "right": 0
     },
-    "entry_short": {
-      "op": "and",
-      "clauses": [
-        {
-          "type": "compare",
-          "left": "atr_pct:7",
-          "cmp": "<",
-          "right": 0.247
-        },
-        {
-          "type": "compare",
-          "left": "atr_pct:7",
-          "cmp": ">",
-          "right": 0.185
-        }
-      ]
-    },
+    "entry_short": null,
     "exit": {
       "atr_spec": "atr:7",
-      "sl_atr_mult": 1.57,
-      "tp_atr_mult": 4.26,
-      "trailing": null,
-      "min_hold_bars": 2,
-      "max_hold_bars": 72,
+      "sl_atr_mult": 2.02,
+      "tp_atr_mult": 4.64,
+      "trailing": {
+        "atr_mult": 2.11,
+        "activation_mult": 1.2
+      },
+      "min_hold_bars": 1,
+      "max_hold_bars": 24,
       "exit_condition": null
     },
-    "sessions": null,
+    "sessions": [
+      "london",
+      "asia"
+    ],
     "days": null,
     "regime_filters": [
-      "low_volatility"
+      "ranging"
     ],
     "risk": {
       "risk_per_trade": 0.005,
       "max_concurrent": 1
     }
   },
-  "complexity": 4,
+  "complexity": 7,
   "origin": "seed",
   "hypothesis_id": null,
-  "seed": 505894437,
+  "seed": 905868753,
   "mutation_params": null,
-  "config_version": "8881aded8886ae26",
+  "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 839
 }

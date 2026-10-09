@@ -1,96 +1,54 @@
 {
-  "hash": "11c6f7a7195842d4c9058141ee60b281",
-  "parent_id": 1908,
-  "generation": 12,
+  "hash": "27bbc7dc69c98301e0d743a4ebd91870",
+  "parent_id": 1528,
+  "generation": 2,
   "symbol": "XAUUSD",
   "timeframe": "M15",
-  "direction": "both",
+  "direction": "short",
   "status": "BORN",
-  "creation_reason": "specialization of #1908: Monday loses money (PnL -181.9, PF 0.82, 29 trades) \u2014 test a child excluding Monday",
-  "mutation_type": "day_mutation",
-  "species_key": "M15|both|adx,prev_day,vwap",
+  "creation_reason": "mutation of #1528: replaced bb:20:2.5 with vwap",
+  "mutation_type": "indicator_replacement",
+  "species_key": "M15|short|stoch,vwap",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
-    "direction": "both",
+    "direction": "short",
     "features": [
-      "prev_day",
       "vwap",
-      "adx:21"
+      "stoch:9:3"
     ],
-    "entry_long": {
-      "op": "and",
-      "clauses": [
-        {
-          "type": "compare",
-          "left": "adx:21",
-          "cmp": ">",
-          "right": 30
-        },
-        {
-          "type": "compare",
-          "left": "vwap_dist",
-          "cmp": "<",
-          "right": -0.155
-        },
-        {
-          "type": "compare",
-          "left": "adx:21",
-          "cmp": ">",
-          "right": 25
-        }
-      ]
-    },
+    "entry_long": null,
     "entry_short": {
-      "op": "and",
-      "clauses": [
-        {
-          "type": "compare",
-          "left": "break_prev_day_low",
-          "cmp": ">",
-          "right": 0.5
-        },
-        {
-          "type": "compare",
-          "left": "vwap_dist",
-          "cmp": "<",
-          "right": 0.286
-        }
-      ]
+      "type": "compare",
+      "left": "vwap_dist",
+      "cmp": "<",
+      "right": -0.124
     },
     "exit": {
-      "atr_spec": "atr:10",
-      "sl_atr_mult": 0.73,
-      "tp_atr_mult": 2.22,
-      "trailing": {
-        "atr_mult": 1.21,
-        "activation_mult": 1.7
-      },
-      "min_hold_bars": 1,
-      "max_hold_bars": 96,
+      "atr_spec": "atr:21",
+      "sl_atr_mult": 2.62,
+      "tp_atr_mult": 3.12,
+      "trailing": null,
+      "min_hold_bars": 2,
+      "max_hold_bars": 12,
       "exit_condition": null
     },
     "sessions": null,
-    "days": [
-      1,
-      2,
-      3,
-      4
-    ],
+    "days": null,
     "regime_filters": null,
     "risk": {
       "risk_per_trade": 0.005,
       "max_concurrent": 1
     }
   },
-  "complexity": 7,
-  "origin": "specialization",
+  "complexity": 3,
+  "origin": "mutation",
   "hypothesis_id": null,
-  "seed": 1109316462,
+  "seed": 1863296255,
   "mutation_params": null,
   "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 1963
 }

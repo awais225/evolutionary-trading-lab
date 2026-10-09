@@ -1,0 +1,13 @@
+{
+  "strategy_id": 6948,
+  "source": "rule_analyzer",
+  "observation": "positive edge concentrated in trending regime (PF 2.874)",
+  "hypothesis": "trend specialist",
+  "proposal": {
+    "action": "add_regime_filter",
+    "params": {
+      "regime": "trending"
+    }
+  },
+  "id": 21
+}

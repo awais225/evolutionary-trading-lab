@@ -1,52 +1,41 @@
 {
-  "hash": "3b8072e97d4a1ccbc6b699513de3cdaa",
+  "hash": "6417f5c16c2fc398a8a189f23b7f539d",
   "parent_id": null,
-  "generation": 14,
+  "generation": 4,
   "symbol": "XAUUSD",
   "timeframe": "M15",
   "direction": "both",
   "status": "BORN",
-  "creation_reason": "Gen 14 random exploration birth",
+  "creation_reason": "Gen 4 candidate exploration (filling shortfall)",
   "mutation_type": "random_exploration",
-  "species_key": "M15|both|ema,regime",
+  "species_key": "M15|both|bb,volume",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
     "direction": "both",
     "features": [
-      "ema:50",
-      "regime"
+      "volume:50",
+      "bb:20:2.0"
     ],
     "entry_long": {
       "type": "compare",
-      "left": "ema:50",
-      "cmp": "<",
-      "right": "close"
+      "left": "relvol:50",
+      "cmp": ">",
+      "right": 1.03
     },
     "entry_short": {
-      "op": "and",
-      "clauses": [
-        {
-          "type": "compare",
-          "left": "ema:50",
-          "cmp": "<",
-          "right": "close"
-        },
-        {
-          "type": "compare",
-          "left": "regime:compression",
-          "cmp": ">",
-          "right": 0.5
-        }
-      ]
+      "type": "compare",
+      "left": "relvol:50",
+      "cmp": ">",
+      "right": 1.72
     },
     "exit": {
-      "atr_spec": "atr:21",
-      "sl_atr_mult": 1.36,
-      "tp_atr_mult": 1.84,
+      "atr_spec": "atr:7",
+      "sl_atr_mult": 1.58,
+      "tp_atr_mult": 2.17,
       "trailing": null,
-      "min_hold_bars": 1,
-      "max_hold_bars": 48,
+      "min_hold_bars": 2,
+      "max_hold_bars": 24,
       "exit_condition": null
     },
     "sessions": null,
@@ -60,11 +49,11 @@
   "complexity": 3,
   "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 1365955769,
+  "seed": 964498482,
   "mutation_params": null,
   "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 2831
 }

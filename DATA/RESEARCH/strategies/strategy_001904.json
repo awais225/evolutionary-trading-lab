@@ -1,36 +1,47 @@
 {
-  "hash": "2cfc7d9362605b246d2e9232ab5e194b",
+  "hash": "16b85c78561a586a1c847ebbfd886bbb",
   "parent_id": null,
-  "generation": 11,
+  "generation": 2,
   "symbol": "XAUUSD",
   "timeframe": "M15",
-  "direction": "short",
+  "direction": "long",
   "status": "BORN",
-  "creation_reason": "Gen 11 random exploration birth",
+  "creation_reason": "Gen 2 candidate exploration (filling shortfall)",
   "mutation_type": "random_exploration",
-  "species_key": "M15|short|ema,regime",
+  "species_key": "M15|long|atr,macd",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
-    "direction": "short",
+    "direction": "long",
     "features": [
-      "regime",
-      "ema:200"
+      "atr:10",
+      "macd:8:21:5"
     ],
-    "entry_long": null,
-    "entry_short": {
-      "type": "compare",
-      "left": "regime:breakout",
-      "cmp": ">",
-      "right": 0.5
+    "entry_long": {
+      "op": "and",
+      "clauses": [
+        {
+          "type": "compare",
+          "left": "atr_pct:10",
+          "cmp": "<",
+          "right": 0.27
+        },
+        {
+          "type": "compare",
+          "left": "macd_hist:8:21:5",
+          "cmp": ">",
+          "right": 0.0
+        }
+      ]
     },
+    "entry_short": null,
     "exit": {
-      "atr_spec": "atr:14",
-      "sl_atr_mult": 2.56,
-      "tp_atr_mult": 3.03,
+      "atr_spec": "atr:10",
+      "sl_atr_mult": 0.98,
+      "tp_atr_mult": 2.83,
       "trailing": null,
-      "min_hold_bars": 1,
-      "max_hold_bars": 96,
+      "min_hold_bars": 0,
+      "max_hold_bars": 48,
       "exit_condition": null
     },
     "sessions": null,
@@ -41,14 +52,14 @@
       "max_concurrent": 1
     }
   },
-  "complexity": 3,
+  "complexity": 4,
   "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 1565906526,
+  "seed": 366101863,
   "mutation_params": null,
   "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 1904
 }

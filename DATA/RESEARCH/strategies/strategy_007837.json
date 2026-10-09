@@ -1,35 +1,42 @@
 {
-  "hash": "80b6c9a9f0aab8e0f1731f632d312434",
-  "parent_id": 237,
-  "generation": 3,
+  "hash": "662b02a725bb324bce5fd8c4407631a2",
+  "parent_id": null,
+  "generation": 16,
   "symbol": "XAUUSD",
-  "timeframe": "M5",
-  "direction": "short",
+  "timeframe": "M15",
+  "direction": "both",
   "status": "BORN",
-  "creation_reason": "mutation of #237: replaced vwap with cci:14",
-  "mutation_type": "indicator_replacement",
-  "species_key": "M5|short|cci",
+  "creation_reason": "Gen 16 candidate exploration (filling shortfall)",
+  "mutation_type": "random_exploration",
+  "species_key": "M15|both|prev_day,rsi,volatility",
   "genome": {
     "symbol": "XAUUSD",
-    "timeframe": "M5",
-    "direction": "short",
+    "timeframe": "M15",
+    "direction": "both",
     "features": [
-      "cci:14"
+      "volatility:50",
+      "rsi:7",
+      "prev_day"
     ],
-    "entry_long": null,
+    "entry_long": {
+      "type": "compare",
+      "left": "break_prev_day_low",
+      "cmp": ">",
+      "right": 0.5
+    },
     "entry_short": {
       "type": "compare",
-      "left": "cci:14",
-      "cmp": ">",
-      "right": 100
+      "left": "range_expansion:50",
+      "cmp": "<",
+      "right": 1.37
     },
     "exit": {
-      "atr_spec": "atr:7",
-      "sl_atr_mult": 2.34,
-      "tp_atr_mult": 1.74,
+      "atr_spec": "atr:21",
+      "sl_atr_mult": 1.49,
+      "tp_atr_mult": 1.91,
       "trailing": null,
-      "min_hold_bars": 2,
-      "max_hold_bars": 24,
+      "min_hold_bars": 1,
+      "max_hold_bars": 96,
       "exit_condition": null
     },
     "sessions": null,
@@ -40,14 +47,14 @@
       "max_concurrent": 1
     }
   },
-  "complexity": 2,
-  "origin": "mutation",
+  "complexity": 4,
+  "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 114043930,
+  "seed": 1375026132,
   "mutation_params": null,
   "config_version": "73f86ee16ce4b5fd",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 7837
 }

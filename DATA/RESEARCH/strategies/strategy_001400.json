@@ -1,48 +1,34 @@
 {
-  "hash": "89b0b1854aade13132e82aacdcbaaaa5",
-  "parent_id": 186,
-  "generation": 2,
+  "hash": "75a951b714fb711d9079de27b525e92d",
+  "parent_id": null,
+  "generation": 0,
   "symbol": "XAUUSD",
   "timeframe": "M15",
   "direction": "long",
   "status": "BORN",
-  "creation_reason": "crossover of #186 x #162: crossover of features/filters/exit (6 indicators)",
-  "mutation_type": "crossover",
-  "species_key": "M15|long|bb,prev_day,roc,sma,vwap",
+  "creation_reason": "generation-0 random seed",
+  "mutation_type": "random_exploration",
+  "species_key": "M15|long|atr,prev_day,sma",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
     "direction": "long",
     "features": [
-      "bb:20:2.0",
-      "roc:24",
-      "vwap",
-      "sma:100",
+      "atr:21",
       "prev_day",
-      "roc:12"
+      "sma:20"
     ],
     "entry_long": {
-      "op": "and",
-      "clauses": [
-        {
-          "type": "compare",
-          "left": "bb_pctb:20:2.0",
-          "cmp": ">",
-          "right": 0.95
-        },
-        {
-          "type": "compare",
-          "left": "roc:24",
-          "cmp": "<",
-          "right": 0.247
-        }
-      ]
+      "type": "compare",
+      "left": "break_prev_day_low",
+      "cmp": ">",
+      "right": 0.5
     },
     "entry_short": null,
     "exit": {
-      "atr_spec": "atr:14",
-      "sl_atr_mult": 2.94,
-      "tp_atr_mult": 1.97,
+      "atr_spec": "atr:21",
+      "sl_atr_mult": 2.19,
+      "tp_atr_mult": 4.15,
       "trailing": null,
       "min_hold_bars": 1,
       "max_hold_bars": 144,
@@ -56,14 +42,14 @@
       "max_concurrent": 1
     }
   },
-  "complexity": 8,
-  "origin": "crossover",
+  "complexity": 4,
+  "origin": "seed",
   "hypothesis_id": null,
-  "seed": 289054130,
+  "seed": 1479955495,
   "mutation_params": null,
-  "config_version": "8881aded8886ae26",
+  "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 1400
 }

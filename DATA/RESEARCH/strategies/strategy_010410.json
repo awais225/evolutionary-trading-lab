@@ -1,45 +1,32 @@
 {
-  "hash": "5d9c91745e402b7cc9c9a422377f77d1",
-  "parent_id": null,
-  "generation": 37,
+  "hash": "d65a63abc5c5df4aa877a1af5e6b637d",
+  "parent_id": 6658,
+  "generation": 8,
   "symbol": "XAUUSD",
   "timeframe": "M15",
-  "direction": "long",
+  "direction": "short",
   "status": "BORN",
-  "creation_reason": "Gen 37 random exploration birth",
-  "mutation_type": "random_exploration",
-  "species_key": "M15|long|prev_day,regime,rsi",
+  "creation_reason": "mutation of #6658: replaced bb:20:2.5 with vwap",
+  "mutation_type": "indicator_replacement",
+  "species_key": "M15|short|vwap",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
-    "direction": "long",
+    "direction": "short",
     "features": [
-      "rsi:7",
-      "prev_day",
-      "regime"
+      "vwap"
     ],
-    "entry_long": {
-      "op": "and",
-      "clauses": [
-        {
-          "type": "compare",
-          "left": "regime:high_volatility",
-          "cmp": ">",
-          "right": 0.5
-        },
-        {
-          "type": "compare",
-          "left": "rsi:7",
-          "cmp": "<",
-          "right": 25
-        }
-      ]
+    "entry_long": null,
+    "entry_short": {
+      "type": "compare",
+      "left": "vwap_dist",
+      "cmp": "<",
+      "right": 0.217
     },
-    "entry_short": null,
     "exit": {
-      "atr_spec": "atr:7",
-      "sl_atr_mult": 2.61,
-      "tp_atr_mult": 1.81,
+      "atr_spec": "atr:21",
+      "sl_atr_mult": 2.42,
+      "tp_atr_mult": 3.52,
       "trailing": null,
       "min_hold_bars": 0,
       "max_hold_bars": 12,
@@ -53,14 +40,14 @@
       "max_concurrent": 1
     }
   },
-  "complexity": 5,
-  "origin": "exploration",
+  "complexity": 2,
+  "origin": "mutation",
   "hypothesis_id": null,
-  "seed": 1090729635,
+  "seed": 1403360742,
   "mutation_params": null,
   "config_version": "73f86ee16ce4b5fd",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 10410
 }

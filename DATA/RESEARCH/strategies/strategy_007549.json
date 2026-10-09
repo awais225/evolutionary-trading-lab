@@ -1,34 +1,34 @@
 {
-  "hash": "9ec1ce40de484631059d18419827964d",
-  "parent_id": null,
-  "generation": 28,
+  "hash": "c491ae55a16d7aef36a8032f3b987a11",
+  "parent_id": 6930,
+  "generation": 9,
   "symbol": "XAUUSD",
   "timeframe": "M15",
-  "direction": "long",
+  "direction": "short",
   "status": "BORN",
-  "creation_reason": "Gen 28 candidate exploration (filling shortfall)",
-  "mutation_type": "random_exploration",
-  "species_key": "M15|long|sma",
+  "creation_reason": "mutation of #6930: SL -> 2.4xATR",
+  "mutation_type": "sl_mutation",
+  "species_key": "M15|short|bb",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
-    "direction": "long",
+    "direction": "short",
     "features": [
-      "sma:200"
+      "bb:20:2.5"
     ],
-    "entry_long": {
+    "entry_long": null,
+    "entry_short": {
       "type": "compare",
-      "left": "sma:200",
+      "left": "bb_pctb:20:2.5",
       "cmp": ">",
-      "right": "close"
+      "right": 0.85
     },
-    "entry_short": null,
     "exit": {
-      "atr_spec": "atr:14",
-      "sl_atr_mult": 1.8,
-      "tp_atr_mult": 3.2,
+      "atr_spec": "atr:21",
+      "sl_atr_mult": 2.4,
+      "tp_atr_mult": 3.52,
       "trailing": null,
-      "min_hold_bars": 0,
+      "min_hold_bars": 2,
       "max_hold_bars": 12,
       "exit_condition": null
     },
@@ -41,13 +41,13 @@
     }
   },
   "complexity": 2,
-  "origin": "exploration",
+  "origin": "mutation",
   "hypothesis_id": null,
-  "seed": 1026973895,
+  "seed": 1599898158,
   "mutation_params": null,
   "config_version": "73f86ee16ce4b5fd",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 7549
 }

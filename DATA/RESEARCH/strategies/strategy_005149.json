@@ -1,58 +1,57 @@
 {
-  "hash": "15e0b825ec0dd058410cbb79f3379d96",
+  "hash": "bb10ca9a916895bfa7e5e97eaa0908bf",
   "parent_id": null,
-  "generation": 20,
+  "generation": 9,
   "symbol": "XAUUSD",
   "timeframe": "M15",
-  "direction": "both",
+  "direction": "long",
   "status": "BORN",
-  "creation_reason": "Gen 20 candidate exploration (filling shortfall)",
+  "creation_reason": "Gen 9 candidate exploration (filling shortfall)",
   "mutation_type": "random_exploration",
-  "species_key": "M15|both|volume",
+  "species_key": "M15|long|cci,stoch,volume",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
-    "direction": "both",
+    "direction": "long",
     "features": [
-      "volume:50"
+      "volume:50",
+      "cci:14",
+      "stoch:14:3"
     ],
     "entry_long": {
       "type": "compare",
-      "left": "relvol:50",
-      "cmp": ">",
-      "right": 1.71
+      "left": "cci:14",
+      "cmp": "<",
+      "right": 100
     },
-    "entry_short": {
-      "type": "compare",
-      "left": "relvol:50",
-      "cmp": ">",
-      "right": 1.51
-    },
+    "entry_short": null,
     "exit": {
-      "atr_spec": "atr:14",
-      "sl_atr_mult": 2.14,
-      "tp_atr_mult": 4.34,
+      "atr_spec": "atr:7",
+      "sl_atr_mult": 1.15,
+      "tp_atr_mult": 2.27,
       "trailing": null,
-      "min_hold_bars": 2,
-      "max_hold_bars": 72,
+      "min_hold_bars": 0,
+      "max_hold_bars": 12,
       "exit_condition": null
     },
     "sessions": null,
     "days": null,
-    "regime_filters": null,
+    "regime_filters": [
+      "high_volatility"
+    ],
     "risk": {
       "risk_per_trade": 0.005,
       "max_concurrent": 1
     }
   },
-  "complexity": 2,
+  "complexity": 5,
   "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 1789224884,
+  "seed": 400089354,
   "mutation_params": null,
   "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 5149
 }

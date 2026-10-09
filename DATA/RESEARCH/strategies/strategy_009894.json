@@ -1,60 +1,53 @@
 {
-  "hash": "25503ded3114b466df706a612f625f95",
-  "parent_id": null,
-  "generation": 35,
+  "hash": "63bfb0c759efa432968d2f09900ffd71",
+  "parent_id": 6922,
+  "generation": 9,
   "symbol": "XAUUSD",
   "timeframe": "M15",
-  "direction": "both",
+  "direction": "short",
   "status": "BORN",
-  "creation_reason": "Gen 35 candidate exploration (filling shortfall)",
-  "mutation_type": "random_exploration",
-  "species_key": "M15|both|sma",
+  "creation_reason": "mutation of #6922: replaced bb:20:2.5 with vwap",
+  "mutation_type": "indicator_replacement",
+  "species_key": "M15|short|vwap",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
-    "direction": "both",
+    "direction": "short",
     "features": [
-      "sma:200"
+      "vwap"
     ],
-    "entry_long": {
-      "type": "compare",
-      "left": "sma:200",
-      "cmp": ">",
-      "right": "close"
-    },
+    "entry_long": null,
     "entry_short": {
       "type": "compare",
-      "left": "sma:200",
-      "cmp": ">",
-      "right": "close"
+      "left": "vwap_dist",
+      "cmp": "<",
+      "right": 0.232
     },
     "exit": {
       "atr_spec": "atr:21",
-      "sl_atr_mult": 2.35,
-      "tp_atr_mult": 2.34,
+      "sl_atr_mult": 2.42,
+      "tp_atr_mult": 3.52,
       "trailing": null,
-      "min_hold_bars": 2,
-      "max_hold_bars": 24,
+      "min_hold_bars": 3,
+      "max_hold_bars": 12,
       "exit_condition": null
     },
     "sessions": null,
     "days": null,
-    "regime_filters": [
-      "low_volatility"
-    ],
+    "regime_filters": null,
     "risk": {
       "risk_per_trade": 0.005,
       "max_concurrent": 1
     }
   },
-  "complexity": 3,
-  "origin": "exploration",
+  "complexity": 2,
+  "origin": "mutation",
   "hypothesis_id": null,
-  "seed": 1714756533,
+  "seed": 985346587,
   "mutation_params": null,
   "config_version": "73f86ee16ce4b5fd",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 9894
 }

@@ -1,0 +1,250 @@
+{
+  "oos": {
+    "ok": true,
+    "error": "",
+    "metrics": {
+      "trades": 20,
+      "net_profit": 226.07,
+      "gross_profit": 411.17,
+      "gross_loss": 185.1,
+      "profit_factor": 2.221,
+      "profit_factor_raw": 2.221,
+      "win_rate": 0.65,
+      "avg_trade": 11.304,
+      "expectancy": 0.00113,
+      "max_drawdown_pct": 0.0038,
+      "sharpe": 7.692,
+      "sortino": 14.664,
+      "total_return_pct": 0.0226,
+      "final_equity": 10226.07,
+      "consistency": 1.0,
+      "monthly_pnl": {
+        "2026-09": 70.55,
+        "2026-10": 155.52
+      },
+      "avg_hold_bars": 7.8,
+      "avg_trade_duration_seconds": 7605.0,
+      "min_trade_duration_seconds": 1800.0,
+      "max_trade_duration_seconds": 14400.0,
+      "avg_trade_duration_minutes": 126.75,
+      "min_trade_duration_minutes": 30.0,
+      "exit_reasons": {
+        "MAX_HOLD": 8,
+        "SL": 5,
+        "TP": 7
+      },
+      "avg_slippage_points": 0.877,
+      "total_spread_cost": 2.7,
+      "stage": "oos",
+      "dataset_id": "XAUUSD_M15",
+      "window": [
+        1551,
+        2216
+      ],
+      "stress": {
+        "spread_mult": 1.0,
+        "slippage_mult": 1.0,
+        "commission_mult": 1.0,
+        "perturb": 0.0,
+        "mc_skip_prob": 0.0
+      },
+      "execution_model": {
+        "symbol": "XAUUSD",
+        "specs_source": "TABLE",
+        "specs_verified": false,
+        "specs_notes": "Gold vs USD, 100 oz per lot, 0.01 quote step",
+        "contract_size": 100.0,
+        "point": 0.01,
+        "tick_size": 0.01,
+        "tick_value": 1.0,
+        "volume_min": 0.01,
+        "volume_max": 100.0,
+        "volume_step": 0.01,
+        "stops_level_points": 0,
+        "default_spread_points": 18.0,
+        "commission_per_lot": 7.0,
+        "swap_per_lot_per_day": -2.5,
+        "slippage_model": "normal",
+        "slippage_mean_points": 0.8,
+        "execution_delay_ms": 120,
+        "fill_rule": "signals evaluated on bar close; market fills at next bar open with spread+slippage",
+        "stops_level_skips": 0
+      },
+      "genome_hash": "26bceeed3d7e94bde3143212d4d1085b",
+      "schedule": {
+        "applied": false
+      },
+      "conditions": {},
+      "runtime_ms": 2.6
+    },
+    "fitness": 0.69424,
+    "in_sample_fitness": 0.73233,
+    "degradation": 0.052
+  },
+  "walkforward": {
+    "ok": true,
+    "folds": [
+      {
+        "fold": 0,
+        "window": [
+          0,
+          554
+        ],
+        "fitness": 0.72105,
+        "trades": 15,
+        "pf": 4.622,
+        "return_pct": 0.023,
+        "dd": 0.0063
+      },
+      {
+        "fold": 1,
+        "window": [
+          554,
+          1108
+        ],
+        "fitness": 0.60608,
+        "trades": 19,
+        "pf": 1.401,
+        "return_pct": 0.0077,
+        "dd": 0.0042
+      },
+      {
+        "fold": 2,
+        "window": [
+          1108,
+          1662
+        ],
+        "fitness": 0.72414,
+        "trades": 14,
+        "pf": 4.256,
+        "return_pct": 0.0276,
+        "dd": 0.0038
+      },
+      {
+        "fold": 3,
+        "window": [
+          1662,
+          2216
+        ],
+        "fitness": 0.6733,
+        "trades": 16,
+        "pf": 2.04,
+        "return_pct": 0.0155,
+        "dd": 0.0038
+      }
+    ],
+    "mean_fitness": 0.6811,
+    "std_fitness": 0.0478,
+    "positive_folds": 4,
+    "n_folds": 4,
+    "consistency": 1.0
+  },
+  "perturbation": {
+    "ok": true,
+    "runs": [
+      0.7012,
+      0.6895,
+      0.7266,
+      0.6895
+    ],
+    "mean_fitness": 0.7017,
+    "base_fitness": 0.7323,
+    "instability": 0.042
+  },
+  "spread_slippage_stress": {
+    "ok": true,
+    "scenarios": [
+      {
+        "scenario": "spread_x2",
+        "fitness": 0.7362,
+        "degradation": -0.005,
+        "pf": 2.441,
+        "net": 757.24
+      },
+      {
+        "scenario": "spread_x3",
+        "fitness": 0.7346,
+        "degradation": -0.003,
+        "pf": 2.427,
+        "net": 751.92
+      },
+      {
+        "scenario": "slippage_x2",
+        "fitness": 0.7373,
+        "degradation": -0.007,
+        "pf": 2.45,
+        "net": 760.64
+      },
+      {
+        "scenario": "slippage_x3",
+        "fitness": 0.7369,
+        "degradation": -0.006,
+        "pf": 2.447,
+        "net": 759.39
+      },
+      {
+        "scenario": "commission_x2",
+        "fitness": 0.7351,
+        "degradation": -0.004,
+        "pf": 2.431,
+        "net": 753.79
+      },
+      {
+        "scenario": "all_x2",
+        "fitness": 0.733,
+        "degradation": -0.001,
+        "pf": 2.413,
+        "net": 747.07
+      }
+    ],
+    "worst_degradation": 0.0
+  },
+  "montecarlo": {
+    "ok": true,
+    "sims": 10,
+    "return_mean": 0.075,
+    "return_p5": 0.0694,
+    "return_positive_frac": 1.0,
+    "dd_mean": 0.0067,
+    "dd_worst": 0.0107,
+    "pf_mean": 2.432
+  },
+  "regime_holdout": {
+    "ok": true,
+    "per_regime": {
+      "none": {
+        "trades": 6,
+        "pnl": 141.53
+      },
+      "trending": {
+        "trades": 18,
+        "pnl": 224.94
+      },
+      "ranging": {
+        "trades": 6,
+        "pnl": 43.04
+      },
+      "high_volatility": {
+        "trades": 3,
+        "pnl": -1.46
+      },
+      "expansion": {
+        "trades": 2,
+        "pnl": 69.67
+      },
+      "low_volatility": {
+        "trades": 7,
+        "pnl": 35.29
+      },
+      "breakout": {
+        "trades": 2,
+        "pnl": -0.72
+      }
+    },
+    "total_pnl": 512.29,
+    "profit_concentration": 0.439
+  },
+  "robustness_score": 0.9812,
+  "passed": true,
+  "death_reasons": []
+}

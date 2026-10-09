@@ -1,58 +1,62 @@
 {
-  "hash": "10e1814a478a3feb65c8e433267daf4f",
+  "hash": "993263bcd7d8ad3dde534b9c95051449",
   "parent_id": null,
-  "generation": 22,
+  "generation": 10,
   "symbol": "XAUUSD",
   "timeframe": "M15",
   "direction": "both",
   "status": "BORN",
-  "creation_reason": "Gen 22 candidate exploration (filling shortfall)",
+  "creation_reason": "Gen 10 candidate exploration (filling shortfall)",
   "mutation_type": "random_exploration",
-  "species_key": "M15|both|volatility",
+  "species_key": "M15|both|atr",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
     "direction": "both",
     "features": [
-      "volatility:50"
+      "atr:21"
     ],
     "entry_long": {
       "type": "compare",
-      "left": "range_expansion:50",
-      "cmp": "<",
-      "right": 0.9
+      "left": "atr_pct:21",
+      "cmp": ">",
+      "right": 0.103
     },
     "entry_short": {
       "type": "compare",
-      "left": "range_expansion:50",
-      "cmp": ">",
-      "right": 0.87
+      "left": "atr_pct:21",
+      "cmp": "<",
+      "right": 0.153
     },
     "exit": {
-      "atr_spec": "atr:10",
-      "sl_atr_mult": 2.24,
-      "tp_atr_mult": 3.24,
+      "atr_spec": "atr:21",
+      "sl_atr_mult": 1.62,
+      "tp_atr_mult": 4.46,
       "trailing": null,
-      "min_hold_bars": 1,
-      "max_hold_bars": 24,
+      "min_hold_bars": 3,
+      "max_hold_bars": 96,
       "exit_condition": null
     },
-    "sessions": null,
+    "sessions": [
+      "london"
+    ],
     "days": null,
-    "regime_filters": null,
+    "regime_filters": [
+      "compression"
+    ],
     "risk": {
       "risk_per_trade": 0.005,
       "max_concurrent": 1
     }
   },
-  "complexity": 2,
+  "complexity": 4,
   "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 786740186,
+  "seed": 1327411582,
   "mutation_params": null,
   "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 5742
 }

@@ -1,38 +1,81 @@
 {
-  "hash": "d5a6469eb0e8587f2484f2cdb72a996e",
-  "parent_id": 243,
-  "generation": 4,
+  "hash": "8dbe7dc1e1a70d54cfa3cd362bf69a0d",
+  "parent_id": null,
+  "generation": 21,
   "symbol": "XAUUSD",
-  "timeframe": "M5",
-  "direction": "short",
+  "timeframe": "M15",
+  "direction": "both",
   "status": "BORN",
-  "creation_reason": "mutation of #243: replaced vwap with rsi:14",
-  "mutation_type": "indicator_replacement",
-  "species_key": "M5|short|prev_day,roc,rsi,sma",
+  "creation_reason": "Gen 21 candidate exploration (filling shortfall)",
+  "mutation_type": "random_exploration",
+  "species_key": "M15|both|adx,atr,sma",
   "genome": {
     "symbol": "XAUUSD",
-    "timeframe": "M5",
-    "direction": "short",
+    "timeframe": "M15",
+    "direction": "both",
     "features": [
-      "rsi:14",
-      "sma:100",
-      "roc:12",
-      "prev_day"
+      "atr:10",
+      "adx:21",
+      "sma:20"
     ],
-    "entry_long": null,
+    "entry_long": {
+      "op": "or",
+      "clauses": [
+        {
+          "type": "compare",
+          "left": "sma:20",
+          "cmp": "<",
+          "right": "close"
+        },
+        {
+          "op": "and",
+          "clauses": [
+            {
+              "type": "compare",
+              "left": "adx:21",
+              "cmp": ">",
+              "right": 25
+            },
+            {
+              "type": "compare",
+              "left": "sma:20",
+              "cmp": ">",
+              "right": "close"
+            }
+          ]
+        }
+      ]
+    },
     "entry_short": {
-      "type": "compare",
-      "left": "rsi:14",
-      "cmp": ">",
-      "right": 65
+      "op": "and",
+      "clauses": [
+        {
+          "type": "compare",
+          "left": "atr_pct:10",
+          "cmp": ">",
+          "right": 0.066
+        },
+        {
+          "type": "compare",
+          "left": "sma:20",
+          "cmp": "<",
+          "right": "close"
+        },
+        {
+          "type": "compare",
+          "left": "sma:20",
+          "cmp": ">",
+          "right": "close"
+        }
+      ]
     },
     "exit": {
-      "atr_spec": "atr:7",
-      "sl_atr_mult": 2.34,
-      "tp_atr_mult": 1.74,
+      "atr_spec": "atr:10",
+      "sl_atr_mult": 1.67,
+      "tp_atr_mult": 1.12,
       "trailing": null,
-      "min_hold_bars": 2,
-      "max_hold_bars": 24,
+      "min_hold_bars": 0,
+      "max_hold_bars": 12,
       "exit_condition": null
     },
     "sessions": null,
@@ -44,13 +87,13 @@
     }
   },
   "complexity": 5,
-  "origin": "mutation",
+  "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 126950927,
+  "seed": 1391320899,
   "mutation_params": null,
   "config_version": "73f86ee16ce4b5fd",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 10209
 }

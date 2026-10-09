@@ -1,38 +1,46 @@
 {
-  "hash": "11167328a03ee0e4fb98c095583214ca",
-  "parent_id": null,
-  "generation": 27,
+  "hash": "2710609c34598238ceac72f237d2f268",
+  "parent_id": 6930,
+  "generation": 9,
   "symbol": "XAUUSD",
   "timeframe": "M15",
   "direction": "short",
   "status": "BORN",
-  "creation_reason": "Gen 27 candidate exploration (filling shortfall)",
-  "mutation_type": "random_exploration",
-  "species_key": "M15|short|prev_day,regime",
+  "creation_reason": "mutation of #6930: added indicator sma:200",
+  "mutation_type": "indicator_addition",
+  "species_key": "M15|short|bb,sma",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
     "direction": "short",
     "features": [
-      "regime",
-      "prev_day"
+      "bb:20:2.5",
+      "sma:200"
     ],
     "entry_long": null,
     "entry_short": {
-      "type": "compare",
-      "left": "regime:breakout",
-      "cmp": ">",
-      "right": 0.5
+      "op": "and",
+      "clauses": [
+        {
+          "type": "compare",
+          "left": "bb_pctb:20:2.5",
+          "cmp": ">",
+          "right": 0.85
+        },
+        {
+          "type": "compare",
+          "left": "sma:200",
+          "cmp": "<",
+          "right": "close"
+        }
+      ]
     },
     "exit": {
       "atr_spec": "atr:21",
-      "sl_atr_mult": 1.9,
-      "tp_atr_mult": 2.75,
-      "trailing": {
-        "atr_mult": 2.0,
-        "activation_mult": 0.52
-      },
-      "min_hold_bars": 1,
+      "sl_atr_mult": 2.42,
+      "tp_atr_mult": 3.52,
+      "trailing": null,
+      "min_hold_bars": 2,
       "max_hold_bars": 12,
       "exit_condition": null
     },
@@ -45,13 +53,13 @@
     }
   },
   "complexity": 4,
-  "origin": "exploration",
+  "origin": "mutation",
   "hypothesis_id": null,
-  "seed": 1915821838,
+  "seed": 56340016,
   "mutation_params": null,
   "config_version": "73f86ee16ce4b5fd",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 7404
 }

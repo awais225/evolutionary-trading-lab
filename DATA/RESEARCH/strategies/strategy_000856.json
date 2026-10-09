@@ -1,50 +1,45 @@
 {
-  "hash": "5a5bcf52d57c115168e6e3cc3261b6d9",
+  "hash": "2b3d6544b3ae7aef210ea0de0ebce59d",
   "parent_id": null,
   "generation": 0,
   "symbol": "XAUUSD",
   "timeframe": "M15",
-  "direction": "both",
+  "direction": "long",
   "status": "BORN",
   "creation_reason": "generation-0 random seed",
   "mutation_type": "random_exploration",
-  "species_key": "M15|both|prev_day",
+  "species_key": "M15|long|atr",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
-    "direction": "both",
+    "direction": "long",
     "features": [
-      "prev_day"
+      "atr:21"
     ],
     "entry_long": {
       "type": "compare",
-      "left": "break_prev_day_low",
+      "left": "atr_pct:21",
       "cmp": ">",
-      "right": 0.5
+      "right": 0.282
     },
-    "entry_short": {
-      "type": "compare",
-      "left": "break_prev_day_low",
-      "cmp": ">",
-      "right": 0.5
-    },
+    "entry_short": null,
     "exit": {
       "atr_spec": "atr:21",
-      "sl_atr_mult": 2.77,
-      "tp_atr_mult": 2.69,
-      "trailing": null,
-      "min_hold_bars": 0,
-      "max_hold_bars": 144,
+      "sl_atr_mult": 2.71,
+      "tp_atr_mult": 2.01,
+      "trailing": {
+        "atr_mult": 1.46,
+        "activation_mult": 1.23
+      },
+      "min_hold_bars": 2,
+      "max_hold_bars": 96,
       "exit_condition": null
     },
     "sessions": [
-      "asia"
+      "asia",
+      "newyork"
     ],
-    "days": [
-      0,
-      1,
-      4
-    ],
+    "days": null,
     "regime_filters": null,
     "risk": {
       "risk_per_trade": 0.005,
@@ -54,11 +49,11 @@
   "complexity": 4,
   "origin": "seed",
   "hypothesis_id": null,
-  "seed": 1238026606,
+  "seed": 1226626521,
   "mutation_params": null,
-  "config_version": "8881aded8886ae26",
+  "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 856
 }

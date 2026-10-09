@@ -1,45 +1,84 @@
 {
-  "hash": "252c09d6bf05fcfcff81273cfde0a598",
-  "parent_id": 234,
-  "generation": 3,
+  "hash": "8cfb458b6ec0abfda22c2dc9323b8a5e",
+  "parent_id": null,
+  "generation": 4,
   "symbol": "XAUUSD",
   "timeframe": "M15",
   "direction": "both",
   "status": "BORN",
-  "creation_reason": "crossover of #234 x #162: crossover of features/filters/exit (6 indicators)",
-  "mutation_type": "crossover",
-  "species_key": "M15|both|bb,prev_day,roc,sma,vwap",
+  "creation_reason": "Gen 4 candidate exploration (filling shortfall)",
+  "mutation_type": "random_exploration",
+  "species_key": "M15|both|adx,ema,macd",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
     "direction": "both",
     "features": [
-      "vwap",
-      "roc:24",
-      "bb:20:2.0",
-      "sma:100",
-      "prev_day",
-      "roc:12"
+      "adx:14",
+      "macd:12:26:9",
+      "ema:20"
     ],
     "entry_long": {
-      "type": "compare",
-      "left": "break_prev_day_high",
-      "cmp": ">",
-      "right": 0.5
+      "op": "or",
+      "clauses": [
+        {
+          "type": "compare",
+          "left": "ema:20",
+          "cmp": "<",
+          "right": "close"
+        },
+        {
+          "op": "and",
+          "clauses": [
+            {
+              "type": "compare",
+              "left": "macd_hist:12:26:9",
+              "cmp": "<",
+              "right": 0.0
+            },
+            {
+              "type": "compare",
+              "left": "adx:14",
+              "cmp": ">",
+              "right": 25
+            }
+          ]
+        }
+      ]
     },
     "entry_short": {
-      "type": "compare",
-      "left": "vwap_dist",
-      "cmp": "<",
-      "right": -0.368
+      "op": "and",
+      "clauses": [
+        {
+          "type": "compare",
+          "left": "adx:14",
+          "cmp": ">",
+          "right": 30
+        },
+        {
+          "type": "compare",
+          "left": "macd_hist:12:26:9",
+          "cmp": ">",
+          "right": 0.0
+        },
+        {
+          "type": "compare",
+          "left": "ema:20",
+          "cmp": "<",
+          "right": "close"
+        }
+      ]
     },
     "exit": {
-      "atr_spec": "atr:7",
-      "sl_atr_mult": 2.94,
-      "tp_atr_mult": 1.97,
-      "trailing": null,
+      "atr_spec": "atr:10",
+      "sl_atr_mult": 1.47,
+      "tp_atr_mult": 2.87,
+      "trailing": {
+        "atr_mult": 2.48,
+        "activation_mult": 0.59
+      },
       "min_hold_bars": 2,
-      "max_hold_bars": 24,
+      "max_hold_bars": 96,
       "exit_condition": null
     },
     "sessions": null,
@@ -50,14 +89,14 @@
       "max_concurrent": 1
     }
   },
-  "complexity": 7,
-  "origin": "crossover",
+  "complexity": 6,
+  "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 977482472,
+  "seed": 965243809,
   "mutation_params": null,
   "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 2721
 }

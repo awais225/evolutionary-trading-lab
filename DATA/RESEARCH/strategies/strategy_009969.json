@@ -1,62 +1,53 @@
 {
-  "hash": "abbd165f02bfa39b7355187696119d71",
-  "parent_id": null,
-  "generation": 35,
+  "hash": "63f0f50e2a448910d93be3d587e5f6b4",
+  "parent_id": 6658,
+  "generation": 8,
   "symbol": "XAUUSD",
   "timeframe": "M15",
-  "direction": "both",
+  "direction": "short",
   "status": "BORN",
-  "creation_reason": "Gen 35 candidate exploration (filling shortfall)",
-  "mutation_type": "random_exploration",
-  "species_key": "M15|both|macd",
+  "creation_reason": "mutation of #6658: replaced bb:20:2.5 with sma:20",
+  "mutation_type": "indicator_replacement",
+  "species_key": "M15|short|sma",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
-    "direction": "both",
+    "direction": "short",
     "features": [
-      "macd:12:26:9"
+      "sma:20"
     ],
-    "entry_long": {
-      "type": "compare",
-      "left": "macd_hist:12:26:9",
-      "cmp": ">",
-      "right": 0.0
-    },
+    "entry_long": null,
     "entry_short": {
       "type": "compare",
-      "left": "macd_hist:12:26:9",
+      "left": "sma:20",
       "cmp": "<",
-      "right": 0.0
+      "right": "close"
     },
     "exit": {
-      "atr_spec": "atr:10",
-      "sl_atr_mult": 2.3,
-      "tp_atr_mult": 3.98,
+      "atr_spec": "atr:21",
+      "sl_atr_mult": 2.42,
+      "tp_atr_mult": 3.52,
       "trailing": null,
-      "min_hold_bars": 1,
-      "max_hold_bars": 24,
+      "min_hold_bars": 0,
+      "max_hold_bars": 12,
       "exit_condition": null
     },
     "sessions": null,
-    "days": [
-      0,
-      1,
-      4
-    ],
+    "days": null,
     "regime_filters": null,
     "risk": {
       "risk_per_trade": 0.005,
       "max_concurrent": 1
     }
   },
-  "complexity": 3,
-  "origin": "exploration",
+  "complexity": 2,
+  "origin": "mutation",
   "hypothesis_id": null,
-  "seed": 288942661,
+  "seed": 1958866358,
   "mutation_params": null,
   "config_version": "73f86ee16ce4b5fd",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 9969
 }

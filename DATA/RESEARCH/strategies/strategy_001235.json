@@ -1,35 +1,44 @@
 {
-  "hash": "fc18c325e16592a8b456a61e1eb2dd08",
-  "parent_id": 237,
-  "generation": 3,
+  "hash": "22d9b1c0a2dd01398a22c3070e179e76",
+  "parent_id": null,
+  "generation": 0,
   "symbol": "XAUUSD",
-  "timeframe": "M1",
-  "direction": "short",
+  "timeframe": "M15",
+  "direction": "both",
   "status": "BORN",
-  "creation_reason": "mutation of #237: timeframe M5 -> M1",
-  "mutation_type": "timeframe_mutation",
-  "species_key": "M1|short|vwap",
+  "creation_reason": "generation-0 random seed",
+  "mutation_type": "random_exploration",
+  "species_key": "M15|both|macd,rsi",
   "genome": {
     "symbol": "XAUUSD",
-    "timeframe": "M1",
-    "direction": "short",
+    "timeframe": "M15",
+    "direction": "both",
     "features": [
-      "vwap"
+      "rsi:14",
+      "macd:8:21:5"
     ],
-    "entry_long": null,
+    "entry_long": {
+      "type": "compare",
+      "left": "macd_hist:8:21:5",
+      "cmp": "<",
+      "right": 0.0
+    },
     "entry_short": {
       "type": "compare",
-      "left": "vwap_dist",
+      "left": "rsi:14",
       "cmp": "<",
-      "right": -0.359
+      "right": 25
     },
     "exit": {
       "atr_spec": "atr:7",
-      "sl_atr_mult": 2.34,
-      "tp_atr_mult": 1.74,
-      "trailing": null,
-      "min_hold_bars": 2,
-      "max_hold_bars": 24,
+      "sl_atr_mult": 0.76,
+      "tp_atr_mult": 3.44,
+      "trailing": {
+        "atr_mult": 1.21,
+        "activation_mult": 0.57
+      },
+      "min_hold_bars": 3,
+      "max_hold_bars": 12,
       "exit_condition": null
     },
     "sessions": null,
@@ -40,14 +49,14 @@
       "max_concurrent": 1
     }
   },
-  "complexity": 2,
-  "origin": "mutation",
+  "complexity": 4,
+  "origin": "seed",
   "hypothesis_id": null,
-  "seed": 539734036,
+  "seed": 731762570,
   "mutation_params": null,
-  "config_version": "8881aded8886ae26",
+  "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 1235
 }

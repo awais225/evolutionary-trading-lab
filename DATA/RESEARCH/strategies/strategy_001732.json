@@ -1,36 +1,54 @@
 {
-  "hash": "94aca26dfb5a1aa3328df87c98212956",
-  "parent_id": 162,
-  "generation": 2,
+  "hash": "48d202283b61eec5832ef0304a393069",
+  "parent_id": 1205,
+  "generation": 1,
   "symbol": "XAUUSD",
   "timeframe": "M15",
-  "direction": "long",
+  "direction": "both",
   "status": "BORN",
-  "creation_reason": "mutation of #162: removed indicator sma:100 (simplification)",
-  "mutation_type": "indicator_removal",
-  "species_key": "M15|long|prev_day,roc",
+  "creation_reason": "crossover of #1205 x #924: crossover of features/filters/exit (4 indicators)",
+  "mutation_type": "crossover",
+  "species_key": "M15|both|bb,cci,regime,stoch",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
-    "direction": "long",
+    "direction": "both",
     "features": [
-      "roc:12",
-      "prev_day"
+      "regime",
+      "cci:20",
+      "bb:20:2.5",
+      "stoch:9:3"
     ],
     "entry_long": {
+      "op": "and",
+      "clauses": [
+        {
+          "type": "compare",
+          "left": "cci:20",
+          "cmp": "<",
+          "right": -50
+        },
+        {
+          "type": "compare",
+          "left": "regime:breakout",
+          "cmp": ">",
+          "right": 0.5
+        }
+      ]
+    },
+    "entry_short": {
       "type": "compare",
-      "left": "break_prev_day_high",
+      "left": "regime:low_volatility",
       "cmp": ">",
       "right": 0.5
     },
-    "entry_short": null,
     "exit": {
-      "atr_spec": "atr:10",
-      "sl_atr_mult": 2.88,
-      "tp_atr_mult": 1.97,
+      "atr_spec": "atr:21",
+      "sl_atr_mult": 1.55,
+      "tp_atr_mult": 2.93,
       "trailing": null,
       "min_hold_bars": 0,
-      "max_hold_bars": 144,
+      "max_hold_bars": 12,
       "exit_condition": null
     },
     "sessions": null,
@@ -41,14 +59,14 @@
       "max_concurrent": 1
     }
   },
-  "complexity": 3,
-  "origin": "mutation",
+  "complexity": 6,
+  "origin": "crossover",
   "hypothesis_id": null,
-  "seed": 227544287,
+  "seed": 1698152883,
   "mutation_params": null,
   "config_version": "664c0d10a49d16b0",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 1732
 }

@@ -1,68 +1,72 @@
 {
-  "hash": "eff131737bb498297f8b6c252f9f3288",
+  "hash": "cd42e569dc30e35a0d33532a08873bd6",
   "parent_id": null,
-  "generation": 38,
+  "generation": 22,
   "symbol": "XAUUSD",
   "timeframe": "M15",
   "direction": "long",
   "status": "BORN",
-  "creation_reason": "Gen 38 candidate exploration (filling shortfall)",
+  "creation_reason": "Gen 22 candidate exploration (filling shortfall)",
   "mutation_type": "random_exploration",
-  "species_key": "M15|long|ema,prev_day",
+  "species_key": "M15|long|atr,regime",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
     "direction": "long",
     "features": [
-      "ema:20",
-      "prev_day"
+      "regime",
+      "atr:14"
     ],
     "entry_long": {
       "op": "and",
       "clauses": [
         {
           "type": "compare",
-          "left": "ema:20",
-          "cmp": "<",
-          "right": "close"
+          "left": "atr_pct:14",
+          "cmp": ">",
+          "right": 0.276
         },
         {
           "type": "compare",
-          "left": "break_prev_day_high",
-          "cmp": ">",
-          "right": 0.5
+          "left": "atr_pct:14",
+          "cmp": "<",
+          "right": 0.127
         }
       ]
     },
     "entry_short": null,
     "exit": {
       "atr_spec": "atr:14",
-      "sl_atr_mult": 1.77,
-      "tp_atr_mult": 0.88,
+      "sl_atr_mult": 1.5,
+      "tp_atr_mult": 1.44,
       "trailing": null,
-      "min_hold_bars": 0,
+      "min_hold_bars": 2,
       "max_hold_bars": 72,
       "exit_condition": null
     },
     "sessions": [
-      "asia",
+      "newyork",
       "london"
     ],
-    "days": null,
+    "days": [
+      1,
+      3,
+      4
+    ],
     "regime_filters": null,
     "risk": {
       "risk_per_trade": 0.005,
       "max_concurrent": 1
     }
   },
-  "complexity": 5,
+  "complexity": 6,
   "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 1480133636,
+  "seed": 808940084,
   "mutation_params": null,
   "config_version": "73f86ee16ce4b5fd",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 10732
 }

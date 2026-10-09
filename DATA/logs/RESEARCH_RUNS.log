@@ -100,3 +100,6 @@
 {"timestamp": "2026-10-05 04:56:31 UTC", "ts": 1791176191.683268, "event": "NEW_RUN", "run_id": "RUN-ACCEPTANCE-001", "details": {"target": 500}}
 {"timestamp": "2026-10-05 05:52:51 UTC", "ts": 1791179571.427352, "event": "NEW_RUN", "run_id": "RUN-20261005-055251", "details": {"target": 5000, "experiment_id": "EXP-XAUUSD-M15"}}
 {"timestamp": "2026-10-05 05:54:00 UTC", "ts": 1791179640.374127, "event": "COMPLETED", "run_id": "RUN-20261005-055251", "details": {"target": 5000, "total_nodes": 5000}}
+{"timestamp": "2026-10-09 05:17:20 UTC", "ts": 1791523040.584576, "event": "NEW_RUN", "run_id": "RUN-20261009-051720", "details": {"target": 5000, "experiment_id": "EXP-XAUUSD-M15"}}
+{"timestamp": "2026-10-09 05:17:20 UTC", "ts": 1791523040.641232, "event": "RESUME_RUN", "run_id": "RUN-20261009-051720", "details": {"target": 5000, "experiment_id": "EXP-XAUUSD-M15"}}
+{"timestamp": "2026-10-09 05:19:23 UTC", "ts": 1791523163.446874, "event": "COMPLETED", "run_id": "RUN-20261009-051720", "details": {"target": 5000, "total_nodes": 5000}}

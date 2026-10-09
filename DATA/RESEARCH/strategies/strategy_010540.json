@@ -1,53 +1,48 @@
 {
-  "hash": "4d96b708bb6ee0d1f3ffbda2e2e3da19",
+  "hash": "6b44ec251ea17351d91c99eaf1b8b370",
   "parent_id": null,
-  "generation": 37,
+  "generation": 22,
   "symbol": "XAUUSD",
   "timeframe": "M15",
-  "direction": "long",
+  "direction": "short",
   "status": "BORN",
-  "creation_reason": "Gen 37 candidate exploration (filling shortfall)",
+  "creation_reason": "Gen 22 random exploration birth",
   "mutation_type": "random_exploration",
-  "species_key": "M15|long|cci,stoch",
+  "species_key": "M15|short|macd,volume",
   "genome": {
     "symbol": "XAUUSD",
     "timeframe": "M15",
-    "direction": "long",
+    "direction": "short",
     "features": [
-      "stoch:14:3",
-      "cci:34"
+      "macd:8:21:5",
+      "volume:20"
     ],
-    "entry_long": {
-      "op": "and",
-      "clauses": [
-        {
-          "type": "crossover",
-          "a": "stoch_k:14:3",
-          "b": "stoch_d:14:3",
-          "dir": "up"
-        },
-        {
-          "type": "compare",
-          "left": "cci:34",
-          "cmp": ">",
-          "right": 200
-        }
-      ]
+    "entry_long": null,
+    "entry_short": {
+      "type": "compare",
+      "left": "relvol:20",
+      "cmp": ">",
+      "right": 1.79
     },
-    "entry_short": null,
     "exit": {
-      "atr_spec": "atr:7",
-      "sl_atr_mult": 0.75,
-      "tp_atr_mult": 4.48,
-      "trailing": null,
-      "min_hold_bars": 2,
-      "max_hold_bars": 12,
+      "atr_spec": "atr:14",
+      "sl_atr_mult": 2.12,
+      "tp_atr_mult": 1.79,
+      "trailing": {
+        "atr_mult": 2.73,
+        "activation_mult": 1.51
+      },
+      "min_hold_bars": 3,
+      "max_hold_bars": 24,
       "exit_condition": null
     },
-    "sessions": [
-      "newyork"
+    "sessions": null,
+    "days": [
+      0,
+      1,
+      2,
+      4
     ],
-    "days": null,
     "regime_filters": null,
     "risk": {
       "risk_per_trade": 0.005,
@@ -57,11 +52,11 @@
   "complexity": 5,
   "origin": "exploration",
   "hypothesis_id": null,
-  "seed": 1179319144,
+  "seed": 265861095,
   "mutation_params": null,
   "config_version": "73f86ee16ce4b5fd",
   "software_version": "3.6",
-  "run_id": "RUN-20261005-055251",
+  "run_id": "RUN-20261009-051720",
   "data_source": "USER_RESEARCH",
   "id": 10540
 }
