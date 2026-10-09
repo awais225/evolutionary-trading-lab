@@ -484,8 +484,33 @@ Docs/meta: V6_4_REPORT.md (this file), lmsarena.txt (entry), chatgpt.txt
 [ ] 8. Re-run CHECK_MT5_WINDOWS.bat after the session: identity still V6.4.
 
 ---------------------------------------------------------------------------
-12. GIT PUBLICATION
+12. GIT PUBLICATION (record filled after the push — the chain is verifiable)
 ---------------------------------------------------------------------------
-(Publication record appended below after the push — see the bottom of this
-file; the fingerprint entry in BUILD_FINGERPRINTS.json carries the release
-commit SHA once it exists.)
+Release content commit  : 1e47735d171877dc13b845a528cb3126501109fb
+                          "V6.4: fix execution, identity, metrics and live
+                          testing" (43 files: source, tests, docs, fingerprint)
+Fingerprint identity    : BUILD_FINGERPRINTS.json entry V6.4 names commit
+                          1e47735d… (recorded with build_fingerprints.py
+                          --record --release V6.4 --commit 1e47735d… after
+                          the commit existed — never a commit that did not
+                          exist yet); recorded hashes describe the delivered
+                          build (src 300f7ef19b868f86…, code 100e3cb7497f7c62…,
+                          index f2ac507b7c2639c2…), verified with --match
+                          AFTER the commit ("FINGERPRINT_MATCH: V6.4").
+Fingerprint naming commit: 4cdac2c280df7a6b8be4a042f356be4b66203c22
+                          "docs: V6.4 fingerprint names the release commit"
+Push                    : git push origin main — SUCCESS
+                          (e4700493..4cdac2c2 main -> main; secure GIT_ASKPASS
+                          credential helper; no token in any URL, file or log)
+Verified remote main    : refs/heads/main = 4cdac2c280df7a6b8be4a042f356be4b66203c22
+                          (git ls-remote origin — identical to local HEAD)
+Working tree            : clean after the publication-record commit (git
+                          status: nothing to commit); zero DATA changes in any
+                          commit of this release.
+
+Chain summary: e4700493 (V6.3 baseline)
+  -> 1e47735d (V6.4 release content)
+  -> 4cdac2c2 (fingerprint names 1e47735d)   [origin/main at push time]
+  -> final publication-record commit (this file + lmsarena.txt push record;
+     the exact SHA is the verified remote main printed by git ls-remote and
+     recorded in lmsarena.txt's push-result block).

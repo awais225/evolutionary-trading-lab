@@ -5237,3 +5237,17 @@ broker-side claim is fixture/API evidence only. PENDING WINDOWS MT5
 VERIFICATION checklist: see V6_4_REPORT.md §11 (pip spec check, demo order
 with SL 100 pips = $1.00, result fields visible, identity navigation,
 START/STOP/STOP ALL with two nodes, position CLOSE/CLOSE ALL flows).
+
+V6.4 GIT HASH / PUSH RESULT
+  release content commit : 1e47735d171877dc13b845a528cb3126501109fb
+                           "V6.4: fix execution, identity, metrics and live testing"
+  fingerprint commit     : 4cdac2c280df7a6b8be4a042f356be4b66203c22
+                           "docs: V6.4 fingerprint names the release commit"
+                           (BUILD_FINGERPRINTS.json V6.4 entry names 1e47735d,
+                           recorded AFTER it existed; --match = V6.4)
+  push                   : git push origin main — SUCCESS
+                           (e4700493..4cdac2c2; then the publication-record
+                           commit containing THIS block and V6_4_REPORT.md §12;
+                           verified remote refs/heads/main == local HEAD by
+                           git ls-remote after each push)
+  working tree           : clean; zero DATA changes in any V6.4 commit.
