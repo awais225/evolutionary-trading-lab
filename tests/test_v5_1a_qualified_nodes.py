@@ -109,13 +109,16 @@ def test_05_index_reports_the_current_experiment_and_its_numbering(client):
     exp = d["experiment"]
     assert exp["run_id"], "the index must name the experiment it describes"
     assert exp["population"] >= d["total"]
-    assert "experiment-local" in exp["node_numbering"]
+    assert "database row id" in exp["node_numbering"] and "research" in exp["node_numbering"]
     assert exp["next_node_number"] == exp["node_number_range"][1] + 1
     # node numbers are per-experiment, so they never exceed the population
     if d["nodes"]:
         row = d["nodes"][0]
         assert 1 <= int(row["research_node_num"]) <= exp["population"]
-        assert row["node_label"] == f"Node_{row['research_node_num']}"
+        # V6.4 identity contract: canonical = database id ("Node #<id>"), the
+        # study-local number is the labeled secondary ("research #<num>").
+        assert row["node_label"] == f"Node #{row['node_id']}"
+        assert row["research_label"] == f"research #{row['research_node_num']}"
         assert row["experiment"] == exp["run_id"]
 
 

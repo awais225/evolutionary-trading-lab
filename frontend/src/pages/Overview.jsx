@@ -1088,13 +1088,13 @@ export default function Overview() {
             <table className="tbl">
               <thead>
                 <tr>
-                  <th onClick={() => handleSort("id")} style={{ cursor: "pointer" }}>id{sortArrow("id")}</th>
+                  <th onClick={() => handleSort("id")} style={{ cursor: "pointer" }}>node (canonical · research){sortArrow("id")}</th>
                   <th>status</th>
                   <th onClick={() => handleSort("generation")} style={{ cursor: "pointer" }}>gen{sortArrow("generation")}</th>
                   <th>tf</th>
                   <th onClick={() => handleSort("fitness")} style={{ cursor: "pointer" }}>fitness{sortArrow("fitness")}</th>
-                  <th onClick={() => handleSort("pf")} style={{ cursor: "pointer" }}>PF{sortArrow("pf")}</th>
-                  <th onClick={() => handleSort("return_pct")} style={{ cursor: "pointer" }}>return{sortArrow("return_pct")}</th>
+                  <th onClick={() => handleSort("pf")} style={{ cursor: "pointer" }} title="Profit factor = gross profit ÷ gross loss (a RATIO: 2.91, never a percentage)">PF (ratio){sortArrow("pf")}</th>
+                  <th onClick={() => handleSort("return_pct")} style={{ cursor: "pointer" }} title="Total return on initial capital (percentage: 6.71%)">return %{sortArrow("return_pct")}</th>
                   <th onClick={() => handleSort("dd")} style={{ cursor: "pointer" }}>DD{sortArrow("dd")}</th>
                   <th onClick={() => handleSort("trades")} style={{ cursor: "pointer" }}>trades{sortArrow("trades")}</th>
                   <th>qualification / survival evidence</th>
@@ -1103,7 +1103,9 @@ export default function Overview() {
               <tbody>
                 {sortedTop.map((s) => (
                   <tr key={s.id} onClick={() => openStrategy(s.id)}>
-                    <td className="mono">#{s.id}</td>
+                    <td className="mono">Node #{s.id}
+                      {s.research_node_num ? <span className="muted" style={{ fontSize: 10 }} title="study-local display number"> · research #{s.research_node_num}</span> : null}
+                    </td>
                     <td><Pill status={s.status} /></td>
                     <td>{s.generation}</td>
                     <td>{s.timeframe}</td>

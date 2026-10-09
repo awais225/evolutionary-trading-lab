@@ -293,22 +293,42 @@ export function fmtId(id) {
   return n === null ? NA_TEXT : `Node_${n}`;
 }
 
-/* V5.3 §4 — the STUDY-LOCAL node identity.
+/* V6.4 — ONE node-identity contract for the entire product.
  *
- * `research_node_num` is the experiment-local number: it restarts at 1 for every
- * new study. The database row id is the internal audit key — it is NOT a node's
- * identity, and after "delete all previous data" the allocator restarts, so a row
- * id would otherwise show a node "continuing" the deleted study's numbering.
- * Everything that labels a node uses this helper, so the number the operator
- * reads and the number the backend counts are the same one. */
+ * The CANONICAL identity of a node is its database primary key (`id` /
+ * `node_id`) — the key every API URL, worker, live-testing config and navigation
+ * target already uses. It is displayed as `Node #<id>`.
+ *
+ * `research_node_num` is the study-local DISPLAY number assigned when the node
+ * was created inside its experiment (run_id). It is a secondary label, always
+ * rendered as `research #<num>` so it can never be mistaken for the canonical
+ * identity — the two namespaces overlap (the study has both `id=6658` and a
+ * different node whose research number is 6658), which is exactly how "node
+ * #6658" ended up pointing at different nodes on different pages.
+ *
+ * `generation` and `node_label` are descriptive fields, never identity.
+ * Everything that labels a node uses these helpers, so the number the operator
+ * reads, the row that opens, and the id the backend acts on are the same node. */
 export function nodeIdentity(row) {
   if (row === null || row === undefined) return null;
   if (typeof row === "number") return row;
-  const local = parseNodeId(row.research_node_num ?? row.node_number);
-  return local === null ? parseNodeId(row.id ?? row.node_id) : local;
+  const canonical = parseNodeId(row.id ?? row.node_id ?? row.strategy_id);
+  return canonical === null ? parseNodeId(row.research_node_num ?? row.node_number) : canonical;
 }
 
 export function nodeLabel(row) {
   const n = nodeIdentity(row);
-  return n === null ? NA_TEXT : `Node_${n}`;
+  return n === null ? NA_TEXT : `Node #${n}`;
+}
+
+export function researchLabel(row) {
+  if (row === null || row === undefined || typeof row === "number") return null;
+  const local = parseNodeId(row.research_node_num ?? row.node_number);
+  return local === null ? null : `research #${local}`;
+}
+
+export function nodeLabelFull(row) {
+  const primary = nodeLabel(row);
+  const secondary = researchLabel(row);
+  return secondary ? `${primary} · ${secondary}` : primary;
 }

@@ -154,8 +154,22 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
   const act = async (row, action) => {
     setBusyId(row.node_id); setMsg(null); setErr(null);
     try {
+      // V6.4 §5/§6 — START submits the canonical node id AND the selected
+      // schedule (what this row is displaying is what gets sent and enforced).
+      const sched = objOrNull(row?.schedule) || null;
+      const schedulePayload = sched && (sched.days || sched.sessions || sched.timeframes
+        || sched.windows || sched.timezone)
+        ? {
+            days: sched.days ?? null,
+            sessions: sched.sessions ?? null,
+            timeframes: sched.timeframes ?? null,
+            windows: sched.windows ?? null,
+            timezone: sched.timezone || "UTC",
+            enabled: sched.enabled ?? null,
+          }
+        : null;
       const res = action === "start"
-        ? await api.liveTestingStartNode(row.node_id)
+        ? await api.liveTestingStartNode(row.node_id, schedulePayload)
         : await api.liveTestingStopNode(row.node_id);
       // V6 — the button only ever reflects BACKEND-confirmed worker state. The
       // UI never flips START -> STOP on its own: load() below re-reads the table
@@ -164,13 +178,34 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
       const confirmed = action === "start"
         ? (res?.worker_running === true || worker.running === true)
         : (res?.worker_stopped === true || worker.running === false);
-      setMsg(`${txt(row.node_label, `Node_${row.node_id}`)}: ${
+      const schedNote = res?.schedule_source ? ` — schedule: ${res.schedule_source} (${txt(res?.schedule_timezone, "UTC")})` : "";
+      setMsg(`${txt(row.node_label, `Node #${row.node_id}`)}${row.research_label ? ` · ${row.research_label}` : ""}: ${
         action === "start"
           ? (confirmed ? "STARTED — live-testing worker running (backend-confirmed)"
                        : "START requested — worker NOT confirmed running")
           : (confirmed ? "STOPPED — live-testing worker stopped (backend-confirmed)"
                        : "STOP requested — worker NOT confirmed stopped")
-      } — ${txt(res?.note, "")}`);
+      }${schedNote} — ${txt(res?.note, "")}`);
+      await load();
+      if (onRiskChanged) onRiskChanged();
+    } catch (e) {
+      // SCHEDULE_REQUIRED (409): no provenance exists — require a deliberate
+      // selection instead of an invented default; open the editor for it.
+      const detail = e?.detail || e?.data || {};
+      if (detail?.code === "SCHEDULE_REQUIRED") {
+        setErr({ message: `${detail.message || "a deliberate schedule selection is required"} — open the node's Schedule to select days/sessions/timeframes.` });
+        setScheduleFor(row.node_id);
+      } else {
+        setErr(e);
+      }
+    } finally { setBusyId(null); }
+  };
+
+  const stopAll = async () => {
+    setBusyId("__all__"); setMsg(null); setErr(null);
+    try {
+      const res = await api.liveTestingStopAll("operator STOP ALL");
+      setMsg(`STOP ALL: ${txt(res?.stopped, 0)} worker(s) stopped and confirmed, ${txt(res?.unenrolled_nodes, 0)} node(s) un-enrolled — positions_touched: false (open broker positions remain until closed explicitly).`);
       await load();
       if (onRiskChanged) onRiskChanged();
     } catch (e) {
@@ -274,6 +309,10 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
         <button className="btn ghost" onClick={load} disabled={loading}>
           {loading ? "loading…" : "Reload"}
         </button>
+        <button className="btn danger" onClick={stopAll} disabled={busyId !== null}
+                title="cancel EVERY node's live-testing worker (positions are never touched)">
+          {busyId === "__all__" ? "stopping…" : "STOP ALL"}
+        </button>
       </div>
 
       {err && <div className="kit-inline-err">{err.message || String(err)}</div>}
@@ -311,7 +350,8 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
               const risk = objOrNull(r.risk) || {};
               const bucket = txt(r.bucket, "unknown");
               const bcov = objOrNull(r.backtest_coverage) || {};
-              const label = txt(r.node_label, `Node_${r.node_id}`);
+              const label = txt(r.node_label, `Node #${r.node_id}`);
+              const rlabel = txt(r.research_label, "");
               return (
                 <React.Fragment key={r.node_id}>
                   <tr>
@@ -323,12 +363,12 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
                       </button>
                     </td>
                     <td className="mono">
-                      <a href="#" title={`internal row id ${r.node_id}`}
+                      <a href="#" title={`canonical node id ${r.node_id}${rlabel ? ` (${rlabel} — study-local display number)` : ""}`}
                          onClick={(e) => {
                            e.preventDefault();
                            if (onOpenNode) onOpenNode(r.node_id);
                            setDetail(detail === r.node_id ? null : r.node_id);
-                         }}>{label}</a>
+                         }}>{label}{rlabel ? <span className="muted" style={{ fontSize: 10 }}> · {rlabel}</span> : null}</a>
                     </td>
                     <td>
                       <Badge tone={BUCKET_TONE[bucket] || "mute"}>{txt(r.bucket_label, bucket)}</Badge>
@@ -355,9 +395,10 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
                               onClick={() => setScheduleFor(r.node_id)}>
                         {sched.configured ? (sched.enabled === false ? "disabled" : "edit") : "default"}
                       </button>
+                      <span className="muted" style={{ fontSize: 10 }}> {txt(sched.timezone, "UTC")}</span>
                     </td>
                     <td className="mono" style={{ fontSize: 11 }}>
-                      {txt(live.status, "IDLE")}
+                      {txt((objOrNull(r.worker) || {}).state || live.status, "IDLE")}
                       <span className="muted"> · {n0(live.closed)}/{n0(live.trades)}</span>
                     </td>
                     <td>
@@ -388,8 +429,8 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
                         {/* §9 — the node's actual research record. Nothing here is
                             recalculated in the browser: it is the row the API served. */}
                         <div className="kit-grid" style={{ fontSize: 11.5 }}>
-                          <div className="kit-kv"><span className="k">Node / row id</span>
-                            <span className="mono">{label} · #{txt(r.node_id)}</span></div>
+                          <div className="kit-kv"><span className="k">Node (canonical id / research #)</span>
+                            <span className="mono">{label}{rlabel ? ` · ${rlabel}` : ""}</span></div>
                           <div className="kit-kv"><span className="k">Experiment</span>
                             <span className="mono">{txt(r.experiment, experimentId(exp))}</span></div>
                           <div className="kit-kv"><span className="k">Generation / parent</span>

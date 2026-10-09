@@ -3,7 +3,7 @@ import { fmt } from "../api.js";
 import { Card, Spinner } from "./common.jsx";
 import { NA, money, pct, ratio } from "./NodeResearchDetail.jsx";
 import { txt } from "../lib/safe.js";
-import { nodeLabel } from "./ui.jsx";
+import { nodeLabel, nodeLabelFull } from "./ui.jsx";
 
 /* V4.5 Backtest Matrix — comparison table over stored research results.
  *
@@ -48,9 +48,10 @@ function cell(value, column, row) {
     return ratio(value, key === "expectancy" ? 4 : 3);
   }
   if (key === "validation_passed" || key === "qualified") return value ? "YES" : "NO";
-  // V5.3 §4 — the node identity is the study-local number (research_node_num),
-  // never the row id: the id allocator restarts after "delete all previous data".
-  if (key === "id") return <span className="mono">{nodeLabel(row || value)}</span>;
+  // V6.4 identity contract — the canonical identity is the database row id,
+  // labeled "Node #<id>"; the study-local number is the explicitly-labeled
+  // secondary "research #<num>" (ui.jsx nodeLabel/nodeLabelFull).
+  if (key === "id") return <span className="mono">{nodeLabelFull(row || value)}</span>;
   if (key === "generation") return <span className="mono">G{value}</span>;
   if (typeof value === "number") return <span className="mono">{fmt.num(value, 0)}</span>;
   return <span className="mono">{String(value)}</span>;

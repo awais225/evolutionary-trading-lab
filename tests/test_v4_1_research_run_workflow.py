@@ -212,7 +212,14 @@ def test_state_exposes_run_identity_and_counts():
                 "legacy_notice", "operation"):
         assert key in st, key
     assert st["user_research_nodes"] > 0
-    assert st["legacy_test_nodes"] > 0
+    # the legacy count is EXACT: it must report the study's real LEGACY_TEST
+    # population (787 on the operator's mixed study; 0 in a user-research-only
+    # snapshot — never a hidden or invented number)
+    from app.db.database import get_db
+    n_legacy = get_db().q(
+        "SELECT COUNT(*) AS n FROM strategies WHERE data_source='LEGACY_TEST'")[0]["n"]
+    assert st["legacy_test_nodes"] == n_legacy, \
+        (st["legacy_test_nodes"], n_legacy)
     assert st["configured_fresh_target"] > 0
     assert st["run_id"]
     assert st["operation"]["busy"] is False

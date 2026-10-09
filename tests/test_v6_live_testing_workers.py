@@ -31,16 +31,32 @@ LiveTestBridge = _v43.LiveTestBridge
 
 
 class _StubEngine:
-    """Just enough engine surface for a worker cycle (no nodes -> idle cycle)."""
+    """Just enough engine surface for a worker cycle.
+
+    V6.4 contract: a worker whose node is absent from ``eligible_nodes()`` has
+    nothing to evaluate and COMPLETES (it never idles forever doing nothing).
+    These are lifecycle tests, so the stub models an ENROLLED node (as the API
+    START route guarantees before it asks for a worker) and evaluates it as a
+    harmless no-op — the tests assert lifecycle facts, never trading.
+    """
+
+    def __init__(self):
+        self.enrolled = set()
+        self.evaluated = []
+
+    def enroll(self, *ids):
+        self.enrolled.update(int(i) for i in ids)
 
     def eligible_nodes(self):
-        return []
+        return [{"id": i, "node_id": i, "strategy_id": i,
+                 "genome": {}, "config": {"is_active": 1, "enabled": True}}
+                for i in sorted(self.enrolled)]
 
     def _bridge_connected(self, bridge=None):
         return True
 
     def _evaluate_node(self, node, bridge, frames):
-        raise AssertionError("no node should be evaluated in these lifecycle tests")
+        self.evaluated.append(int(node.get("id")))
 
 
 @pytest.fixture()
@@ -63,6 +79,7 @@ def stub_engine(monkeypatch):
 # 1 — START creates a real worker and CONFIRMS it is running
 # =========================================================================== #
 def test_01_start_creates_a_worker_that_is_confirmed_running(clean_manager, stub_engine):
+    stub_engine.enroll(101)                       # the API enrolls before it starts
     res = clean_manager.start_worker(101, interval_s=0.02)
     assert res["ok"] is True and res["already_running"] is False
     w = res["worker"]
@@ -75,12 +92,13 @@ def test_01_start_creates_a_worker_that_is_confirmed_running(clean_manager, stub
 # 2 — duplicate START: ONE worker only, existing state returned
 # =========================================================================== #
 def test_02_duplicate_start_never_creates_a_second_worker(clean_manager, stub_engine):
+    stub_engine.enroll(102)
     first = clean_manager.start_worker(102, interval_s=0.02)
     assert first["ok"] is True
 
     def live_workers():
         return [t for t in threading.enumerate()
-                if t.name == "live-test-node-102" and t.is_alive()]
+                if t.name.startswith(f"LiveTestWorker-102") and t.is_alive()]
 
     assert len(live_workers()) == 1
     second = clean_manager.start_worker(102, interval_s=0.02)
@@ -95,6 +113,7 @@ def test_02_duplicate_start_never_creates_a_second_worker(clean_manager, stub_en
 # 3 — STOP cancels the worker, confirms it stopped, and is idempotent
 # =========================================================================== #
 def test_03_stop_cancels_the_worker_and_is_idempotent(clean_manager, stub_engine):
+    stub_engine.enroll(103)
     clean_manager.start_worker(103, interval_s=0.02)
     res = clean_manager.stop_worker(103)
     assert res["ok"] is True and res["already_stopped"] is False
@@ -111,8 +130,9 @@ def test_03_stop_cancels_the_worker_and_is_idempotent(clean_manager, stub_engine
 # 4 — backend state is authoritative (what a page refresh would read)
 # =========================================================================== #
 def test_04_worker_state_reconstructed_from_the_backend(clean_manager, stub_engine):
+    stub_engine.enroll(104)
     st = clean_manager.state(104)
-    assert st["state"] == "STOPPED" and st["running"] is False   # never started
+    assert st["state"] == "IDLE" and st["running"] is False    # never started (V6.4 vocabulary)
     clean_manager.start_worker(104, interval_s=0.02)
     st = clean_manager.state(104)                                # "refresh"
     assert st["state"] == "RUNNING" and st["running"] is True
@@ -125,12 +145,13 @@ def test_04_worker_state_reconstructed_from_the_backend(clean_manager, stub_engi
 # 5 — a node can never have two simultaneous live-testing workers
 # =========================================================================== #
 def test_05_a_node_never_has_two_simultaneous_workers(clean_manager, stub_engine):
+    stub_engine.enroll(105)
     clean_manager.start_worker(105, interval_s=0.02)
     for _ in range(3):
         res = clean_manager.start_worker(105, interval_s=0.02)
         assert res["already_running"] is True
     live = [w for w in threading.enumerate()
-            if w.name == "live-test-node-105" and w.is_alive()]
+            if w.name.startswith("LiveTestWorker-105") and w.is_alive()]
     assert len(live) == 1
 
 
@@ -210,11 +231,19 @@ def _node(db, node_id: int):
 
 def test_07_api_start_confirms_the_worker_and_stop_confirms_it_stopped(db, live_cfg, api):
     _node(db, 61)
-    res = api.post("/api/live-testing/nodes/61/start", json={"confirmed": True})
+    # V6.4 contract: with no schedule provenance the operator must select
+    # deliberately — a bare symbol/timeframe genome is not provenance
+    refused = api.post("/api/live-testing/nodes/61/start", json={"confirmed": True})
+    assert refused.status_code == 409 and refused.json()["detail"]["code"] == "SCHEDULE_REQUIRED"
+    res = api.post("/api/live-testing/nodes/61/start",
+                   json={"confirmed": True,
+                         "schedule": {"days": [0, 1, 2, 3, 4], "sessions": ["london"],
+                                      "timeframes": ["M15"], "timezone": "UTC"}})
     assert res.status_code == 200, res.text
     body = res.json()
     assert body["is_active"] is True
     assert body["worker"]["state"] == "RUNNING" and body["worker_running"] is True
+    assert body["schedule_resolved"]["days"] == [0, 1, 2, 3, 4]   # displayed == submitted
 
     # "refresh" — the table/state the frontend rebuilds from
     st = api.get("/api/live-testing/nodes/61/worker").json()
@@ -232,14 +261,18 @@ def test_07_api_start_confirms_the_worker_and_stop_confirms_it_stopped(db, live_
 
 def test_08_api_duplicate_start_returns_the_existing_worker(db, live_cfg, api):
     _node(db, 62)
-    first = api.post("/api/live-testing/nodes/62/start", json={"confirmed": True}).json()
+    sched = {"days": [0, 1, 2, 3, 4], "sessions": ["london"], "timeframes": ["M15"],
+             "timezone": "UTC"}
+    first = api.post("/api/live-testing/nodes/62/start",
+                     json={"confirmed": True, "schedule": sched}).json()
 
     def live_workers():
         return [t for t in threading.enumerate()
-                if t.name == "live-test-node-62" and t.is_alive()]
+                if t.name.startswith("LiveTestWorker-62") and t.is_alive()]
 
     assert len(live_workers()) == 1
-    second = api.post("/api/live-testing/nodes/62/start", json={"confirmed": True}).json()
+    second = api.post("/api/live-testing/nodes/62/start",
+                      json={"confirmed": True, "schedule": sched}).json()
     assert second["ok"] is True and second["already_running"] is True
     assert second["worker"]["started_at"] == first["worker"]["started_at"]
     assert len(live_workers()) == 1, "a duplicate START must never create a second worker thread"
@@ -256,9 +289,12 @@ def test_09_the_nodes_table_rows_carry_the_backend_worker_state(db, live_cfg, ap
     table = api.get("/api/live-testing/nodes-table").json()
     rows = {r["node_id"]: r for r in table.get("nodes", table.get("rows", []))}
     assert 63 in rows
-    assert rows[63]["worker"]["state"] == "STOPPED"
+    assert rows[63]["worker"]["state"] == "IDLE"        # never started (V6.4 vocabulary)
 
-    api.post("/api/live-testing/nodes/63/start", json={"confirmed": True})
+    api.post("/api/live-testing/nodes/63/start",
+             json={"confirmed": True,
+                   "schedule": {"days": [0, 1, 2, 3, 4], "sessions": ["london"],
+                                "timeframes": ["M15"], "timezone": "UTC"}})
     table = api.get("/api/live-testing/nodes-table").json()
     rows = {r["node_id"]: r for r in table.get("nodes", table.get("rows", []))}
     assert rows[63]["worker"]["running"] is True

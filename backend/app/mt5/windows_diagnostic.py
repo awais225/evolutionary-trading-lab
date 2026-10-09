@@ -574,8 +574,10 @@ def _probe_order_check(mt5: Any, symbol: str, sym: Dict[str, Any], tick: Dict[st
     price = float(tick.get("ask") or 0.0)
     point = float(sym.get("point") or 0.0)
     digits = int(sym.get("digits") or 2)
-    # the panel's own default stop distance, in the broker's price units
-    pip_size = point * 10.0 if point else 0.0
+    # V6.4 — the one digits rule (MT5_BRIDGE_DETAILS.txt): a pip is 10 points on
+    # 3/5-digit symbols, 1 point on 2/4-digit symbols. Never "point x 10".
+    from ..backtest.symbol_specs import pip_size_from_digits
+    pip_size = pip_size_from_digits(digits, point) or 0.0
     sl = round(price - pip_stop_pips * pip_size, digits) if pip_size else None
     try:
         request = build_market_order_request(

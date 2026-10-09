@@ -2157,12 +2157,41 @@ def post_mt5_manual_order(body: Dict = Body(...)) -> Dict:
         )
 
     si = b.symbol_info(symbol)
-    digits = getattr(si, "digits", 2 if ("XAU" in symbol or "JPY" in symbol) else 5)
-    point = getattr(si, "point", 0.01 if ("XAU" in symbol or "JPY" in symbol) else 0.00001)
+    # V6.4 (MT5_BRIDGE_DETAILS.txt) — digits/point come from the broker's own
+    # symbol_info. There is NO symbol-name fallback: if the specification cannot
+    # be read, the pip convention is UNESTABLISHED and the order is refused with
+    # a clear diagnostic instead of being sized with a guessed conversion.
+    digits = getattr(si, "digits", None) if si is not None else None
+    point = getattr(si, "point", None) if si is not None else None
+    tick_size = (getattr(si, "trade_tick_size", None) or point) if si is not None else None
+    stops_level_points = getattr(si, "trade_stops_level", 0) if si is not None else 0
+    freeze_level_points = getattr(si, "freeze_level", 0) if si is not None else 0
 
-    # A pip is 10 points on 3/5-digit symbols, 1 point on 2/4-digit symbols —
-    # always derived from the symbol's own digits (never hardcoded).
-    pip_size = 10.0 * point if digits in (3, 5) else 1.0 * point
+    from ..backtest.symbol_specs import (
+        pip_size_from_digits, pip_conversion_report, pips_to_price, round_to_tick)
+
+    # THE one pip conversion: 10 x point for 3/5-digit symbols, 1 x point for
+    # 2/4-digit symbols (XAUUSD on a 2-digit feed: pip = 0.01, so "100 pips" is
+    # a $1.00 price distance). Derived from digits/point only — never hardcoded.
+    pip_size = pip_size_from_digits(digits, point)
+    if pip_size is None:
+        _log_manual_order(
+            f"REJECTED: pip convention unestablished for {symbol} "
+            f"(digits={digits!r}, point={point!r})")
+        return JSONResponse(
+            status_code=400,
+            content={
+                "ok": False,
+                "retcode": -7,
+                "comment": (f"The pip convention for {symbol} cannot be established "
+                            f"(digits={digits!r}, point={point!r}). The order is refused "
+                            f"rather than sized with a guessed conversion."),
+                "bridge_source": bridge_source,
+                "digits": digits,
+                "point": point,
+                "order_send": {"called": False, "call_count": 0},
+            },
+        )
     current_price = tick.ask if side == "BUY" else tick.bid
 
     contract_size = float(
@@ -2220,13 +2249,39 @@ def post_mt5_manual_order(body: Dict = Body(...)) -> Dict:
 
     sl_price = None
     if sl_pips is not None and sl_pips > 0:
-        sl_price = round(current_price - (sl_pips * pip_size), digits) if side == "BUY" \
-            else round(current_price + (sl_pips * pip_size), digits)
+        sl_dist = pips_to_price(sl_pips, pip_size)
+        sl_price = round_to_tick(current_price - sl_dist if side == "BUY"
+                                 else current_price + sl_dist, tick_size, digits)
 
     tp_price = None
     if tp_pips is not None and tp_pips > 0:
-        tp_price = round(current_price + (tp_pips * pip_size), digits) if side == "BUY" \
-            else round(current_price - (tp_pips * pip_size), digits)
+        tp_dist = pips_to_price(tp_pips, pip_size)
+        tp_price = round_to_tick(current_price + tp_dist if side == "BUY"
+                                 else current_price - tp_dist, tick_size, digits)
+
+    # V6.4 — the conversion diagnostics travel with every request/response so
+    # the pip label shown to the operator IS the distance sent to the broker.
+    conv = pip_conversion_report(
+        symbol=symbol, digits=digits, point=point, tick_size=tick_size,
+        stops_level_points=stops_level_points, freeze_level_points=freeze_level_points,
+        sl_pips=sl_pips, tp_pips=tp_pips, side=side, entry=current_price)
+
+    # STOPS-LEVEL VALIDATION (MT5_BRIDGE_DETAILS.txt) — a SL/TP closer than the
+    # broker's minimum is refused here with a readable message, before the send.
+    for _which, _chk in (("SL", conv["stops_check"]["sl"]), ("TP", conv["stops_check"]["tp"])):
+        if _chk.get("checked") and not _chk.get("ok"):
+            _log_manual_order(f"REJECTED: {_which} stops-level check failed: {_chk.get('reason')}")
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "ok": False,
+                    "retcode": -8,
+                    "comment": f"{_which} rejected: {_chk.get('reason')}",
+                    "bridge_source": bridge_source,
+                    "pip_conversion": conv,
+                    "order_send": {"called": False, "call_count": 0},
+                },
+            )
 
     req_dict = {
         "action": "TRADE_ACTION_DEAL",
@@ -2300,6 +2355,9 @@ def post_mt5_manual_order(body: Dict = Body(...)) -> Dict:
         "sizing_mode": "RISK" if projected_loss_usd is not None else "LOTS",
         "request": req_dict,
         "bridge_source": bridge_source,
+        # V6.4 — the resolved conversion (digits/point/pip/price distances) as
+        # the broker's request will use them: the UI pip label is this distance.
+        "pip_conversion": conv,
         # V6 order-send forensics — how (and whether) the order left the app
         "order_send": {
             "called": bool(getattr(order_res, "order_send_called", False)),
@@ -2312,6 +2370,227 @@ def post_mt5_manual_order(body: Dict = Body(...)) -> Dict:
     }
 
 
+# ---------------- V6.4 §7 — live positions + close controls -----------------
+# The actual open MT5 positions, with per-row CLOSE and an explicit CLOSE ALL.
+# Every close goes through the broker's own answer and is VERIFIED against the
+# terminal afterwards — a submit is never reported as a close. Demo-only safety
+# gates apply to the closing actions (the list is read-only and states the
+# account identity it came from). Stopping live testing never closes positions;
+# closing is always this explicit operator action. Other-magic positions are
+# never touched silently: the scope is shown and authorization is required.
+
+def _positions_snapshot(bridge) -> Dict[str, Any]:
+    """The real open positions, in the terminal's own field values (never invented)."""
+    positions = bridge.positions_get() or []
+    orders = []
+    try:
+        orders = bridge.orders_get() or []
+    except Exception:
+        orders = []
+    rows = []
+    for p in positions:
+        rows.append({
+            "ticket": p.get("ticket"),
+            "symbol": p.get("symbol"),
+            "side": ("BUY" if (p.get("type") in (0, "0", "buy", "BUY")) else "SELL"),
+            "volume": p.get("volume"),
+            "open_price": p.get("price_open"),
+            "current_price": p.get("price_current"),
+            "sl": p.get("sl"),
+            "tp": p.get("tp"),
+            "floating_pnl": p.get("profit"),
+            "magic": p.get("magic"),
+            "comment": p.get("comment"),
+            "open_time": p.get("time"),
+            "open_time_iso": (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(float(p["time"])))
+                              if isinstance(p.get("time"), (int, float)) and p.get("time") else None),
+        })
+    return {
+        "positions": rows,
+        "count": len(rows),
+        "orders": [{"ticket": o.get("ticket"), "symbol": o.get("symbol"),
+                    "volume": o.get("volume_current") or o.get("volume_initial"),
+                    "price": o.get("price_open"), "magic": o.get("magic")} for o in orders],
+        "ts": time.time(),
+    }
+
+
+@router.get("/mt5/positions")
+def mt5_positions() -> Dict[str, Any]:
+    """V6.4 §7 — the LIVE positions table (what the broker actually has open)."""
+    from ..mt5.execution import demo_account_guard
+    from ..mt5.factory import get_bridge
+    bridge = get_bridge()
+    guard = demo_account_guard(bridge)
+    snap = _positions_snapshot(bridge)
+    return {"ok": True,
+            "account": guard.get("account"),
+            "account_safety": {k: guard.get(k) for k in
+                               ("demo_verified", "blocked_code", "blocked_reason",
+                                "bridge", "bridge_source")},
+            **snap,
+            "note": ("read straight from the terminal: ticket, symbol, side, volume, "
+                     "open/current price, SL, TP and floating PnL per position")}
+
+
+def _close_one_verified(bridge, ticket: int, comment: str) -> Dict[str, Any]:
+    """Close ONE position by broker ticket and VERIFY the close at the broker.
+
+    The close request is the broker's own opposite-deal form (position ticket,
+    the position's symbol/volume, the current tick price, the symbol's filling
+    mode). The result is only reported as closed when the broker answered DONE
+    AND the position is gone from positions_get — never on submit alone.
+    """
+    res = bridge.close_position(int(ticket), comment=comment)
+    raw = res.get("raw") or {}
+    retcode = res.get("retcode")
+    done = (retcode == 10009)
+    gone = False
+    try:
+        remaining = bridge.positions_get(ticket=int(ticket)) or []
+        gone = len(remaining) == 0
+    except Exception as e:                                  # pragma: no cover - defensive
+        remaining = None
+        gone = False
+        res["verify_error"] = f"{type(e).__name__}: {e}"
+    closed_verified = bool(done and gone)
+    return {
+        "ticket": int(ticket),
+        "submitted": True,
+        "retcode": retcode,
+        "broker_comment": raw.get("comment"),
+        "deal": raw.get("deal"),
+        "order": raw.get("order"),
+        "close_request": res.get("request"),
+        "broker_done": done,
+        "position_gone": gone,
+        "closed_verified": closed_verified,
+        "status": ("CLOSED_VERIFIED" if closed_verified else
+                   "CLOSE_UNCONFIRMED" if done and not gone else
+                   "CLOSE_FAILED" if not done else "UNKNOWN"),
+        "error": res.get("error"),
+    }
+
+
+@router.post("/mt5/positions/close")
+def mt5_position_close(payload: Dict = Body(default_factory=dict)) -> Dict[str, Any]:
+    """V6.4 §7 — CLOSE one position by its broker ticket (confirmed, verified)."""
+    from ..mt5.execution import demo_account_guard
+    from ..mt5.factory import get_bridge
+    bridge = get_bridge()
+    guard = demo_account_guard(bridge)
+    if not guard.get("demo_verified"):
+        raise HTTPException(status_code=403, detail={
+            "ok": False, "code": guard.get("blocked_code") or "DEMO_REQUIRED",
+            "message": (f"close controls are demo-only: {guard.get('blocked_reason') or 'the connected account is not a positively identified DEMO account'}")})
+    ticket = payload.get("ticket")
+    if ticket in (None, ""):
+        raise HTTPException(status_code=400, detail={"ok": False, "code": "TICKET_REQUIRED",
+                                                     "message": "closing requires the broker position ticket"})
+    if not bool(payload.get("confirmed")):
+        # the confirmation carries exactly what would close
+        preview = [p for p in _positions_snapshot(bridge)["positions"]
+                   if int(p.get("ticket") or 0) == int(ticket)]
+        raise HTTPException(status_code=409, detail={
+            "ok": False, "code": "CONFIRMATION_REQUIRED",
+            "message": "confirm the close (confirmed=true) — this closes the position at the broker",
+            "would_close": preview})
+    out = _close_one_verified(bridge, int(ticket),
+                              comment=str(payload.get("comment") or "evolab-demo-close")[:31])
+    snap = _positions_snapshot(bridge)
+    return {"ok": out["closed_verified"], "result": out, **snap,
+            "account_safety": {"demo_verified": guard.get("demo_verified")},
+            "note": ("the close was sent and verified against the terminal: closed_verified "
+                     "is true only when the broker answered DONE and the position is gone")}
+
+
+@router.post("/mt5/positions/close-all")
+def mt5_positions_close_all(payload: Dict = Body(default_factory=dict)) -> Dict[str, Any]:
+    """V6.4 §7 — CLOSE ALL for an EXPLICIT account/symbol/scope (confirmed, verified).
+
+    The confirmation response lists exactly what will close. Positions carrying
+    a magic number other than this lab's are NEVER touched silently: they close
+    only when the scope includes them AND the request authorizes it
+    (``acknowledge_other_magic``), and the response names every position's magic.
+    """
+    from ..mt5.execution import demo_account_guard, live_test_magic
+    from ..mt5.factory import get_bridge
+    bridge = get_bridge()
+    guard = demo_account_guard(bridge)
+    if not guard.get("demo_verified"):
+        raise HTTPException(status_code=403, detail={
+            "ok": False, "code": guard.get("blocked_code") or "DEMO_REQUIRED",
+            "message": (f"close controls are demo-only: {guard.get('blocked_reason') or 'the connected account is not a positively identified DEMO account'}")})
+    scope = payload.get("scope") if isinstance(payload.get("scope"), dict) else {}
+    if not scope:
+        raise HTTPException(status_code=400, detail={
+            "ok": False, "code": "SCOPE_REQUIRED",
+            "message": ("close-all requires an explicit scope: {'symbol': 'XAUUSD'}, "
+                        "{'magic': <n>}, {'account_login': <login>} or "
+                        "{'all_on_account': true} — a close-all must name what it closes")})
+    snap = _positions_snapshot(bridge)
+    login = str(((guard.get("account") or {}).get("login")) or "")
+    if "account_login" in scope and scope.get("account_login") not in (None, ""):
+        if str(scope.get("account_login")) != login:
+            raise HTTPException(status_code=409, detail={
+                "ok": False, "code": "ACCOUNT_SCOPE_MISMATCH",
+                "message": (f"the requested account scope {scope.get('account_login')} is not the "
+                            f"connected account ({login or 'unknown'}) — nothing was closed"),
+                "connected_login": login})
+    lab_magics = set()
+    try:
+        lab_magics = {int(live_test_magic(0) // 1000) * 1000, 777000, 777001}
+    except Exception:
+        lab_magics = {777000, 777001}
+    # split the scope into "this lab's own positions" and "other magic" — the
+    # latter are NEVER closed silently; they need explicit authorization
+    in_scope = []
+    for p in snap["positions"]:
+        if scope.get("symbol") and str(p.get("symbol") or "").upper() != str(scope["symbol"]).upper():
+            continue
+        if "magic" in scope and scope.get("magic") is not None \
+                and int(p.get("magic") or 0) != int(scope["magic"]):
+            continue
+        in_scope.append(p)
+    if not in_scope:
+        raise HTTPException(status_code=404, detail={
+            "ok": False, "code": "NO_POSITIONS_IN_SCOPE",
+            "message": f"no open positions match the scope {scope} — nothing to close",
+            "scope": scope})
+    labs_only = [p for p in in_scope if int(p.get("magic") or 0) in lab_magics]
+    foreign = [p for p in in_scope if p not in labs_only]
+    if foreign and not payload.get("acknowledge_other_magic"):
+        raise HTTPException(status_code=409, detail={
+            "ok": False, "code": "OTHER_MAGIC_AUTHORIZATION_REQUIRED",
+            "message": ("the scope matches positions carrying other magic numbers; they are not "
+                        "touched silently — authorize explicitly (acknowledge_other_magic=true) "
+                        "or narrow the scope"),
+            "other_magic_positions": foreign,
+            "lab_positions": labs_only,
+            "scope": scope})
+    # with authorization (or none in scope) the close set is the whole scope
+    selected = list(in_scope)
+    if not bool(payload.get("confirmed")):
+        raise HTTPException(status_code=409, detail={
+            "ok": False, "code": "CONFIRMATION_REQUIRED",
+            "message": "confirm the close-all (confirmed=true) — this closes EVERY listed position at the broker",
+            "would_close": selected,
+            "scope": scope})
+    results = []
+    for p in selected:
+        results.append(_close_one_verified(bridge, int(p["ticket"]),
+                                           comment=str(payload.get("comment") or "evolab-demo-close-all")[:31]))
+    snap2 = _positions_snapshot(bridge)
+    verified = [r for r in results if r.get("closed_verified")]
+    return {"ok": len(verified) == len(results),
+            "closed_verified_count": len(verified),
+            "attempted": len(results),
+            "results": results,
+            "scope": scope,
+            "account_safety": {"demo_verified": guard.get("demo_verified")},
+            **snap2,
+            "note": ("each close is verified at the broker before it is counted; the refreshed "
+                     "position list is what the terminal reports afterwards")}
 @router.get("/live-testing/nodes/{sid}/worker")
 def live_testing_node_worker_state(sid: int) -> Dict[str, Any]:
     """V6 — the backend's live-testing worker state for one node (refresh-safe)."""
@@ -4031,19 +4310,37 @@ def mt5_execution_preview(payload: Dict = Body(default_factory=dict)) -> Dict:
     except Exception:
         quote = None
 
-    # ---- pip/price levels (spec §13) --------------------------------------
+    # ---- pip/price levels (spec §13, V6.4) -------------------------------
     # The panel lets the operator work in pips (broker-independent) or in price
-    # (exact). Both are converted here, against the same symbol specification the
-    # sizing uses, so "300 pips" always means the same distance the order will get.
+    # (exact). Both are converted here through THE one digits rule
+    # (MT5_BRIDGE_DETAILS.txt: 10 x point on 3/5-digit symbols, 1 x point on
+    # 2/4-digit), derived from the symbol's own digits/point pair — so "100
+    # pips" on this XAUUSD (digits=2, point=0.01) is a $1.00 distance exactly,
+    # and the same number the order request will carry. Never hardcoded, never
+    # inferred from the symbol name; when the convention cannot be established
+    # the conversion refuses instead of guessing.
     limits = risk_limits()
-    pip_size = None
-    points_per_pip = None
-    try:
-        from ..backtest.symbol_specs import get_symbol_specs
-        pip_size = get_symbol_specs(symbol, allow_mt5=False).pip_size
-        points_per_pip = 10.0
-    except Exception:
-        pip_size = None
+    from ..backtest.symbol_specs import (
+        get_symbol_specs, pip_size_from_digits, points_per_pip_from_digits,
+        pip_conversion_report, pips_to_price, price_to_pips, round_to_tick)
+
+    spec_digits = getattr(spec, "digits", None) if spec is not None else None
+    spec_point = getattr(spec, "point", None) if spec is not None else None
+    spec_tick = (getattr(spec, "trade_tick_size", None) if spec is not None else None) or spec_point
+    stops_level_points = getattr(spec, "trade_stops_level", 0) if spec is not None else 0
+    freeze_level_points = getattr(spec, "freeze_level", 0) if spec is not None else 0
+    if spec_point in (None, 0):
+        # fall back to the documented contract facts (TABLE/CONFIG) — still the
+        # same digits rule, never a per-symbol constant
+        try:
+            _fs = get_symbol_specs(symbol, allow_mt5=False)
+            spec_digits = spec_digits if spec_digits is not None else _fs.digits
+            spec_point = spec_point or _fs.point
+            spec_tick = spec_tick or _fs.tick_size
+        except Exception:
+            pass
+    pip_size = pip_size_from_digits(spec_digits, spec_point)
+    points_per_pip = points_per_pip_from_digits(spec_digits)
     entry_price = entry
     if entry_price in (None, "") and quote:
         entry_price = quote.get("ask") if side == "BUY" else quote.get("bid")
@@ -4057,21 +4354,27 @@ def mt5_execution_preview(payload: Dict = Body(default_factory=dict)) -> Dict:
     levels = {"entry": _quoted(entry_price), "sl": _quoted(sl), "tp": _quoted(tp),
               "sl_pips": _quoted(sl_pips), "tp_pips": _quoted(tp_pips),
               "pip_size": pip_size, "points_per_pip": points_per_pip,
+              "digits": spec_digits, "point": spec_point,
               "sl_from_pips": False, "tp_from_pips": False, "warnings": []}
+    if pip_size is None:
+        levels["warnings"].append(
+            f"the pip convention for {symbol} cannot be established "
+            f"(digits={spec_digits!r}, point={spec_point!r}) - pip inputs are refused "
+            f"rather than converted with a guess")
     if pip_size and levels["entry"] is not None:
         sign = -1.0 if side == "BUY" else 1.0          # a stop sits against the entry
         if levels["sl"] is None and levels["sl_pips"] is not None:
-            levels["sl"] = round(levels["entry"] + sign * levels["sl_pips"] * pip_size,
-                                 int(getattr(spec, "digits", 2) or 2))
+            levels["sl"] = round_to_tick(levels["entry"] + sign * pips_to_price(levels["sl_pips"], pip_size),
+                                         spec_tick, spec_digits)
             levels["sl_from_pips"] = True
         if levels["tp"] is None and levels["tp_pips"] is not None:
-            levels["tp"] = round(levels["entry"] - sign * levels["tp_pips"] * pip_size,
-                                 int(getattr(spec, "digits", 2) or 2))
+            levels["tp"] = round_to_tick(levels["entry"] - sign * pips_to_price(levels["tp_pips"], pip_size),
+                                         spec_tick, spec_digits)
             levels["tp_from_pips"] = True
         if levels["sl_pips"] is None and levels["sl"] is not None:
-            levels["sl_pips"] = round(abs(levels["entry"] - levels["sl"]) / pip_size, 1)
+            levels["sl_pips"] = round(price_to_pips(abs(levels["entry"] - levels["sl"]), pip_size), 1)
         if levels["tp_pips"] is None and levels["tp"] is not None:
-            levels["tp_pips"] = round(abs(levels["entry"] - levels["tp"]) / pip_size, 1)
+            levels["tp_pips"] = round(price_to_pips(abs(levels["entry"] - levels["tp"]), pip_size), 1)
         if levels["sl"] is not None:
             wrong_side = ((side == "BUY" and levels["sl"] >= levels["entry"]) or
                           (side == "SELL" and levels["sl"] <= levels["entry"]))
@@ -4084,10 +4387,28 @@ def mt5_execution_preview(payload: Dict = Body(default_factory=dict)) -> Dict:
             if wrong_side:
                 levels["warnings"].append(
                     f"the target is on the wrong side of a {side} entry")
+        # STOPS-LEVEL VALIDATION (MT5_BRIDGE_DETAILS.txt) — client-side, readable
+        for _which, _dist in (("SL", levels["sl"]), ("TP", levels["tp"])):
+            if _dist is None:
+                continue
+            from ..backtest.symbol_specs import stops_distance_check
+            _chk = stops_distance_check(abs(_dist - levels["entry"]), spec_point,
+                                        stops_level_points, freeze_level_points)
+            if _chk.get("checked") and not _chk.get("ok"):
+                levels["warnings"].append(f"{_which}: {_chk.get('reason')}")
         sl = levels["sl"]
         tp = levels["tp"]
     elif levels["sl"] is None and levels["sl_pips"] is not None:
         levels["warnings"].append("pip levels need an entry price - send entry or have a quote")
+
+    # the resolved conversion travels with every preview: the operator sees the
+    # same digits/point/pip/price distances the order request will use
+    levels["pip_conversion"] = pip_conversion_report(
+        symbol=symbol, digits=spec_digits, point=spec_point, tick_size=spec_tick,
+        stops_level_points=stops_level_points, freeze_level_points=freeze_level_points,
+        sl_pips=levels["sl_pips"] if levels["sl_from_pips"] else None,
+        tp_pips=levels["tp_pips"] if levels["tp_from_pips"] else None,
+        side=side, entry=levels["entry"])
 
     mode = "risk_to_lot" if (volume in (None, "") and risk_amount not in (None, "")) else \
            "lot_to_risk" if volume not in (None, "") else None
@@ -4831,33 +5152,49 @@ def nodes_index(
     experiment = {
         "run_id": cur_run,
         "population": int(exp.get("population") or 0),
-        "node_numbering": "experiment-local (1..population, assigned when the node was created)",
+        "node_numbering": ("canonical identity = database row id (\"Node #<id>\"); "
+                           "research_node_num is the study-local display number "
+                           "(\"research #<num>\"), assigned when the node was created"),
         "node_number_range": [int(exp.get("lo") or 0), int(exp.get("hi") or 0)],
         "next_node_number": (int(exp.get("hi") or 0) + 1),
         "is_empty": int(exp.get("population") or 0) == 0,
         "other_runs": other,
-        "note": ("node numbers are local to this experiment — a node is identified by "
-                 "(experiment, node number), and the global row id is internal only"),
+        "note": ("V6.4 identity contract: every row is identified by its canonical "
+                 "database id (node_id); the study-local research number is shown "
+                 "only as the explicitly-labeled secondary 'research #' — the two "
+                 "namespaces overlap, so a bare number is never used as identity"),
     }
 
     # ---- rows ---------------------------------------------------------------- #
-    q = """SELECT id, status, symbol, timeframe, generation, fitness, run_id,
+    q_cols = """id, status, symbol, timeframe, generation, fitness, run_id,
                   research_node_num, data_source, failure_reason, survival_reason,
-                  creation_reason, parent_id, mutation_type, created_at
-           FROM strategies
-           WHERE COALESCE(data_source,'USER_RESEARCH') <> 'LEGACY_TEST'
-             AND (? IS NULL OR run_id = ? OR run_id IS NULL)
-           ORDER BY id"""
-    # a non-legacy row with no run id belongs to no other experiment, so it is
-    # part of the current one (this is what a freshly reset experiment looks like
-    # before its first node is stamped with the new run id).
-    strategies = db.q(q, (cur_run, cur_run)) or []
-    if wanted in ("all", "excluded", "blocked", "failed", "unknown"):
-        legacy = db.q("""SELECT id, status, symbol, timeframe, generation, fitness, run_id,
+                  creation_reason, parent_id, mutation_type, created_at"""
+    # V6.4 — ONE response describes ONE universe: the rows this endpoint lists
+    # and the counts it publishes are the SAME set (the whole index: every
+    # non-legacy row, plus the legacy rows that make up the "excluded" bucket),
+    # so `total` can never disagree with `counts`/`filter_totals` and never
+    # with `app.research.populations`. (V6.3 scoped rows to "the newest row's
+    # run_id" while counting the whole table — one fixture row inserted under
+    # another run id silently emptied the qualified table while the counters
+    # kept reporting the full population: "the authority says 5,259 qualified,
+    # the table says 0".) An explicit ``run_id`` query parameter remains a
+    # deliberate, honoured filter; each row still carries its own ``run_id``.
+    if run_id:
+        base_rows = db.q(f"""SELECT {q_cols} FROM strategies
+                             WHERE COALESCE(data_source,'USER_RESEARCH') <> 'LEGACY_TEST'
+                               AND (run_id = ? OR run_id IS NULL)
+                             ORDER BY id""", (run_id,)) or []
+    else:
+        base_rows = db.q(f"""SELECT {q_cols} FROM strategies
+                             WHERE COALESCE(data_source,'USER_RESEARCH') <> 'LEGACY_TEST'
+                             ORDER BY id""") or []
+    legacy_rows = db.q("""SELECT id, status, symbol, timeframe, generation, fitness, run_id,
                                 research_node_num, data_source, failure_reason, survival_reason,
                                 creation_reason, parent_id, mutation_type, created_at
                          FROM strategies WHERE data_source='LEGACY_TEST'""") or []
-        strategies = list(strategies) + list(legacy)
+    strategies = list(base_rows)
+    if wanted in ("all", "excluded", "blocked", "failed", "unknown"):
+        strategies = strategies + list(legacy_rows)
 
     try:
         enrolled = {int(n["id"]): n for n in _live_engine().eligible_nodes()}
@@ -4871,15 +5208,15 @@ def nodes_index(
     shortlist = set(db.get_shortlist())
     search_clean = (search or "").strip().lower()
 
-    # §7/§10 — the bucket counts describe the WHOLE index (including the
-    # excluded/legacy rows), so the filter dropdown can never under-report how
-    # many nodes exist. Counting only the rows fetched for the current filter
-    # made "Excluded" read 0 and "All" read 10,008 instead of the real 10,787.
+    # §7/§10 — the bucket counts describe the SAME universe the rows are drawn
+    # from (the active study + the excluded/legacy rows), so every filter's
+    # `total` equals its `counts`/`filter_totals` entry by construction. The
+    # filter dropdown therefore can never under-report ("Excluded" read 0 when
+    # legacy rows were not fetched for that filter) nor over-report against a
+    # table that lists fewer rows.
     counts: Dict[str, int] = {}
     try:
-        for _r in (db.q("""SELECT id, status, data_source, failure_reason, creation_reason,
-                                  survival_reason
-                           FROM strategies""") or []):
+        for _r in (list(base_rows) + list(legacy_rows)):
             _b = node_bucket(dict(_r))["bucket"]
             counts[_b] = counts.get(_b, 0) + 1
     except Exception as e:            # never let the counting pass break the index
@@ -4947,10 +5284,25 @@ def nodes_index(
         ls = live.get(sid, {})
         num = strat.get("research_node_num") or st.get("research_node_num")
         rows.append({
-            "node_id": sid,                       # internal row id
+            # V6.4 identity contract: the CANONICAL identity of a node is its
+            # database primary key (node_id/strategy_id), shown as "Node #<id>".
+            # research_node_num is the study-local DISPLAY number, always shown
+            # as the explicitly-labeled secondary "research #<num>". The two
+            # namespaces overlap (id 6658 exists and a different node carries
+            # research number 6658), so a bare number is never used as identity.
+            "node_id": sid,                       # canonical id (database primary key)
             "strategy_id": sid,
-            "research_node_num": num,             # experiment-local number (§25)
-            "node_label": f"Node_{num if num is not None else sid}",
+            "research_node_num": num,             # study-local display number (§25)
+            "node_label": f"Node #{sid}",
+            "research_label": (f"research #{num}" if num is not None else None),
+            "identity": {
+                "canonical": "database row id (node_id / strategy_id)",
+                "canonical_label": f"Node #{sid}",
+                "research_node_num": num,
+                "research_label": (f"research #{num}" if num is not None else None),
+                "generation": strat.get("generation") if strat.get("generation") is not None else st.get("generation"),
+                "experiment": cur_run,
+            },
             "experiment": cur_run,
             "run_id": strat.get("run_id") or st.get("run_id"),
             "generation": strat.get("generation") if strat.get("generation") is not None else st.get("generation"),
@@ -5021,9 +5373,15 @@ def nodes_index(
 
     if search_clean:
         def _hit(r):
+            # V6.4 identity contract — a search matches BOTH namespaces with
+            # explicit labels: "6658" finds Node #6658 (canonical) and any node
+            # whose study-local number is 6658 (labeled "research #6658"), never
+            # one bare number standing for two different nodes.
             blob = " ".join(str(r.get(k) or "") for k in
-                            ("node_label", "node_id", "symbol", "timeframe", "qualification",
-                             "v5_status", "generation", "bucket")).lower()
+                            ("node_label", "research_label", "node_id",
+                             "research_node_num", "symbol", "timeframe",
+                             "qualification", "v5_status", "generation",
+                             "bucket")).lower()
             return search_clean in blob
         rows = [r for r in rows if _hit(r)]
     if symbol:
@@ -5671,6 +6029,55 @@ def live_testing_schedule_save(sid: int, payload: Dict = Body(...)) -> Dict[str,
                            "app.live_testing.schedule.bar_mask (deep backtest)"}
 
 
+def _node_schedule_provenance(db, strat, sid: int) -> Dict[str, Any]:
+    """V6.4 — WHERE a node's schedule defaults may come from (never invented).
+
+    Returns ``{"config": ..., "genome": ..., "available": bool, "note": str}``:
+    the persisted live-testing config is the first provenance source, then any
+    non-null schedule fields in the node's own genome (its original generation
+    config). When neither exists, ``available`` is False and the caller must
+    require a deliberate selection instead of silently applying an invented
+    default (the product default can only be applied when the operator confirms
+    it explicitly).
+    """
+    cfg = db.get_live_test_config(sid) or {}
+    genome = {}
+    try:
+        g = strat.get("genome") if strat else None
+        if isinstance(g, str):
+            g = json.loads(g)
+        genome = g if isinstance(g, dict) else {}
+    except Exception:
+        genome = {}
+    g_src: Dict[str, Any] = {}
+    for k in ("days", "sessions", "timeframes", "windows", "timezone"):
+        v = genome.get(k)
+        if v not in (None, "", [], {}):
+            g_src[k] = v
+    if genome.get("timeframe") and "timeframes" not in g_src:
+        g_src["timeframes"] = [str(genome["timeframe"])]
+    cfg_used = {k: cfg.get(k) for k in ("days", "sessions", "timeframes", "windows",
+                                        "start_time", "end_time", "timezone", "enabled",
+                                        "regimes", "conditions", "spread_limit_points",
+                                        "cooldown_minutes", "max_trades_per_day",
+                                        "max_positions", "schedule_version")
+                if cfg.get(k) not in (None, "", [], {})}
+    # A bare symbol/timeframe is NOT schedule provenance: only a stored config or
+    # real schedule fields (days / sessions / windows) make defaults available.
+    # When they are missing the operator must select deliberately — never an
+    # invented "default" of days/sessions the node's research never declared.
+    sched_src = {k: g_src[k] for k in ("days", "sessions", "windows") if k in g_src}
+    return {
+        "config": cfg_used or None,
+        "genome": g_src or None,
+        "genome_schedule": sched_src or None,
+        "available": bool(cfg_used or sched_src),
+        "note": ("schedule defaults come from the node's stored live-testing config, then "
+                 "its genome (days/sessions/windows); when neither exists the operator "
+                 "must select deliberately — a bare symbol/timeframe is not provenance"),
+    }
+
+
 @router.post("/live-testing/nodes/{sid}/start")
 def live_testing_node_start(sid: int, payload: Dict = Body(default_factory=dict)) -> Dict[str, Any]:
     """§12 — START: really activate this node's live-testing process.
@@ -5705,12 +6112,46 @@ def live_testing_node_start(sid: int, payload: Dict = Body(default_factory=dict)
             "would_enroll": {"node_id": sid}})
 
     cfg = db.get_live_test_config(sid) or {}
-    if not cfg:
-        tf = strat.get("timeframe", "M15")
-        cfg = {"strategy_id": sid, "timeframes": [tf],
-               "days": [0, 1, 2, 3, 4], "sessions": ["london", "newyork"],
-               "start_time": "00:00", "end_time": "23:59", "timezone": "UTC",
-               "lot_size": 0.1, "risk_pct": None, "is_active": False, "status": "IDLE"}
+    # V6.4 schedule provenance (spec #6) — the schedule that will be ENFORCED is
+    # resolved from real provenance only: the operator's submitted selection,
+    # else the node's persisted live-testing config, else the node's own genome.
+    # Days/sessions/timeframes/windows are NEVER invented. If none of these
+    # sources exist the START is refused with the provenance report and the
+    # operator must select deliberately (or explicitly confirm the documented
+    # product default).
+    from ..live_testing.schedule import normalize_config as _norm_sched
+    submitted = payload.get("schedule") if isinstance(payload.get("schedule"), dict) else None
+    provenance = _node_schedule_provenance(db, strat, sid)
+    schedule_source = None
+    if submitted and submitted.get("confirm_product_default"):
+        resolved = _norm_sched({"strategy_id": sid,
+                                "timeframes": [strat.get("timeframe") or "M15"]})
+        schedule_source = "operator-confirmed product default (Mon-Fri, all sessions)"
+    elif submitted:
+        resolved = _norm_sched({**(cfg or {}), **submitted, "strategy_id": sid})
+        schedule_source = "operator selection (submitted with START, persisted + enforced)"
+    elif provenance.get("config"):
+        resolved = _norm_sched({**provenance["config"], "strategy_id": sid})
+        schedule_source = "live_test_configs provenance (the node's stored live-testing config)"
+    elif provenance.get("genome_schedule"):
+        resolved = _norm_sched({**provenance["genome_schedule"],
+                                **({"timeframes": provenance["genome"].get("timeframes")}
+                                   if provenance.get("genome") else {}),
+                                "strategy_id": sid})
+        schedule_source = "genome provenance (the node's original generation config)"
+    else:
+        raise HTTPException(status_code=409, detail={
+            "ok": False, "code": "SCHEDULE_REQUIRED", "strategy_id": sid,
+            "provenance": provenance,
+            "message": ("no schedule provenance exists for this node (no stored live-testing "
+                        "config, no days/sessions/timeframes in its genome) - select days, "
+                        "sessions and timeframes deliberately, or send "
+                        "schedule={{'confirm_product_default': true}} to start on the "
+                        "documented product default (Mon-Fri, all sessions, the node's own "
+                        "timeframe, UTC)"),
+            "would_enroll": {"node_id": sid}})
+    resolved.setdefault("timezone", "UTC")
+    cfg = {**(cfg or {}), **{k: v for k, v in resolved.items() if v is not None}, "strategy_id": sid}
     cfg["is_active"] = True
     cfg["status"] = "RUNNING"
     db.set_live_test_config(sid, cfg)
@@ -5734,9 +6175,12 @@ def live_testing_node_start(sid: int, payload: Dict = Body(default_factory=dict)
 
     # V6 — the node's OWN live-testing worker: created here, and the response is
     # only "started" once the backend confirms the worker is actually running.
+    # V6.4 — the resolved schedule travels with the worker (task_id'd), so the
+    # displayed schedule, the submitted schedule and the enforced schedule are
+    # one and the same object.
     from ..live_testing.workers import get_worker_manager
     wm = get_worker_manager()
-    wres = wm.start_worker(sid)
+    wres = wm.start_worker(sid, schedule=resolved)
     if not wres.get("ok"):
         cfg = db.get_live_test_config(sid) or {}
         cfg["is_active"] = False
@@ -5756,7 +6200,11 @@ def live_testing_node_start(sid: int, payload: Dict = Body(default_factory=dict)
             "worker": worker_state,
             "worker_running": bool(worker_state.get("running")),
             "already_running": bool(wres.get("already_running")),
+            "task_id": wres.get("task_id") or worker_state.get("task_id"),
             "schedule": eng.schedule_state(node),
+            "schedule_resolved": resolved,
+            "schedule_source": schedule_source,
+            "schedule_timezone": resolved.get("timezone") or "UTC",
             "note": ("the node's live-testing worker is running (backend-confirmed); orders still "
                      "require a connected, positively-identified DEMO terminal and a live entry "
                      "signal")}
@@ -5786,9 +6234,12 @@ def live_testing_node_stop(sid: int) -> Dict[str, Any]:
 
     # V6 — STOP also cancels the node's live-testing worker and CONFIRMS it is
     # stopped. Idempotent: a second STOP is a no-op that still reports success.
+    # V6.4 — the final state is reported only after the worker's in-flight cycle
+    # has finished and the (read-only) MT5 reconcile has run; the worker state
+    # carries the reconcile block. Stopping NEVER closes broker positions.
     from ..live_testing.workers import get_worker_manager
     wm = get_worker_manager()
-    wres = wm.stop_worker(sid)
+    wres = wm.stop_worker(sid, reason="operator STOP")
 
     eng = _live_engine()
     remaining = 0
@@ -5803,10 +6254,75 @@ def live_testing_node_stop(sid: int) -> Dict[str, Any]:
             "worker": worker_state,
             "worker_stopped": bool(wres.get("ok")) and not worker_state.get("running"),
             "already_stopped": bool(wres.get("already_stopped")),
+            "task_id": wres.get("task_id") or worker_state.get("task_id"),
+            "reconcile": worker_state.get("reconcile"),
             "note": ("the node is out of the engine's active set and its live-testing worker is "
                      "stopped; any position it already opened remains at the broker until it is "
                      "closed explicitly"),
             "positions_touched": False}
+
+
+@router.post("/live-testing/nodes/stop-all")
+def live_testing_nodes_stop_all(payload: Dict = Body(default_factory=dict)) -> Dict[str, Any]:
+    """V6.4 §5 — STOP ALL: cancel every node's live-testing worker, confirm each.
+
+    Idempotent and race-safe: each node's task is stopped and confirmed one at a
+    time; the response reports each node's final state (and its read-only MT5
+    reconcile). Broker positions are NEVER touched — stopping is not closing.
+    """
+    from ..live_testing.workers import get_worker_manager
+    wm = get_worker_manager()
+    reason = str(payload.get("reason") or "operator STOP ALL")
+    res = wm.stop_all(reason=reason)
+    # every enrolled node is un-enrolled too (the engine iterates is_active rows)
+    db = get_db()
+    unenrolled = 0
+    try:
+        rows = db.q("SELECT strategy_id FROM live_test_configs WHERE is_active=1") or []
+        for r in rows:
+            cfg = db.get_live_test_config(r["strategy_id"]) or {}
+            cfg["is_active"] = False
+            if str(cfg.get("status") or "").upper() in ("RUNNING", "ACTIVE"):
+                cfg["status"] = "STOPPED"
+            db.set_live_test_config(r["strategy_id"], cfg)
+            unenrolled += 1
+    except Exception as e:                                  # pragma: no cover - defensive
+        log.warning("stop-all un-enrol pass failed: %s", e)
+    return {"ok": res.get("ok", True), "stopped": res.get("stopped", 0),
+            "unenrolled_nodes": unenrolled, "results": res.get("results", []),
+            "remaining_running": res.get("remaining_running", 0),
+            "positions_touched": False,
+            "note": ("every live-testing worker is stopped and confirmed; nodes are "
+                     "un-enrolled so no new trades can start; open broker positions are "
+                     "untouched and remain until closed explicitly")}
+
+
+@router.get("/live-testing/workers")
+def live_testing_workers() -> Dict[str, Any]:
+    """V6.4 — every live-testing worker's backend state (refresh restores from here)."""
+    from ..live_testing.workers import get_worker_manager, WORKER_STATES
+    wm = get_worker_manager()
+    return {"ok": True, "states": wm.states(), "worker_states": list(WORKER_STATES),
+            "note": "the backend is authoritative: a page refresh re-renders from this state"}
+
+
+@router.get("/live-testing/nodes/{sid}/schedule-provenance")
+def live_testing_node_schedule_provenance(sid: int) -> Dict[str, Any]:
+    """V6.4 §6 — the node's schedule defaults, from real provenance (never invented)."""
+    db = get_db()
+    strat = db.get_strategy(sid)
+    if strat is None:
+        raise HTTPException(status_code=404, detail={"ok": False, "message": f"node {sid} not found"})
+    prov = _node_schedule_provenance(db, strat, sid)
+    from ..live_testing.schedule import normalize_config as _norm_sched, describe as _describe
+    resolved = _norm_sched({**(prov.get("config") or prov.get("genome") or {}),
+                            "strategy_id": sid})
+    return {"ok": True, "strategy_id": sid, "provenance": prov,
+            "defaults": resolved,
+            "timezone": resolved.get("timezone") or "UTC",
+            "description": _describe(resolved) if resolved else None,
+            "note": ("shown before START: these are the node's own days/sessions/timeframes; "
+                     "when provenance is unavailable the UI requires a deliberate selection")}
 
 
 @router.get("/live-testing/risk")

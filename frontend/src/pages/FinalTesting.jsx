@@ -725,7 +725,7 @@ export default function FinalTesting() {
                         ★
                       </span>
                     </td>
-                    <td className="mono font-bold">#{s.id}</td>
+                    <td className="mono font-bold">Node #{s.id}</td>
                     <td><Pill status={s.status} /></td>
                     <td className="muted" style={{ fontSize: "0.72rem", maxWidth: 240 }}>
                       {s.dead_reason || s.survival_reason
@@ -836,7 +836,7 @@ export default function FinalTesting() {
                 </h3>
                 <Pill status={nodeDetail.status} />
                 <span className="mono muted" style={{ fontSize: "0.8rem" }}>
-                  Gen {nodeDetail.generation} · Parent #{nodeDetail.parent_id || "None"}
+                  Gen {nodeDetail.generation} · Parent {nodeDetail.parent_id ? `Node #${nodeDetail.parent_id}` : "None"}
                 </span>
               </div>
               <div className="flex items-center gap-2">

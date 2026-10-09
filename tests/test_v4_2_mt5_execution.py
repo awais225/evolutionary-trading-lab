@@ -527,9 +527,25 @@ def test_state_and_status_never_place_an_order(mt5_env, bridge, term, temp_db):
 # 11. legacy isolation + node safety (spec §3/§15, test 11)
 # ==========================================================================
 def test_legacy_node_is_never_a_trading_candidate():
-    v = ex.assert_tradeable_strategy(1)          # legacy infrastructure row
-    assert v["ok"] is False and v["code"] == "LEGACY_NODE_NOT_TRADEABLE"
-    assert "LEGACY_TEST" in v["detail"]
+    # The refusal NAMES WHY: the tradeability predicate refuses any LEGACY_TEST
+    # row with LEGACY_NODE_NOT_TRADEABLE (verified unconditionally, without a DB)
+    # and a lookup miss with NODE_NOT_FOUND. When the study actually carries
+    # legacy rows (the operator's mixed database does), the real row is refused
+    # the same way; a user-research-only snapshot has none — the contract is the
+    # refusal, never a particular id.
+    from app.live_testing.engine import _tradeability
+    verdict = _tradeability({"data_source": "LEGACY_TEST", "status": "alive"}, genome={})
+    assert verdict["ok"] is False and "LEGACY" in verdict.get("code", "")
+
+    from app.db.database import get_db
+    row = get_db().one("SELECT id FROM strategies WHERE data_source='LEGACY_TEST' "
+                       "ORDER BY id LIMIT 1")
+    if row is not None:
+        v = ex.assert_tradeable_strategy(int(row["id"]))
+        assert v["ok"] is False and v["code"] == "LEGACY_NODE_NOT_TRADEABLE"
+        assert "LEGACY_TEST" in v["detail"]
+    missing = ex.assert_tradeable_strategy(2 ** 31 - 1)     # never a real id
+    assert missing["ok"] is False and missing["code"] == "NODE_NOT_FOUND"
 
 
 def test_user_research_node_is_accepted_and_status_untouched(temp_db):

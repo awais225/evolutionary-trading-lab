@@ -24,7 +24,9 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parents[1]
-PIP = 0.10                      # XAUUSD: 10 points of 0.01
+# V6.4 — the digits rule (MT5_BRIDGE_DETAILS.txt): XAUUSD (2-digit feed) has
+# pip_size 0.01. The V5-era 0.10 constant made gold stops ten times too far.
+PIP = 0.01
 
 
 # --------------------------------------------------------------------------- #

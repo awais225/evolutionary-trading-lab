@@ -335,11 +335,23 @@ export function ManualOrderPanel({ defaultSymbol = "XAUUSD" }) {
             <div className="kit-kv"><span className="k">Stop loss</span>
               <span className="mono">{levels?.sl === undefined || levels?.sl === null
                 ? txt(form.sl, "missing — an order without SL is refused")
-                : `${fmt.num(levels.sl, 2)} (${txt(levels.sl_pips, NA_TEXT)} pips)`}</span></div>
+                : `${fmt.num(levels.sl, 2)} (${txt(levels.sl_pips, NA_TEXT)} pips = ${
+                    levels?.pip_conversion?.sl_price_distance != null
+                      ? fmt.num(levels.pip_conversion.sl_price_distance, 4)
+                      : "?"} price distance)`}</span></div>
             <div className="kit-kv"><span className="k">Take profit</span>
               <span className="mono">{levels?.tp === undefined || levels?.tp === null
                 ? txt(form.tp, "not set")
-                : `${fmt.num(levels.tp, 2)} (${txt(levels.tp_pips, NA_TEXT)} pips)`}</span></div>
+                : `${fmt.num(levels.tp, 2)} (${txt(levels.tp_pips, NA_TEXT)} pips = ${
+                    levels?.pip_conversion?.tp_price_distance != null
+                      ? fmt.num(levels.pip_conversion.tp_price_distance, 4)
+                      : "?"} price distance)`}</span></div>
+            <div className="kit-kv"><span className="k">Pip conversion (resolved from the broker's symbol spec)</span>
+              <span className="mono">
+                {levels?.pip_conversion && levels.pip_conversion.convention_established
+                  ? `digits ${txt(levels.pip_conversion.digits, "?")} · point ${txt(levels.pip_conversion.point, "?")} · pip = ${txt(levels.pip_conversion.pip_size, "?")} (${txt(levels.pip_conversion.points_per_pip, "?")} points/pip)`
+                  : "UNESTABLISHED — pip inputs are refused rather than guessed"}
+              </span></div>
             <div className="kit-kv"><span className="k">Estimated loss at SL</span>
               <span className="mono">{txt(estimate?.loss_at_sl, NA_TEXT)}</span></div>
             <div className="kit-kv"><span className="k">Estimated profit at TP</span>
@@ -497,6 +509,25 @@ export function ManualOrderPanel({ defaultSymbol = "XAUUSD" }) {
       {warnings.length > 0 && (
         <div className="kit-inline-err" style={{ marginTop: 8 }}>
           {warnings.map((w, i) => <div key={i}>• {w}</div>)}
+        </div>
+      )}
+
+      {levels?.pip_conversion && (
+        <div className="kit-strip" style={{ border: "none", padding: 0, marginTop: 8, flexWrap: "wrap" }}>
+          <div className="item"><span className="k">Pip conversion</span>
+            <span className="v mono">
+              {levels.pip_conversion.convention_established
+                ? `digits ${txt(levels.pip_conversion.digits, "?")} · point ${txt(levels.pip_conversion.point, "?")} · pip = ${txt(levels.pip_conversion.pip_size, "?")}`
+                : "UNESTABLISHED — pip inputs are refused rather than guessed"}
+            </span></div>
+          {levels.pip_conversion.sl_pips != null && (
+            <div className="item"><span className="k">SL distance</span>
+              <span className="v mono">{txt(levels.pip_conversion.sl_pips, "?")} pips = {fmt.num(levels.pip_conversion.sl_price_distance ?? 0, 4)} price</span></div>
+          )}
+          {levels.pip_conversion.tp_pips != null && (
+            <div className="item"><span className="k">TP distance</span>
+              <span className="v mono">{txt(levels.pip_conversion.tp_pips, "?")} pips = {fmt.num(levels.pip_conversion.tp_price_distance ?? 0, 4)} price</span></div>
+          )}
         </div>
       )}
 

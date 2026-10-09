@@ -33,7 +33,10 @@ def _load(name: str):
 
 _v48 = _load("test_v4_8_dashboard.py")
 SYMBOL = "XAUUSD"
-PIP = 0.10                     # XAUUSD: 10 points of 0.01 (the project's own pip size)
+# V6.4 — the digits rule (MT5_BRIDGE_DETAILS.txt): XAUUSD (2-digit feed) has
+# pip_size 0.01, so 300 pips is a $3.00 price distance ($300 of risk per lot).
+# The V5-era constant here (0.10) made every gold stop ten times too far.
+PIP = 0.01
 
 
 @pytest.fixture()
@@ -61,31 +64,32 @@ def _preview(client, **payload):
 # §7 — the form opens with $10 / 300 pips / live entry / calculated lot
 # ===========================================================================
 def test_01_defaults_are_10_dollars_and_300_pips_and_the_panel_says_what_they_mean(client, bridge):
-    """$10 at a 300-pip XAUUSD stop is 0.0033 lots — below the broker's 0.01 minimum.
+    """$1 at a 300-pip XAUUSD stop (corrected pip 0.01: $300 of risk per lot)
+    is 0.0033 lots — below the broker's 0.01 minimum.
 
     The product's answer is the honest one: the calculation runs, and because the
     money is *less* than one minimum lot can risk, the panel reports the block and
-    the minimum required risk instead of silently rounding the risk up to $30.
+    the minimum required risk instead of silently rounding the risk up to $3.
     """
-    out = _preview(client)
+    out = _preview(client, risk_amount=1)
     assert out["defaults"]["risk_amount"] == 10.0
     assert out["defaults"]["sl_pips"] == 300.0
     assert out["read_only"] is True and out["orders_placed"] is False
     assert out["mode"] == "risk_to_lot"
     # the calculation itself ran with the broker's own maths
     assert out["blocked"]["code"] == "VOLUME_BELOW_MINIMUM"
-    assert out["blocked"]["detail"]["raw_volume"] == pytest.approx(10.0 / 3000.0, abs=1e-6)
+    assert out["blocked"]["detail"]["raw_volume"] == pytest.approx(1.0 / 300.0, abs=1e-6)
     assert out["blocked"]["detail"]["volume_min"] == pytest.approx(0.01)
-    assert out["blocked"]["detail"]["risk_per_lot"] == pytest.approx(3000.0)
+    assert out["blocked"]["detail"]["risk_per_lot"] == pytest.approx(300.0)
     assert out["sizing"] is None
     # the panel shows the operator what a legal lot would risk (0.01 x 3000 = $30)
-    assert out["blocked"]["detail"]["volume_min"] * out["blocked"]["detail"]["risk_per_lot"] == pytest.approx(30.0)
+    assert out["blocked"]["detail"]["volume_min"] * out["blocked"]["detail"]["risk_per_lot"] == pytest.approx(3.0)
 
 
 def test_01b_a_viable_amount_produces_the_lot_automatically(client, bridge):
-    out = _preview(client, risk_amount=300)          # $300 at 300 pips = 0.10 lots
+    out = _preview(client, risk_amount=300)          # $300 at 300 pips = 1.00 lots
     assert out["ok"] is True and out["blocked"] is None
-    assert out["sizing"]["volume"] == pytest.approx(0.10)
+    assert out["sizing"]["volume"] == pytest.approx(1.00)
     assert out["sizing"]["actual_risk"] == pytest.approx(300.0)
 
 
@@ -102,20 +106,20 @@ def test_02_the_quoted_entry_is_the_live_ask_for_a_buy_and_the_bid_for_a_sell(cl
 
 def test_03_the_lot_is_computed_by_the_broker_spec_not_by_a_hard_coded_pip_value(client, bridge):
     out = _preview(client, risk_amount=300)
-    # 300 pips = 30.00 price units / tick size 0.01 * tick value 1.0 = 3000 per lot
-    assert out["sizing"]["risk_per_lot"] == pytest.approx(3000.0)
-    assert out["sizing"]["volume"] == pytest.approx(300.0 / 3000.0)
+    # V6.4: 300 pips = 3.00 price units / tick size 0.01 * tick value 1.0 = 300 per lot
+    assert out["sizing"]["risk_per_lot"] == pytest.approx(300.0)
+    assert out["sizing"]["volume"] == pytest.approx(300.0 / 300.0)
     assert out["symbol_info"]["volume_step"] == 0.01
     # and an amount that no whole step can buy is refused, never rounded up
-    flat = _preview(client, risk_amount=25)
+    flat = _preview(client, risk_amount=2)
     assert flat["ok"] is False and flat["blocked"]["code"] == "VOLUME_BELOW_MINIMUM"
 
 
 def test_04_doubling_the_amount_doubles_the_lot(client, bridge):
     a = _preview(client, risk_amount=300)
     b = _preview(client, risk_amount=600)
-    assert a["sizing"]["volume"] == pytest.approx(0.10)
-    assert b["sizing"]["volume"] == pytest.approx(0.20)
+    assert a["sizing"]["volume"] == pytest.approx(1.00)
+    assert b["sizing"]["volume"] == pytest.approx(2.00)
     assert b["sizing"]["volume"] == pytest.approx(2 * a["sizing"]["volume"], rel=1e-6)
     assert b["mode"] == "risk_to_lot"
 
@@ -127,8 +131,8 @@ def test_05_editing_the_lot_updates_the_money_at_risk_immediately(client, bridge
     small = _preview(client, volume=0.10)
     big = _preview(client, volume=0.20)
     assert small["mode"] == "lot_to_risk" and big["mode"] == "lot_to_risk"
-    assert small["sizing"]["actual_risk"] == pytest.approx(300.0)      # 0.10 lot x 3000/lot
-    assert big["sizing"]["actual_risk"] == pytest.approx(600.0)
+    assert small["sizing"]["actual_risk"] == pytest.approx(30.0)       # 0.10 lot x 300/lot
+    assert big["sizing"]["actual_risk"] == pytest.approx(60.0)
     assert big["sizing"]["actual_risk"] == pytest.approx(2 * small["sizing"]["actual_risk"], rel=1e-6)
 
 
@@ -149,7 +153,7 @@ def test_06_the_two_directions_agree_round_trip(client, bridge):
 def test_07_a_wider_stop_shrinks_the_lot_for_the_same_money(client, bridge):
     near = _preview(client, sl_pips=300, risk_amount=300)
     far = _preview(client, sl_pips=500, risk_amount=300)
-    assert near["sizing"]["volume"] == pytest.approx(0.10)
+    assert near["sizing"]["volume"] == pytest.approx(1.00)
     assert far["sizing"]["risk_per_lot"] > near["sizing"]["risk_per_lot"]
     assert far["sizing"]["volume"] == pytest.approx(near["sizing"]["volume"] * 300 / 500, rel=1e-6)
     assert far["levels"]["sl"] == pytest.approx(2400.3 - 500 * PIP)
@@ -180,9 +184,10 @@ def test_10_a_different_broker_spec_changes_every_derived_number(client, monkeyp
     monkeypatch.setattr(mt5, "get_bridge", lambda: odd)
     out = _preview(client, risk_amount=750)
     assert out["symbol_info"]["volume_step"] == 0.05
-    assert out["sizing"]["risk_per_lot"] == pytest.approx(7500.0)       # 3000 * 2.5
-    assert out["sizing"]["volume"] == pytest.approx(0.10)
-    assert out["sizing"]["volume"] % 0.05 == pytest.approx(0.0, abs=1e-9)   # an exact broker step
+    assert out["sizing"]["risk_per_lot"] == pytest.approx(750.0)        # 300 * 2.5
+    assert out["sizing"]["volume"] == pytest.approx(1.00)
+    # an exact broker step (float-modulo on 0.05 is not exact at 1.0 lots)
+    assert abs(out["sizing"]["volume"] / 0.05 - round(out["sizing"]["volume"] / 0.05)) < 1e-9
 
 
 def test_11_the_panel_receives_the_spec_it_must_display(client, bridge):
@@ -222,7 +227,7 @@ def test_13_a_typed_entry_is_used_when_the_market_is_silent(client, monkeypatch)
     assert out["ok"] is True
     assert out["levels"]["entry"] == pytest.approx(2400.5)      # the operator's price, not a quote
     assert out["quote"] is None                                 # the market gave nothing
-    assert out["sizing"]["volume"] == pytest.approx(0.10)
+    assert out["sizing"]["volume"] == pytest.approx(1.00)
 
 
 def test_14_a_wrong_side_stop_is_flagged_not_silently_used(client, bridge):

@@ -1368,12 +1368,21 @@ class MT5RealBridge(MarketBridge):
         if chain["result"] is not None:
             raw = _result_to_dict(chain["result"])
             ep = float(raw.get("price") or price)
+            rc = raw.get("retcode")
+            try:
+                rc = int(rc) if rc is not None and not isinstance(rc, bool) else None
+            except (TypeError, ValueError):
+                rc = None
+            # V6.4 — 10009 (DONE) is success ONLY with the result confirming it.
+            # Any other readable retcode is a broker answer and travels verbatim;
+            # a result object with no readable retcode is still not success.
+            done = rc == getattr(mt5, "TRADE_RETCODE_DONE", 10009)
             return OrderResult(
-                ok=True, order_id=raw.get("order") or raw.get("deal"),
+                ok=done, order_id=raw.get("order") or raw.get("deal"),
                 deal_id=raw.get("deal"), exec_price=ep, exec_ts=exec_ts,
                 slippage_points=(abs(ep - price) / 0.01) if ep else 0.0,
-                delay_ms=(exec_ts - t0) * 1000.0, retcode=raw.get("retcode"),
-                comment=str(raw.get("comment") or "DONE"),
+                delay_ms=(exec_ts - t0) * 1000.0, retcode=rc,
+                comment=str(raw.get("comment") or ("DONE" if done else "FAILED")),
                 filling=filling_name(used.get("type_filling")), **common)
         if chain["raised"] is not None:
             return OrderResult(ok=False, retcode=None,
@@ -1450,20 +1459,87 @@ def _filling_modes(si) -> List[int]:
     return out
 
 
+#: The fields a real MT5 order_send result carries. Read DIRECTLY from the
+#: result object (V6.4, MT5_BRIDGE_DETAILS.txt): the MetaTrader5 binding has
+#: returned namedtuples, dicts, and objects with __slots__/properties across
+#: builds — enumerating ``_fields``/``__dict__`` silently produced an empty
+#: payload for any of the latter, and an executed trade (retcode 10009 with
+#: deal/order tickets) was then labelled UNKNOWN. One known field list, read
+#: one attribute at a time, plus whatever extra attributes the object exposes.
+_RESULT_FIELDS = ("retcode", "deal", "order", "volume", "price", "bid", "ask",
+                  "comment", "request_id", "retcode_external",
+                  # extensions some builds/bindings add
+                  "sl", "tp", "position_id", "external_id")
+
+
 def _result_to_dict(result) -> Dict:
-    """Serialise an MT5 order_send result (namedtuple) into a plain dict."""
+    """Serialise an MT5 order_send result into a plain dict — never lose the facts.
+
+    V6.4: reads the actual result fields directly (retcode, deal, order, volume,
+    price, comment, request_id, and any result extensions), whatever the object
+    shape (namedtuple, dict-like, ``__slots__``, properties, or a foreign
+    object). A readable retcode is preserved even when it is a numpy-style int
+    or a stringified number; a readable object is NEVER reported as unreadable.
+    Raw diagnostics (``_repr``/``_type``/``_dict_keys``) are kept alongside for
+    odd types so nothing the binding returned is thrown away.
+    """
     out: Dict = {}
-    try:
-        fields = getattr(result, "_fields", None) or getattr(result, "__dict__", {})
-        for f in fields:
-            out[f] = getattr(result, f, None)
-    except Exception:
-        pass
+    if result is None:
+        return out
+    # 1. dict-like results (some wrappers/mock bindings return plain dicts)
+    if isinstance(result, dict):
+        out.update({k: v for k, v in result.items()})
+    else:
+        # 2. the known MT5 result fields, read DIRECTLY via getattr
+        for f in _RESULT_FIELDS:
+            try:
+                v = getattr(result, f, None)
+            except Exception:
+                v = None
+            if v is not None:
+                out[f] = v
+        # 3. anything else the object exposes (namedtuple _fields, __dict__,
+        #    __slots__, property names) — extension fields must survive too
+        extra: list = []
+        try:
+            extra.extend(list(getattr(result, "_fields", None) or ()))
+        except Exception:
+            pass
+        try:
+            extra.extend(list(getattr(result, "__dict__", {}) or ()))
+        except Exception:
+            pass
+        try:
+            extra.extend(list(getattr(result, "__slots__", None) or ()))
+        except Exception:
+            pass
+        for f in extra:
+            if f in out or f.startswith("_"):
+                continue
+            try:
+                v = getattr(result, f, None)
+            except Exception:
+                v = None
+            if v is not None and not callable(v):
+                out[f] = v
+    # 4. retcode normalisation: accept numpy-style ints and numeric strings —
+    #    a readable retcode is the difference between DONE and a false UNKNOWN.
+    rc = out.get("retcode")
+    if rc is not None and not isinstance(rc, bool):
+        try:
+            out["retcode"] = int(rc)
+        except (TypeError, ValueError):
+            pass
+    # 5. raw diagnostics for odd types — kept, never parsed away
     if not out:
         try:
-            out = {"_repr": repr(result)}
+            out["_repr"] = repr(result)[:2000]
+        except Exception as e:
+            out["_repr"] = f"<repr failed: {type(e).__name__}: {e}>"
+        try:
+            out["_type"] = type(result).__name__
         except Exception:
-            out = {}
+            pass
     return out
 
 

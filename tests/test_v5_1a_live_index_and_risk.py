@@ -46,7 +46,9 @@ _Spec = _v48._Spec
 _Quote = _v48._Quote
 
 SYMBOL = "XAUUSD"
-PIP = 0.10                      # XAUUSD: 10 points of 0.01
+# V6.4 — the digits rule (MT5_BRIDGE_DETAILS.txt): XAUUSD (2-digit feed) has
+# pip_size 0.01. The V5-era 0.10 constant made gold stops ten times too far.
+PIP = 0.01
 
 
 @pytest.fixture()
@@ -105,9 +107,16 @@ def test_01_the_default_filter_is_qualified_and_never_the_failed_bulk(client):
     assert failed["filter"] == "failed"
     assert {r["bucket"] for r in failed["nodes"]} <= {"failed"}
     assert failed["total"] == failed["counts"].get("failed", 0)
-    # the failed bucket is the bulk of the population: it is the reason the
-    # default view must not show it
-    assert failed["total"] > d["total"]
+    # the default NEVER shows the failed bulk whatever the mix: only qualified
+    # rows are listed and the failed bucket is fully reported under its own
+    # filter. (The failed:qualified PROPORTION is study mix, not contract — the
+    # operator's pristine snapshot is failed-heavy (9,872 vs 83) while a
+    # later-stage study — or a run of these very research-run tests, which
+    # rewrite the shared population's statuses — can hold more qualified nodes
+    # than failed ones.)
+    assert all(r["bucket"] == "qualified" for r in d["nodes"])
+    assert d["total"] == d["counts"].get("qualified", 0)
+    assert failed["total"] == failed["counts"].get("failed", 0)
 
 
 def test_02_every_filter_is_reachable_and_reports_its_own_count(client):
@@ -127,8 +136,17 @@ def test_02_every_filter_is_reachable_and_reports_its_own_count(client):
     # "alive" is qualified + the still-alive bucket, and can never be smaller
     assert totals["alive"] == buckets.get("qualified", 0) + buckets.get("alive", 0)
     assert totals["alive"] >= totals["qualified"]
-    assert totals["excluded"] == buckets.get("excluded", 0) > 0, "the legacy exclusion is not hidden"
-    assert totals["failed"] > totals["qualified"], "the failed bulk must be the bigger set"
+    # the legacy exclusion is never hidden AND never invented: the excluded
+    # bucket is EXACTLY the study's LEGACY_TEST population (787 on the
+    # operator's mixed database, 0 in a user-research-only snapshot)
+    assert totals["excluded"] == buckets.get("excluded", 0), "the exclusion is not hidden"
+    from app.db.database import get_db
+    n_legacy = get_db().q(
+        "SELECT COUNT(*) AS n FROM strategies WHERE data_source='LEGACY_TEST'")[0]["n"]
+    assert totals["excluded"] == n_legacy, (totals["excluded"], n_legacy)
+    # (the failed:qualified proportion is study mix, not contract — see test_01;
+    #  what IS contract is that every filter reports its own honest count)
+    assert totals["failed"] == buckets.get("failed", 0)
 
 
 def test_03_sorting_by_a_metric_actually_sorts(client):
@@ -219,7 +237,8 @@ def test_07_a_node_row_carries_the_research_record_the_page_shows(client):
                     "survival_evidence", "metrics", "robustness", "backtest_coverage",
                     "risk", "schedule", "live", "position"):
             assert key in row, key
-        assert row["node_label"].startswith("Node_")
+        assert row["node_label"].startswith("Node #")
+        assert str(row["node_id"]) in row["node_label"]
         assert row["experiment"], "the index must say which experiment the numbers belong to"
 
 
@@ -233,15 +252,16 @@ def _preview(client, **body):
 
 
 def test_08_an_explicit_entry_makes_the_sizing_deterministic(client, broker):
-    """$10 at 300 pips on XAUUSD with tick value 1.00 / tick size 0.01.
+    """V6.4 — $1 at 300 pips on XAUUSD with tick value 1.00 / tick size 0.01.
 
-    300 pips = 30.00 price distance = 3000 ticks of 0.01 = 3000 currency per lot.
-    $10 / 3000 = 0.0033 lots → rounded DOWN to the 0.01 step is below the 0.01
-    minimum, so the honest answer is a refusal, not 0.01 lots.
+    Under the corrected XAUUSD pip (0.01) a 300-pip stop is a $3.00 price
+    distance = 300 ticks of 0.01 = 300 currency per lot. $1 / 300 = 0.0033
+    lots → rounded DOWN to the 0.01 step is below the 0.01 minimum, so the
+    honest answer is a refusal, not 0.01 lots.
     """
-    d = _preview(client, symbol=SYMBOL, side="BUY", entry=2400.0, sl_pips=300, risk_amount=10.0)
+    d = _preview(client, symbol=SYMBOL, side="BUY", entry=2400.0, sl_pips=300, risk_amount=1.0)
     assert d["levels"]["entry"] == pytest.approx(2400.0)
-    assert d["levels"]["sl"] == pytest.approx(2370.0)          # 2400 - 300 * 0.10
+    assert d["levels"]["sl"] == pytest.approx(2400.0 - 300 * PIP)   # 2397.0
     assert d["levels"]["sl_from_pips"] is True
     assert d["sizing"] is None or d["sizing"].get("volume") is None
     assert d["blocked"]["code"] in ("VOLUME_BELOW_MINIMUM", "INVALID_SYMBOL_DATA")
@@ -284,14 +304,18 @@ def test_10_buy_uses_the_ask_and_sell_uses_the_bid(client, broker):
 
 
 def test_11_money_at_risk_below_the_broker_minimum_is_refused_with_the_numbers(client, broker):
-    """§5 — no silent zero: the refusal names the minimum and the risk it needs."""
-    d = _preview(client, symbol=SYMBOL, side="BUY", entry=2400.0, sl_pips=300, risk_amount=10.0)
+    """§5 — no silent zero: the refusal names the minimum and the risk it needs.
+
+    V6.4: with the corrected XAUUSD pip (0.01) a 300-pip stop risks 300 per
+    lot, so $1 (0.0033 lots) is below the 0.01 minimum and is refused.
+    """
+    d = _preview(client, symbol=SYMBOL, side="BUY", entry=2400.0, sl_pips=300, risk_amount=1.0)
     assert d["ok"] is False
     assert d["blocked"]["code"] == "VOLUME_BELOW_MINIMUM"
     det = d["blocked"]["detail"]
     assert det["volume_min"] == pytest.approx(0.01)
-    assert det["raw_volume"] == pytest.approx(10.0 / 3000.0, abs=1e-8)   # rounded to 8 dp by the API
-    assert det["risk_per_lot"] == pytest.approx(3000.0)
+    assert det["raw_volume"] == pytest.approx(1.0 / 300.0, abs=1e-8)   # rounded to 8 dp by the API
+    assert det["risk_per_lot"] == pytest.approx(300.0)
     msg = d["blocked"]["message"]
     assert "0.01" in msg and "XAUUSD" in msg, msg
 

@@ -27,9 +27,10 @@ export default function StrategyDrawer({ id, onClose, onOpen }) {
     <Shell onClose={onClose}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
         <h2 style={{ margin: 0, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <span>Node_{s.id}</span>
-          <span style={{ fontSize: "0.85rem", color: "#4f8ef7", fontWeight: 600, background: "rgba(79, 142, 247, 0.12)", padding: "2px 8px", borderRadius: 4 }}>
-            {s.research_node_num ? `Research Node #${s.research_node_num.toLocaleString()}` : (s.data_source === "LEGACY_TEST" ? "Legacy Test Node" : `Research Node #${s.id}`)}
+          <span>Node #{s.id}</span>
+          <span style={{ fontSize: "0.85rem", color: "#4f8ef7", fontWeight: 600, background: "rgba(79, 142, 247, 0.12)", padding: "2px 8px", borderRadius: 4 }}
+                title="study-local display number (secondary identity — the canonical id is Node # above)">
+            {s.research_node_num ? `research #${s.research_node_num.toLocaleString()}` : (s.data_source === "LEGACY_TEST" ? "Legacy Test Node" : `research #${s.id}`)}
           </span>
           <Pill status={s.status} />
         </h2>
@@ -52,8 +53,8 @@ export default function StrategyDrawer({ id, onClose, onOpen }) {
             {[
               ["Fitness", fmt.num(s.fitness, 3)],
               ["Net profit", <SignedNum v={m.net_profit} />],
-              ["Return", <SignedNum v={m.total_return_pct} pct />],
-              ["Profit factor", fmt.num(m.profit_factor, 2)],
+              ["Return", <span title="net profit ÷ initial capital, percentage (6.71%)"><SignedNum v={m.total_return_pct} pct /></span>],
+              ["Profit factor", <span title="gross profit ÷ gross loss — a RATIO (2.91), never a percentage">{fmt.num(m.profit_factor, 2)}</span>],
               ["Max DD", fmt.pct(m.max_drawdown_pct)],
               ["Sharpe", fmt.num(m.sharpe, 2)],
               ["Sortino", fmt.num(m.sortino, 2)],
@@ -112,7 +113,7 @@ export default function StrategyDrawer({ id, onClose, onOpen }) {
             <div className="lineage">
               {data.lineage.map((l, i) => (
                 <div className="step" key={l.id}>
-                  <b>#{l.id}</b> · gen {l.generation} · <Pill status={l.status} />
+                  <b>Node #{l.id}</b> · gen {l.generation} · <Pill status={l.status} />
                   {" "}<span className="muted">origin: {l.origin}{l.mutation_type ? ` · ${l.mutation_type}` : ""}</span>
                   {l.fitness != null && <span className="muted"> · fitness {fmt.num(l.fitness, 3)}</span>}
                   <div className="why">{l.creation_reason || "generation-0 seed"}</div>
@@ -247,7 +248,7 @@ function Shell({ children, onClose }) {
 function ChildRow({ c, onOpen }) {
   return (
     <tr onClick={() => onOpen?.(c.id)}>
-      <td>#{c.id}</td>
+      <td>Node #{c.id}</td>
       <td><Pill status={c.status} /></td>
       <td>{fmt.num(c.fitness, 3)}</td>
       <td>{c.mutation_type}</td>

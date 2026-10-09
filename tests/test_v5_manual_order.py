@@ -32,7 +32,11 @@ _v48 = _load("test_v4_8_dashboard.py")
 FakeMT5Terminal = _v42.FakeMT5Terminal
 FakeMT5Bridge = _v42.FakeMT5Bridge
 SYMBOL = "XAUUSD"
-PIP = 0.10          # XAUUSD: 10 points of 0.01
+# V6.4 — the digits rule (MT5_BRIDGE_DETAILS.txt): XAUUSD on a 2-digit feed
+# (digits=2, point=0.01) has pip_size = 0.01, so 300 pips is a $3.00 price
+# distance. The V5-era constant here (0.10 = "10 points of 0.01") made every
+# gold stop ten times too far and is what V6.4 corrected.
+PIP = 0.01
 
 
 @pytest.fixture()
@@ -78,7 +82,8 @@ def test_03_a_price_in_currency_is_reported_back_in_pips(client, read_only_bridg
     body = client.post("/api/mt5-execution/preview", json={
         "symbol": SYMBOL, "side": "BUY", "entry": 2450.0, "sl": 2440.0,
         "volume": 0.01}).json()
-    assert body["levels"]["sl_pips"] == pytest.approx(100.0)
+    # a $10.00 price distance under the corrected XAUUSD pip (0.01) is 1000 pips
+    assert body["levels"]["sl_pips"] == pytest.approx(10.0 / PIP)
     assert body["mode"] == "lot_to_risk"
 
 
@@ -120,20 +125,25 @@ def test_06_risk_money_and_lots_agree_in_both_directions(client, read_only_bridg
     assert body["estimate"]["loss_at_sl"] <= 100.0 + 1e-9
 
 
-def test_06b_the_10_dollar_default_is_below_the_broker_minimum_and_says_so(
+def test_06b_an_amount_below_the_broker_minimum_is_refused_not_rounded_up(
         client, read_only_bridge):
-    """$10 with a 300-pip XAUUSD stop (a $30 move per 1.0 lot) needs 0.0033 lots.
-
-    The broker's minimum is 0.01, so the panel must report the block rather than
-    silently rounding the risk up to $30 — the operator decides what to do.
+    """V6.4 — with the corrected XAUUSD pip (0.01), a 300-pip stop is a $3.00
+    price distance ($300 of risk per 1.0 lot), so the $10 default now sizes to
+    0.03 lots. An amount no whole step can buy must still be BLOCKED rather
+    than silently rounded up — the operator decides what to do.
     """
     body = client.post("/api/mt5-execution/preview", json={
         "symbol": SYMBOL, "side": "BUY", "entry": 2450.0, "sl_pips": 300,
         "risk_amount": 10.0}).json()
-    assert body["ok"] is False
-    assert body["blocked"]["code"] == "VOLUME_BELOW_MINIMUM"
-    assert body["blocked"]["detail"].get("volume_min") == pytest.approx(0.01)
-    assert body["estimate"]["loss_at_sl"] is None      # no size -> no money estimate
+    assert body["ok"] is True
+    assert body["sizing"]["volume"] == pytest.approx(0.03)     # floored to the 0.01 step
+    tiny = client.post("/api/mt5-execution/preview", json={
+        "symbol": SYMBOL, "side": "BUY", "entry": 2450.0, "sl_pips": 300,
+        "risk_amount": 1.0}).json()
+    assert tiny["ok"] is False
+    assert tiny["blocked"]["code"] == "VOLUME_BELOW_MINIMUM"
+    assert tiny["blocked"]["detail"].get("volume_min") == pytest.approx(0.01)
+    assert tiny["estimate"]["loss_at_sl"] is None      # no size -> no money estimate
 
 
 def test_07_preview_still_places_nothing(client, read_only_bridge):

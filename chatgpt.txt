@@ -3455,3 +3455,74 @@ question, "which build is my machine running?"):
    its numbers at every hop of the /api/nodes request (boundary_counts) so an
    empty table can never again be unexplained; starred_only accepts true / false /
    omitted and the string "undefined" is refused with a readable reason.
+
+5. V6.4 CORRECTIVE RELEASE (2026-10-09) — the demand was: implement seven
+   corrections against the V6.3 baseline (e470049), each traced to its root
+   cause and fixed at the narrowest point — never hardcode expected values,
+   never merely relabel:
+
+   1) XAUUSD pip conversion (CRITICAL): the manual panel said "100 pips"
+      while prices implied $10 (pip 0.10). DECISION: ONE explicit pip size
+      from the symbol spec digits rule (MT5_BRIDGE_DETAILS.txt: 2-digit
+      XAUUSD digits=2/point=0.01 ⇒ pip=0.01; 3/5-digit ⇒ 10x point; 2/4-digit
+      ⇒ 1x point), derived per symbol from symbol_info() digits/point —
+      never one universal gold pip and never a name heuristic. Preview shows
+      resolved digits/point/pip/price distances; preview and request use the
+      same conversion; SL/TP rounded to tick; stops-level/freeze validated
+      pre-send; an unestablished convention refuses the order with a clear
+      diagnostic. CONFIRMED CONVENTION: 100 pips = $1.00 on the 2-digit
+      XAUUSD feed (the observed $10 was exactly the documented "ten times too
+      far" failure). The Windows checklist verifies the live spec first.
+   2) False UNKNOWN results: broker answered retcode 10009 with deal/order
+      tickets and fill price but the UI said UNKNOWN. DECISION: normalize
+      the result at the serialization point — read the real MT5 result
+      attributes directly, preserve retcode/deal/order/volume/price/comment/
+      request_id (+ raw diagnostics for odd types), 10009 = success only when
+      the result confirms execution, None/unreadable/rejected stay distinct,
+      uncertain outcomes are never auto-retried, and the proven demo-only
+      execution path (order construction, filling fallback, session, single
+      send) is unchanged.
+   3) Node identity: Overview "node #6658" vs detail "Research Node #5,871"
+      vs absence from Live Testing. DECISION: one canonical identity — the
+      database row id, displayed "Node #<id>" — with the study-local number
+      as the explicitly labelled secondary "research #<num>" on every
+      surface; the two namespaces overlap by design (id 6658 = research
+      #5,871 QUALIFIED; id 7445 = research #6658 RETIRED). QUALIFIED appears
+      iff the canonical criteria are met and the node is in the study (6658
+      in; 7445 explained, not forced in). The audit also found and fixed a
+      real empty-table defect: the index scoped its rows to "the newest row's
+      run_id" while the counters counted the whole table.
+   4) Performance metrics: net +670.82, return 6.71%, PF 2.91, maxDD 0.6%,
+      win 70.5%, 44 trades. DECISION: reconcile against the exact trade
+      ledger (backtest 9478) — every figure checks out; PF 2.91 is a RATIO
+      (never "291% return"); return = net/initial capital (10,000 derived);
+      fix the presentation (the drawer divided a fraction by 100 again) and
+      publish the unit/definition/denominator/evaluation-version contract
+      with the payload; never alter historical data.
+   5) Live Testing lifecycle: explicit states IDLE/STARTING/RUNNING/
+      STOPPING/STOPPED/COMPLETED/ERROR; per-node STOP and a new STOP ALL;
+      duplicate starts refused with the running task_id; the in-flight cycle
+      is the stop boundary; a read-only MT5 reconcile runs before the final
+      state (stopping NEVER closes broker positions); a stopped node places
+      no new trades; refresh reads backend state.
+   6) Schedule defaults from provenance only (stored live-testing config,
+      then the genome's own days/sessions/windows) — a bare symbol/timeframe
+      is not provenance; otherwise 409 SCHEDULE_REQUIRED and a deliberate
+      choice (or an explicit confirm_product_default); the timezone is
+      always shown ("UTC"); displayed == submitted == enforced.
+   7) Live position table + close controls: real terminal positions (ticket,
+      symbol, side, volume, prices, SL/TP, floating PnL, magic, times); CLOSE
+      per broker ticket and CLOSE ALL for an explicit account/symbol/scope,
+      each with confirmation listing exactly what closes; the close is
+      verified at the broker (DONE and position gone) before anything is
+      reported closed; other magic numbers require explicit authorization;
+      stale tickets and partial closes handled honestly; demo-only.
+
+   Evidence: V6.4 suites 85 tests; full suite 939 passed / 1 skipped / 0
+   failed against pristine scratch DATA (V6.3 baseline run: 12 failed —
+   every one root-caused and resolved); production build + fingerprint V6.4
+   recorded and matched; authoritative DATA byte-identical before/after.
+   No real broker order was sent from the Linux environment — the Windows
+   MT5 demo checklist in V6_4_REPORT.md §11 is the pending manual
+   verification (pip spec, demo order, result fields, identity, lifecycle,
+   position close flows).

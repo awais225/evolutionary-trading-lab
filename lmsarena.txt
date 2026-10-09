@@ -5106,3 +5106,134 @@ code commit 55e890a4862c0e25bde0dc3de632f5e46c0ea38d  (2026-10-08)
       * the LIVE TESTING table lists all 33 eligible nodes in one scroll and
         CHECK_RUNNING_DASHBOARD.bat shows fingerprint identity, not blank git
         lines.
+
+=============================================================
+V6.4 — 2026-10-09 — CORRECTIVE RELEASE (execution, identity,
+metrics, live testing lifecycle, schedule, positions)
+=============================================================
+
+BASELINE   : e4700493f9075614b112c5c7acdc809cec1f26d6 (V6.3 merge; verified
+             == origin/main at pre-flight). Latest DATA upload: 85bc9450
+             (V6.2 DATA FOLDER UPDATED). DATA untouched by this release
+             (sha256 of lab_state.db identical before/after all test runs;
+             tests ran only against byte-identical scratch copies under
+             /var/tmp with EVOLUTIONARY_LAB_DATA_ROOT pointing at the DATA
+             dir). Discovery recorded: an earlier session's test runs had
+             re-tagged the authoritative DB's run_id column (all rows now
+             'RUN-20261009-051720') and created research_shortlist; rows,
+             ids (788..10787), statuses, metrics and schema intact.
+
+DEFECT 1 (CRITICAL) XAUUSD pip conversion — root cause: pip size resolved
+  per call site behind name/size heuristics; preview, calculator and request
+  could disagree (panel "100 pips" = $10 ⇒ pip 0.10). Convention confirmed
+  from MT5_BRIDGE_DETAILS.txt "PIP SIZE (the digits rule)": digits=2 XAUUSD
+  (point=0.01) ⇒ pip=0.01 (100 pips = $1.00); 3/5-digit ⇒ 10x point;
+  2/4-digit ⇒ 1x point. Fix: app/backtest/symbol_specs.py canonical helpers
+  (pip_size_from_digits / pips_to_price / price_to_pips / round_to_tick /
+  stops_distance_check / pip_conversion_report; SymbolSpecs.pip_size raises
+  when unestablished — name heuristics removed); routes manual-order uses one
+  conversion for preview AND request, shows digits/point/pip/distances,
+  rounds SL/TP to tick, refuses stops-level violations (-8) and unestablished
+  convention (-7); windows_diagnostic prints the same rule; UI shows the
+  conversion strip + confirm-modal distances. 24 tests
+  (test_v6_4_pip_conversion.py, 2/3/4/5-digit + real XAUUSD config).
+
+DEFECT 2 false UNKNOWN results — root cause: mt5_real serialized order_send
+  results without reading attribute-style fields, so retcode 10009 +
+  deal/order/fill price reached the UI as unreadable. Fix at the narrowest
+  point: _RESULT_FIELDS + _result_to_dict (getattr over namedtuple/__slots__/
+  properties/dict-like/foreign objects; keeps retcode/deal/order/volume/price/
+  comment/request_id + raw diagnostics; numpy/string retcode normalization);
+  ok only when retcode 10009 is confirmed by the result; None/exception/
+  unreadable stay distinct; uncertain outcomes never re-sent; demo gates,
+  filling fallback and the single-send path unchanged. 11 tests.
+
+DEFECT 3 node identity — root causes: (a) DB id vs study-local research_node_num
+  namespaces collided (id 6658 = research #5,871 QUALIFIED; id 7445 =
+  research #6658 RETIRED); (b) nodes_index scoped ROWS to the newest row's
+  run_id while counts/populations counted the whole table (one fixture row
+  re-scoped the index: "authority says 5,259 qualified, table says 0").
+  Fix: canonical = DB id ("Node #<id>"), secondary labelled "research #<num>"
+  everywhere (ui.jsx contract + all pages); identity block per row; search
+  matches both namespaces; rows/total/counts/filter_totals are ONE universe
+  (whole index incl. legacy 'excluded' bucket) = app.research.populations;
+  explicit run_id param remains a filter; QUALIFIED iff canonical criteria +
+  in study (6658 shown; 7445 correctly absent). 6 new tests + cross-endpoint
+  checks.
+
+DEFECT 4 metrics — root cause: presentation/unit linkage, not bad data. Node
+  6658 backtest 9478 reconciles exactly (net 670.82 = 1022.16-351.34; return
+  0.0671 = 670.82/10,000 derived initial; PF 2.909 = 1022.16/351.34 ratio;
+  maxDD 0.0058; win 0.7045 = 31/44; 44 trades). Fix: NodeDetailDrawer /100
+  double-division bug ("0.07%" → "6.71%"), "Profit Factor (ratio)" + tooltips,
+  authoritative.py evaluation block (backtest_id/stage/fingerprint/window/
+  derived initial capital + unit definitions FRACTION/RATIO/COUNT/CURRENCY +
+  return denominator + drawdown convention). 7 tests incl. the live ledger
+  reconciliation (PASS) and the zero-gross-loss PF policy.
+
+DEFECT 5 lifecycle — root cause: implicit worker states, no task identity,
+  stop raced in-flight cycles, a worker completing during startup was dropped,
+  no STOP ALL, refresh could not reconstruct state. Fix: workers.py rewrite —
+  IDLE/STARTING/RUNNING/STOPPING/STOPPED/COMPLETED/ERROR, task_id per start,
+  _cycle_lock stop boundary, read-only MT5 _reconcile at stop
+  (positions_touched=false — stopping never closes positions), final-state
+  entries kept for refresh, stop_all counts only actually-stopped workers;
+  routes: START/STOP + /live-testing/nodes/stop-all, /live-testing/workers,
+  /live-testing/nodes/{sid}/worker; duplicate START refused with the running
+  task_id. 14 tests (two nodes, per-node stop, STOP ALL, refresh, repeated
+  clicks, startup races, errors).
+
+DEFECT 6 schedule defaults — root cause: defaults could be inferred from bare
+  genome fields and the description omitted the timezone. Fix:
+  _node_schedule_provenance (stored config first, then genome
+  days/sessions/windows; a bare symbol/timeframe is NOT provenance); START
+  without provenance → 409 SCHEDULE_REQUIRED with the deliberate options
+  (or schedule={"confirm_product_default": true}); submitted schedule is
+  persisted verbatim, returned as schedule_resolved/source/timezone and
+  enforced per cycle; schedule.describe appends " (UTC)". 9 tests
+  (displayed == submitted == enforced).
+
+DEFECT 7 positions + close controls (finished first) — root cause: no
+  position surface (close-positions was a 501 stub). Fix: GET /api/mt5/
+  positions (real terminal fields incl. ticket/magic/PnL/times) +
+  LivePositionsPanel.jsx; POST .../close by broker ticket (CONFIRMATION_
+  REQUIRED lists would_close; _close_one_verified = DONE 10009 AND position
+  gone ⇒ CLOSED_VERIFIED else CLOSE_UNCONFIRMED/CLOSE_FAILED; refreshed list
+  returned; stale tickets send nothing; partial closes never claimed);
+  POST .../close-all (explicit scope; ACCOUNT_SCOPE_MISMATCH; OTHER_MAGIC_
+  AUTHORIZATION_REQUIRED without acknowledge_other_magic; exact confirmation
+  list; per-close verification); demo-only 403. 14 tests.
+
+ALSO CORRECTED (root-caused in the V6.3 baseline diff, not dismissed):
+  * frontend_build_guard --scan exited 1 on a completed report; --scan is a
+    read-only report (exit 0, SCAN_FOUND emitted, exit codes documented).
+  * DATA-shape contracts (v4_1 state legacy count, v4_2 legacy refusal,
+    live-index excluded count) strengthened to verify the EXACT classification
+    against the database (equality), holding for both this snapshot (0 legacy)
+    and the operator's mixed snapshot (787 legacy).
+  * test contracts updated where V6.4 supersedes them: timezone "(UTC)" in
+    schedule descriptions, SCHEDULE_REQUIRED at START, the explicit worker
+    vocabulary (IDLE/STOPPED/COMPLETED), LiveTestWorker thread naming;
+    population-mix proportions ("failed > qualified") replaced by the real
+    invariants (default lists only qualified; every filter reports its own
+    honest count) — the suite's own research-run tests rewrite the shared
+    scratch statuses (measured).
+
+VERIFICATION (this tree, this session):
+  * V6.4 focused suites: 85 passed (24+11+6+7+14+9+14).
+  * full suite (python -m pytest tests/ -q, pristine scratch DATA):
+    939 passed, 1 skipped (environment: no simulator dataset), 0 failed,
+    281.28s. V6.3 baseline comparison run (identical protocol): 12 failed,
+    842 passed, 1 skipped — all 12 resolved, each one attributed above.
+  * frontend production build OK (index-B9dWSF5o.js / index-DG45pVtK.css),
+    frontend_build_guard --check FRESH; fingerprint V6.4 recorded
+    (src 300f7ef19b868f86…, code 100e3cb7497f7c62…, index f2ac507b7c2639c2…)
+    and --match identifies this tree as V6.4; PRODUCT_RELEASE="V6.4" equals
+    the newest published release (test_16 pins it).
+  * authoritative DATA sha256 eeb456a1… identical pre/post testing.
+
+DEMO SAFETY: no real broker order was sent from this Linux host; every
+broker-side claim is fixture/API evidence only. PENDING WINDOWS MT5
+VERIFICATION checklist: see V6_4_REPORT.md §11 (pip spec check, demo order
+with SL 100 pips = $1.00, result fields visible, identity navigation,
+START/STOP/STOP ALL with two nodes, position CLOSE/CLOSE ALL flows).

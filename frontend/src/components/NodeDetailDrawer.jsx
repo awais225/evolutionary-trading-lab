@@ -132,8 +132,11 @@ export default function NodeDetailDrawer({ id, onClose, onOpenStrategy, initialT
           {tab === "overview" && (
             <div>
               <div className="grid cols-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(150px,1fr))" }}>
-                <Kpi label="OOS Return" value={returns.validation_oos_return_pct === null || returns.validation_oos_return_pct === undefined ? NA_TEXT : fmt.pct(Number(returns.validation_oos_return_pct) / 100, 2)} />
-                <Kpi label="Profit Factor" value={pfs.oos === null && pfs.in_sample === null ? NA_TEXT : fmt.num(pfs.oos ?? pfs.in_sample, 2)} />
+                {/* V6.4 — every *_return_pct field is a FRACTION (0.0671 = 6.71%),
+                    same convention as the backtest metrics; fmt.pct multiplies by
+                    100. The pre-V6.4 /100 here rendered 6.71% as 0.07%. */}
+                <Kpi label="OOS Return" value={returns.validation_oos_return_pct === null || returns.validation_oos_return_pct === undefined ? NA_TEXT : fmt.pct(Number(returns.validation_oos_return_pct), 2)} />
+                <Kpi label="Profit Factor (ratio)" value={pfs.oos === null && pfs.in_sample === null ? NA_TEXT : fmt.num(pfs.oos ?? pfs.in_sample, 2)} />
                 <Kpi label="Max Drawdown" value={backtest.max_drawdown_pct === undefined && validation.max_drawdown_pct === undefined ? NA_TEXT : fmt.pct(validation.max_drawdown_pct ?? backtest.max_drawdown_pct, 2)} tone="warn" />
                 <Kpi label="Robustness" value={n.robustness_score === null || n.robustness_score === undefined ? NA_TEXT : fmt.num(n.robustness_score, 3)} />
                 <Kpi label="Sharpe" value={backtest.sharpe === undefined && validation.sharpe === undefined ? NA_TEXT : fmt.num(validation.sharpe ?? backtest.sharpe, 2)} />
@@ -219,13 +222,13 @@ export default function NodeDetailDrawer({ id, onClose, onOpenStrategy, initialT
             <div>
               <SectionTitle>Parents and children</SectionTitle>
               <div className="kit-kv"><span className="k">Parent</span>
-                <span>{n.parent_id ? <button className="kit-chip mono" onClick={() => onOpenStrategy && onOpenStrategy(Number(n.parent_id))}>#{n.parent_id}</button> : <span className="muted">{NA_TEXT} (root)</span>}</span></div>
+                <span>{n.parent_id ? <button className="kit-chip mono" onClick={() => onOpenStrategy && onOpenStrategy(Number(n.parent_id))}>Node #{n.parent_id}</button> : <span className="muted">{NA_TEXT} (root)</span>}</span></div>
               {children.length === 0
                 ? <div className="muted" style={{ marginTop: 6 }}>No children recorded.</div>
                 : <div style={{ marginTop: 6 }}>{children.map((c, i) => {
                     const cid = Number(c?.id ?? c);
                     if (!Number.isFinite(cid)) return <span className="kit-chip muted" key={i}>{NA_TEXT}</span>;
-                    return <button key={cid} className="kit-chip mono" onClick={() => onOpenStrategy && onOpenStrategy(cid)}>#{cid}{c?.status ? <span className="muted"> · {c.status}</span> : null}</button>;
+                    return <button key={cid} className="kit-chip mono" onClick={() => onOpenStrategy && onOpenStrategy(cid)}>Node #{cid}{c?.status ? <span className="muted"> · {c.status}</span> : null}</button>;
                   })}</div>}
               <SectionTitle>Why this node exists</SectionTitle>
               <div className="lineage">

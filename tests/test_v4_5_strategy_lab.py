@@ -381,7 +381,7 @@ def test_compare_reuses_v44_node_stats(db, stub_snapshot):
     assert res["count"] == 2 and res["max_compare"] == sl.MAX_COMPARE
     assert res["not_found"] == []
     a = res["rows"][0]
-    assert a["identity"]["node_id"] == "Node_2001" and a["identity"]["generation"] == 3
+    assert a["identity"]["node_id"] == "Node #2001" and a["identity"]["generation"] == 3
     assert a["identity"]["research_eligible"] is True
     assert a["definition"]["indicators"] is not None
     assert a["definition"]["entry_conditions"]["long"]

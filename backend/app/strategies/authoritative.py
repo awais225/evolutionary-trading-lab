@@ -324,7 +324,7 @@ def get_authoritative_strategy(sid: int, db: Any) -> Optional[Dict[str, Any]]:
 
     return {
         "id": sid,
-        "node_id": f"Node_{sid}",
+        "node_id": f"Node #{sid}",   # V6.4 canonical identity label
         "research_node_num": rel_num,
         "run_id": run_id,
         "data_source": data_source,
@@ -361,6 +361,35 @@ def get_authoritative_strategy(sid: int, db: Any) -> Optional[Dict[str, Any]]:
             "mt5_backtest": mt5_metrics,
             "live_test": live_summary,
             "mt5_demo": demo_summary,
+        },
+        # V6.4 — evaluation provenance + unit contract: every metric on this
+        # page refers to ONE evaluation (the backtest record named here) unless
+        # it sits under its own stage block; every unit is stated, so a ratio
+        # (PF 2.91) can never be read as a percentage (291%).
+        "evaluation": {
+            "source": ("backtests row (stage=%s)" % (detail_bt.get("stage") if detail_bt else None)),
+            "backtest_id": detail_bt.get("id") if detail_bt else None,
+            "stage": detail_bt.get("stage") if detail_bt else None,
+            "dataset_id": detail_bt.get("dataset_id") if detail_bt else None,
+            "window": detail_bt.get("window") if detail_bt else None,
+            "fingerprint": detail_bt.get("fingerprint") if detail_bt else None,
+            "created_at": detail_bt.get("created_at") if detail_bt else None,
+            "initial_capital": (
+                detail_metrics.get("initial_capital")
+                if detail_metrics.get("initial_capital") is not None
+                else (round(float(detail_metrics.get("final_equity") or 0.0)
+                            - float(detail_metrics.get("net_profit") or 0.0), 6)
+                      if detail_metrics.get("final_equity") is not None
+                         and detail_metrics.get("net_profit") is not None else None)),
+            "final_equity": detail_metrics.get("final_equity"),
+            "return_definition": ("total_return_pct = net_profit / initial_capital, stored as "
+                                  "a FRACTION (0.0671 = 6.71%)"),
+            "profit_factor_definition": ("profit_factor = gross_profit / gross_loss — a RATIO "
+                                         "(2.91 means winners made 2.91x the losers, never 291%)"),
+            "max_drawdown_definition": "max_drawdown_pct = peak-to-trough equity decline, FRACTION (0.0058 = 0.58%)",
+            "win_rate_definition": "win_rate = winning trades / total trades, FRACTION (0.7045 = 70.5%)",
+            "trades_definition": "trades = closed trade count in this evaluation (a COUNT)",
+            "net_profit_definition": "net_profit = gross_profit - gross_loss - costs, ACCOUNT CURRENCY",
         },
         "returns": {
             "backtest_return_pct": detail_metrics.get("total_return_pct"),

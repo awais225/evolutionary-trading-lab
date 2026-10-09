@@ -143,11 +143,12 @@ def test_08_daily_cap_spread_limit_and_position_cap():
 def test_09_an_unconfigured_schedule_is_the_product_default_not_24_7():
     """No config at all means Mon–Fri / all sessions — the same default the writer
     stores. A weekend instant is therefore blocked with a readable reason, and the
-    description never claims the node may trade around the clock."""
+    description never claims the node may trade around the clock. (V6.4: the
+    description also names the timezone it is evaluated in — " (UTC)".)"""
     weekend = sched.evaluate({}, now=ts(5, 3))
     assert weekend["allowed"] is False
     assert weekend["reason"].startswith("days:")
-    assert sched.describe({}) == "Mon–Fri (default), all sessions, no other restriction"
+    assert sched.describe({}) == "Mon–Fri (default), all sessions, no other restriction (UTC)"
 
     weekday = sched.evaluate({}, now=ts(2, 3))
     assert weekday["allowed"] is True and weekday["reason"] is None
@@ -455,7 +456,14 @@ def test_15_start_without_confirmation_is_refused(db, live_cfg, api):
 
 def test_16_start_enrols_the_node_and_activates_the_engine(db, live_cfg, api):
     _v43.add_node(db, 6)
-    res = api.post("/api/live-testing/nodes/6/start", json={"confirmed": True})
+    # V6.4 contract: a bare symbol/timeframe genome is not schedule provenance —
+    # the operator must select deliberately (or confirm the product default)
+    refused = api.post("/api/live-testing/nodes/6/start", json={"confirmed": True})
+    assert refused.status_code == 409 and refused.json()["detail"]["code"] == "SCHEDULE_REQUIRED"
+    res = api.post("/api/live-testing/nodes/6/start",
+                   json={"confirmed": True,
+                         "schedule": {"days": [0, 1, 2, 3, 4], "sessions": ["london"],
+                                      "timeframes": ["M15"], "timezone": "UTC"}})
     assert res.status_code == 200, res.text
     body = res.json()
     assert body["is_active"] is True and body["engine"]["active"] is True

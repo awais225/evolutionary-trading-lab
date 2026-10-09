@@ -279,10 +279,26 @@ export const api = {
   saveLiveTestingSchedule: (sid, body) =>
     req(`/api/live-testing/schedule/${sid}`, { method: "POST", body }),
   manualOrder: (body = {}) => req("/api/mt5/manual_order", { method: "POST", body }),
+  mt5Positions: () => req("/api/mt5/positions"),
+  mt5ClosePosition: (ticket, confirmed = false, comment = "") =>
+    req("/api/mt5/positions/close", { method: "POST", body: { ticket, confirmed, comment } }),
+  mt5CloseAllPositions: (scope, confirmed = false, acknowledge_other_magic = false, comment = "") =>
+    req("/api/mt5/positions/close-all", {
+      method: "POST",
+      body: { scope, confirmed, acknowledge_other_magic, comment },
+    }),
   liveTestingNodeWorker: (sid) => req(`/api/live-testing/nodes/${sid}/worker`),
-  liveTestingStartNode: (sid) =>
-    req(`/api/live-testing/nodes/${sid}/start`, { method: "POST", body: { confirmed: true } }),
+  liveTestingStartNode: (sid, schedule = null) =>
+    req(`/api/live-testing/nodes/${sid}/start`, {
+      method: "POST",
+      body: { confirmed: true, ...(schedule ? { schedule } : {}) },
+    }),
   liveTestingStopNode: (sid) => req(`/api/live-testing/nodes/${sid}/stop`, { method: "POST" }),
+  liveTestingStopAll: (reason = "operator STOP ALL") =>
+    req(`/api/live-testing/nodes/stop-all`, { method: "POST", body: { reason } }),
+  liveTestingWorkers: () => req(`/api/live-testing/workers`),
+  liveTestingScheduleProvenance: (sid) =>
+    req(`/api/live-testing/nodes/${sid}/schedule-provenance`),
   liveTestingRisk: () => req("/api/live-testing/risk"),
   liveTestingSetRisk: (risk_pct) =>
     req("/api/live-testing/risk", { method: "POST", body: { risk_pct } }),

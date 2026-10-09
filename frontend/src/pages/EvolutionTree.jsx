@@ -404,7 +404,7 @@ export default function EvolutionTree() {
           {selectedNodeId && (
             <>
               <button className="btn btn-sm primary" onClick={() => openStrategy(selectedNodeId)}>
-                Open Strategy #{selectedNodeId}
+                Open Strategy Node #{selectedNodeId}
               </button>
               <button className="btn btn-sm btn-subtle" onClick={() => setSelectedNodeId(null)}>
                 Clear Lineage Focus
@@ -511,7 +511,7 @@ export default function EvolutionTree() {
         {selectedNode && (
           <div className="panel scroll-y" style={{ height: "100%", margin: 0, padding: 14 }}>
             <div className="flex justify-between items-center" style={{ borderBottom: "1px solid var(--border)", paddingBottom: 8, marginBottom: 10 }}>
-              <h3 style={{ margin: 0 }}>Strategy #{selectedNode.id}</h3>
+              <h3 style={{ margin: 0 }}>Node #{selectedNode.id}</h3>
               <Pill status={selectedNode.status} />
             </div>
 

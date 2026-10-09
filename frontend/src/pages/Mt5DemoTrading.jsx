@@ -5,6 +5,7 @@ import { NA_TEXT, numOrNull, rows as safeRows, txt } from "../lib/safe.js";
 import { useLab } from "../App.jsx";
 import StructuredError from "../components/StructuredError.jsx";
 import DemoOrderPanel from "../components/DemoOrderPanel.jsx";
+import LivePositionsPanel from "../components/LivePositionsPanel.jsx";
 import Mt5AccountSelector from "../components/Mt5AccountSelector.jsx";
 import { ManualOrderPanel, ScheduleDialog } from "../components/LiveTestingPanels.jsx";
 import NodePopulationStrip from "../components/NodePopulationStrip.jsx";
@@ -245,6 +246,9 @@ export default function Mt5DemoTrading() {
 
       {/* V4.2 — manual, explicitly-confirmed demo order execution */}
       <DemoOrderPanel />
+
+      {/* V6.4 §7 — live positions with explicit, verified close controls */}
+      <LivePositionsPanel />
 
       {error && <StructuredError error={error} onDismiss={() => setError(null)} />}
       {actionMsg && (

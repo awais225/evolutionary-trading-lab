@@ -429,9 +429,9 @@ def test_21_every_row_carries_its_real_records_not_placeholders(client):
     for row in body["nodes"][:25]:
         assert row["node_id"], "a row without an identity is not a node record"
         assert row["symbol"] and row["timeframe"]
-        assert row["node_label"].startswith("Node_")
+        assert row["node_label"].startswith("Node #")
         assert "bucket" in row and "qualification" in row
-        assert str(row["node_label"]) != "Node_0"
+        assert str(row["node_label"]) != "Node #0"
 
 
 def test_22_the_table_renders_the_hop_counts_and_asks_for_all_rows():

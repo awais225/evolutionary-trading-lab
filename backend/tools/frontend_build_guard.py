@@ -21,6 +21,8 @@ Exit codes
                          15 = the answering PROCESS is stale — started from
                               different code, or before the current bundle was
                               built, or it is not the process we just started
+  ``--scan``             0 = the report was printed (SCAN_FOUND counts the lab
+                         listeners seen; a completed scan is always a success)
   ``--identify URL``     0 = it is this lab answering, 1 = not this lab
   ``--stop URL``         0 = a lab instance identified and stopped (port freed),
                          3 = occupant is not this lab (nothing was touched),
@@ -396,7 +398,12 @@ def cmd_scan(root: Path, ports: Sequence[int] = (8787, 5173)) -> int:
               f"PORT_{port}_NOTE": ("a browser opened on this port shows whatever that process "
                                     "serves - it is not the launcher's dashboard" if kind != "foreign"
                                     else "unrelated software: never touched by this lab")})
-    return 0 if found else 1
+    # V6.4 — --scan is a READ-ONLY REPORT ("report every lab-ish listener"): a
+    # completed scan is exit 0 whether or not a lab is currently listening.
+    # SCAN_FOUND states the count in machine-readable form; the exit code never
+    # hides the report behind a "nothing found" failure.
+    emit({"SCAN_FOUND": found})
+    return 0
 
 
 def cmd_identify(url: str) -> int:

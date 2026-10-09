@@ -25,6 +25,180 @@ from typing import Any, Dict, Optional
 from ..config import get_config
 
 
+# ---------------------------------------------------------------------------
+# V6.4 — THE one explicit pip-size conversion (MT5_BRIDGE_DETAILS.txt, "PIP SIZE
+# (the digits rule)"):
+#
+#     pip_size = 10.0 * point if digits in (3, 5) else 1.0 * point
+#
+#     XAUUSD on a 2-digit feed: digits=2, point=0.01, pip_size=0.01
+#     EURUSD on a 5-digit feed: digits=5, point=0.00001, pip_size=0.0001
+#
+# Every pip -> price conversion in the product (SL/TP/R:R/validation/request
+# prices, previews, risk sizing, panels) MUST go through these helpers so one
+# symbol means one pip everywhere. The convention is derived from the symbol's
+# own digits/point pair (the broker's specification) — never from the symbol
+# name, never a per-product constant. When digits/point cannot be established,
+# the helpers return None and the caller must REFUSE the order with a clear
+# diagnostic instead of guessing (getting it wrong puts a stop ten times too
+# far or ten times too close).
+# ---------------------------------------------------------------------------
+
+def pip_size_from_digits(digits: Optional[int], point: Optional[float]) -> Optional[float]:
+    """One pip in price terms, from the symbol's own digits/point (never guessed).
+
+    Returns ``None`` when the convention cannot be established (missing/zero
+    ``point``, or ``digits`` outside the 2/3/4/5 quoting families). A ``None``
+    result is a REFUSAL signal, not a default.
+    """
+    try:
+        if point is None or digits is None:
+            return None
+        point = float(point)
+        digits = int(digits)
+    except (TypeError, ValueError):
+        return None
+    if point <= 0 or digits not in (2, 3, 4, 5):
+        return None
+    return round(10.0 * point, 12) if digits in (3, 5) else round(point, 12)
+
+
+def points_per_pip_from_digits(digits: Optional[int]) -> Optional[float]:
+    """How many of the symbol's own points make one pip (10 on 3/5-digit, 1 on 2/4)."""
+    try:
+        d = int(digits)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    if d not in (2, 3, 4, 5):
+        return None
+    return 10.0 if d in (3, 5) else 1.0
+
+
+def pips_to_price(pips: Optional[float], pip_size: Optional[float]) -> Optional[float]:
+    """Convert a pip distance to a price distance (``None`` when either side is unestablished)."""
+    if pips is None or pip_size is None:
+        return None
+    try:
+        return float(pips) * float(pip_size)
+    except (TypeError, ValueError):
+        return None
+
+
+def price_to_pips(distance: Optional[float], pip_size: Optional[float]) -> Optional[float]:
+    """Convert a price distance to pips (``None`` when the conversion is unestablished)."""
+    if distance is None or pip_size in (None, 0):
+        return None
+    try:
+        return float(distance) / float(pip_size)
+    except (TypeError, ValueError):
+        return None
+
+
+def round_to_tick(price: Optional[float], tick_size: Optional[float],
+                  digits: Optional[int]) -> Optional[float]:
+    """Round a price to the broker's tick size (falls back to ``digits`` rounding)."""
+    if price is None:
+        return None
+    try:
+        p = float(price)
+        if tick_size:
+            t = float(tick_size)
+            if t > 0:
+                return round(round(p / t) * t, int(digits) if digits is not None else 10)
+        return round(p, int(digits)) if digits is not None else p
+    except (TypeError, ValueError):
+        return None
+
+
+def stops_distance_check(price_distance: Optional[float], point: Optional[float],
+                         stops_level_points: Optional[int],
+                         freeze_level_points: Optional[int]) -> Dict[str, Any]:
+    """MT5_BRIDGE_DETAILS.txt 'STOPS-LEVEL VALIDATION', client-side and read-only.
+
+    ``min_stop_dist = max(trade_stops_level, trade_freeze_level) * point``; a
+    SL/TP distance below the broker's minimum is refused with a readable message
+    instead of a cryptic retcode 10016 after the send.
+    """
+    out: Dict[str, Any] = {"checked": False, "ok": True, "min_stop_dist": None,
+                           "reason": None}
+    try:
+        if price_distance is None or price_distance <= 0:
+            out["reason"] = "no stop distance set - nothing to validate"
+            return out
+        if not point or not (stops_level_points or freeze_level_points):
+            out["reason"] = ("broker reported no stops/freeze level (or no point) - "
+                             "nothing to validate client-side")
+            return out
+        min_dist = max(int(stops_level_points or 0), int(freeze_level_points or 0)) * float(point)
+        out["checked"] = True
+        out["min_stop_dist"] = min_dist
+        if float(price_distance) < min_dist:
+            out["ok"] = False
+            out["reason"] = (f"stop distance {float(price_distance):.8f} is below the broker "
+                             f"minimum {min_dist:.8f} "
+                             f"(max(stops_level={int(stops_level_points or 0)}, "
+                             f"freeze_level={int(freeze_level_points or 0)}) x point={float(point)})")
+        else:
+            out["reason"] = "stop distance satisfies the broker's minimum"
+    except Exception as e:                                   # pragma: no cover - defensive
+        out["reason"] = f"stops-level validation failed to run: {type(e).__name__}: {e}"
+    return out
+
+
+def pip_conversion_report(*, symbol: str, digits: Optional[int], point: Optional[float],
+                          tick_size: Optional[float] = None,
+                          stops_level_points: Optional[int] = None,
+                          freeze_level_points: Optional[int] = None,
+                          sl_pips: Optional[float] = None,
+                          tp_pips: Optional[float] = None,
+                          side: Optional[str] = None,
+                          entry: Optional[float] = None) -> Dict[str, Any]:
+    """The diagnostics every order preview carries: how the pip converts to price.
+
+    States the resolved ``digits``/``point``/``pip_size``/``points_per_pip``, the
+    price distance each pip input resolves to (SL/TP), the rounded request prices
+    (to tick size) when an entry is known, and whether the convention could be
+    established at all. The UI renders this verbatim so the pip label and the
+    submitted distance can never disagree again.
+    """
+    pip_size = pip_size_from_digits(digits, point)
+    sl_dist = pips_to_price(sl_pips, pip_size)
+    tp_dist = pips_to_price(tp_pips, pip_size)
+    rep: Dict[str, Any] = {
+        "symbol": symbol,
+        "digits": digits,
+        "point": point,
+        "tick_size": tick_size,
+        "pip_size": pip_size,
+        "points_per_pip": points_per_pip_from_digits(digits),
+        "convention_established": pip_size is not None,
+        "convention_rule": ("pip_size = 10 x point for 3/5-digit symbols, "
+                            "1 x point for 2/4-digit symbols (MT5_BRIDGE_DETAILS.txt)"),
+        "sl_pips": sl_pips,
+        "sl_price_distance": sl_dist,
+        "tp_pips": tp_pips,
+        "tp_price_distance": tp_dist,
+    }
+    if pip_size is None:
+        rep["refusal_reason"] = (
+            f"the pip convention for {symbol} cannot be established from "
+            f"digits={digits!r}, point={point!r} - the order must be refused rather "
+            f"than sized with a guessed conversion")
+    if entry is not None and side:
+        up = str(side).upper() == "BUY"
+        if sl_dist is not None:
+            rep["sl_price"] = round_to_tick(entry - sl_dist if up else entry + sl_dist,
+                                            tick_size, digits)
+        if tp_dist is not None:
+            rep["tp_price"] = round_to_tick(entry + tp_dist if up else entry - tp_dist,
+                                            tick_size, digits)
+    rep["stops_check"] = {
+        "sl": stops_distance_check(sl_dist, point, stops_level_points, freeze_level_points),
+        "tp": stops_distance_check(tp_dist, point, stops_level_points, freeze_level_points),
+    }
+    return rep
+
+
 @dataclass
 class SymbolSpecs:
     symbol: str
@@ -50,18 +224,55 @@ class SymbolSpecs:
 
     @property
     def pip_size(self) -> float:
-        """One pip in price terms.
+        """One pip in price terms — the V6.4 digits rule (see module docstring).
 
-        MT5's *point* is the last quoted digit; the market convention for these
-        instruments is one pip = 10 points (XAUUSD: 0.01 -> 0.10, EURUSD:
-        0.00001 -> 0.0001, USDJPY: 0.001 -> 0.01). Stated explicitly so a
-        "300 pip" stop can always be converted back to a price, and back again.
+        MT5's *point* is the last quoted digit; a pip is 10 points on 3/5-digit
+        symbols and 1 point on 2/4-digit symbols. For this product's XAUUSD
+        (digits=2, point=0.01) that makes a pip **0.01**, so "100 pips" is a
+        $1.00 price distance — the conversion the MT5 handoff specifies. The
+        pre-V6.4 rule here (unconditionally 10 x point) made gold stops ten
+        times too far; it is not used any more. Never guess: if digits/point do
+        not establish a convention the property raises so the caller refuses.
         """
-        return round(10.0 * float(self.point or 0.0), 10)
+        pip = pip_size_from_digits(self.digits, self.point)
+        if pip is None:
+            raise ValueError(
+                f"pip convention for {self.symbol} cannot be established from "
+                f"digits={self.digits!r}, point={self.point!r} — refuse the order "
+                f"instead of guessing")
+        return pip
+
+    @property
+    def points_per_pip(self) -> float:
+        """How many of this symbol's points make one pip (10 on 3/5-digit, 1 on 2/4)."""
+        ppp = points_per_pip_from_digits(self.digits)
+        if ppp is None:
+            raise ValueError(
+                f"points-per-pip for {self.symbol} cannot be established from "
+                f"digits={self.digits!r}")
+        return ppp
+
+    def pip_conversion(self, sl_pips: Optional[float] = None,
+                       tp_pips: Optional[float] = None) -> Dict[str, Any]:
+        """Diagnostics payload: resolved digits/point/pip and the price distances."""
+        return pip_conversion_report(
+            symbol=self.symbol, digits=self.digits, point=self.point,
+            tick_size=self.tick_size or self.point,
+            stops_level_points=self.stops_level_points,
+            freeze_level_points=self.freeze_level_points,
+            sl_pips=sl_pips, tp_pips=tp_pips)
 
     def to_payload(self) -> Dict[str, Any]:
         d = asdict(self)
-        d["pip_size"] = self.pip_size
+        try:
+            d["pip_size"] = self.pip_size
+            d["points_per_pip"] = self.points_per_pip
+        except ValueError:
+            d["pip_size"] = None
+            d["points_per_pip"] = None
+            d["pip_convention_established"] = False
+        else:
+            d["pip_convention_established"] = True
         return d
 
 

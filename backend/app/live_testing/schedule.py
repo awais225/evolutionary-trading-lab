@@ -674,7 +674,7 @@ def describe(schedule: Optional[Dict[str, Any]]) -> str:
         # an unconfigured schedule is not "unrestricted": the product default is
         # Mon–Fri, all sessions (the same default the config writer stores), and
         # the description must say so rather than imply 24/7 trading.
-        base = "Mon–Fri (default), all sessions, no other restriction"
+        base = f"Mon–Fri (default), all sessions, no other restriction ({s['timezone']})"
         if s["enabled_explicit"] and not s["enabled"]:
             return "switched OFF — " + base
         return base
@@ -696,7 +696,10 @@ def describe(schedule: Optional[Dict[str, Any]]) -> str:
                      f"conditions {', '.join(on) or 'none'} (off: {', '.join(off)})")
     if s["windows"]:
         parts.append(" ".join(f"{window_label(w)}{'' if w.get('enabled', True) else ' (off)'}"
-                              for w in s["windows"]) + f" {s['timezone']}")
+                              for w in s["windows"]))
+    # V6.4 §6 — a time or session schedule is NEVER displayed without its
+    # timezone: sessions are UTC windows, and the operator must see which clock.
+    parts.append(f"tz {s['timezone']}")
     if s["cooldown_minutes"]:
         parts.append(f"cooldown {s['cooldown_minutes']:g}m")
     if s["spread_limit_points"]:
