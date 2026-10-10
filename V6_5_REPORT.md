@@ -137,7 +137,10 @@ and Experimental SL/TP Offsets (additive on V6.4; strategy logic untouched).
 * **DATA preservation:** authoritative DATA sha256 unchanged all session
   (`c159b0718c43b43f97609881bd3be196dad76274029949a9fb4c4e710f106a12` for the restored
   published copy); `git diff` for `DATA/` empty; tests ran only against scratch copies.
-* **Final gate on the published tree:** see publication record (run after fingerprint record).
+* **Final gate on the published tree (after V6.5 fingerprint record):**
+  `python -m pytest tests/ -q` on a fresh scratch DATA copy →
+  **1003 passed, 1 skipped, 0 failed** (294.81s). The one skip is the pre-existing
+  "no simulator dataset" skip, disclosed. `--match` = **V6.5**, `is_latest` = True.
 
 ## D. Honest limitations
 
@@ -198,4 +201,11 @@ and Experimental SL/TP Offsets (additive on V6.4; strategy logic untouched).
 
 ## Publication record
 
-(see GIT HASH block below — filled at publication)
+* release content commit : `1d9a9b29bb322c0e31856e20adb86b0943392920`
+  ("V6.5: trade ledger, per-node lifecycle and limits, active-trades UI, SL/TP offsets")
+* fingerprint entry: release **V6.5**, `commit=1d9a9b29bb322c0e31856e20adb86b0943392920`,
+  `recorded_at=2026-10-10T05:24:20Z`, `src_hash=c073de982d0fac83…`,
+  `code_hash=fad61a3fb898cc92…`, `index_sha256=f9af174818039daf…`
+  (recorded AFTER the content commit existed; the fingerprint commit below names it)
+* fingerprint commit   : see git log ("docs: V6.5 fingerprint names the release commit")
+* final remote HEAD    : verified live after push (git ls-remote + fresh clone)

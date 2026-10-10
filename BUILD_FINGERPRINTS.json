@@ -84,6 +84,20 @@
       "release": "V6.4",
       "src_file_count": 62,
       "src_hash": "300f7ef19b868f8603132719862785d51095da163ebf35c12db9866fa9504de8"
+    },
+    {
+      "code_files": 117,
+      "code_hash": "fad61a3fb898cc92bc974c96e9bb09b2b33ea4a51ff8dbcb00992c8635d1ef62",
+      "commit": "1d9a9b29bb322c0e31856e20adb86b0943392920",
+      "entry_assets": [
+        "assets/index-BeNlcShL.js",
+        "assets/index-DG45pVtK.css"
+      ],
+      "index_sha256": "f9af174818039dafa41813d6e285a328e9f0b74a66dff1a0b226a0dfc909d83a",
+      "recorded_at": "2026-10-10T05:24:20Z",
+      "release": "V6.5",
+      "src_file_count": 63,
+      "src_hash": "c073de982d0fac83d64a0b37e217a5f62cd580f87f452a0e5b7ce072d93802b6"
     }
   ],
   "schema": 1
