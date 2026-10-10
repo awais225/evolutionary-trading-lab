@@ -5303,3 +5303,13 @@ open.
 
 DEMO SAFETY: no real broker order was sent from this Linux host; the lifecycle was exercised
 live over HTTP against the real backend in SIMULATOR mode on scratch DATA only.
+
+V6.5.1 GIT HASH / PUSH RESULT
+Content commit d4e4200c790d73bc8ce7fca1f7aef80d0e09093c + fingerprint commit
+712766f87a8f987ca1cb0b8f0b0dad02b799c839; push "68a183b3..712766f8 main -> main"; post-push
+git fetch + rev-parse: origin/main = 712766f87a8f987ca1cb0b8f0b0dad02b799c839 = local HEAD
+(verified; no force-push). Full gate 1041 passed / 1 skipped (pre-existing no-simulator skip) /
+0 failed (split in two segments on fresh scratch DATA because this 2 GB sandbox OOM-killed a
+combined run at ~89%; every test ran). Pre-existing order-dependent flake in
+test_v4_1_research_run_workflow::test_resume_add... reproduced identically at base on a
+mutated copy, green on fresh copy - not a V6.5.1 regression, no test weakened.

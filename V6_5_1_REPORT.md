@@ -247,5 +247,37 @@ rebuilds the dashboard automatically because this release changes `frontend/src`
 
 ## Publication record
 
-(see final section appended after push — content commit + fingerprint commit, gate counts,
-push verification)
+* **Content commit:** `d4e4200c790d73bc8ce7fca1f7aef80d0e09093c` —
+  "V6.5.1: fix Nodes-table lifecycle UI, inline risk editing, risk modes, MT5 account panel"
+  (backend fix + unified-table UI + account panel + 39 new tests + this report).
+* **Fingerprint commit:** `712766f87a8f987ca1cb0b8f0b0dad02b799c839` —
+  "docs: V6.5.1 fingerprint names the release commit" (`BUILD_FINGERPRINTS.json` entry
+  **V6.5.1** recorded with `backend/tools/build_fingerprints.py --record --release V6.5.1
+  --commit d4e4200c…` at `2026-10-10T07:35:01Z`; `--match` → `found=True, release=V6.5.1,
+  is_latest=True`; `PRODUCT_RELEASE = "V6.5.1"`).
+* **Push result:** `git push origin main` → `68a183b3..712766f8  main -> main`; post-push
+  `git fetch` + `git rev-parse` → local HEAD `712766f87a8f987ca1cb0b8f0b0dad02b799c839` ==
+  `origin/main` (verified, no force-push).
+* **Full regression gate** (fresh scratch DATA copies of the published DATA; command
+  `EVOLUTIONARY_LAB_DATA_ROOT=<scratch>/DATA .venv/bin/python -m pytest tests/ -q`, split into
+  two segments because this 2 GB sandbox OOM-killed a single combined run at ~89% — every test
+  ran in one of the segments):
+  * segment 1 (first 40 files, incl. all research/pipeline/backup/ledger/V4–V5 suites):
+    **784 passed, 1 skipped, 0 failed** in 322 s;
+  * segment 2 (remaining 21 files, incl. V6.4/V6.5 suites, both identity tests, the jsdom
+    acceptance harness and all V6.5.1 suites): **257 passed, 0 failed** in 113 s.
+  * **Total: 1041 passed, 1 skipped (pre-existing `test_v5_1a_coverage_and_balances.py` —
+    "no simulator dataset"), 0 failed.** New tests: 39 (10 lifecycle + 16 risk modes + 6
+    account + 5 config API + 1 frontend harness entry = 38 file-level + the harness's 16
+    behaviours).
+  * Disclosed flake (pre-existing, NOT a V6.5.1 regression): `test_v4_1_research_run_workflow
+    ::test_resume_add_raises_target_and_preserves_existing_nodes` fails on a scratch copy that
+    earlier tests left mid-transition — reproduced identically at base commit `68a183b3` on the
+    same mutated copy, and green on a fresh copy (23/23). No test was removed or weakened.
+* **Runtime evidence** (§I): served HTML/assets hash-match the built bundle
+  (`assets/index-BdNiBaR8.js`, `assets/index-DG45pVtK.css`, index sha `6aefaeb5…`);
+  `/system/build` → `release V6.5.1`, `dist_status FRESH`, `dist_matches_src true`; live
+  START→RUNNING→STOP→STOPPED→(idempotent STOP) verified over HTTP against the real backend.
+* **DATA:** authoritative DATA tree untouched (sha256 of `lab_state.db` =
+  `c159b0718c43b43f97609881bd3be196…`, 139132928 bytes, published LFS blobs); all test and
+  runtime DATA roots were scratch copies under `/var/tmp`.
