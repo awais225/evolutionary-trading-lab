@@ -1,29 +1,31 @@
-/* V5.1a §8 §9 §10 — the Live Testing node table.
-
+/* V5.1a §8 §9 §10 — the Live Testing node table (V6.5.1: the unified control surface).
+ *
  * One table, fed by the authoritative qualified-node index (`GET /api/nodes`)
  * instead of the legacy `nodes-table` projection. The index is the same payload
  * Deep Backtest consumes, so the two pages can never disagree about which nodes
  * exist, what bucket they are in, or what their research metrics are.
  *
- * What this file is careful about:
+ * V6.5.1 §2-§6 — this table is the ONE place node-level controls live:
  *
- *  * the DEFAULT filter is `qualified` (Qualified / Alive / Eligible). A failed or
- *    historical node is never in the default view — it is reachable through an
- *    explicit filter, and the filter bar shows the server's own counts so the
- *    operator can see how many nodes each filter would show.
- *  * every metric comes from the row as the backend recorded it; a missing value
- *    renders `N/A`, never `0`.
- *  * the node label is the experiment-local number (`Node_7`), and the experiment
- *    id is printed above the table — a node number from a previous experiment can
- *    never be mistaken for one of these.
- *  * START/STOP calls the real enrolment endpoint and then re-reads the index, so
- *    the row state after the click is the backend's state, not an optimistic guess.
- *  * sorting is server-side and is offered on exactly the metric set §10 lists.
+ *  * a genuine START/STOP lifecycle control: STOPPED shows START, STARTING and
+ *    STOPPING are truthful pending states, RUNNING shows STOP — and the state
+ *    is ALWAYS the backend's (worker state + lifecycle from `GET /api/nodes`),
+ *    restored on refresh/navigation, with stale polling responses discarded.
+ *  * inline Risk editing in the Risk cell (Mode A % of capital / Mode B
+ *    constant money) — validated, saved through the node-config API, with
+ *    saving/error states; the visible value updates from the saved result.
+ *  * inline MAX ACTIVE TRADES, SL offset and TP offset cells in the same row.
+ *  * the Schedule cell opens the structured schedule editor (unchanged).
+ *
+ * Every metric comes from the row as the backend recorded it; a missing value
+ * renders `N/A`, never `0`. START/STOP calls the real lifecycle endpoints and
+ * then re-reads the index, so the row state after the click is the backend's
+ * state, never an optimistic guess.
  */
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { api, fmt } from "../api.js";
-import { Badge, Card } from "./ui.jsx";
-import { arr, NA_TEXT, objOrNull, rows as safeRows, txt } from "../lib/safe.js";
+import { Badge, Card, useInterval } from "./ui.jsx";
+import { arr, NA_TEXT, numOrNull, objOrNull, rows as safeRows, txt } from "../lib/safe.js";
 import { ScheduleDialog } from "./LiveTestingPanels.jsx";
 
 /* §10 — the filters the index supports, in the order an operator scans them.
@@ -59,6 +61,11 @@ const BUCKET_TONE = {
   excluded: "mute", unknown: "warn",
 };
 
+const LIFECYCLE_TONE = {
+  RUNNING: "ok", STARTING: "warn", STOPPING: "warn", STOPPED: "mute",
+  IDLE: "mute", COMPLETED: "sim", ERROR: "danger", UNKNOWN: "warn",
+};
+
 function n2(v, suffix = "") {
   const n = Number(v);
   if (v === null || v === undefined || !Number.isFinite(n)) return NA_TEXT;
@@ -85,6 +92,226 @@ function experimentId(exp) {
   return txt(e?.run_id, "no experiment yet");
 }
 
+/* ------------------------------------------------------------------ *
+ * V6.5.1 §3 — inline Risk cell (Mode A % of capital / Mode B constant
+ * money). Click the cell to edit; Save/Esc; saving + error states; the
+ * displayed value always comes from the backend's saved result.
+ * ------------------------------------------------------------------ */
+function RiskCell({ row, onSaved }) {
+  const risk = objOrNull(row.risk) || {};
+  const rmode = objOrNull(row.risk_mode) || {};
+  const mode = String(rmode.mode || "PERCENT").toUpperCase();
+  const basis = String(rmode.capital_basis || "EQUITY").toUpperCase();
+  const [editing, setEditing] = useState(false);
+  const [draftMode, setDraftMode] = useState(mode);
+  const [draftValue, setDraftValue] = useState("");
+  const [draftBasis, setDraftBasis] = useState(basis);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState(null);
+
+  const effective = mode === "AMOUNT"
+    ? { text: `${n2(rmode.risk_amount)} ${txt(objOrNull(rmode)?.currency, "")}`.trim(), tag: "money" }
+    : { text: n2(risk.pct, " %"), tag: basis === "BALANCE" ? "% of balance" : "% of equity" };
+
+  const open = () => {
+    setDraftMode(mode);
+    setDraftBasis(basis);
+    setDraftValue(String(mode === "AMOUNT"
+      ? (rmode.risk_amount ?? "")
+      : (risk.override_pct ?? risk.pct ?? "")));
+    setErr(null);
+    setEditing(true);
+  };
+
+  const cancel = () => { setEditing(false); setErr(null); };
+
+  const save = async () => {
+    const v = numOrNull(draftValue);
+    if (v === null || v <= 0) {
+      setErr(`Risk value must be a positive number (got "${draftValue}")`);
+      return;
+    }
+    setSaving(true); setErr(null);
+    try {
+      const body = draftMode === "AMOUNT"
+        ? { risk_mode: "AMOUNT", risk_amount: v, risk_pct: null }
+        : { risk_mode: "PERCENT", risk_pct: v, risk_capital_basis: draftBasis, risk_amount: null };
+      const res = await api.liveTestingNodeConfig(row.node_id, body);
+      setEditing(false);
+      if (onSaved) onSaved(res);
+    } catch (e) {
+      // the value that failed is never shown as saved
+      setErr(String(e?.message || e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!editing) {
+    return (
+      <button className="btn ghost" style={{ padding: "2px 6px", fontSize: 11, textAlign: "left" }}
+              title={`Risk: ${effective.text} (${effective.tag}, ${risk.source === "CUSTOM" ? "node override" : "global default"}). Click to edit this node's risk mode and value.`}
+              onClick={open}>
+        <span className="mono">{effective.text}</span>{" "}
+        <span className="muted" style={{ fontSize: 10 }}>
+          {effective.tag} ({risk.source === "CUSTOM" ? "node" : "global"}) ✎
+        </span>
+      </button>
+    );
+  }
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 3, minWidth: 150 }}
+         onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); cancel(); } }}>
+      <select className="input" style={{ fontSize: 11, padding: "1px 4px" }} value={draftMode}
+              disabled={saving}
+              onChange={(e) => setDraftMode(e.target.value)}>
+        <option value="PERCENT">% of capital</option>
+        <option value="AMOUNT">Constant money</option>
+      </select>
+      {draftMode === "PERCENT" ? (
+        <div style={{ display: "flex", gap: 3 }}>
+          <input className="input mono" type="number" step="0.01" min="0.01" style={{ width: 62, fontSize: 11 }}
+                 value={draftValue} disabled={saving} autoFocus
+                 onChange={(e) => setDraftValue(e.target.value)}
+                 onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") cancel(); }} />
+          <select className="input" style={{ fontSize: 10, padding: "1px 2px" }} value={draftBasis}
+                  disabled={saving} title="capital basis for the percentage"
+                  onChange={(e) => setDraftBasis(e.target.value)}>
+            <option value="EQUITY">equity</option>
+            <option value="BALANCE">balance</option>
+          </select>
+        </div>
+      ) : (
+        <input className="input mono" type="number" step="0.01" min="0.01" style={{ width: 100, fontSize: 11 }}
+               value={draftValue} disabled={saving} autoFocus
+               title="money at risk if the stop is hit (account currency)"
+               onChange={(e) => setDraftValue(e.target.value)}
+               onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") cancel(); }} />
+      )}
+      <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+        <button className="btn success" style={{ padding: "1px 8px", fontSize: 11 }} disabled={saving}
+                onClick={save}>{saving ? "saving…" : "Save"}</button>
+        <button className="btn ghost" style={{ padding: "1px 6px", fontSize: 11 }} disabled={saving}
+                onClick={cancel}>Esc</button>
+      </div>
+      {err && <div className="kit-inline-err" style={{ fontSize: 10.5 }}>{err}</div>}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * V6.5.1 §5 — one numeric inline cell (max trades / SL offset / TP
+ * offset). Commit on Save or Enter; Esc cancels; the visible value is
+ * only replaced by the backend's saved result.
+ * ------------------------------------------------------------------ */
+function NumCell({ row, field, label, min, max, step = 1, width = 58, title, format, allowNull = true, onSaved }) {
+  const raw = row[field];
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(raw === null || raw === undefined ? "" : String(raw));
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState(null);
+  const display = format ? format(raw) : (raw === null || raw === undefined ? "Default" : String(raw));
+
+  const save = async () => {
+    const t = draft.trim();
+    let v = null;
+    if (t !== "") {
+      v = Number(t);
+      if (!Number.isFinite(v) || (min !== undefined && v < min) || (max !== undefined && v > max)) {
+        setErr(`${label} must be a number${min !== undefined ? ` ≥ ${min}` : ""}${max !== undefined ? ` ≤ ${max}` : ""} (got "${draft}")`);
+        return;
+      }
+    } else if (!allowNull) {
+      setErr(`${label} must not be empty`);
+      return;
+    }
+    setSaving(true); setErr(null);
+    try {
+      const res = await api.liveTestingNodeConfig(row.node_id, { [field]: v });
+      setEditing(false);
+      if (onSaved) onSaved(res);
+    } catch (e) {
+      setErr(String(e?.message || e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!editing) {
+    return (
+      <button className="btn ghost mono" style={{ padding: "2px 6px", fontSize: 11 }}
+              title={`${title} — click to edit`}
+              onClick={() => { setDraft(raw === null || raw === undefined ? "" : String(raw)); setErr(null); setEditing(true); }}>
+        {display} ✎
+      </button>
+    );
+  }
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}
+         onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); setEditing(false); } }}>
+      <input className="input mono" type="number" step={step} style={{ width, fontSize: 11 }}
+             value={draft} disabled={saving} autoFocus
+             onChange={(e) => setDraft(e.target.value)}
+             onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") setEditing(false); }} />
+      <div style={{ display: "flex", gap: 3 }}>
+        <button className="btn success" style={{ padding: "0 6px", fontSize: 10 }} disabled={saving}
+                onClick={save}>{saving ? "…" : "OK"}</button>
+        <button className="btn ghost" style={{ padding: "0 5px", fontSize: 10 }} disabled={saving}
+                onClick={() => setEditing(false)}>Esc</button>
+      </div>
+      {err && <div className="kit-inline-err" style={{ fontSize: 10 }}>{err}</div>}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * V6.5.1 §2 — the lifecycle control. Rendered ONLY from backend state
+ * (`row.lifecycle` / `row.worker`) plus the explicit local pending state
+ * taken when a request is in flight. Never a frontend-only boolean.
+ * ------------------------------------------------------------------ */
+function LifecycleAction({ row, pending, busy, onAct }) {
+  const worker = objOrNull(row.worker) || {};
+  const lc = String(row.lifecycle || "").toUpperCase();
+  const state = String(worker.state || "").toUpperCase();
+  const pend = pending;
+
+  if (pend === "STARTING" || state === "STARTING") {
+    return <button className="btn" disabled title="the worker is starting — wait for the backend to confirm RUNNING">STARTING…</button>;
+  }
+  if (pend === "STOPPING" || state === "STOPPING") {
+    return <button className="btn" disabled title="stop requested — the in-flight cycle finishes first, then the final state is confirmed">STOPPING…</button>;
+  }
+  if (lc === "RUNNING") {
+    return (
+      <button className="btn danger" disabled={busy} onClick={() => onAct("stop")}
+              title={`STOP this node only (worker ${state || "RUNNING"}). Stopping never closes its open positions; other nodes keep running.`}>
+        STOP
+      </button>
+    );
+  }
+  if (lc === "UNKNOWN") {
+    // The backend cannot confirm the true state (e.g. a restart left the node
+    // enrolled with no live worker). Never claim RUNNING or STOPPED: offer the
+    // two idempotent operations that establish the truth.
+    return (
+      <span style={{ display: "inline-flex", gap: 4 }}>
+        <button className="btn success" disabled={busy} onClick={() => onAct("start")}
+                title="state UNKNOWN (enrolled but no live worker) — START is idempotent and establishes the true state">START</button>
+        <button className="btn ghost" disabled={busy} onClick={() => onAct("stop")}
+                title="state UNKNOWN — STOP is idempotent and establishes the true state">STOP</button>
+      </span>
+    );
+  }
+  return (
+    <button className="btn success" disabled={busy} onClick={() => onAct("start")}
+            title={lc === "ERROR"
+              ? `the last worker failed${worker.last_error ? ` (${worker.last_error})` : ""} — START creates a fresh worker`
+              : "start this node's live-testing worker (backend confirms before the button flips)"}>
+      {busy ? "…" : "START"}
+    </button>
+  );
+}
+
 export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChanged }) {
   const [rows, setRows] = useState([]);
   const [meta, setMeta] = useState(null);
@@ -103,6 +330,9 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
    * node is fetched (limit=0 = all rows) and rendered in one scrollable table. */
   const [allRows, setAllRows] = useState(0);
   const [busyId, setBusyId] = useState(null);
+  /* V6.5.1 §2 — explicit per-node pending lifecycle while a START/STOP request
+   * is in flight (prevents duplicate requests AND shows STARTING/STOPPING). */
+  const [pending, setPending] = useState({});
   const [scheduleFor, setScheduleFor] = useState(null);
   const [riskDraft, setRiskDraft] = useState("");
   const [detail, setDetail] = useState(null);
@@ -110,9 +340,16 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
    * numbers, instead of showing a blank table that looks broken. */
   const [pop, setPop] = useState(null);
   const [popErr, setPopErr] = useState(null);
+  /* V6.5.1 §2 — stale-response guard: a polling response that lost the race to
+   * a newer request is discarded instead of overwriting newer state. */
+  const loadSeq = useRef(0);
 
-  const load = useCallback(async () => {
-    setLoading(true); setErr(null);
+  const load = useCallback(async (opts = {}) => {
+    const seq = ++loadSeq.current;
+    setLoading(true);
+    // V6.5.1 §2 — a state-restore reload after a FAILED action must not wipe
+    // the error the operator needs to see; only read errors set themselves.
+    if (!opts.silent) setErr(null);
     try {
       // V5.3 §2 — unset filters are OMITTED (never sent as the string "undefined",
       // which the API rejects with 422 and which left this table empty).
@@ -122,15 +359,27 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
         sort_by: sortBy, sort_desc: sortDesc,
         limit: 0,
       });
+      if (seq !== loadSeq.current) return;           // superseded by a newer load
       if (res && res.ok === false) throw new Error(txt(res.error, "the node index refused the filter"));
       setRows(safeRows(res?.nodes));
       setTotal(res?.total ?? 0);
       setAllRows(safeRows(res?.nodes).length);
       setMeta(res);
-    } catch (e) { setErr(e); } finally { setLoading(false); }
+    } catch (e) {
+      if (seq !== loadSeq.current) return;
+      setErr(e);
+    } finally {
+      if (seq === loadSeq.current) setLoading(false);
+    }
   }, [filter, search, timeframe, starredOnly, sortBy, sortDesc]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load({ silent: true }); }, [load]);
+
+  // V6.5.1 §2 — poll the authoritative state so the lifecycle badge and the
+  // START/STOP control keep telling the truth after navigation, after a backend
+  // state change, and while this page is open. Silent: a poll never wipes an
+  // action error the operator has not acknowledged.
+  useInterval(() => load({ silent: true }), 8000);
 
   // §7 — the population authority is fetched whenever the table is empty (or the
   // index failed), so the explanation always carries real backend numbers.
@@ -152,7 +401,11 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
   }, [globalRisk]);
 
   const act = async (row, action) => {
-    setBusyId(row.node_id); setMsg(null); setErr(null);
+    if (busyId !== null) return;                 // duplicate-click guard
+    const id = row.node_id;
+    setBusyId(id); setMsg(null); setErr(null);
+    // V6.5.1 §2 — immediately show the truthful pending state for THIS node
+    setPending((p) => ({ ...p, [id]: action === "start" ? "STARTING" : "STOPPING" }));
     try {
       // V6.4 §5/§6 — START submits the canonical node id AND the selected
       // schedule (what this row is displaying is what gets sent and enforced).
@@ -186,8 +439,6 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
           : (confirmed ? "STOPPED — live-testing worker stopped (backend-confirmed)"
                        : "STOP requested — worker NOT confirmed stopped")
       }${schedNote} — ${txt(res?.note, "")}`);
-      await load();
-      if (onRiskChanged) onRiskChanged();
     } catch (e) {
       // SCHEDULE_REQUIRED (409): no provenance exists — require a deliberate
       // selection instead of an invented default; open the editor for it.
@@ -198,39 +449,28 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
       } else {
         setErr(e);
       }
-    } finally { setBusyId(null); }
-  };
-
-  // V6.5 §5.2 — per-node MAX ACTIVE TRADES override (null = Default/inherit).
-  const saveLimit = async (row, value) => {
-    setBusyId(row.node_id); setMsg(null); setErr(null);
-    try {
-      const res = await api.liveTestingNodeConfig(row.node_id, { max_active_trades: value });
-      const eff = (res && res.config && res.config.max_positions) ?? null;
-      setMsg(`${txt(row.node_label, `Node #${row.node_id}`)}: max active trades = ` +
-             (value === null ? `Default (${txt(row.max_active_trades_default, 1)})` : value) +
-             ` — effective limit now ${value === null ? txt(row.max_active_trades_default, 1) : value}. Other nodes unchanged.`);
-      await load();
+    } finally {
+      // restore the truth from the backend whatever happened (silently: a
+      // FAILED action keeps its error visible while the state is restored)
+      try { await load({ silent: true }); } catch { /* the error above is already reported */ }
+      setPending((p) => { const n = { ...p }; delete n[id]; return n; });
+      setBusyId(null);
       if (onRiskChanged) onRiskChanged();
-    } catch (e) {
-      setErr(e);
-    } finally {
-      setBusyId(null);
     }
   };
 
-  // V6.5 §9 — experimental per-node SL/TP offsets (0 = the strategy's levels).
-  const saveOffsets = async (row, sl, tp) => {
-    setBusyId(row.node_id); setMsg(null); setErr(null);
-    try {
-      await api.liveTestingNodeConfig(row.node_id, { sl_offset_pips: sl, tp_offset_pips: tp });
-      setMsg(`${txt(row.node_label, `Node #${row.node_id}`)}: experimental offsets saved (SL ${sl || 0} pips, TP ${tp || 0} pips). Zero preserves the strategy's own levels.`);
-      await load();
-    } catch (e) {
-      setErr(e);
-    } finally {
-      setBusyId(null);
-    }
+  // V6.5.1 §3-§5 — a settings cell was saved (risk / limits / offsets): show
+  // the authoritative result and re-read the row from the backend.
+  const onCellSaved = async (res) => {
+    const cfg = objOrNull(res?.config) || {};
+    setMsg(`Node #${txt(res?.strategy_id, "?")}: settings saved — ` +
+           `risk mode ${txt(cfg.risk_mode, "PERCENT")}` +
+           (cfg.risk_amount !== null && cfg.risk_amount !== undefined ? `, risk ${cfg.risk_amount}` : "") +
+           (cfg.risk_pct !== null && cfg.risk_pct !== undefined ? `, risk % ${cfg.risk_pct}` : "") +
+           (cfg.max_positions !== null && cfg.max_positions !== undefined ? `, max active trades ${cfg.max_positions}` : ", max active trades Default") +
+           ` · SL ${cfg.sl_offset_pips ?? 0} / TP ${cfg.tp_offset_pips ?? 0} pips — other nodes unchanged.`);
+    await load();
+    if (onRiskChanged) onRiskChanged();
   };
 
   const stopAll = async () => {
@@ -367,10 +607,12 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
               <th>{sortBtn("win_rate", "Win")}</th>
               <th>{sortBtn("trades", "Trades")}</th>
               <th>{sortBtn("robustness", "Robust")}</th>
-              <th>Risk</th>
+              <th title="V6.5.1 §3 — risk mode + value, editable inline in this cell">Risk ✎</th>
+              <th title="V6.5.1 §5.2 — this node's max active trades (Default = inherited)">Max trades ✎</th>
+              <th title="V6.5.1 §9 — experimental SL offset in pips (0 = the strategy's own level)">SL off ✎</th>
+              <th title="V6.5.1 §9 — experimental TP offset in pips (0 = the strategy's own level)">TP off ✎</th>
               <th>Schedule</th>
-              <th>Live</th>
-              <th title="V6.5 §5.2 — this node's max active trades (Default = inherited)">Max trades</th>
+              <th title="V6.5.1 §2 — the backend's lifecycle state for this node">Lifecycle</th>
               <th>Action</th>
             </tr>
           </thead>
@@ -380,11 +622,12 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
               const rob = objOrNull(r.robustness) || {};
               const live = objOrNull(r.live) || {};
               const sched = objOrNull(r.schedule) || {};
-              const risk = objOrNull(r.risk) || {};
               const bucket = txt(r.bucket, "unknown");
               const bcov = objOrNull(r.backtest_coverage) || {};
               const label = txt(r.node_label, `Node #${r.node_id}`);
               const rlabel = txt(r.research_label, "");
+              const worker = objOrNull(r.worker) || {};
+              const lc = String(r.lifecycle || "").toUpperCase() || "UNKNOWN";
               return (
                 <React.Fragment key={r.node_id}>
                   <tr>
@@ -416,11 +659,31 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
                     <td className="mono">{pct(m.win_rate)}</td>
                     <td className="mono">{n0(m.trades)}</td>
                     <td className="mono">{n2(rob.score)}</td>
-                    <td className="mono">
-                      {n2(risk.pct, " %")}{" "}
-                      <span className="muted" style={{ fontSize: 10.5 }}>
-                        {risk.source === "CUSTOM" ? "(node)" : "(global)"}
-                      </span>
+                    <td><RiskCell row={r} onSaved={onCellSaved} /></td>
+                    <td>
+                      <NumCell row={r} field="max_active_trades" label="Max active trades"
+                               min={1} max={100} step={1} width={52}
+                               title={`max active trades (effective ${txt(r.max_active_trades_effective, 1)}${r.max_active_trades_source === "CUSTOM" ? ", explicit override" : ", inherited default"})`}
+                               allowNull
+                               format={(v) => (v === null || v === undefined
+                                 ? `Default (${txt(r.max_active_trades_default, 1)})` : String(v))}
+                               onSaved={onCellSaved} />
+                    </td>
+                    <td>
+                      <NumCell row={r} field="sl_offset_pips" label="SL offset"
+                               min={-100000} max={100000} step={0.1} width={52}
+                               title="experimental SL offset, pips (0 = strategy's own level; + = farther from entry)"
+                               allowNull
+                               format={(v) => (v === null || v === undefined ? "0" : String(v))}
+                               onSaved={onCellSaved} />
+                    </td>
+                    <td>
+                      <NumCell row={r} field="tp_offset_pips" label="TP offset"
+                               min={-100000} max={100000} step={0.1} width={52}
+                               title="experimental TP offset, pips (0 = strategy's own level; + = closer to entry)"
+                               allowNull
+                               format={(v) => (v === null || v === undefined ? "0" : String(v))}
+                               onSaved={onCellSaved} />
                     </td>
                     <td style={{ fontSize: 11 }}>
                       <button className="btn ghost" style={{ padding: "2px 6px" }}
@@ -431,62 +694,22 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
                       <span className="muted" style={{ fontSize: 10 }}> {txt(sched.timezone, "UTC")}</span>
                     </td>
                     <td className="mono" style={{ fontSize: 11 }}>
-                      {txt((objOrNull(r.worker) || {}).state || live.status, "IDLE")}
+                      {/* V6.5.1 §2 — backend lifecycle, with the live-trade counts */}
+                      <Badge tone={LIFECYCLE_TONE[lc] || "mute"}
+                             title={`worker state: ${txt(worker.state, "none")}${worker.last_error ? ` — ${worker.last_error}` : ""}`}>
+                        {lc}
+                      </Badge>
                       <span className="muted"> · {n0(live.closed)}/{n0(live.trades)}</span>
                     </td>
-                    <td style={{ fontSize: 11 }}>
-                      {(() => {
-                        // V6.5 §5.2 — Default (inherited) vs explicit override,
-                        // with the effective limit always visible.
-                        const eff = r.max_active_trades_effective;
-                        const isCustom = r.max_active_trades_source === "CUSTOM";
-                        return (
-                          <select value={isCustom ? String(r.max_active_trades) : ""}
-                                  title={`effective limit ${eff} (${isCustom ? "explicit override" : `inherited default ${r.max_active_trades_default}`})`}
-                                  onChange={(e) => {
-                                    const v = e.target.value;
-                                    saveLimit(r, v === "" ? null : Number(v));
-                                  }}>
-                            <option value="">Default ({txt(r.max_active_trades_default, 1)})</option>
-                            {[1, 2, 3, 4, 5, 10].map((n) => <option key={n} value={n}>{n}</option>)}
-                          </select>
-                        );
-                      })()}
-                    </td>
                     <td>
-                      {(() => {
-                        // V6/V6.5 — reconstructed from BACKEND state on every render
-                        // (rows come from the API; a page refresh shows the truth).
-                        // Transitional states show STARTING/STOPPING; an unsafe
-                        // action is disabled WITH an explanation in the title.
-                        const worker = objOrNull(r.worker) || {};
-                        const st = txt(worker.state, "");
-                        const workerRunning = worker.running === true || st === "RUNNING";
-                        const running = workerRunning || live.status === "ACTIVE" || !!r.is_active;
-                        const busy = busyId === r.node_id;
-                        if (st === "STARTING") {
-                          return <button className="btn" disabled title="the worker is starting — wait for the backend to confirm RUNNING">STARTING…</button>;
-                        }
-                        if (st === "STOPPING") {
-                          return <button className="btn" disabled title="stop requested — the in-flight cycle finishes first, then the final state is confirmed">STOPPING…</button>;
-                        }
-                        return running
-                          ? <button className="btn danger" disabled={busy}
-                                    onClick={() => act(r, "stop")}
-                                    title={`STOP this node only (${st || "enrolled"}). Stopping never closes its open positions; other nodes keep running.`}>
-                              {busy ? "…" : "STOP"}
-                            </button>
-                          : <button className="btn success" disabled={busy}
-                                    onClick={() => act(r, "start")}
-                                    title={st === "ERROR" ? "the last worker failed — START creates a fresh worker (see the row's error)" : "start this node's live-testing worker (backend confirms before the button flips)"}>
-                              {busy ? "…" : "START"}
-                            </button>;
-                      })()}
+                      <LifecycleAction row={r} pending={pending[r.node_id]}
+                                       busy={busyId === r.node_id}
+                                       onAct={(a) => act(r, a)} />
                     </td>
                   </tr>
                   {detail === r.node_id && (
                     <tr>
-                      <td colSpan={18} style={{ background: "rgba(255,255,255,0.02)" }}>
+                      <td colSpan={20} style={{ background: "rgba(255,255,255,0.02)" }}>
                         {/* §9 — the node's actual research record. Nothing here is
                             recalculated in the browser: it is the row the API served. */}
                         <div className="kit-grid" style={{ fontSize: 11.5 }}>
@@ -516,7 +739,7 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
                           <div className="kit-kv"><span className="k">Schedule</span>
                             <span className="mono">{txt(sched.description, "no schedule saved — product default (Mon–Fri, all sessions)")}</span></div>
                           <div className="kit-kv"><span className="k">Risk</span>
-                            <span className="mono">{n2(risk.pct, " %")} ({txt(risk.source, NA_TEXT)}{risk.override_pct !== null && risk.override_pct !== undefined ? `, override ${n2(risk.override_pct, " %")}` : ""})</span></div>
+                            <span className="mono">{n2((objOrNull(r.risk) || {}).pct, " %")} ({txt((objOrNull(r.risk) || {}).source, NA_TEXT)}{r.risk_mode ? ` · mode ${txt(r.risk_mode.mode, "PERCENT")}` : ""})</span></div>
                           <div className="kit-kv"><span className="k">Live state</span>
                             <span className="mono">{txt(live.status, "IDLE")} · {n0(live.trades)} trade(s), {n0(live.closed)} closed, P/L {n2(live.total_pnl)} (today {n2(live.today_pnl)})</span></div>
                           <div className="kit-kv"><span className="k">Open position</span>
@@ -531,11 +754,15 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
                             </span></div>
                           <div className="kit-kv"><span className="k">Experimental SL/TP offsets (pips)</span>
                             <span className="mono">
-                              SL <input type="number" style={{ width: 60 }} defaultValue={r.sl_offset_pips ?? 0}
-                                        onBlur={(e) => saveOffsets(r, Number(e.target.value), Number(r.tp_offset_pips ?? 0))} />
-                              {" "}TP <input type="number" style={{ width: 60 }} defaultValue={r.tp_offset_pips ?? 0}
-                                        onBlur={(e) => saveOffsets(r, Number(r.sl_offset_pips ?? 0), Number(e.target.value))} />
-                              <span className="muted"> — 0 = strategy's own levels; +SL = farther from entry; +TP = closer to entry (experimental)</span>
+                              SL {txt(r.sl_offset_pips ?? 0)} · TP {txt(r.tp_offset_pips ?? 0)}
+                              <span className="muted"> — 0 = strategy's own levels; +SL = farther from entry; +TP = closer to entry (experimental). Editable in the row.</span>
+                            </span></div>
+                          <div className="kit-kv"><span className="k">Worker</span>
+                            <span className="mono">
+                              {txt(worker.state, "IDLE")}
+                              {worker.task_id ? ` · task ${txt(worker.task_id)}` : ""}
+                              {worker.cycles !== undefined ? ` · ${txt(worker.cycles)} cycle(s)` : ""}
+                              {worker.last_error ? ` · last error: ${txt(worker.last_error)}` : ""}
                             </span></div>
                           <div className="kit-kv"><span className="k">Signal logic</span>
                             <span className="mono">{txt(objOrNull(r.signal_logic)?.entry_long, NA_TEXT)}</span></div>
@@ -548,7 +775,7 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
             })}
             {rows.length === 0 && !loading && (
               <tr>
-                <td colSpan={17}>
+                <td colSpan={20}>
                   {/* §7 — an explicit, truthful empty state: the authoritative
                       population numbers, the eligibility reason and the next step.
                       Never a blank table, never an invented node. */}

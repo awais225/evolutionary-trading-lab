@@ -1100,6 +1100,10 @@ class Database:
             # V6.5 §9 — experimental offsets (None = unset = 0 = defaults preserved)
             "sl_offset_pips": row.get("sl_offset_pips"),
             "tp_offset_pips": row.get("tp_offset_pips"),
+            # V6.5.1 §8 — risk mode (None = historical PERCENT/EQUITY behaviour)
+            "risk_mode": row.get("risk_mode"),
+            "risk_amount": row.get("risk_amount"),
+            "risk_capital_basis": row.get("risk_capital_basis"),
             "created_at": row.get("created_at"),
             "updated_at": row.get("updated_at"),
         }
@@ -1113,8 +1117,9 @@ class Database:
                 timezone, lot_size, risk_pct, is_active, status, created_at, updated_at,
                 spread_limit_points, cooldown_minutes, max_trades_per_day, max_positions,
                 slippage_limit_points, enabled, regimes, conditions, windows,
-                schedule_version, sl_offset_pips, tp_offset_pips
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                schedule_version, sl_offset_pips, tp_offset_pips,
+                risk_mode, risk_amount, risk_capital_basis
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(strategy_id) DO UPDATE SET
                 timeframes=excluded.timeframes,
                 days=excluded.days,
@@ -1138,7 +1143,10 @@ class Database:
                 windows=excluded.windows,
                 schedule_version=excluded.schedule_version,
                 sl_offset_pips=excluded.sl_offset_pips,
-                tp_offset_pips=excluded.tp_offset_pips
+                tp_offset_pips=excluded.tp_offset_pips,
+                risk_mode=excluded.risk_mode,
+                risk_amount=excluded.risk_amount,
+                risk_capital_basis=excluded.risk_capital_basis
         """
         self.ensure_live_test_config_columns()
         self.x(sql, (
@@ -1167,6 +1175,11 @@ class Database:
             2 if cfg.get("schedule_version") is None else int(cfg["schedule_version"]),
             self._num_or_none(cfg.get("sl_offset_pips")),
             self._num_or_none(cfg.get("tp_offset_pips")),
+            (str(cfg.get("risk_mode")).strip().upper() or None)
+            if cfg.get("risk_mode") not in (None, "") else None,
+            self._num_or_none(cfg.get("risk_amount")),
+            (str(cfg.get("risk_capital_basis")).strip().upper() or None)
+            if cfg.get("risk_capital_basis") not in (None, "") else None,
         ))
 
     def record_live_test_trade(self, t: Dict[str, Any]) -> int:
@@ -1356,6 +1369,10 @@ class Database:
         # V6.5 §9 - experimental per-node SL/TP offsets (pips; NULL/0 = the
         # strategy's own levels are used unchanged).
         ("sl_offset_pips", "REAL"), ("tp_offset_pips", "REAL"),
+        # V6.5.1 §8 — per-node risk mode (NULL = PERCENT/EQUITY historical
+        # behaviour): risk_mode 'PERCENT'|'AMOUNT', risk_amount (Mode B money),
+        # risk_capital_basis 'EQUITY'|'BALANCE' (Mode A capital basis).
+        ("risk_mode", "TEXT"), ("risk_amount", "REAL"), ("risk_capital_basis", "TEXT"),
     )
 
     def ensure_live_test_config_columns(self) -> None:

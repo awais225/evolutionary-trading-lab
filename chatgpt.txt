@@ -3532,3 +3532,15 @@ idempotent events + deal-history reconciliation, per-node START/STOP hardening a
 submission gate, global/per-node trade limits with atomic admission, ledger-driven statistics,
 Active Trades dashboard, and experimental zero-default SL/TP offsets. Strategy logic
 untouched. Windows/MT5 demo acceptance PENDING manual verification (V6_5_REPORT.md §E).
+
+7. V6.5.1 (2026-10-10) — corrective release for the V6.5 UI defect report. Root cause: the
+lifecycle/limits/offsets fields were added to the legacy /live-testing/nodes-table projection
+but not to GET /api/nodes, which the unified Nodes table consumes — so START never saw RUNNING
+and flipped back to START. Fixed end to end: /api/nodes now carries worker + lifecycle state;
+the Nodes table has a real START/STOP lifecycle control (STARTING/STOPPING pending states,
+backend-confirmed flips, stale-response guard, refresh-safe), inline Risk editing with two
+risk modes (% of capital with equity/balance basis, constant money), inline Max trades/SL/TP
+offsets, structured schedule editor, MT5 account panel (balance/equity/free margin with
+truthful connection/unavailable states), and build identity verified at the HTTP serving
+boundary. Strategy logic and DATA untouched; additive migration only. Windows/MT5 browser
+acceptance PENDING manual verification (V6_5_1_REPORT.md §L).

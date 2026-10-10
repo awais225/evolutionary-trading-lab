@@ -282,6 +282,9 @@ export const api = {
   saveLiveTestingSchedule: (sid, body) =>
     req(`/api/live-testing/schedule/${sid}`, { method: "POST", body }),
   manualOrder: (body = {}) => req("/api/mt5/manual_order", { method: "POST", body }),
+  // V6.5.1 §7 — read-only MT5 account snapshot (balance / equity / free margin
+  // + truthful connection state). Never places an order.
+  mt5Account: () => req("/api/mt5/account"),
   mt5Positions: () => req("/api/mt5/positions"),
   mt5ClosePosition: (ticket, confirmed = false, comment = "") =>
     req("/api/mt5/positions/close", { method: "POST", body: { ticket, confirmed, comment } }),

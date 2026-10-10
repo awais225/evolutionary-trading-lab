@@ -5,6 +5,7 @@ import StructuredError from "../components/StructuredError.jsx";
 import LiveTestingControl from "../components/LiveTestingControl.jsx";
 import { LiveActiveTrades, LiveTradeLimitsPanel } from "../components/LiveActiveTrades.jsx";
 import Mt5AccountSelector from "../components/Mt5AccountSelector.jsx";
+import Mt5AccountPanel from "../components/Mt5AccountPanel.jsx";
 import LiveTradeCounter from "../components/LiveTradeCounter.jsx";
 import {
   LiveMarketHeader, LiveMarketPanel, ManualOrderPanel, RiskStrip, StageTimeline,
@@ -172,6 +173,10 @@ export default function LiveTesting() {
 
       {/* V6.5 §5.1 — the global trade constraints live with the controls */}
       <LiveTradeLimitsPanel onSaved={load} />
+
+      {/* V6.5.1 §7 — balance / equity / free margin of the actual connected MT5
+        * account, with truthful connection and freshness states. */}
+      <Mt5AccountPanel refreshKey={reloadKey} />
 
       {/* V5.1a-next §B — the same account selector as MT5 Demo Trading, so both
        * pages report (and can change) the one account the engine orders from. */}

@@ -1922,6 +1922,81 @@ def get_mt5_monitor_status() -> Dict:
     return {**mon, "bridge_status": bs}
 
 
+@router.get("/mt5/account")
+def get_mt5_account() -> Dict:
+    """V6.5.1 §7 — balance / equity / free margin of the connected MT5 account.
+
+    Read-only and truthful: values come from the active bridge's
+    ``account_info()`` (the established MT5 integration). When no account data
+    is available the numeric fields are null and an explicit
+    ``unavailable_reason`` is returned — a simulator's figures are labelled
+    ``SIMULATED`` and are never presented as live account data. No order is
+    placed and no credential is exposed.
+    """
+    import time as _time
+    b = get_bridge()
+    checked_at = _time.time()
+    source = str(getattr(b, "source", "UNKNOWN") or "UNKNOWN")
+    is_sim = bool(getattr(b, "is_simulated", False)) or source.upper() == "SIMULATOR"
+    connected = bool(getattr(b, "_connected", False))
+    base = {
+        "ok": True,
+        "checked_at": checked_at,
+        "bridge": {"name": getattr(b, "name", "unknown"), "source": source,
+                   "is_simulated": is_sim, "connected": connected},
+        "connected": connected,
+        "source": source,
+        "is_simulated": is_sim,
+    }
+
+    def _g(obj, key, default=None):
+        if obj is None:
+            return default
+        if isinstance(obj, dict):
+            return obj.get(key, default)
+        return getattr(obj, key, default)
+
+    acct = None
+    reason = None
+    try:
+        acct = b.account_info()
+    except Exception as e:
+        reason = f"account_info() failed: {type(e).__name__}: {e}"
+    if acct is None:
+        return {**base, "available": False, "data_kind": "UNAVAILABLE",
+                "account": None,
+                "unavailable_reason": reason or
+                "no account is logged in (account_info() returned nothing)"}
+    missing = [k for k in ("balance", "equity", "margin_free") if _g(acct, k) is None]
+    demo_verified = False
+    try:
+        from ..mt5.execution import demo_account_guard
+        demo_verified = bool((demo_account_guard(b) or {}).get("demo_verified"))
+    except Exception:
+        demo_verified = False
+    return {
+        **base,
+        "available": not missing,
+        "data_kind": "SIMULATED" if is_sim else "LIVE_ACCOUNT",
+        "account": {
+            "login": _g(acct, "login"),
+            "server": _g(acct, "server"),
+            "currency": _g(acct, "currency"),
+            "balance": _g(acct, "balance"),
+            "equity": _g(acct, "equity"),
+            "margin_free": _g(acct, "margin_free"),
+            "leverage": _g(acct, "leverage"),
+            "trade_mode": _g(acct, "trade_mode"),
+            "trade_mode_name": _g(acct, "trade_mode_name"),
+        },
+        "missing_fields": missing,
+        "unavailable_reason": (f"account fields missing: {', '.join(missing)}" if missing else None),
+        "demo_verified": demo_verified,
+        "note": ("read-only account snapshot through the established MT5 bridge; "
+                 "refreshing this panel never places an order"),
+    }
+
+
 @router.get("/mt5/runtime")
 def get_mt5_runtime_report() -> Dict:
     """V5.1a §8-§10 — the exact reason real MT5 is or is not usable here.
@@ -3787,6 +3862,43 @@ def _worker_state(sid: int) -> Dict[str, Any]:
                 "error": str(e)[:200]}
 
 
+#: V6.5.1 §2 — the operator-facing lifecycle model. STOPPED / STARTING /
+#: RUNNING / STOPPING / COMPLETED / ERROR come from the worker (backend is
+#: authoritative); IDLE-with-no-worker is mapped truthfully: never-started and
+#: not enrolled reads STOPPED, while "the database says RUNNING but this
+#: backend has no live worker" (a restart) reads UNKNOWN — never a false claim.
+LIFECYCLE_STATES = ("STOPPED", "STARTING", "RUNNING", "STOPPING", "COMPLETED",
+                    "ERROR", "UNKNOWN", "IDLE")
+
+
+def _lifecycle_of(worker: Dict[str, Any], is_active: Any = None,
+                  cfg_status: Any = None) -> str:
+    """Map backend worker + enrolment state to the UI lifecycle vocabulary."""
+    st = str((worker or {}).get("state") or "").upper()
+    if st in ("STARTING", "RUNNING", "STOPPING", "COMPLETED", "ERROR", "STOPPED", "UNKNOWN"):
+        return st
+    # IDLE (or empty): no live worker in this process
+    active = bool(is_active)
+    status = str(cfg_status or "").upper()
+    if active and status in ("RUNNING", "STARTING", "STOPPING"):
+        return "UNKNOWN"     # enrolled per the DB but no worker to confirm it
+    return "STOPPED"
+
+
+def _risk_mode_row(cfg: Dict[str, Any]) -> Dict[str, Any]:
+    """V6.5.1 §8 — the node's risk-mode block as the Nodes table consumes it."""
+    from ..live_testing.risk import resolve_risk_mode
+    rm = resolve_risk_mode(cfg or {})
+    return {
+        "mode": rm["risk_mode"],                 # PERCENT (Mode A) | AMOUNT (Mode B)
+        "capital_basis": rm["capital_basis"],    # EQUITY | BALANCE (Mode A only)
+        "risk_pct": (cfg or {}).get("risk_pct"),  # raw override; None = global default
+        "risk_amount": rm["risk_amount"],        # Mode B money at risk (None if unset)
+        "valid": bool(rm["ok"]),
+        "error": None if rm["ok"] else rm["message"],
+    }
+
+
 def _live_engine():
     return get_live_testing_engine()
 
@@ -3954,13 +4066,50 @@ def live_testing_node_config(sid: int, payload: Dict = Body(...)) -> Dict:
             "ok": False, "code": "LEGACY_NODE_NOT_TRADEABLE",
             "message": f"node {sid} is LEGACY_TEST infrastructure - it can never be a live "
                        "trading candidate"})
-    risk_check = validate_risk_settings(payload.get("risk_pct"), sid)
+    # V6.5.1 §8 — validate the EFFECTIVE risk-mode state (payload over stored):
+    # switching a node to AMOUNT while it already stores a risk_amount works;
+    # AMOUNT with no amount at all is refused with a clear message. An explicit
+    # null in the payload clears the field and is validated as cleared.
+    current = db.get_live_test_config(sid) or {}
+
+    def _eff_risk(key: str) -> Any:
+        return payload.get(key) if key in payload else current.get(key)
+
+    risk_check = validate_risk_settings(
+        payload.get("risk_pct"), sid,
+        risk_mode=_eff_risk("risk_mode"),
+        risk_amount=_eff_risk("risk_amount"),
+        capital_basis=_eff_risk("risk_capital_basis"))
     if not risk_check["ok"]:
         raise HTTPException(status_code=422, detail=risk_check)
     # V6.5 §5.2/§9 — validated limit override + experimental offsets. An explicit
     # integer >= 1 is an override; null/absent means "Default" (inherit). Invalid
     # input is refused — never silently coerced.
     limit_keys = {}
+    # V6.5.1 §8 — risk-mode block (PERCENT/AMOUNT + capital basis). Explicit
+    # null resets a field to its documented default; invalid values are refused.
+    for mode_key in ("risk_mode", "risk_capital_basis"):
+        if mode_key in payload:
+            v = payload.get(mode_key)
+            if v in (None, ""):
+                limit_keys[mode_key] = None
+            else:
+                limit_keys[mode_key] = str(v).strip().upper()
+    if "risk_amount" in payload:
+        v = payload.get("risk_amount")
+        if v in (None, ""):
+            limit_keys["risk_amount"] = None
+        else:
+            try:
+                fv = float(v)
+                if not (fv > 0):
+                    raise ValueError
+                limit_keys["risk_amount"] = fv
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=422, detail={
+                    "ok": False, "code": "RISK_AMOUNT_INVALID",
+                    "message": "risk_amount (constant monetary risk) must be a positive number "
+                               "in account currency, or null to clear it"})
     for src_key, dst_key in (("max_active_trades", "max_positions"),
                              ("max_positions", "max_positions")):
         if src_key in payload:
@@ -3993,7 +4142,6 @@ def live_testing_node_config(sid: int, payload: Dict = Body(...)) -> Dict:
                         "ok": False, "code": "INVALID_OFFSET",
                         "message": f"{off_key} must be a number in [-100000, 100000] pips "
                                    "(0 = the strategy's own level; see the experimental offsets note)"})
-    current = db.get_live_test_config(sid) or {}
     merged = {**current, **{k: v for k, v in payload.items()
                             if k in ("timeframes", "days", "sessions", "start_time", "end_time",
                                      "timezone", "lot_size", "risk_pct", "is_active", "status",
@@ -5553,6 +5701,7 @@ def nodes_index(
         sched_desc = _describe_schedule(sched_norm) if sched_norm else None
         ls = live.get(sid, {})
         num = strat.get("research_node_num") or st.get("research_node_num")
+        _ws = _worker_state(sid)          # one read per row: worker + lifecycle
         rows.append({
             # V6.4 identity contract: the CANONICAL identity of a node is its
             # database primary key (node_id/strategy_id), shown as "Node #<id>".
@@ -5639,6 +5788,24 @@ def nodes_index(
             "position_open": bool(ls.get("open_position")),
             "starred": sid in shortlist,
             "eligibility_note": excluded_notes.get(sid),
+            # ---- V6.5.1 §2-§6 — the unified Nodes table controls ----------
+            # The lifecycle/limits/offsets/risk-mode fields MUST live on THIS
+            # endpoint (the one the Live Testing Nodes table consumes): V6.5
+            # put them only on the legacy /live-testing/nodes-table projection,
+            # so the START button could never see worker state and flipped back
+            # to START after every reload (the defect this release fixes).
+            "is_active": bool(cfg.get("is_active")),
+            "worker": _ws,
+            "max_active_trades": cfg.get("max_positions"),
+            "max_active_trades_source": ("CUSTOM" if cfg.get("max_positions") not in (None, "")
+                                         else "DEFAULT"),
+            "max_active_trades_effective": resolve_per_node_limit({"config": cfg})["effective"],
+            "max_active_trades_default": resolve_per_node_limit({"config": cfg})["default"],
+            "sl_offset_pips": cfg.get("sl_offset_pips"),
+            "tp_offset_pips": cfg.get("tp_offset_pips"),
+            "offsets_active": bool(cfg.get("sl_offset_pips") or cfg.get("tp_offset_pips")),
+            "risk_mode": _risk_mode_row(cfg),
+            "lifecycle": _lifecycle_of(_ws, cfg.get("is_active"), cfg.get("status")),
         })
 
     if search_clean:

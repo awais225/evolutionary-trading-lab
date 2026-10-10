@@ -245,6 +245,9 @@ class LiveTestingConfig:
     """
     risk_pct_default: float = 1.0      # % of account equity risked per trade
     risk_pct_max: float = 2.0          # hard ceiling; above this a trade is BLOCKED
+    # V6.5.1 §8 — Mode B (constant monetary risk) ceiling, account currency. A
+    # configured per-trade money risk above this is refused, never clamped.
+    risk_amount_max: float = 100000.0
     max_active_trades: int = 1         # conservative start
     # V6.5 §5 — the DEFAULT per-node cap (each node inherits it unless the node
     # carries an explicit override in live_test_configs.max_positions).

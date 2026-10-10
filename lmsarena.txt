@@ -5274,3 +5274,32 @@ DEMO SAFETY: no real broker order was sent from this Linux host. Node 718's thre
 trades exist locally only as three UNKNOWN mt5_manual_orders rows (tickets preserved in the
 raw evidence); their completion requires MT5 history on the operator's machine — never
 fabricated here.
+
+V6.5.1 — 2026-10-10
+CRITICAL LMSARENA ENGINEERING DIRECTIVE (V6.5 UI failure) resolved as a corrective release on
+V6.5 (base 68a183b3). ROOT CAUSE: V6.5 added worker/lifecycle/limits/offsets fields only to the
+legacy /api/live-testing/nodes-table projection, while the unified Live Testing Nodes table
+consumes GET /api/nodes — which never emitted them. The START button could therefore never
+observe worker state and flipped back to START after every reload; Risk was display-only; the
+per-node controls were not in one row. FIX (additive; strategy logic/execution untouched):
+GET /api/nodes rows now carry worker + lifecycle (STOPPED|STARTING|RUNNING|STOPPING|COMPLETED|
+ERROR|UNKNOWN) + limits/offsets/risk-mode; the Nodes table has a genuine lifecycle control
+(immediate STARTING/STOPPING pending states, duplicate-click blocking, backend-confirmed
+flips, stale-response guard, refresh restores backend state, ERROR/UNKNOWN never falsely
+claiming RUNNING/STOPPED), inline Risk editing (Mode A % of capital with explicit
+EQUITY/BALANCE basis, Mode B constant monetary risk; validated, saved, errors visible, saved
+value from the backend response), inline Max trades / SL off / TP off cells, structured
+Schedule editor, and the duplicate per-node risk editor demoted to a read-only summary. New
+read-only GET /api/mt5/account + MT5 account panel (balance/equity/free margin, connection +
+freshness, truthful UNAVAILABLE/SIMULATED labelling). Position sizing uses the broker's real
+tick/volume specification in both modes (volume rounded DOWN to the step; documented limits:
+no gap/slippage/currency-conversion modelling). Additive DB migration (risk_mode, risk_amount,
+risk_capital_basis on live_test_configs). Build/serving identity re-verified at the HTTP
+boundary (release V6.5.1 visible in the Build chip; served HTML/assets hash-match the built
+bundle). Tests: 39 new (5 backend suites + 16 UI acceptance behaviours) + full suite gate on
+fresh scratch DATA. PENDING: browser-visible confirmation on the operator's Windows/MT5
+instance (manual steps in V6_5_1_REPORT.md §L); V6.4 §11 / V6.5 §E manual checklists remain
+open.
+
+DEMO SAFETY: no real broker order was sent from this Linux host; the lifecycle was exercised
+live over HTTP against the real backend in SIMULATOR mode on scratch DATA only.

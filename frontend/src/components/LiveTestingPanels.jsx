@@ -61,16 +61,9 @@ export function RiskStrip({ nodes, onChanged, lab }) {
     } finally { setSaving(""); }
   };
 
-  const setNodeRisk = async (sid, value) => {
-    setSaving(`n${sid}`); setNote(null);
-    try {
-      await api.liveTestingNodeConfig(sid, { risk_pct: value });
-      setNote({ ok: true, text: `Node #${sid} risk ${value === null ? "reset to the global default" : `set to ${value}%`}.` });
-      await load(); onChanged?.();
-    } catch (e) {
-      setNote({ ok: false, text: `Node #${sid} risk update failed: ${e.message || e}` });
-    } finally { setSaving(""); }
-  };
+  // V6.5.1 §3 — per-node risk editing moved to the unified Nodes table (Risk
+  // cell). This strip only SUMMARIZES per-node risk and edits the global
+  // default, so two editors can never disagree about the same setting.
 
   const override = (n) => numOrNull(n?.risk_pct ?? n?.config?.risk_pct);
   const nodeList = safeRows(nodes).length ? safeRows(nodes) : safeRows(status?.nodes);
@@ -109,8 +102,8 @@ export function RiskStrip({ nodes, onChanged, lab }) {
         )}
         {note && <div className={note.ok ? "kit-ok" : "kit-inline-err"}>{note.text}</div>}
 
-        <SectionTitle hint="A node override is highlighted; Reset puts the node back on the global default.">
-          Per-node risk
+        <SectionTitle hint="Read-only summary. Per-node risk is edited in ONE place — the Risk cell of the Live test nodes table (V6.5.1 §3).">
+          Per-node risk (summary)
         </SectionTitle>
         {nodeList.length === 0 ? (
           <div className="muted" style={{ fontSize: 12 }}>
@@ -118,13 +111,16 @@ export function RiskStrip({ nodes, onChanged, lab }) {
           </div>
         ) : (
           <div className="kit-scroll">
+            {/* V6.5.1 §3 — this is a SUMMARY, not a second editor: the same
+                setting must never be editable in two places that can disagree. */}
             <table className="tbl">
-              <thead><tr><th>Node</th><th>Status</th><th>Risk %</th><th>Source</th><th>Change</th><th /></tr></thead>
+              <thead><tr><th>Node</th><th>Status</th><th>Risk %</th><th>Source</th><th>Mode</th></tr></thead>
               <tbody>
                 {nodeList.map((n) => {
                   const sid = parseNodeId(n?.strategy_id ?? n?.id ?? n?.node_id);
                   const ov = override(n);
                   const custom = ov !== null && ov !== undefined;
+                  const rmode = objOrNull(n?.risk_mode) || objOrNull(n?.config?.risk_mode) || {};
                   return (
                     <tr key={sid} className={custom ? "kit-row-hl" : ""}>
                       <td className="mono">#{txt(sid)}</td>
@@ -133,27 +129,18 @@ export function RiskStrip({ nodes, onChanged, lab }) {
                         {txt(custom ? ov : limits?.risk_pct_default, NA_TEXT)}
                       </td>
                       <td>{custom ? <Badge tone="warn">custom</Badge> : <Badge tone="mute">global default</Badge>}</td>
-                      <td>
-                        <input style={{ width: 80 }} className="mono" placeholder="%"
-                               onKeyDown={(e) => {
-                                 if (e.key === "Enter") {
-                                   const v = numOrNull(e.target.value);
-                                   if (v !== null) setNodeRisk(sid, v);
-                                 }
-                               }} />
-                      </td>
-                      <td>
-                        <button className="btn" disabled={saving === `n${sid}` || !custom}
-                                title={!custom ? "this node has no override — it already uses the global risk" :
-                                       saving === `n${sid}` ? "saving the override…" :
-                                       "remove the override and use the global risk"}
-                                onClick={() => setNodeRisk(sid, null)}>Reset</button>
+                      <td className="muted" style={{ fontSize: 11 }}>
+                        {txt(typeof rmode === "string" ? rmode : rmode.mode, "PERCENT")}
                       </td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
+            <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+              Edit a node's risk mode / value inline in the <b>Live test nodes</b> table
+              (Risk cell) — this summary cannot write node settings.
+            </div>
           </div>
         )}
       </StateBlock>

@@ -1179,12 +1179,20 @@ class LiveTestingEngine:
         except Exception:
             si = None
         try:
+            # V6.5.1 §8 — the risk mode travels with the node's config: Mode A
+            # (PERCENT of the configured capital basis) or Mode B (AMOUNT). With
+            # the fields unset this is exactly the historical equity*% path.
+            _acct = ((estate.get("account_safety") or {}).get("account") or {})
             trace = compute_risk(node_id=sid, strategy_id=sid, symbol=symbol, side=side,
                                  entry=entry, sl=sl_price,
-                                 equity=((estate.get("account_safety") or {}).get("account") or {}).get("equity"),
+                                 equity=_acct.get("equity"),
+                                 balance=_acct.get("balance"),
                                  global_pct=limits["risk_pct_default"],
                                  override_pct=node["config"].get("risk_pct"),
-                                 spec=si)
+                                 spec=si,
+                                 risk_mode=node["config"].get("risk_mode"),
+                                 risk_amount=node["config"].get("risk_amount"),
+                                 capital_basis=node["config"].get("risk_capital_basis"))
         except RiskBlock as rb:
             stage = STAGE_VOLUME if rb.code.startswith("VOLUME") else STAGE_RISK
             self._block(node, symbol, side, stage, rb.code, rb.message, rb.detail)
@@ -1193,7 +1201,8 @@ class LiveTestingEngine:
                      "status": "OK",
                      "detail": {k: trace[k] for k in ("equity", "risk_pct", "risk_pct_source",
                                                       "risk_amount", "global_risk_pct",
-                                                      "risk_pct_max")}})
+                                                      "risk_pct_max", "risk_mode",
+                                                      "capital_basis", "capital")}})
         sz = trace["sizing"]
         self._stage({"stage": STAGE_VOLUME, "node_id": sid, "symbol": symbol, "side": side,
                      "status": "OK",
