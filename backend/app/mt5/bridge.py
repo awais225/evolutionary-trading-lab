@@ -219,5 +219,9 @@ class MarketBridge(abc.ABC):
         """Pending orders from the terminal."""
         return []
 
+    def deal_history(self, position: Optional[int] = None,
+                     date_from: Optional[int] = None,
+                     date_to: Optional[int] = None) -> List[Dict]: ...
+
     def close_position(self, ticket: int, comment: str = "") -> Dict:
         return {"ok": False, "error": f"position closing is not supported by bridge '{self.name}'"}

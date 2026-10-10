@@ -42,7 +42,8 @@ from ..mt5 import get_bridge
 from ..mt5 import execution as mt5_exec
 from ..paper.engine import library_feature_spec
 from ..risk.controls import session_of_hour
-from .risk import RiskBlock, compute_risk, resolve_risk_pct, risk_limits
+from .risk import (RiskBlock, compute_risk, resolve_per_node_limit,
+                   resolve_risk_pct, risk_limits)
 
 log = logging.getLogger("livelab.live_testing")
 
@@ -157,6 +158,19 @@ def _human_stage_message(stage: str, ev: Dict[str, Any]) -> str:
     return f"{head} - {d.get('summary') or ev.get('message') or stage}"
 
 
+def _safe_describe(describe_fn, genome: Dict[str, Any]) -> Optional[str]:
+    try:
+        return describe_fn(genome)
+    except Exception:
+        return None
+
+
+def _market_clock():
+    """The wall clock the market-state panel reads (narrow seam; tests pin it so
+    calendar weekends never flip market-closed verdicts in the suite)."""
+    return datetime.now(timezone.utc)
+
+
 class LiveTestingEngine:
     """Controlled live-testing loop; runs whenever the backend runs but is inert
     until the operator activates it (spec §4/§5)."""
@@ -172,6 +186,11 @@ class LiveTestingEngine:
         self._last_opened: Dict[str, float] = {}      # reuse-guard, in-memory only
         self._unresolved: Dict[str, float] = {}       # symbol -> ts of an ambiguous result
         self._order_lock = threading.Lock()           # one order at a time, ever
+        # V6.5 §6.5 — reconciliation/sync state, always visible in the UI
+        self.sync_state: Dict[str, Any] = {"last_sync_ts": None, "certainty": "NEVER_SYNCED",
+                                          "positions_reconciled": 0, "exits_captured": 0,
+                                          "recovered": 0, "missing_or_unmatched": 0,
+                                          "errors": 0}
         self._cycle_count = 0
         self._last_cycle_ts: Optional[float] = None
         self._last_cycle_error: Optional[str] = None
@@ -506,9 +525,10 @@ class LiveTestingEngine:
             if out["ask"] <= 0 or out["bid"] <= 0 or out["ask"] < out["bid"]:
                 out["data_fresh"] = False
                 out["reasons"].append(f"invalid quote for {sym} (bid {out['bid']} / ask {out['ask']})")
-        hour = datetime.now(timezone.utc).hour
+        clock = _market_clock()
+        hour = clock.hour
         out["session_status"] = session_of_hour(hour)
-        weekend = datetime.now(timezone.utc).weekday() >= 5
+        weekend = clock.weekday() >= 5
         market_closed = weekend and bridge.source != "SIMULATOR"
         if market_closed:
             out["reasons"].append("market closed (weekend) - broker would reject new orders")
@@ -563,6 +583,22 @@ class LiveTestingEngine:
                 out["orders"] += 1
                 out["order_tickets"].append(_ticket(o))
         out["active_total"] = out["positions"] + out["orders"]
+        # V6.5 §5.4 — attribution by ORIGINATING node (the magic stamp written at
+        # submission); the same position seen twice is counted once.
+        per_node: Dict[str, int] = {}
+        seen_t = set()
+        for p in positions:
+            m = _magic(p)
+            if not (mt5_exec.LIVE_TEST_MAGIC_BASE <= m < mt5_exec.LIVE_TEST_MAGIC_BASE + 1000):
+                continue
+            t = _ticket(p)
+            if t in seen_t:
+                continue
+            if t is not None:
+                seen_t.add(t)
+            nk = str(m - mt5_exec.LIVE_TEST_MAGIC_BASE)
+            per_node[nk] = per_node.get(nk, 0) + 1
+        out["per_node"] = per_node
         db = get_db()
         cutoff = time.time() - 3600.0
         rows = db.q("SELECT open_ts,updated_at,status,strategy_id,symbol,side FROM live_test_trades "
@@ -638,6 +674,7 @@ class LiveTestingEngine:
     # ------------------------------------------------------------------ status ---
     def status(self) -> Dict[str, Any]:
         db = get_db()
+        sync = dict(self.sync_state)
         limits = risk_limits()
         try:
             activity = self.count_activity()
@@ -681,6 +718,9 @@ class LiveTestingEngine:
             "last_noop_reason": self._last_noop_reason,
             "stats": dict(self.stats),
             "recent_events": self.recent_events[:20],
+            "sync": sync,
+            "max_active_trades_per_node_default": int(
+                getattr(get_config().live_testing, "max_active_trades_per_node_default", 1) or 1),
         }
 
     # ------------------------------------------------------------------ stage log ---
@@ -853,18 +893,26 @@ class LiveTestingEngine:
         side = "BUY" if sig_l else "SELL"
         self.stats["signals"] += 1
         bar_time = datetime.fromtimestamp(last_closed_ts, tz=timezone.utc).isoformat(timespec="minutes")
+        # V6.5 §3.2 — read-only explanation/metadata hook AT THE SIGNAL BOUNDARY:
+        # the engine rule as stored, the condition tree with values evaluated at
+        # the decision bar, and the indicator values. It never feeds back into the
+        # decision (facts are recorded AFTER the signal is fixed).
+        explain = self._explain_signal(g, cache, ctx, i, side, float(atr[i]),
+                                       ex.get("atr_spec", "atr:14"), bar_time, tf)
         db.log_event("live_test_signal", {"strategy_id": sid, "side": side,
                                           "ts": last_closed_ts, "source": bridge.source})
         self._stage({"stage": STAGE_SIGNAL, "node_id": sid, "symbol": symbol, "side": side,
                      "status": "SIGNAL", "detail": {"bar_time": bar_time, "timeframe": tf,
                                                     "source": bridge.source,
                                                     "atr": round(float(atr[i]), 6),
-                                                    "run_id": node["config"].get("run_id")}})
-        self._attempt(node, side, float(atr[i]), ex, df)
+                                                    "run_id": node["config"].get("run_id"),
+                                                    "signal_id": explain.get("signal_id"),
+                                                    "entry_reason": explain}})
+        self._attempt(node, side, float(atr[i]), ex, df, explain=explain)
 
     # ------------------------------------------------------------------ execution ---
     def _attempt(self, node: Dict[str, Any], side: str, atr_val: float, ex: Dict[str, Any],
-                 df: pd.DataFrame) -> None:
+                 df: pd.DataFrame, explain: Optional[Dict[str, Any]] = None) -> None:
         """One order attempt with full staging; blocked/rejected/unknown are final."""
         sid = node["id"]
         g = node["genome"] or {}
@@ -959,28 +1007,7 @@ class LiveTestingEngine:
                         f"execution disabled: {reason}")
             return
 
-        activity = self.count_activity()
-        if not activity.get("counted"):
-            self._block(node, symbol, side, STAGE_ORDER_VALIDATED, "BROKER_STATE_UNAVAILABLE",
-                        "could not read MT5 positions/orders - refusing to trade blind")
-            return
-        if activity["active_total"] >= limits["max_active_trades"]:
-            self.stats["blocked"] += 1
-            detail = {"blocked_stage": STAGE_ORDER_VALIDATED, "reason": "TRADE LIMIT REACHED",
-                      "active_total": activity["active_total"], "limit": limits["max_active_trades"],
-                      "positions": activity["positions"], "orders": activity["orders"],
-                      "positions_closed": 0, "positions_replaced": 0}
-            self._stage({"stage": STAGE_BLOCKED, "node_id": sid, "symbol": symbol, "side": side,
-                         "status": "LIMIT_REACHED",
-                         "detail": {**detail,
-                                    "reason": f"TRADE LIMIT REACHED - {activity['active_total']} active "
-                                              f"MT5 live-test trade(s) (limit {limits['max_active_trades']}); "
-                                              "no new order sent, no position closed or replaced"}})
-            db.record_live_test_execution({"strategy_id": sid, "symbol": symbol, "side": side,
-                                           "timeframe": g.get("timeframe"), "status": TRADE_BLOCKED,
-                                           "run_id": node["config"].get("run_id"),
-                                           "result": detail})
-            return
+
         reuse = self._last_opened.get(symbol)
         if reuse is not None and (time.time() - reuse) < 60.0:
             self._block(node, symbol, side, STAGE_ORDER_VALIDATED, "LIVE_TEST_DUPLICATE_GUARD",
@@ -998,6 +1025,72 @@ class LiveTestingEngine:
                         "confirm the broker state (VERIFY WITH MT5) before new orders",
                         {"retries": 0, "since_ts": unresolved_ts})
             return
+
+        # V6.5 §5 — the admission gate runs AFTER the more specific re-entry
+        # diagnostics above (duplicate guard, unresolved broker state) so the
+        # operator sees the most actionable reason first; limits are still
+        # enforced atomically at the execution boundary immediately after.
+        # V6.5 §5 — the ADMISSION GATE: global AND per-node limits enforced at the
+        # execution boundary, atomically (lock + reservation) so concurrent node
+        # workers cannot jointly exceed a cap. Counts come from broker state plus
+        # held reservations; unreadable broker state refuses (never "assume zero").
+        activity = self.count_activity()
+        if not activity.get("counted"):
+            self._block(node, symbol, side, STAGE_ORDER_VALIDATED, "BROKER_STATE_UNAVAILABLE",
+                        "could not read MT5 positions/orders - refusing to trade blind")
+            return
+        from .admission import get_admission
+        from ..mt5.execution import LIVE_TEST_MAGIC_BASE, live_test_magic as _lt_magic
+        from ..config import get_config as _get_cfg
+        _cfg_live = _get_cfg().live_testing
+        per_node_limit = resolve_per_node_limit(node)
+        node_active = bool((node.get("config") or {}).get("is_active"))
+        adm = get_admission().admit(
+            node_id=sid, magic=_lt_magic(sid), symbol=symbol, bridge=bridge,
+            magic_lo=LIVE_TEST_MAGIC_BASE, magic_hi=LIVE_TEST_MAGIC_BASE + 1000,
+            global_limit=int(limits["max_active_trades"]),
+            per_node_limit=int(per_node_limit["effective"]),
+            node_active=node_active)
+        reservation = None
+        if not adm.get("ok"):
+            self.stats["blocked"] += 1
+            code = adm.get("code") or "LIMIT_REACHED"
+            detail = {"blocked_stage": STAGE_ORDER_VALIDATED, "reason": adm.get("reason"),
+                      "code": code, "active_total": adm.get("active_total", activity.get("active_total")),
+                      "limit": adm.get("global_limit", limits["max_active_trades"]),
+                      "active_node": adm.get("active_node"),
+                      "node_limit": adm.get("node_limit", per_node_limit["effective"]),
+                      "node_limit_source": per_node_limit["source"],
+                      "positions": activity["positions"], "orders": activity["orders"],
+                      "positions_closed": 0, "positions_replaced": 0}
+            # the operator-facing contract keeps the documented wording
+            # ("TRADE LIMIT REACHED"); the machine code names the exact gate.
+            human = adm.get("reason") or ""
+            if code == "GLOBAL_LIMIT_REACHED":
+                human = (f"TRADE LIMIT REACHED - {detail.get('active_total')} active "
+                         f"MT5 live-test trade(s) (limit {detail.get('limit')}); "
+                         "no new order sent, no position closed or replaced")
+            elif code == "NODE_LIMIT_REACHED":
+                human = (f"TRADE LIMIT REACHED (node) - node {sid} is at its max active "
+                         f"trades ({detail.get('active_node')}/{detail.get('node_limit')}, "
+                         f"{per_node_limit['source']}); no new order sent")
+            self._stage({"stage": STAGE_BLOCKED, "node_id": sid, "symbol": symbol, "side": side,
+                         "status": "LIMIT_REACHED" if "LIMIT" in code else code,
+                         "detail": {**detail, "reason": human}})
+            db.record_live_test_execution({"strategy_id": sid, "symbol": symbol, "side": side,
+                                           "timeframe": g.get("timeframe"), "status": TRADE_BLOCKED,
+                                           "run_id": node["config"].get("run_id"),
+                                           "result": detail})
+            try:
+                from . import ledger as _ledger
+                _ledger.record_event(db, event_uid=f"block:{sid}:{int(time.time()*1000)}",
+                                     event_type="ADMISSION_REFUSED", strategy_id=sid,
+                                     symbol=symbol, side=side, status=code,
+                                     payload=detail, source="admission")
+            except Exception:
+                pass
+            return
+        reservation = adm.get("reservation")
 
         # ---- market panel (authoritative MT5 quote + freshness) ----
         panel = self.market_panel(symbol)
@@ -1026,6 +1119,61 @@ class LiveTestingEngine:
         tp_price = None
         if tp_dist > 0:
             tp_price = round(entry + tp_dist, 8) if side == "BUY" else round(entry - tp_dist, 8)
+        # V6.5 §9 — experimental per-node SL/TP offsets (default 0/0 = EXACTLY the
+        # strategy's own levels). Applied to the already-computed default levels
+        # only; never re-derives signal or structural levels. Positive SL offset
+        # moves SL farther from entry; positive TP offset moves TP inward (§9.2);
+        # negative offsets do the documented reverse. All adjusted levels are
+        # tick-normalized and validated against broker constraints or the order
+        # is safely refused (never submitted invalid).
+        sl_default_lvl, tp_default_lvl = sl_price, tp_price
+        offset_meta = {"sl_offset_pips": 0.0, "tp_offset_pips": 0.0,
+                       "sl_default": sl_default_lvl, "tp_default": tp_default_lvl,
+                       "sl_effective": sl_default_lvl, "tp_effective": tp_default_lvl,
+                       "offsets_applied": False}
+        _sl_off = node["config"].get("sl_offset_pips")
+        _tp_off = node["config"].get("tp_offset_pips")
+        try:
+            _sl_off = float(_sl_off) if _sl_off not in (None, "") else 0.0
+            _tp_off = float(_tp_off) if _tp_off not in (None, "") else 0.0
+        except (TypeError, ValueError):
+            self._block(node, symbol, side, STAGE_RISK, "OFFSET_INVALID",
+                        "SL/TP offset values must be numeric (pips)")
+            return
+        offset_meta["sl_offset_pips"] = _sl_off
+        offset_meta["tp_offset_pips"] = _tp_off
+        if _sl_off or _tp_off:
+            try:
+                from ..backtest.symbol_specs import get_symbol_specs
+                from .offsets import apply_offsets
+                specs = get_symbol_specs(symbol)
+                _si_chk = None
+                try:
+                    _si_chk = bridge.symbol_info(symbol)
+                except Exception:
+                    _si_chk = None
+                res_off = apply_offsets(
+                    side=side, entry=entry, sl=sl_price, tp=tp_price,
+                    sl_offset_pips=_sl_off, tp_offset_pips=_tp_off, specs=specs,
+                    stops_level_points=(getattr(_si_chk, "trade_stops_level", None)
+                                        if _si_chk is not None else None),
+                    freeze_level_points=(getattr(_si_chk, "trade_freeze_level", None)
+                                         if _si_chk is not None else None))
+                offset_meta.update(res_off.get("meta") or {})
+                if not res_off.get("ok"):
+                    self._block(node, symbol, side, STAGE_RISK,
+                                str(res_off.get("code") or "OFFSET_ERROR"),
+                                str(res_off.get("reason") or "offset application refused"),
+                                dict(offset_meta))
+                    return
+                sl_price, tp_price = res_off["sl"], res_off["tp"]
+                sl_dist = abs(entry - sl_price)
+                tp_dist = abs(entry - tp_price) if tp_price is not None else 0.0
+            except Exception as e:
+                self._block(node, symbol, side, STAGE_RISK, "OFFSET_ERROR",
+                            f"SL/TP offset application failed ({type(e).__name__}: {e}) - "
+                            "refusing to submit")
+                return
         try:
             si = bridge.symbol_info(symbol)
         except Exception:
@@ -1118,6 +1266,11 @@ class LiveTestingEngine:
             if sent is False and status in ("REJECTED",):
                 # blocked before anything left the process -> record it as blocked
                 self.stats["blocked"] += 1
+                try:
+                    from .admission import get_admission
+                    get_admission().settle(reservation, "REJECTED")
+                except Exception:
+                    pass
                 self._block(node, symbol, side, str(res.get("blocked_stage") or STAGE_ORDER_VALIDATED),
                             str(res.get("blocked_code") or "EXECUTION_BLOCKED"),
                             str((res.get("broker") or {}).get("message") or "execution blocked"))
@@ -1147,8 +1300,22 @@ class LiveTestingEngine:
                       "next_actions": res.get("next_actions")}
             self._stage({"stage": STAGE_BROKER, "node_id": sid, "symbol": symbol, "side": side,
                          "status": status, "detail": detail})
-            row_status, local = self._record_result(node, payload, trace, res, status)
+            row_status, local = self._record_result(node, payload, trace, res, status,
+                                                    explain=explain, offset_meta=offset_meta)
             row_id = local.get("row_id")
+            # V6.5 §5.3.7 — reservation settlement follows the OUTCOME evidence:
+            # a verified fill or a verified rejection releases the slot; an
+            # UNCERTAIN outcome (timeout / UNKNOWN) KEEPS it until reconciliation.
+            try:
+                from .admission import get_admission
+                if status == "UNKNOWN" or row_status in (TRADE_UNKNOWN, TRADE_UNCONFIRMED):
+                    get_admission().settle(reservation, "UNCERTAIN")
+                elif res.get("ok"):
+                    get_admission().settle(reservation, "EXECUTED")
+                else:
+                    get_admission().settle(reservation, "REJECTED")
+            except Exception:
+                pass
             if status == "UNKNOWN":
                 self._unresolved[symbol] = time.time()
             if status == "UNKNOWN" or (not res.get("ok") and res.get("safe_to_retry") is False
@@ -1236,9 +1403,100 @@ class LiveTestingEngine:
                            "comment": code},
                 "order": {}, "execution": {}}
 
+    # ---------------------------------------------------------- explanation ---
+    def _explain_signal(self, g: Dict[str, Any], cache: Dict[str, Any], ctx: Any,
+                        i: int, side: str, atr_val: float, atr_spec: str,
+                        bar_time: str, tf: Any) -> Dict[str, Any]:
+        """V6.5 §3.2 — FACTS recorded at decision time, nothing reconstructed.
+
+        ``explanation_kind='engine_rule_and_feature_snapshot'`` marks exactly what
+        this is: the engine's own entry rule (verbatim from the genome) plus the
+        condition tree with each subtree's computed value at the decision bar,
+        plus the indicator values it references.  Nothing here can change the
+        signal's result — it is built after the boolean signal is fixed.
+        """
+        from ..genome.schema import describe as _describe
+        rule = g.get("entry_long" if side == "BUY" else "entry_short")
+        feature_values: Dict[str, Any] = {}
+        for spec in sorted(referenced_features(g)):
+            arr = cache.get(spec)
+            v = None
+            if arr is not None and len(arr) > i:
+                try:
+                    fv = float(arr[i])
+                    v = fv if np.isfinite(fv) else None
+                except Exception:
+                    v = None
+            feature_values[spec] = v
+        tree = self._annotate_rule(rule, ctx, i) if rule is not None else None
+        sig_id = f"sig-{g.get('timeframe')}-{int(time.time() * 1000)}"
+        return {
+            "signal_id": sig_id,
+            "explanation_kind": "engine_rule_and_feature_snapshot",
+            "recorded_at": time.time(),
+            "recorded_at_iso": _iso(time.time()),
+            "side": side,
+            "entry_rule": rule,                       # verbatim engine input
+            "entry_rule_text": _safe_describe(_describe, g),
+            "condition_tree": tree,                   # per-node evaluated facts
+            "indicator_values": feature_values,
+            "atr": {"spec": atr_spec, "value": (float(atr_val) if atr_val is not None else None)},
+            "signal_bar_time_utc": bar_time,
+            "timeframe": tf,
+            "direction": g.get("direction"),
+            "sessions": g.get("sessions"),
+            "days": g.get("days"),
+            "regime_filters": g.get("regime_filters"),
+            "genome_hash": g.get("_hash") or None,
+            "note": ("facts recorded at decision time from the engine's own rule and "
+                     "feature cache; thresholds are those stored in the rule"),
+        }
+
+    def _annotate_rule(self, node: Any, ctx: Any, i: int) -> Any:
+        """Recursively attach computed values to a rule tree (read-only)."""
+        if not isinstance(node, dict):
+            return {"node": node, "evaluated": False}
+        out: Dict[str, Any] = {"node": node}
+        try:
+            arr = self._backtester._eval(node, ctx)
+            v = float(arr[i])
+            out["value_at_bar"] = v if np.isfinite(v) else None
+            out["evaluated"] = True
+        except Exception as e:
+            out["evaluated"] = False
+            out["eval_error"] = f"{type(e).__name__}: {e}"[:120]
+        if node.get("op") in ("and", "or"):
+            out["clauses"] = [self._annotate_rule(c, ctx, i) for c in node.get("clauses") or []]
+        elif node.get("op") == "not":
+            out["clause"] = self._annotate_rule(node.get("clause"), ctx, i)
+        elif node.get("type") == "compare":
+            for key in ("left", "right"):
+                v = node.get(key)
+                if isinstance(v, str):
+                    arr = ctx.cache.get(v) if hasattr(ctx, "cache") else None
+                    try:
+                        fv = float(arr[i])
+                        out[key + "_value"] = fv if np.isfinite(fv) else None
+                    except Exception:
+                        out[key + "_value"] = None
+        elif node.get("type") == "crossover":
+            for key in ("a", "b"):
+                arr = ctx.cache.get(node.get(key)) if hasattr(ctx, "cache") else None
+                try:
+                    fv = float(arr[i])
+                    out[key + "_value"] = fv if np.isfinite(fv) else None
+                except Exception:
+                    out[key + "_value"] = None
+        return out
+
     def _record_result(self, node: Dict[str, Any], payload: Dict[str, Any], trace: Dict[str, Any],
-                       res: Dict[str, Any], status: str) -> Tuple[str, Dict[str, Any]]:
-        """Persist the live-test trade record (separate from research statistics, §18)."""
+                       res: Dict[str, Any], status: str,
+                       explain: Optional[Dict[str, Any]] = None,
+                       offset_meta: Optional[Dict[str, Any]] = None) -> Tuple[str, Dict[str, Any]]:
+        """Persist the canonical V6.5 ledger record (research statistics untouched, §18).
+
+        The row is written from the ACTUAL broker response; fields MT5 did not
+        provide stay NULL with an evidence source — never fabricated (§6.1)."""
         sid = node["id"]
         db = get_db()
         genome = node.get("genome") or {}
@@ -1260,18 +1518,76 @@ class LiveTestingEngine:
             row_status = TRADE_UNKNOWN
         row_id = None
         try:
-            row_id = db.record_live_test_execution({
+            from . import ledger as _ledger
+            off = offset_meta or {}
+            entry_reason = None
+            if explain is not None:
+                try:
+                    entry_reason = json.dumps(explain, default=str)
+                except Exception:
+                    entry_reason = None
+            signal_ts = (explain or {}).get("recorded_at")
+            now_ts = time.time()
+            row_id = _ledger.upsert_trade(db, {
                 "strategy_id": sid, "ticket": ticket,
-                "deal_ticket": order.get("deal_ticket"), "symbol": payload["symbol"],
+                "position_ticket": order.get("position_ticket"),
+                "order_ticket": order.get("ticket"),
+                "deal_ticket": order.get("deal_ticket"),
+                "comment": payload.get("comment"),
+                "magic": payload.get("magic"),
+                "strategy_identity": node["config"].get("run_id"),
+                "signal_id": (explain or {}).get("signal_id"),
+                "signal_ts": signal_ts, "submit_ts": now_ts, "response_ts": now_ts,
+                "fill_ts": (now_ts if res.get("ok") else None),
+                "order_type": "MARKET",
+                "fill_status": row_status,
+                "symbol": payload["symbol"],
                 "timeframe": genome.get("timeframe", "M15"), "side": payload["side"],
                 "entry_price": payload.get("price"),
                 "exec_price": execution.get("exec_price") or payload.get("price"),
-                "sl": payload.get("sl"), "tp": payload.get("tp"), "lots": payload["volume"],
-                "open_ts": time.time(), "session": None, "status": row_status,
+                "sl": payload.get("sl"), "tp": payload.get("tp"),
+                "sl_requested": off.get("sl_default"), "tp_requested": off.get("tp_default"),
+                "sl_confirmed": execution.get("sl_broker") or payload.get("sl"),
+                "tp_confirmed": execution.get("tp_broker") or payload.get("tp"),
+                "sl_default": off.get("sl_default"), "tp_default": off.get("tp_default"),
+                "sl_offset_pips": off.get("sl_offset_pips") or 0.0,
+                "tp_offset_pips": off.get("tp_offset_pips") or 0.0,
+                "spread_points": execution.get("spread_points"),
+                "slippage_points": execution.get("slippage_points"),
+                "broker_comment": broker.get("comment") or broker.get("message"),
+                "entry_reason": entry_reason,
+                "account_login": broker.get("account_login"),
+                "account_server": broker.get("account_server"),
+                "volume_filled": execution.get("volume") or order.get("volume"),
+                "volume_current": execution.get("volume") or order.get("volume"),
+                "lots": payload["volume"],
+                "open_ts": now_ts, "session": None, "status": row_status,
                 "run_id": node["config"].get("run_id"), "risk_pct": trace.get("risk_pct"),
                 "risk_amount": trace.get("risk_amount"),
-                "magic": payload.get("magic"), "client_order_id": res.get("client_order_id"),
-                "retcode": broker.get("retcode"), "result": res})
+                "client_order_id": res.get("client_order_id"), "retcode": broker.get("retcode"),
+                "result": res,
+                "evidence_source": ("broker_response" if (res.get("ok") or broker.get("retcode")
+                                                          is not None)
+                                    else "local_record_only"),
+                "data_complete": 0 if row_status in (TRADE_UNKNOWN, TRADE_UNCONFIRMED) else 1,
+                "last_sync_ts": now_ts,
+            })
+            if row_id is not None:
+                uid_base = res.get("client_order_id") or f"{sid}-{int(now_ts * 1000)}"
+                _ledger.record_event(
+                    db, event_uid=f"submit:{uid_base}", event_type="ORDER_SUBMITTED",
+                    ts=now_ts, strategy_id=sid,
+                    position_ticket=order.get("position_ticket"),
+                    order_ticket=order.get("ticket"), deal_ticket=order.get("deal_ticket"),
+                    stage=STAGE_ORDER_SENT, status=status, symbol=payload["symbol"],
+                    side=payload["side"],
+                    payload={"retcode": broker.get("retcode"), "row_id": row_id,
+                             "sl_default": off.get("sl_default"), "tp_default": off.get("tp_default"),
+                             "sl_effective": payload.get("sl"), "tp_effective": payload.get("tp"),
+                             "sl_offset_pips": off.get("sl_offset_pips"),
+                             "tp_offset_pips": off.get("tp_offset_pips"),
+                             "signal_id": (explain or {}).get("signal_id")},
+                    source="live_engine")
         except Exception as e:
             log.warning("failed to persist live-test trade record: %s", e)
         return row_status, {"row_id": row_id, "status": row_status}
@@ -1321,6 +1637,16 @@ class LiveTestingEngine:
             return ""
 
         self._clear_verified_unknowns(db, bridge, out)
+        # V6.5 §5.3.8 — reconcile LIMIT RESERVATIONS with the broker state too:
+        # an uncertain slot the broker proves unused is released here.
+        try:
+            from .admission import get_admission
+            from ..mt5.execution import LIVE_TEST_MAGIC_BASE
+            out["reservations"] = get_admission().reconcile(
+                bridge, LIVE_TEST_MAGIC_BASE, LIVE_TEST_MAGIC_BASE + 1000)
+        except Exception as e:
+            log.warning("admission reconcile failed: %s", e)
+        self._recover_broker_positions(db, bridge, out)
 
         for r in rows:
             out["checked"] += 1
@@ -1339,13 +1665,23 @@ class LiveTestingEngine:
             elif state == "":
                 age = time.time() - float(r.get("ts") or 0)
                 if r["status"] in (TRADE_POSITION, TRADE_PENDING):
+                    # V6.5 §6.3 — before the row is closed out, capture the ACTUAL
+                    # exit evidence (exit deals, realized P/L, broker reason) from
+                    # deal history. No deal history ⇒ the row keeps an explicit
+                    # 'evidence unavailable' classification — never invented exits.
+                    exit_info = self._capture_exit(db, bridge, r)
+                    close_reason = exit_info.get("close_reason") or "closed at broker"
                     db.update_live_test_trade(r["id"], status=TRADE_CLOSED_MISSING,
-                                              close_ts=time.time(), close_reason="closed at broker")
+                                              close_ts=exit_info.get("exit_ts") or time.time(),
+                                              close_reason=close_reason)
                     out["closed"] += 1
+                    if exit_info.get("captured"):
+                        out["exits_captured"] = out.get("exits_captured", 0) + 1
                     self._stage({"stage": STAGE_CLOSED, "node_id": r["strategy_id"],
                                  "symbol": r["symbol"], "side": r["side"], "status": TRADE_CLOSED_MISSING,
                                  "detail": {"reason": "position/order no longer present at the broker",
                                             "position_closed_by": "broker/external",
+                                            "exit_evidence": exit_info,
                                             "note": "no automatic re-entry"}})
                 elif r["status"] == TRADE_UNCONFIRMED and age > 45:
                     db.update_live_test_trade(r["id"], status=TRADE_UNKNOWN)
@@ -1355,7 +1691,205 @@ class LiveTestingEngine:
                                  "detail": {"reason": "broker reply was OK but the position was not "
                                                       "found when verified - UNKNOWN - VERIFY MT5",
                                             "retries": 0}})
+        # V6.5 §6.5 — the synchronization state is part of the outcome, always.
+        self.sync_state.update({
+            "last_sync_ts": time.time(),
+            "positions_reconciled": out.get("verified", 0),
+            "closed_detected": out.get("closed", 0),
+            "exits_captured": out.get("exits_captured", 0),
+            "recovered": out.get("recovered", 0),
+            "missing_or_unmatched": out.get("missing", 0),
+            "unknown_rows": out.get("unknown", 0),
+            "errors": out.get("errors", 0),
+            "checked_rows": out.get("checked", 0),
+        })
+        self.sync_state["certainty"] = ("SUFFICIENT" if not out.get("errors")
+                                        else "INSUFFICIENT")
         return out
+
+    # V6.5 §6.3 — MT5 source-of-truth exit capture (read-only) ---------------
+    #: MetaTrader5 deal-entry / deal-reason codes (stable broker semantics).
+    _DEAL_ENTRY_OUT = (1, 3)          # DEAL_ENTRY_OUT, DEAL_ENTRY_OUT_BY
+    _DEAL_REASON_SL = 4
+    _DEAL_REASON_TP = 5
+    _DEAL_REASON_SO = 6
+
+    def _capture_exit(self, db, bridge, row: Dict[str, Any]) -> Dict[str, Any]:
+        """Capture exit-deal evidence for a position that vanished from the
+        broker. Evidence only — a missing deal history is recorded as missing,
+        never fabricated (§6.3 last paragraph)."""
+        from . import ledger as _ledger
+        info: Dict[str, Any] = {"captured": False, "deals": 0, "close_reason": None,
+                                "exit_reason_source": None, "exit_ts": None,
+                                "exit_price": None, "gross_pnl": None, "net_pnl": None,
+                                "close_kind": None, "evidence_source": "deal_history"}
+        ticket = row.get("ticket")
+        deals: List[Dict[str, Any]] = []
+        try:
+            getter = getattr(bridge, "deal_history", None)
+            if getter and ticket:
+                deals = getter(int(ticket)) or []
+        except Exception as e:
+            info["evidence_source"] = "deal_history_unavailable"
+            info["error"] = f"{type(e).__name__}: {e}"
+        exit_deals = [d for d in deals
+                      if int(d.get("entry") or 0) in self._DEAL_ENTRY_OUT]
+        info["deals"] = len(exit_deals)
+        if not exit_deals:
+            info["close_reason"] = "closed at broker (exit deal not retrievable)"
+            info["evidence_source"] = "position_absent"
+            info["close_kind"] = "UNKNOWN"
+            return info
+        gross = commission = swap = fees = 0.0
+        vol = 0.0
+        price_acc = 0.0
+        reason_codes = set()
+        for d in exit_deals:
+            gross += float(d.get("profit") or 0.0)
+            commission += float(d.get("commission") or 0.0)
+            swap += float(d.get("swap") or 0.0)
+            fees += float(d.get("fee") or 0.0)
+            vol += float(d.get("volume") or 0.0)
+            price_acc += float(d.get("price") or 0.0) * float(d.get("volume") or 0.0)
+            reason_codes.add(int(d.get("reason") if d.get("reason") is not None else -1))
+        exit_price = (price_acc / vol) if vol > 0 else (exit_deals[-1].get("price"))
+        exit_ts = max((int(d.get("time") or 0) for d in exit_deals), default=0) or None
+        # classify BY BROKER REASON evidence; anything else is UNKNOWN/UNCONFIRMED
+        if self._DEAL_REASON_SL in reason_codes:
+            close_reason, src = "SL_EXIT", "broker_deal_reason"
+        elif self._DEAL_REASON_TP in reason_codes:
+            close_reason, src = "TP_EXIT", "broker_deal_reason"
+        elif self._DEAL_REASON_SO in reason_codes:
+            close_reason, src = "STOP_OUT", "broker_deal_reason"
+        elif reason_codes and reason_codes <= {0, 1, 2, 3}:
+            close_reason, src = "MANUAL_OR_EXPERT_CLOSE", "broker_deal_reason"
+        else:
+            close_reason, src = "UNKNOWN_EXIT", "broker_deal_unclassified"
+        try:
+            open_vol = float(row.get("lots") or row.get("volume_filled") or 0.0) or None
+            full = (open_vol is None) or (vol + 1e-9 >= open_vol)
+        except Exception:
+            full = True
+        info.update({"captured": True, "close_reason": close_reason,
+                     "exit_reason_source": src, "exit_ts": exit_ts,
+                     "exit_price": exit_price, "gross_pnl": gross,
+                     "net_pnl": round(gross + commission + swap + fees, 8),
+                     "close_kind": "FULL" if full else "PARTIAL",
+                     "commission": commission, "swap": swap, "fees": fees,
+                     "closed_volume": vol,
+                     "exit_deal_tickets": [d.get("ticket") for d in exit_deals]})
+        try:
+            _ledger.update_trade(
+                db, int(row["id"]),
+                exit_price=exit_price,
+                exit_deal_ticket=(exit_deals[-1].get("ticket") or None),
+                exit_order_ticket=(exit_deals[-1].get("order") or None),
+                exit_reason=close_reason, exit_reason_source=src,
+                gross_pnl=gross, commission=commission, swap=swap, fees=fees,
+                net_pnl=info["net_pnl"], closed_volume=vol,
+                close_kind=info["close_kind"],
+                duration_s=(float(exit_ts) - float(row.get("open_ts") or exit_ts))
+                            if exit_ts else None,
+                evidence_source="broker_deal_history", data_complete=1,
+                pnl=gross)
+            # realized net P/L also lands in the legacy pnl column consumers read
+            db.update_live_test_trade(int(row["id"]), exit_price=exit_price,
+                                      close_reason=close_reason)
+            for d in exit_deals:
+                _ledger.record_event(
+                    db, event_uid=f"deal:{int(d.get('ticket') or 0)}",
+                    event_type="EXIT_DEAL", ts=float(d.get("time") or time.time()),
+                    strategy_id=row.get("strategy_id"),
+                    position_ticket=int(ticket) if ticket else None,
+                    order_ticket=d.get("order"), deal_ticket=d.get("ticket"),
+                    stage=STAGE_CLOSED, status=close_reason,
+                    symbol=row.get("symbol"), side=row.get("side"),
+                    payload={"deal": d, "classification": close_reason,
+                             "classification_source": src},
+                    source="broker_deal_history")
+        except Exception as e:
+            info["error"] = f"persist failed: {type(e).__name__}: {e}"
+        return info
+
+    def _recover_broker_positions(self, db, bridge, out: Dict[str, Any]) -> None:
+        """V6.5 §6.5 — backfill ledger rows for managed positions the broker
+        holds but no local record covers (e.g. trades that happened while the
+        app was down). Facts come from the broker; unknown fields stay NULL."""
+        from . import ledger as _ledger
+        try:
+            from ..mt5.execution import LIVE_TEST_MAGIC_BASE
+            positions = bridge.positions_get() or []
+        except Exception as e:
+            out["errors"] = out.get("errors", 0) + 1
+            out["error_detail"] = f"{type(e).__name__}: {e}"
+            return
+        try:
+            known = {r.get("ticket") for r in
+                     (db.q("SELECT ticket FROM live_test_trades "
+                           "WHERE status NOT IN ('REJECTED','BLOCKED')") or [])}
+            rows_all = db.q("SELECT id, ticket, client_order_id, status FROM live_test_trades") or []
+        except Exception:
+            rows_all = []
+        def _covered(p: Dict[str, Any]) -> bool:
+            t = p.get("ticket")
+            if t in known:
+                return True
+            cmt = str(p.get("comment") or "")
+            for r in rows_all:
+                if r.get("ticket") and int(r["ticket"]) == int(t or -1):
+                    return True
+                cid = r.get("client_order_id")
+                if cid and str(cid) in cmt:
+                    return True
+            return False
+        for p in positions:
+            try:
+                m = int(p.get("magic") or 0)
+                if not (LIVE_TEST_MAGIC_BASE <= m < LIVE_TEST_MAGIC_BASE + 1000):
+                    continue
+                if _covered(p):
+                    continue
+                row_id = _ledger.upsert_trade(db, {
+                    "strategy_id": m - LIVE_TEST_MAGIC_BASE,
+                    "ticket": p.get("ticket"), "position_ticket": p.get("ticket"),
+                    "symbol": p.get("symbol"), "side": ("BUY" if int(p.get("type") or 0) == 0
+                                                        else "SELL"),
+                    "entry_price": p.get("price_open"),
+                    "exec_price": p.get("price_open"),
+                    "sl": p.get("sl"), "tp": p.get("tp"), "lots": p.get("volume"),
+                    "volume_current": p.get("volume"), "volume_filled": p.get("volume"),
+                    "open_ts": float(p.get("time") or 0) or None,
+                    "status": TRADE_POSITION, "magic": m,
+                    "comment": p.get("comment"),
+                    "evidence_source": "broker_recovered",
+                    "data_complete": 0,
+                    "entry_reason": json.dumps({
+                        "explanation_kind": "broker_recovered_no_local_record",
+                        "note": ("position existed at the broker with no local ledger row "
+                                 "(e.g. opened while the app was down); entry facts come "
+                                 "from the broker, signal explanation unavailable")}),
+                    "last_sync_ts": time.time()})
+                out["recovered"] = out.get("recovered", 0) + 1
+                if row_id is not None:
+                    _ledger.record_event(
+                        db, event_uid=f"recover:{int(p.get('ticket') or 0)}",
+                        event_type="BROKER_POSITION_RECOVERED",
+                        ts=time.time(), strategy_id=m - LIVE_TEST_MAGIC_BASE,
+                        position_ticket=p.get("ticket"),
+                        stage=STAGE_POSITION, status=TRADE_POSITION,
+                        symbol=p.get("symbol"),
+                        payload={"position": p, "row_id": row_id},
+                        source="broker_reconciliation")
+                    self._stage({"stage": STAGE_POSITION, "node_id": m - LIVE_TEST_MAGIC_BASE,
+                                 "symbol": p.get("symbol"), "side": None,
+                                 "status": "RECOVERED",
+                                 "detail": {"position_ticket": p.get("ticket"),
+                                            "note": "broker position with no local record — "
+                                                    "ledger row created from broker facts"}})
+            except Exception as e:
+                out["errors"] = out.get("errors", 0) + 1
+                log.warning("broker-position recovery failed for %s: %s",
+                            p.get("ticket"), e)
 
     def _clear_verified_unknowns(self, db, bridge, out: Dict[str, Any],
                                  grace_s: float = 60.0) -> None:
@@ -1392,6 +1926,11 @@ class LiveTestingEngine:
 
     # ------------------------------------------------------------------ test hooks ---
     def reset(self) -> None:
+        try:
+            from .admission import get_admission
+            get_admission().reset()
+        except Exception:
+            pass
         """Test hook: hard reset of in-memory state (never touches MT5 or DATA)."""
         with _MODE_LOCK:
             _MODE.update({"active": False, "activated_at": None, "deactivated_at": None,

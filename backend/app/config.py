@@ -246,6 +246,11 @@ class LiveTestingConfig:
     risk_pct_default: float = 1.0      # % of account equity risked per trade
     risk_pct_max: float = 2.0          # hard ceiling; above this a trade is BLOCKED
     max_active_trades: int = 1         # conservative start
+    # V6.5 §5 — the DEFAULT per-node cap (each node inherits it unless the node
+    # carries an explicit override in live_test_configs.max_positions).
+    # Conservative default = 1; changing this default only affects nodes that
+    # inherit it, never nodes with their own explicit limit.
+    max_active_trades_per_node_default: int = 1
     tick_interval_s: float = 15.0      # live-testing evaluation interval
     max_data_age_s: int = 120          # stale market data blocks new trades
     require_sl: bool = True            # risk-based sizing needs a real SL

@@ -334,6 +334,12 @@ class SimulatorBridge(MarketBridge):
                            delay_ms=delay_ms, retcode=10009, comment="simulated fill",
                            source=self.source)
 
+    def deal_history(self, position: Optional[int] = None,
+                     date_from: Optional[int] = None,
+                     date_to: Optional[int] = None) -> list:
+        """V6.5 §6.3 — the simulator has no broker history: [] means 'unknown'."""
+        return []
+
     def place_order(self, symbol: str, side: str, lots: float,
                     sl_price: float | None = None, tp_price: float | None = None,
                     comment: str = "", position_ticket: int | None = None) -> OrderResult:

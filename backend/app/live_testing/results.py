@@ -39,16 +39,24 @@ def _f(v: Any) -> Optional[float]:
         return None
 
 
+#: statuses that mean "this trade is over" (V6.5 §7: a position closed at the
+#: broker and captured by reconciliation is CLOSED_MISSING — still closed).
+CLOSED_STATUSES = ("CLOSED", "CLOSED_MISSING", "CLOSED_VERIFIED")
+
+
 def _closed(trades: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    return [t for t in trades if str(t.get("status") or "").upper() == "CLOSED"
+    return [t for t in trades if str(t.get("status") or "").upper() in CLOSED_STATUSES
             and _f(t.get("pnl")) is not None]
 
 
 def _open(trades: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Trades the lab still considers live (not CLOSED, or closed without a P/L)."""
+    """Trades the lab still considers live (not closed, or closed without a P/L)."""
     return [t for t in trades
-            if str(t.get("status") or "").upper() in ("OPEN", "SENT", "FILLED", "PARTIAL")
-            or (str(t.get("status") or "").upper() != "CLOSED" and _f(t.get("pnl")) is None)]
+            if str(t.get("status") or "").upper() in ("OPEN", "SENT", "FILLED", "PARTIAL",
+                                                     "POSITION_OPEN", "PENDING_ORDER",
+                                                     "PARTIALLY_CLOSED")
+            or (str(t.get("status") or "").upper() not in CLOSED_STATUSES
+                and _f(t.get("pnl")) is None)]
 
 
 def _ordered(trades: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -309,8 +317,20 @@ def live_statistics(trades: List[Dict[str, Any]],
     }
 
 
-def per_node_live_stats(db, strategy_ids: Optional[List[int]] = None) -> Dict[int, Dict[str, Any]]:
-    """Today's + total live P/L per node, straight from the trade records."""
+def per_node_live_stats(db, strategy_ids: Optional[List[int]] = None,
+                        floating_by_node: Optional[Dict[int, float]] = None
+                        ) -> Dict[int, Dict[str, Any]]:
+    """Today's + total live P/L per node, straight from the canonical trade
+    records (V6.5 §7).
+
+    Counting convention (published to consumers as ``counting_conventions``):
+    POSITION-LEVEL — one row per managed trade; a partial exit is not a second
+    winning trade.  Rejected/blocked attempts are counted separately as
+    ``attempts_rejected`` and never enter win rate or P/L.  A profit factor is
+    emitted only when it is mathematically defined (gross loss > 0); otherwise
+    it is ``None`` with ``profit_factor_available`` False.  Nothing is
+    fabricated: unavailable metrics stay ``None``.
+    """
     today = _daily_pnl  # local alias for clarity
     rows = db.q("SELECT * FROM live_test_trades") or []
     by_node: Dict[int, List[Dict[str, Any]]] = {}
@@ -330,6 +350,39 @@ def per_node_live_stats(db, strategy_ids: Optional[List[int]] = None) -> Dict[in
         wins = [t for t in closed if (_f(t.get("pnl")) or 0.0) > 0]
         open_now = _open(trades)
         last = closed[-1] if closed else None
+        losses = [t for t in closed if (_f(t.get("pnl")) or 0.0) < 0]
+        breakeven = [t for t in closed if (_f(t.get("pnl")) or 0.0) == 0.0]
+        partial = [t for t in trades if str(t.get("close_kind") or "") == "PARTIAL"
+                   or str(t.get("status") or "") == "PARTIALLY_CLOSED"]
+        rejected = [t for t in trades if str(t.get("status") or "") in
+                    ("REJECTED", "BLOCKED")]
+        unconfirmed = [t for t in trades if str(t.get("status") or "") in
+                       ("UNKNOWN", "EXECUTED_UNCONFIRMED")]
+        gross = round(sum(_f(t.get("gross_pnl")) or _f(t.get("pnl")) or 0.0 for t in closed), 2)
+        costs = round(sum((_f(t.get("commission")) or 0.0) + (_f(t.get("swap")) or 0.0)
+                          + (_f(t.get("fees")) or 0.0) for t in closed), 2)
+        net = round(sum(_f(t.get("net_pnl")) if t.get("net_pnl") is not None
+                        else (_f(t.get("pnl")) or 0.0) for t in closed), 2)
+        gross_win = sum(_f(t.get("pnl")) or 0.0 for t in wins)
+        gross_loss = abs(sum(_f(t.get("pnl")) or 0.0 for t in losses))
+        pf = (round(gross_win / gross_loss, 4) if gross_loss > 0 else None)
+        durs = []
+        for t in closed:
+            try:
+                if t.get("close_ts") and t.get("open_ts"):
+                    durs.append(float(t["close_ts"]) - float(t["open_ts"]))
+            except Exception:
+                pass
+        total_vol = round(sum(_f(t.get("volume_filled") or t.get("lots")) or 0.0
+                             for t in trades if str(t.get("status") or "") not in
+                             ("REJECTED", "BLOCKED")), 4)
+        eq = []
+        acc = 0.0
+        for t in closed:
+            acc += _f(t.get("pnl")) or 0.0
+            eq.append(acc)
+        mdd = _max_drawdown(eq) if eq else None
+        o = open_now[-1] if open_now else None
         out[sid] = {
             "today_pnl": day,
             "total_pnl": total,
@@ -337,6 +390,37 @@ def per_node_live_stats(db, strategy_ids: Optional[List[int]] = None) -> Dict[in
             "closed_trades": len(closed),
             "open_trades": len(trades) - len(closed),
             "win_rate": round(len(wins) / len(closed) * 100.0, 2) if closed else None,
+            # V6.5 §7 — the full record-derived metric set (position-level).
+            "attempts_total": len(trades),
+            "attempts_rejected": len(rejected),
+            "confirmed_trades": len([t for t in trades if str(t.get("status") or "") not in
+                                     ("REJECTED", "BLOCKED")]),
+            "partial_closes": len(partial),
+            "wins": len(wins), "losses": len(losses), "breakeven": len(breakeven),
+            "unclassified": len(unconfirmed),
+            "realized_gross_pnl": gross,
+            "commission": round(sum(_f(t.get("commission")) or 0.0 for t in closed), 2),
+            "swap": round(sum(_f(t.get("swap")) or 0.0 for t in closed), 2),
+            "fees": round(sum(_f(t.get("fees")) or 0.0 for t in closed), 2),
+            "costs_total": costs,
+            "realized_net_pnl": net,
+            "floating_pnl": (floating_by_node or {}).get(sid),
+            "avg_win": round(gross_win / len(wins), 2) if wins else None,
+            "avg_loss": round(-gross_loss / len(losses), 2) if losses else None,
+            "profit_factor": pf,
+            "profit_factor_available": pf is not None,
+            "avg_duration_s": (round(sum(durs) / len(durs), 1) if durs else None),
+            "max_drawdown": (mdd[0] if mdd else None),
+            "max_drawdown_pct": (mdd[1] if mdd else None),
+            "total_volume": total_vol,
+            "last_trade_ts": (_f(last.get("close_ts")) or _f(last.get("open_ts"))
+                              if last else None),
+            "counting_conventions": {
+                "level": "position",
+                "partial_exits": "counted inside their position, never as extra wins",
+                "rejected_attempts": "counted separately, excluded from win rate and P/L",
+                "pnl_currency": "account currency; gross = deal profit, net = profit+commission+swap+fees",
+            },
             # §7 — the latest live result and the position actually open right now,
             # read from the recorded trades (null when there is nothing to report).
             "last_trade": ({

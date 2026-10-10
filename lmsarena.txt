@@ -5251,3 +5251,26 @@ V6.4 GIT HASH / PUSH RESULT
                            verified remote refs/heads/main == local HEAD by
                            git ls-remote after each push)
   working tree           : clean; zero DATA changes in any V6.4 commit.
+
+V6.5 — 2026-10-10
+LMSARENA IMPLEMENTATION PROMPT — EVOLUTIONARY TRADING LAB V6.5 delivered additively on V6.4
+(base bf25ae00). Strategy logic, entry/exit conditions, order construction, filling modes and
+safeguards are UNCHANGED (zero offsets = exact strategy levels; regression suite green).
+Scope delivered: §3 Live Testing dashboard (Active Trades first with recorded entry reasons,
+floating P/L in money+pips, labelled SL/TP estimates; collapsible Manual Demo Trade; §3.4
+order), §4 individual START/STOP at the lifecycle layer (STARTING/STOPPING states; STOP
+acknowledgement blocks new entries at the admission gate; positions untouched), §5 global +
+per-node trade limits (default per-node = 1; overrides isolated; atomic admission with
+reservations; restart reconciliation; reduced caps never close), §6 canonical MT5 trade
+ledger (live_test_trades V6.5 evidence columns + idempotent trade_ledger_events; deal-history
+exit capture with broker-reason classification; broker-position recovery; sync state),
+§7 statistics/results from the ledger (position-level conventions published), §8 trade risk
+details, §9 experimental SL/TP offsets (zero default, per-node, validated, recorded),
+§10 AI-readiness data only (no autonomous changes). Tests: V6.5 suites (63) + full suite
+gate on scratch DATA. PENDING WINDOWS MT5 DEMO ACCEPTANCE (§13 checklist in
+V6_5_REPORT.md §E) — no real broker verification performed, none claimed.
+
+DEMO SAFETY: no real broker order was sent from this Linux host. Node 718's three observed
+trades exist locally only as three UNKNOWN mt5_manual_orders rows (tickets preserved in the
+raw evidence); their completion requires MT5 history on the operator's machine — never
+fabricated here.

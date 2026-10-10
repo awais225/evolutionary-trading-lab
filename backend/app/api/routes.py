@@ -3957,6 +3957,42 @@ def live_testing_node_config(sid: int, payload: Dict = Body(...)) -> Dict:
     risk_check = validate_risk_settings(payload.get("risk_pct"), sid)
     if not risk_check["ok"]:
         raise HTTPException(status_code=422, detail=risk_check)
+    # V6.5 §5.2/§9 — validated limit override + experimental offsets. An explicit
+    # integer >= 1 is an override; null/absent means "Default" (inherit). Invalid
+    # input is refused — never silently coerced.
+    limit_keys = {}
+    for src_key, dst_key in (("max_active_trades", "max_positions"),
+                             ("max_positions", "max_positions")):
+        if src_key in payload:
+            v = payload.get(src_key)
+            if v in (None, "", "Default", "default"):
+                limit_keys[dst_key] = None
+            else:
+                try:
+                    iv = int(v)
+                    if iv != float(v) or iv < 1 or iv > 100:
+                        raise ValueError
+                    limit_keys[dst_key] = iv
+                except (TypeError, ValueError):
+                    raise HTTPException(status_code=422, detail={
+                        "ok": False, "code": "INVALID_MAX_ACTIVE_TRADES",
+                        "message": "MAX ACTIVE TRADES must be an integer 1..100 or Default (null)"})
+    for off_key in ("sl_offset_pips", "tp_offset_pips"):
+        if off_key in payload:
+            v = payload.get(off_key)
+            if v in (None, ""):
+                limit_keys[off_key] = None
+            else:
+                try:
+                    fv = float(v)
+                    if not (-100000.0 <= fv <= 100000.0):
+                        raise ValueError
+                    limit_keys[off_key] = fv
+                except (TypeError, ValueError):
+                    raise HTTPException(status_code=422, detail={
+                        "ok": False, "code": "INVALID_OFFSET",
+                        "message": f"{off_key} must be a number in [-100000, 100000] pips "
+                                   "(0 = the strategy's own level; see the experimental offsets note)"})
     current = db.get_live_test_config(sid) or {}
     merged = {**current, **{k: v for k, v in payload.items()
                             if k in ("timeframes", "days", "sessions", "start_time", "end_time",
@@ -3965,6 +4001,7 @@ def live_testing_node_config(sid: int, payload: Dict = Body(...)) -> Dict:
                                      "spread_limit_points", "cooldown_minutes",
                                      "max_trades_per_day", "max_positions",
                                      "slippage_limit_points")}}
+    merged.update(limit_keys)
     db.set_live_test_config(sid, merged)
     return {"ok": True, "strategy_id": sid, "config": db.get_live_test_config(sid),
             "raw_risk_pct_override": db.one(
@@ -3974,11 +4011,32 @@ def live_testing_node_config(sid: int, payload: Dict = Body(...)) -> Dict:
 
 @router.post("/live-testing/settings")
 def live_testing_settings(payload: Dict = Body(...)) -> Dict:
-    """Global live-test limits (risk % default/max, max active trades, data age)."""
-    cfg = update_config("live_testing", {k: v for k, v in (payload or {}).items()
-                                         if k in ("risk_pct_default", "risk_pct_max",
-                                                  "max_active_trades", "tick_interval_s",
-                                                  "max_data_age_s", "require_sl")})
+    """Global live-test limits (risk % default/max, max active trades, data age).
+
+    V6.5 §5.1 — also ``max_active_trades_per_node_default`` (integer >= 1; the
+    DEFAULT per-node cap nodes inherit unless they carry an explicit override).
+    Invalid/negative/zero/out-of-range values are refused, never coerced.
+    """
+    allowed = ("risk_pct_default", "risk_pct_max", "max_active_trades",
+               "tick_interval_s", "max_data_age_s", "require_sl",
+               "max_active_trades_per_node_default")
+    updates = {}
+    for k, v in (payload or {}).items():
+        if k not in allowed:
+            continue
+        if k in ("max_active_trades", "max_active_trades_per_node_default"):
+            try:
+                iv = int(v)
+                if iv != float(v) or iv < 1 or iv > 100:
+                    raise ValueError
+                updates[k] = iv
+                continue
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=422, detail={
+                    "ok": False, "code": f"INVALID_{k.upper()}",
+                    "message": f"{k} must be an integer between 1 and 100"})
+        updates[k] = v
+    cfg = update_config("live_testing", updates)
     return {"ok": True, "live_testing": _config_section_dict(cfg.live_testing)}
 
 
@@ -3987,22 +4045,233 @@ def _config_section_dict(obj: Any) -> Dict:
 
 
 @router.get("/live-testing/trades")
-def live_testing_trades(status: Optional[str] = None, limit: int = 100) -> Dict:
-    """Live-test execution records (basic lifecycle monitoring, spec §19)."""
+def live_testing_trades(status: Optional[str] = None, limit: int = 100,
+                        node_id: Optional[int] = None, symbol: Optional[str] = None,
+                        side: Optional[str] = None, exit_reason: Optional[str] = None,
+                        date_from: Optional[float] = None,
+                        date_to: Optional[float] = None) -> Dict:
+    """Live-test execution records (basic lifecycle monitoring, spec §19).
+
+    V6.5 §7.8 — filters for node, symbol, side, status, date range and exit
+    reason; rows carry the canonical ledger evidence fields and a trade detail
+    (events) can be opened via /live-testing/trades/{row_id}."""
     db = get_db()
+    from ..live_testing import ledger as _ledger
+    try:
+        _ledger.ensure_schema(db)
+    except Exception:
+        pass
     rows = db.get_live_test_executions(status=status)
     out = []
-    for r in rows[:max(1, min(int(limit), 500))]:
+    for r in rows:
         d = dict(r)
-        for k in ("result_json",):
+        if node_id is not None and int(d.get("strategy_id") or -1) != int(node_id):
+            continue
+        if symbol and str(d.get("symbol") or "").upper() != symbol.upper():
+            continue
+        if side and str(d.get("side") or "").upper() != side.upper():
+            continue
+        if exit_reason and str(d.get("exit_reason") or "") != exit_reason:
+            continue
+        ts = d.get("close_ts") or d.get("open_ts")
+        if date_from is not None and (ts or 0) < float(date_from):
+            continue
+        if date_to is not None and (ts or 0) > float(date_to):
+            continue
+        if d.get("result_json"):
+            try:
+                d["result"] = json.loads(d["result_json"])
+            except Exception:
+                d["result"] = None
+            d.pop("result_json", None)
+        for k in ("entry_reason", "reconcile_flags"):
             if d.get(k):
                 try:
-                    d["result"] = json.loads(d[k])
+                    d[k] = json.loads(d[k])
                 except Exception:
-                    d["result"] = None
-            d.pop(k, None)
+                    pass
         out.append(d)
-    return {"trades": out, "count": len(out)}
+        if len(out) >= max(1, min(int(limit), 500)):
+            break
+    return {"trades": out, "count": len(out),
+            "counting_conventions": {
+                "position_level": "one row per managed trade (position); partial exits do not "
+                                  "create extra 'trades'",
+                "deal_level": "individual broker deals live in trade_ledger_events "
+                              "(event_type=EXIT_DEAL / ORDER_SUBMITTED)",
+                "statuses": ["OPEN/POSITION_OPEN", "PENDING_ORDER", "PARTIALLY_CLOSED",
+                             "CLOSED/CLOSED_MISSING", "REJECTED/BLOCKED",
+                             "EXECUTED_UNCONFIRMED", "UNKNOWN"]}}
+
+
+@router.get("/live-testing/trades/{row_id}")
+def live_testing_trade_detail(row_id: int) -> Dict:
+    """V6.5 §7.9 — one trade's full detail record (row + append-only event history)."""
+    from ..live_testing import ledger as _ledger
+    db = get_db()
+    _ledger.ensure_schema(db)
+    row = db.one("SELECT * FROM live_test_trades WHERE id=?", (int(row_id),))
+    if row is None:
+        raise HTTPException(status_code=404, detail={"ok": False,
+                                                     "message": f"trade row {row_id} not found"})
+    d = dict(row)
+    for k in ("result_json", "entry_reason", "reconcile_flags"):
+        if d.get(k):
+            try:
+                d[k] = json.loads(d[k])
+            except Exception:
+                pass
+    events = _ledger.get_events(db, trade_uid=d.get("trade_uid"),
+                                position_ticket=d.get("position_ticket"), limit=100)
+    return {"ok": True, "trade": d, "events": events}
+
+
+
+
+
+@router.get("/live-testing/active-trades")
+def live_testing_active_trades() -> Dict:
+    """V6.5 §3.1/§8 — ACTIVE trades: authoritative broker state enriched with the
+    canonical ledger (entry reason, default/effective SL/TP, offsets) plus
+    floating P/L and clearly-labelled SL/TP ESTIMATES. Read-only; never submits
+    or modifies anything. Missing contract data yields 'Unavailable', never a
+    fabricated amount."""
+    from ..live_testing import ledger as _ledger
+    from ..live_testing.risk import resolve_per_node_limit
+    from ..backtest.symbol_specs import get_symbol_specs, price_to_pips
+    from ..mt5.execution import LIVE_TEST_MAGIC_BASE, live_test_magic, demo_account_guard
+    from ..mt5.factory import get_bridge
+    bridge = get_bridge()
+    db = get_db()
+    guard = demo_account_guard(bridge)
+    out_rows: List[Dict[str, Any]] = []
+    errors: List[str] = []
+    positions: List[Dict[str, Any]] = []
+    try:
+        positions = bridge.positions_get() or []
+    except Exception as e:
+        errors.append(f"positions_get: {type(e).__name__}: {e}")
+    ledger_rows = []
+    try:
+        _ledger.ensure_schema(db)
+        ledger_rows = db.q("SELECT * FROM live_test_trades WHERE status IN "
+                           "('POSITION_OPEN','PENDING_ORDER','PARTIALLY_CLOSED',"
+                           "'EXECUTED_UNCONFIRMED') ORDER BY id DESC LIMIT 200") or []
+    except Exception as e:
+        errors.append(f"ledger: {type(e).__name__}: {e}")
+
+    def _match(pos: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        t = pos.get("ticket")
+        cmt = str(pos.get("comment") or "")
+        for r in ledger_rows:
+            if r.get("position_ticket") and int(r["position_ticket"]) == int(t or -1):
+                return r
+            if r.get("ticket") and int(r["ticket"]) == int(t or -1):
+                return r
+            cid = r.get("client_order_id")
+            if cid and str(cid) in cmt:
+                return r
+        return None
+
+    managed = [p for p in positions
+               if LIVE_TEST_MAGIC_BASE <= int(p.get("magic") or 0) < LIVE_TEST_MAGIC_BASE + 1000]
+    for p in managed:
+        row = _match(p) or {}
+        try:
+            specs = get_symbol_specs(p.get("symbol") or "")
+        except Exception:
+            specs = None
+        pip = specs.pip_size if specs is not None else None
+        side = "BUY" if int(p.get("type") or 0) == 0 else "SELL"
+        entry = p.get("price_open")
+        cur = p.get("price_current")
+        sl, tp = p.get("sl"), p.get("tp")
+        dist_sl_pips = dist_tp_pips = None
+        est_sl = est_tp = None
+        est_note = "ESTIMATE at the current confirmed level — not a guarantee (gaps, slippage)"
+        if specs is not None and pip and cur is not None:
+            if sl:
+                dist_sl_pips = price_to_pips(abs(float(cur) - float(sl)), pip)
+            if tp:
+                dist_tp_pips = price_to_pips(abs(float(cur) - float(tp)), pip)
+            ts, tv = specs.tick_size, specs.tick_value
+            if ts and tv and p.get("volume"):
+                try:
+                    if sl:
+                        est_sl = -abs((float(cur) - float(sl)) / ts) * tv * float(p["volume"])
+                    if tp:
+                        est_tp = abs((float(tp) - float(cur)) / ts) * tv * float(p["volume"])
+                except Exception:
+                    est_sl = est_tp = None
+        float_pips = None
+        if pip and entry is not None and cur is not None:
+            d = (float(cur) - float(entry)) if side == "BUY" else (float(entry) - float(cur))
+            float_pips = price_to_pips(d, pip)
+        entry_reason = None
+        if row.get("entry_reason"):
+            try:
+                entry_reason = json.loads(row["entry_reason"])
+            except Exception:
+                entry_reason = {"raw": row["entry_reason"]}
+        out_rows.append({
+            "ticket": p.get("ticket"),
+            "position_ticket": p.get("ticket"),
+            "order_ticket": row.get("order_ticket"),
+            "deal_ticket": row.get("deal_ticket"),
+            "node_id": row.get("strategy_id") if row else (int(p.get("magic") or 0) - LIVE_TEST_MAGIC_BASE),
+            "node_label": (f"Node #{row.get('strategy_id')}" if row.get("strategy_id")
+                           else f"magic {p.get('magic')}"),
+            "symbol": p.get("symbol"), "side": side,
+            "volume": p.get("volume"),
+            "entry_price": entry, "entry_time": p.get("time"),
+            "entry_time_iso": _iso_ts(p.get("time")),
+            "current_price": cur,
+            "floating_pnl": p.get("profit"),
+            "floating_pnl_pips": float_pips,
+            "sl": sl, "tp": tp,
+            "sl_default": row.get("sl_default"), "tp_default": row.get("tp_default"),
+            "sl_offset_pips": row.get("sl_offset_pips"), "tp_offset_pips": row.get("tp_offset_pips"),
+            "distance_to_sl_pips": dist_sl_pips, "distance_to_tp_pips": dist_tp_pips,
+            "estimated_pnl_at_sl": est_sl, "estimated_pnl_at_tp": est_tp,
+            "estimate_note": (est_note if est_sl is not None or est_tp is not None
+                              else "Unavailable — symbol contract data missing/stale"),
+            "status": row.get("status") or "POSITION_OPEN (broker)",
+            "entry_reason": entry_reason,
+            "explanation_kind": (entry_reason or {}).get("explanation_kind") if isinstance(entry_reason, dict) else None,
+            "magic": p.get("magic"),
+            "comment": p.get("comment"),
+            "data_freshness": {"broker_position": "live query",
+                               "last_ledger_sync_ts": row.get("last_sync_ts"),
+                               "last_ledger_sync_iso": _iso_ts(row.get("last_sync_ts"))},
+        })
+    # ledger rows the broker no longer shows are NOT active trades — the ledger
+    # history endpoint covers them; they are counted in the sync report instead.
+    return {"ok": True, "active_trades": out_rows, "count": len(out_rows),
+            "account_safety": {"demo_verified": guard.get("demo_verified"),
+                               "bridge": getattr(bridge, "source", "UNKNOWN")},
+            "sync": getattr(_live_engine(), "sync_state", {}),
+            "errors": errors or None,
+            "note": ("read straight from the terminal and the canonical ledger; SL/TP monetary "
+                     "figures are ESTIMATES computed from the broker's tick size/tick value")}
+
+
+@router.get("/live-testing/sync")
+def live_testing_sync() -> Dict:
+    """V6.5 §6.5 — reconciliation/synchronization state (never falsely reassuring)."""
+    from ..live_testing.admission import get_admission
+    eng = _live_engine()
+    sync = dict(getattr(eng, "sync_state", {}) or {})
+    activity = {}
+    try:
+        activity = eng.count_activity()
+    except Exception as e:
+        activity = {"error": f"{type(e).__name__}: {e}"}
+    return {"ok": True, "sync": sync,
+            "activity": activity,
+            "reservations": get_admission().snapshot(),
+            "certainty": sync.get("certainty") or "NEVER_SYNCED",
+            "note": ("SYNCED is only reported after a successful reconciliation pass; "
+                     "history-retrieval or reconciliation failures keep the state explicit")}
 
 
 @router.post("/live-testing/reconcile")
@@ -4010,7 +4279,8 @@ def live_testing_reconcile() -> Dict:
     """Verify recorded live-test trades against the broker (spec §13/§15)."""
     eng = _live_engine()
     res = eng._reconcile()
-    return {"ok": True, "reconcile": res, "activity": eng.count_activity()}
+    return {"ok": True, "reconcile": res, "activity": eng.count_activity(),
+            "sync": getattr(eng, "sync_state", {})}
 
 
 def _iso_ts(ts: Any) -> Optional[str]:
@@ -5109,7 +5379,7 @@ def nodes_index(
     """
     from ..status import NODE_FILTERS, node_bucket, node_matches_filter
     from ..live_testing.results import per_node_live_stats
-    from ..live_testing.risk import risk_limits, resolve_risk_pct
+    from ..live_testing.risk import (risk_limits, resolve_per_node_limit, resolve_risk_pct)
 
     wanted = str(filter or "qualified").strip().lower()
     if wanted not in NODE_FILTERS:
@@ -5540,7 +5810,7 @@ def live_testing_nodes_table(
     the live engine sizes positions with).
     """
     from ..live_testing.results import per_node_live_stats
-    from ..live_testing.risk import risk_limits, resolve_risk_pct
+    from ..live_testing.risk import (risk_limits, resolve_per_node_limit, resolve_risk_pct)
 
     db = get_db()
     eng = _live_engine()
@@ -5713,6 +5983,17 @@ def live_testing_nodes_table(
             "risk_source": "CUSTOM" if override not in (None, "") else "GLOBAL",
             "global_risk_pct": global_pct,
             "is_active": bool(cfg.get("is_active")),
+            # V6.5 §5.2 — the node's trade-limit control: explicit override vs
+            # inherited Default, and the effective limit either way.
+            "max_active_trades": cfg.get("max_positions"),
+            "max_active_trades_source": ("CUSTOM" if cfg.get("max_positions") not in (None, "")
+                                         else "DEFAULT"),
+            "max_active_trades_effective": resolve_per_node_limit({"config": cfg})["effective"],
+            "max_active_trades_default": resolve_per_node_limit({"config": cfg})["default"],
+            # V6.5 §9 — experimental SL/TP offsets (0/unset = strategy defaults)
+            "sl_offset_pips": cfg.get("sl_offset_pips"),
+            "tp_offset_pips": cfg.get("tp_offset_pips"),
+            "offsets_active": bool(cfg.get("sl_offset_pips") or cfg.get("tp_offset_pips")),
             "schedule": schedule,
             # V6 — the BACKEND's live-testing worker state for this node. The
             # START/STOP buttons are rendered from this, never from React state.

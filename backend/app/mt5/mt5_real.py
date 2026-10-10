@@ -1209,6 +1209,32 @@ class MT5RealBridge(MarketBridge):
             return []
         return [_order_to_dict(o) for o in (rows or [])]
 
+    def deal_history(self, position: Optional[int] = None,
+                     date_from: Optional[int] = None,
+                     date_to: Optional[int] = None) -> List[Dict]:
+        """READ-ONLY deal history (V6.5 §6.3). Never places or modifies anything.
+
+        ``position`` returns that position's deals (its entry AND exit deals);
+        a date range returns the account's history in that window.  Returns []
+        when the terminal is not connected or the query fails — callers treat
+        'no data' as 'unknown', never as proof of anything.
+        """
+        if not self._connected or not MT5_PACKAGE_AVAILABLE:
+            return []
+        try:
+            if position is not None:
+                rows = mt5.history_deals_get(position=int(position))
+            elif date_from is not None or date_to is not None:
+                df = datetime.fromtimestamp(int(date_from), tz=timezone.utc) if date_from else None
+                dt = datetime.fromtimestamp(int(date_to), tz=timezone.utc) if date_to else None
+                rows = mt5.history_deals_get(df, dt)
+            else:
+                rows = mt5.history_deals_get()
+        except Exception as e:
+            log.warning("deal_history failed: %s", e)
+            return []
+        return [_deal_to_dict(d) for d in (rows or [])]
+
     def close_position(self, ticket: int, comment: str = "evolab-demo-close") -> Dict:
         """Close a position by ticket (spec V4.2 test hygiene). Demo-guarded by callers."""
         if not self._connected or not MT5_PACKAGE_AVAILABLE:
@@ -1571,6 +1597,32 @@ def _order_to_dict(o) -> Dict:
             "state": int(getattr(o, "state", -1)),
             "time_setup": int(getattr(o, "time_setup", 0) or 0),
             "comment": str(getattr(o, "comment", "") or "")}
+
+
+def _deal_to_dict(d) -> Dict:
+    """V6.5 §6.3 — one history deal as a plain dict.
+
+    order ticket, deal ticket and position ticket are KEPT DISTINCT (they are
+    not interchangeable); ``entry`` and ``reason`` keep the broker's own codes
+    so exit classification is evidence-based, never guessed.
+    """
+    return {"ticket": int(getattr(d, "ticket", 0) or 0),
+            "order": int(getattr(d, "order", 0) or 0),
+            "position": int(getattr(d, "position", 0) or 0),
+            "position_id": int(getattr(d, "position_id", 0) or 0),
+            "time": int(getattr(d, "time", 0) or 0),
+            "type": int(getattr(d, "type", -1)),
+            "entry": int(getattr(d, "entry", -1)),
+            "magic": int(getattr(d, "magic", 0) or 0),
+            "volume": float(getattr(d, "volume", 0.0) or 0.0),
+            "price": float(getattr(d, "price", 0.0) or 0.0),
+            "commission": float(getattr(d, "commission", 0.0) or 0.0),
+            "swap": float(getattr(d, "swap", 0.0) or 0.0),
+            "profit": float(getattr(d, "profit", 0.0) or 0.0),
+            "fee": float(getattr(d, "fee", 0.0) or 0.0),
+            "reason": int(getattr(d, "reason", -1)),
+            "symbol": str(getattr(d, "symbol", "") or ""),
+            "comment": str(getattr(d, "comment", "") or "")}
 
 
 def _find(rows: List[Dict], ticket: int) -> Optional[Dict]:

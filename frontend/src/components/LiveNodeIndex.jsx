@@ -201,6 +201,38 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
     } finally { setBusyId(null); }
   };
 
+  // V6.5 §5.2 — per-node MAX ACTIVE TRADES override (null = Default/inherit).
+  const saveLimit = async (row, value) => {
+    setBusyId(row.node_id); setMsg(null); setErr(null);
+    try {
+      const res = await api.liveTestingNodeConfig(row.node_id, { max_active_trades: value });
+      const eff = (res && res.config && res.config.max_positions) ?? null;
+      setMsg(`${txt(row.node_label, `Node #${row.node_id}`)}: max active trades = ` +
+             (value === null ? `Default (${txt(row.max_active_trades_default, 1)})` : value) +
+             ` — effective limit now ${value === null ? txt(row.max_active_trades_default, 1) : value}. Other nodes unchanged.`);
+      await load();
+      if (onRiskChanged) onRiskChanged();
+    } catch (e) {
+      setErr(e);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  // V6.5 §9 — experimental per-node SL/TP offsets (0 = the strategy's levels).
+  const saveOffsets = async (row, sl, tp) => {
+    setBusyId(row.node_id); setMsg(null); setErr(null);
+    try {
+      await api.liveTestingNodeConfig(row.node_id, { sl_offset_pips: sl, tp_offset_pips: tp });
+      setMsg(`${txt(row.node_label, `Node #${row.node_id}`)}: experimental offsets saved (SL ${sl || 0} pips, TP ${tp || 0} pips). Zero preserves the strategy's own levels.`);
+      await load();
+    } catch (e) {
+      setErr(e);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   const stopAll = async () => {
     setBusyId("__all__"); setMsg(null); setErr(null);
     try {
@@ -338,6 +370,7 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
               <th>Risk</th>
               <th>Schedule</th>
               <th>Live</th>
+              <th title="V6.5 §5.2 — this node's max active trades (Default = inherited)">Max trades</th>
               <th>Action</th>
             </tr>
           </thead>
@@ -401,31 +434,59 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
                       {txt((objOrNull(r.worker) || {}).state || live.status, "IDLE")}
                       <span className="muted"> · {n0(live.closed)}/{n0(live.trades)}</span>
                     </td>
+                    <td style={{ fontSize: 11 }}>
+                      {(() => {
+                        // V6.5 §5.2 — Default (inherited) vs explicit override,
+                        // with the effective limit always visible.
+                        const eff = r.max_active_trades_effective;
+                        const isCustom = r.max_active_trades_source === "CUSTOM";
+                        return (
+                          <select value={isCustom ? String(r.max_active_trades) : ""}
+                                  title={`effective limit ${eff} (${isCustom ? "explicit override" : `inherited default ${r.max_active_trades_default}`})`}
+                                  onChange={(e) => {
+                                    const v = e.target.value;
+                                    saveLimit(r, v === "" ? null : Number(v));
+                                  }}>
+                            <option value="">Default ({txt(r.max_active_trades_default, 1)})</option>
+                            {[1, 2, 3, 4, 5, 10].map((n) => <option key={n} value={n}>{n}</option>)}
+                          </select>
+                        );
+                      })()}
+                    </td>
                     <td>
                       {(() => {
-                        // V6 — reconstructed from BACKEND state on every render
-                        // (rows come from the API; a page refresh shows the truth):
-                        // a node with a running worker shows STOP, otherwise START.
+                        // V6/V6.5 — reconstructed from BACKEND state on every render
+                        // (rows come from the API; a page refresh shows the truth).
+                        // Transitional states show STARTING/STOPPING; an unsafe
+                        // action is disabled WITH an explanation in the title.
                         const worker = objOrNull(r.worker) || {};
-                        const workerRunning = worker.running === true || worker.state === "RUNNING";
+                        const st = txt(worker.state, "");
+                        const workerRunning = worker.running === true || st === "RUNNING";
                         const running = workerRunning || live.status === "ACTIVE" || !!r.is_active;
+                        const busy = busyId === r.node_id;
+                        if (st === "STARTING") {
+                          return <button className="btn" disabled title="the worker is starting — wait for the backend to confirm RUNNING">STARTING…</button>;
+                        }
+                        if (st === "STOPPING") {
+                          return <button className="btn" disabled title="stop requested — the in-flight cycle finishes first, then the final state is confirmed">STOPPING…</button>;
+                        }
                         return running
-                          ? <button className="btn danger" disabled={busyId === r.node_id}
+                          ? <button className="btn danger" disabled={busy}
                                     onClick={() => act(r, "stop")}
-                                    title={worker.state ? `worker ${worker.state} (backend)` : "enrolled in the live engine"}>
-                              {busyId === r.node_id ? "…" : "STOP"}
+                                    title={`STOP this node only (${st || "enrolled"}). Stopping never closes its open positions; other nodes keep running.`}>
+                              {busy ? "…" : "STOP"}
                             </button>
-                          : <button className="btn success" disabled={busyId === r.node_id}
+                          : <button className="btn success" disabled={busy}
                                     onClick={() => act(r, "start")}
-                                    title="start this node's live-testing worker">
-                              {busyId === r.node_id ? "…" : "START"}
+                                    title={st === "ERROR" ? "the last worker failed — START creates a fresh worker (see the row's error)" : "start this node's live-testing worker (backend confirms before the button flips)"}>
+                              {busy ? "…" : "START"}
                             </button>;
                       })()}
                     </td>
                   </tr>
                   {detail === r.node_id && (
                     <tr>
-                      <td colSpan={17} style={{ background: "rgba(255,255,255,0.02)" }}>
+                      <td colSpan={18} style={{ background: "rgba(255,255,255,0.02)" }}>
                         {/* §9 — the node's actual research record. Nothing here is
                             recalculated in the browser: it is the row the API served. */}
                         <div className="kit-grid" style={{ fontSize: 11.5 }}>
@@ -460,6 +521,22 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
                             <span className="mono">{txt(live.status, "IDLE")} · {n0(live.trades)} trade(s), {n0(live.closed)} closed, P/L {n2(live.total_pnl)} (today {n2(live.today_pnl)})</span></div>
                           <div className="kit-kv"><span className="k">Open position</span>
                             <span className="mono">{r.position_open ? txt(objOrNull(r.position)?.ticket ?? r.position, "open") : "none"}</span></div>
+                          <div className="kit-kv"><span className="k">Max active trades</span>
+                            <span className="mono">
+                              {r.max_active_trades_source === "CUSTOM"
+                                ? `override ${txt(r.max_active_trades, NA_TEXT)}`
+                                : `Default (${txt(r.max_active_trades_default, 1)})`}
+                              {" — effective "}{txt(r.max_active_trades_effective, 1)}
+                              {r.offsets_active ? " · offsets active" : ""}
+                            </span></div>
+                          <div className="kit-kv"><span className="k">Experimental SL/TP offsets (pips)</span>
+                            <span className="mono">
+                              SL <input type="number" style={{ width: 60 }} defaultValue={r.sl_offset_pips ?? 0}
+                                        onBlur={(e) => saveOffsets(r, Number(e.target.value), Number(r.tp_offset_pips ?? 0))} />
+                              {" "}TP <input type="number" style={{ width: 60 }} defaultValue={r.tp_offset_pips ?? 0}
+                                        onBlur={(e) => saveOffsets(r, Number(r.sl_offset_pips ?? 0), Number(e.target.value))} />
+                              <span className="muted"> — 0 = strategy's own levels; +SL = farther from entry; +TP = closer to entry (experimental)</span>
+                            </span></div>
                           <div className="kit-kv"><span className="k">Signal logic</span>
                             <span className="mono">{txt(objOrNull(r.signal_logic)?.entry_long, NA_TEXT)}</span></div>
                         </div>

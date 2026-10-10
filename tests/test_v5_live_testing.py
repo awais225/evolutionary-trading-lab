@@ -631,9 +631,9 @@ def test_24_an_empty_genome_says_undefined_with_a_reason_not_a_generic_sentence(
 def test_25_trading_info_endpoint_uses_the_real_node(client):
     """Against the authoritative test-data population: a SURVIVED node with a
     genome must produce entry rules, not "no entry rule"."""
-    from app.db.database import get_db
+    import app.api.routes as _routes
 
-    db = get_db()
+    db = _routes.get_db()          # the SAME database the endpoint reads
     row = db.one("""SELECT id FROM strategies
                     WHERE COALESCE(data_source,'') <> 'LEGACY_TEST' AND status IN ('SURVIVED','QUALIFIED')
                     ORDER BY id LIMIT 1""")

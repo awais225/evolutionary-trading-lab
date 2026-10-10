@@ -3,6 +3,7 @@ import { api } from "../api.js";
 import { useLab } from "../App.jsx";
 import StructuredError from "../components/StructuredError.jsx";
 import LiveTestingControl from "../components/LiveTestingControl.jsx";
+import { LiveActiveTrades, LiveTradeLimitsPanel } from "../components/LiveActiveTrades.jsx";
 import Mt5AccountSelector from "../components/Mt5AccountSelector.jsx";
 import LiveTradeCounter from "../components/LiveTradeCounter.jsx";
 import {
@@ -44,6 +45,8 @@ export default function LiveTesting() {
   const [engine, setEngine] = useState(null);
   const [results, setResults] = useState(null);
   const [risk, setRisk] = useState(null);
+  const [manualOpen, setManualOpen] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   const [error, setError] = useState(null);
   const [selectedNode, setSelectedNode] = useState("");
   const [marketSymbol, setMarketSymbol] = useState("XAUUSD");
@@ -149,13 +152,14 @@ export default function LiveTesting() {
 
   return (
     <div className="page">
+      {/* V6.5 §3.4 — operator reading order: ACTIVE TRADES first, then the
+        * controls and global constraints, then the nodes table, then the
+        * collapsible manual panel, then recent events and sync warnings. */}
+      <LiveActiveTrades refreshKey={reloadKey} />
+
       {primaryStatus}
       {/* V5.2 §10 — same node-population authority as every other page */}
       <NodePopulationStrip />
-
-
-      {/* §9 — the most recent real order attempt, before any control. */}
-      <LiveExecutionEvent engine={engine} trades={results} />
 
       {/* ---------------------------------------------------------- 2 */}
       <SectionTitle
@@ -166,24 +170,40 @@ export default function LiveTesting() {
       </SectionTitle>
       <LiveTestingControl />
 
+      {/* V6.5 §5.1 — the global trade constraints live with the controls */}
+      <LiveTradeLimitsPanel onSaved={load} />
+
       {/* V5.1a-next §B — the same account selector as MT5 Demo Trading, so both
        * pages report (and can change) the one account the engine orders from. */}
       <Mt5AccountSelector title="MT5 terminal & account (engine)" />
 
       {/* ---------------------------------------------------------- 3 */}
-      <SectionTitle
-        hint="The manual order panel uses the same MT5 execution path as the engine; START/STOP really enrols the node."
-      >
-        Action controls
-      </SectionTitle>
-      <ManualOrderPanel defaultSymbol={marketSymbol} />
-
       <LiveNodeTable
         onOpenNode={openNode}
         onToggleStar={toggleShortlist}
         globalRisk={risk?.global_risk_pct}
-        onRiskChanged={load}
+        onRiskChanged={() => { setReloadKey((k) => k + 1); load(); }}
       />
+
+      {/* ---------------------------------------------------------- 4 —
+        * collapsible manual demo trade panel (§3.3). The panel itself stays
+        * mounted (form values survive collapse); only its body is hidden.
+        * The header keeps the demo-only safety label visible at all times. */}
+      <SectionTitle
+        hint="The manual order panel uses the same MT5 execution path as the engine. Collapsing hides the form — it never resets it."
+        right={
+          <button className="btn ghost" style={{ padding: "2px 8px", fontSize: 11 }}
+                  aria-expanded={manualOpen}
+                  onClick={() => setManualOpen((v) => !v)}>
+            {manualOpen ? "▾ collapse" : "▸ expand"}
+          </button>
+        }
+      >
+        Manual Demo Trade {manualOpen ? null : <Badge tone="warn">demo only · collapsed</Badge>}
+      </SectionTitle>
+      <div style={{ display: manualOpen ? "block" : "none" }}>
+        <ManualOrderPanel defaultSymbol={marketSymbol} />
+      </div>
 
       {/* ---------------------------------------------------------- 4 */}
       {accountRisk}
@@ -203,6 +223,9 @@ export default function LiveTesting() {
       </div>
 
       <LiveTradeCounter />
+
+      {/* §3.4 (5) — recent trade events, with the latest real attempt on top */}
+      <LiveExecutionEvent engine={engine} trades={results} />
 
       <StageTimeline nodes={enrolled} />
 

@@ -3526,3 +3526,9 @@ question, "which build is my machine running?"):
    MT5 demo checklist in V6_4_REPORT.md §11 is the pending manual
    verification (pip spec, demo order, result fields, identity, lifecycle,
    position close flows).
+
+6. V6.5 (2026-10-10) — additive Live Testing upgrade on V6.4: canonical MT5 trade ledger with
+idempotent events + deal-history reconciliation, per-node START/STOP hardening at the
+submission gate, global/per-node trade limits with atomic admission, ledger-driven statistics,
+Active Trades dashboard, and experimental zero-default SL/TP offsets. Strategy logic
+untouched. Windows/MT5 demo acceptance PENDING manual verification (V6_5_REPORT.md §E).

@@ -269,6 +269,9 @@ export const api = {
   liveTestingNodeConfig: (sid, body) => req(`/api/live-testing/nodes/${sid}/config`, { method: "POST", body }),
   liveTestingSettings: (body) => req("/api/live-testing/settings", { method: "POST", body }),
   liveTestingTrades: (params = {}) => req(`/api/live-testing/trades?${qs(params)}`),
+  liveTestingTradeDetail: (rowId) => req(`/api/live-testing/trades/${rowId}`),
+  liveTestingActiveTrades: () => req("/api/live-testing/active-trades"),
+  liveTestingSync: () => req("/api/live-testing/sync"),
   liveTestingReconcile: () => req("/api/live-testing/reconcile", { method: "POST" }),
 
   // V5 §10-§16 — redesigned Live Testing surface

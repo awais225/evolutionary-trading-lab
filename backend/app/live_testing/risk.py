@@ -48,6 +48,23 @@ def risk_limits() -> Dict[str, Any]:
     }
 
 
+def resolve_per_node_limit(node: Any) -> Dict[str, Any]:
+    """V6.5 §5 — the effective per-node max-active-trades limit.
+
+    An explicit node override (``live_test_configs.max_positions``) wins; a node
+    without one INHERITS ``config.live_testing.max_active_trades_per_node_default``
+    (default 1).  The result always names its source so the UI can distinguish
+    `Default` from an explicit override (§5.2).
+    """
+    cfg = (node or {}).get("config") or {}
+    override = _f(cfg.get("max_positions"))
+    default = int(getattr(get_config().live_testing,
+                          "max_active_trades_per_node_default", 1) or 1)
+    if override is not None and override >= 1:
+        return {"effective": int(override), "source": "override", "default": default}
+    return {"effective": int(default), "source": "default", "default": default}
+
+
 def resolve_risk_pct(global_pct: Any, override_pct: Any) -> Dict[str, Any]:
     """Per-node override wins over the global default (spec §8)."""
     override = _f(override_pct)

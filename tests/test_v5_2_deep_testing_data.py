@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import json
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -406,7 +406,10 @@ def test_19_the_gate_admits_and_blocks_by_the_saved_schedule(db):
     from app.mt5 import demo_schedule as DS
     sid = _ids(db)[0]
     _demo_cfg(db, sid)
-    today = datetime.now(timezone.utc).weekday()
+    _now = datetime.now(timezone.utc)
+    while _now.weekday() >= 5:      # mirror the conftest weekday clock pin so
+        _now = _now - timedelta(days=1)   # "today" matches the gate's clock
+    today = _now.weekday()
     other = (today + 3) % 7
     DS.save_schedule(sid, {"days": [today], "timezone": "UTC"}, db=db)
     allowed = DS.gate(sid, db=db)
