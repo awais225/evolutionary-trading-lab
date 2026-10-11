@@ -152,6 +152,8 @@ export const api = {
   labReset: () => req("/api/lab/reset", { method: "POST" }),
   labClearFailed: () => req("/api/lab/clear-failed", { method: "POST" }),
   recheck: () => req("/api/lab/recheck", { method: "POST" }),
+  // V6.7 §3 — the single authoritative node-inventory snapshot
+  inventorySnapshot: (fresh = false) => req(`/api/inventory/snapshot${fresh ? "?fresh=1" : ""}`),
   setTarget: (target) => req("/api/lab/target", { method: "POST", body: { target } }),
   getTarget: () => req("/api/lab/target"),
   labRuns: () => req("/api/lab/runs"),
@@ -445,6 +447,13 @@ export const api = {
   deeptestCompare: (runIds) => req("/api/deeptest/compare", { method: "POST", body: { run_ids: runIds } }),
   deeptestPrefer: (body) => req("/api/deeptest/prefer", { method: "POST", body }),
   deeptestNodes: () => req("/api/deeptest/nodes"),
+  // V6.7 §7/§10 — SCENARIO popup config (DeepTesting-only storage) and the
+  // interactive performance EXCLUSION filters over saved trades.
+  deeptestNodeConfig: (nodeId) => req(`/api/deeptest/node-config/${nodeId}`),
+  deeptestNodeConfigSave: (nodeId, body) =>
+    req(`/api/deeptest/node-config/${nodeId}`, { method: "POST", body }),
+  deeptestFilteredStats: (runId, body) =>
+    req(`/api/deeptest/run/${encodeURIComponent(runId)}/filtered`, { method: "POST", body }),
   // CSV import sends the file as a RAW body (query carries metadata) — no
   // multipart dependency; relative urls and qs() like everything else.
   deeptestCsvValidate: (file, body = {}) => {

@@ -35,7 +35,7 @@ const SUMMARY_ROWS = [
   ["Max consecutive W / L", (s) => `${s.max_consecutive_wins ?? "N/A"} / ${s.max_consecutive_losses ?? "N/A"}`],
 ];
 
-export default function DeepScenarioPanel({ nodeId, scenarios: scenariosProp = null, onChanged }) {
+export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scenariosProp = null, onChanged }) {
   const [ownScenarios, setOwnScenarios] = useState(null);
   const scenarios = scenariosProp || ownScenarios || [];
   const reload = useCallback(async () => {
@@ -56,6 +56,23 @@ export default function DeepScenarioPanel({ nodeId, scenarios: scenariosProp = n
   const [compare, setCompare] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  // V6.7 §10 — performance EXCLUSION filters (day-of-week + session) and the
+  // §9 monthly/exit-reason blocks, recomputed from the scenario's saved trades.
+  const [exclDays, setExclDays] = useState([]);
+  const [exclSessions, setExclSessions] = useState([]);
+  const [filt, setFilt] = useState(null);
+  const [filtBusy, setFiltBusy] = useState(false);
+
+  const loadFiltered = useCallback(async (runId, days, sessions) => {
+    if (!runId) return;
+    setFiltBusy(true);
+    try {
+      const res = await api.deeptestFilteredStats(runId, {
+        exclude_days: days, exclude_sessions: sessions,
+      });
+      setFilt(res);
+    } catch { setFilt(null); } finally { setFiltBusy(false); }
+  }, []);
 
   const loadDetail = useCallback(async (runId) => {
     setError(null);
@@ -69,6 +86,12 @@ export default function DeepScenarioPanel({ nodeId, scenarios: scenariosProp = n
       setError(e);
     }
   }, []);
+
+  // filters recalculating never refetches the scenario itself — only the
+  // derived analysis of its saved trades.
+  useEffect(() => {
+    if (selected) loadFiltered(selected, exclDays, exclSessions);
+  }, [selected, exclDays, exclSessions, loadFiltered]);
 
   useEffect(() => {
     if (scenarios.length && !selected) {
@@ -186,6 +209,26 @@ export default function DeepScenarioPanel({ nodeId, scenarios: scenariosProp = n
               <span className="v mono">{when(sel.started_at)} / {when(sel.finished_at)}</span></div>
             <div className="item"><span className="k">Engine versions</span>
               <span className="v mono">{JSON.stringify(sel.engine_versions || {})}</span></div>
+            <div className="item"><span className="k">Scenario id</span>
+              <span className="v mono">{sel.run_id}{sel.signature ? ` · sig ${String(sel.signature).slice(0, 12)}` : ""}</span></div>
+            <div className="item"><span className="k">Strategy fingerprints</span>
+              <span className="v mono">genome {String(sel.genome_hash || "—").slice(0, 12)} · config {String(sel.config_hash || "—").slice(0, 12)}</span></div>
+            {node && (
+              <>
+                <div className="item"><span className="k">Node fitness / complexity</span>
+                  <span className="v mono">{node.fitness == null ? "N/A" : Number(node.fitness).toFixed(4)}
+                    {" / "}{node.signal_logic ? "declared" : "N/A"}</span></div>
+                <div className="item"><span className="k">Species / mutation</span>
+                  <span className="v mono">{node.family || "N/A"}{node.innovation ? ` · ${node.innovation}` : ""}</span></div>
+                <div className="item"><span className="k">Generation metrics (source record)</span>
+                  <span className="v mono">
+                    ret {node.generation_metrics?.return_pct == null ? "N/A"
+                      : (node.generation_metrics.return_pct * 100).toFixed(3) + "%"}
+                    {" "}· PF {node.generation_metrics?.profit_factor ?? "N/A"}
+                    {" "}· {node.generation_metrics?.trades ?? "N/A"} trades
+                  </span></div>
+              </>
+            )}
             {sel.error && (
               <div className="item"><span className="k">Error</span><span className="v mono">{sel.error}</span></div>
             )}
@@ -236,6 +279,110 @@ export default function DeepScenarioPanel({ nodeId, scenarios: scenariosProp = n
             </div>
           </div>
 
+          {/* V6.7 §9/§10 — monthly PnL + exit reasons + interactive EXCLUSION
+              filters, all recalculated from this scenario's saved trades. */}
+          <div style={{ display: "flex", gap: 16, marginTop: 10, flexWrap: "wrap" }}>
+            <div style={{ minWidth: 260 }}>
+              <b>Monthly PnL <span style={{ fontWeight: 400, opacity: 0.75 }}>(reconciles with trades)</span></b>
+              <div style={{ fontSize: 11, marginTop: 4 }}>
+                {Object.entries((filt?.original || {}).monthly_pnl || {}).map(([m, v]) => (
+                  <div key={m} className="mono" style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span>{m}</span><span>{f2(v)}</span>
+                  </div>
+                ))}
+                {!Object.keys((filt?.original || {}).monthly_pnl || {}).length && (
+                  <span style={{ opacity: 0.7 }}>{filtBusy ? "computing…" : "no saved trades"}</span>
+                )}
+              </div>
+            </div>
+            <div style={{ minWidth: 260 }}>
+              <b>Exit reasons <span style={{ fontWeight: 400, opacity: 0.75 }}>(count + net PnL, from saved trades)</span></b>
+              <div style={{ fontSize: 11, marginTop: 4 }}>
+                {Object.entries((filt?.original || {}).exit_reasons || {}).map(([r, v]) => (
+                  <div key={r} className="mono" style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span>{r}</span><span>{v.count} × {f2(v.net_pnl)}</span>
+                  </div>
+                ))}
+                {!Object.keys((filt?.original || {}).exit_reasons || {}).length && (
+                  <span style={{ opacity: 0.7 }}>{filtBusy ? "computing…" : "no saved trades"}</span>
+                )}
+              </div>
+            </div>
+            <div style={{ flex: "1 1 380px", minWidth: 380 }}>
+              <b>
+                Performance filters
+                {(exclDays.length + exclSessions.length) > 0 && (
+                  <Badge tone="warn">{exclDays.length + exclSessions.length} active</Badge>
+                )}
+              </b>
+              <div style={{ fontSize: 10.5, opacity: 0.8, marginTop: 2 }}>
+                exclude days / sessions (OR: excluded day OR excluded session removes the trade).
+                Recalculated immediately from saved trades; never creates a scenario, never alters
+                stored trades, never touches live.
+              </div>
+              <div style={{ display: "flex", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
+                <div>
+                  <div style={{ opacity: 0.8, fontSize: 10.5 }}>exclude day-of-week</div>
+                  {["mon", "tue", "wed", "thu", "fri", "sat", "sun"].map((d) => (
+                    <label key={d} style={{ fontSize: 11, marginRight: 6 }}>
+                      <input type="checkbox" checked={exclDays.includes(d)}
+                             onChange={(e) => setExclDays(e.target.checked
+                               ? [...exclDays, d] : exclDays.filter((x) => x !== d))} /> {d}
+                    </label>
+                  ))}
+                </div>
+                <div>
+                  <div style={{ opacity: 0.8, fontSize: 10.5 }}>exclude session</div>
+                  {["asia", "london", "newyork", "off"].map((sx) => (
+                    <label key={sx} style={{ fontSize: 11, marginRight: 6 }}>
+                      <input type="checkbox" checked={exclSessions.includes(sx)}
+                             onChange={(e) => setExclSessions(e.target.checked
+                               ? [...exclSessions, sx] : exclSessions.filter((x) => x !== sx))} /> {sx}
+                    </label>
+                  ))}
+                </div>
+                <button className="btn" style={{ fontSize: 10.5, alignSelf: "flex-start" }}
+                        onClick={() => { setExclDays([]); setExclSessions([]); }}>
+                  Reset filters
+                </button>
+              </div>
+              {!!filt && (
+                <div style={{ fontSize: 11, marginTop: 6 }}>
+                  <div className="mono" style={{ opacity: 0.85 }}>
+                    trades: {filt.trade_counts.kept} of {filt.trade_counts.original} kept
+                    ({filt.trade_counts.excluded} excluded)
+                    {filtBusy ? " · recalculating…" : ""}
+                  </div>
+                  <div style={{ display: "flex", gap: 14, marginTop: 4, flexWrap: "wrap" }}>
+                    <div>
+                      <div style={{ opacity: 0.8, fontSize: 10.5 }}>original</div>
+                      <div className="mono">
+                        net {f2(filt.original?.summary?.net_profit)} · ret{" "}
+                        {filt.original?.summary?.net_return_pct == null ? "N/A"
+                          : (filt.original.summary.net_return_pct * 100).toFixed(3) + "%"}
+                        {" "}· PF {f2(filt.original?.summary?.profit_factor)}
+                        {" "}· trades {filt.original?.summary?.trades ?? filt.trade_counts.original}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ opacity: 0.8, fontSize: 10.5 }}>filtered</div>
+                      <div className="mono">
+                        net {f2(filt.filtered?.summary?.net_profit)} · ret{" "}
+                        {filt.filtered?.summary?.net_return_pct == null ? "N/A"
+                          : (filt.filtered.summary.net_return_pct * 100).toFixed(3) + "%"}
+                        {" "}· PF {f2(filt.filtered?.summary?.profit_factor)}
+                        {" "}· trades {filt.filtered?.summary?.trades ?? filt.trade_counts.kept}
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ opacity: 0.75, fontSize: 10, marginTop: 4 }}>
+                    {filt.disclosure}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
           {!!(sel.provenance?.assumptions || sel.provisional) && (
             <details style={{ marginTop: 8, fontSize: 11 }}>
               <summary>assumptions &amp; provisional flags (saved with this scenario)</summary>
@@ -261,13 +408,17 @@ export default function DeepScenarioPanel({ nodeId, scenarios: scenariosProp = n
                 </button>
               ))}
             </div>
-            <div className="table-scroll">
-              <table style={{ width: "100%", fontSize: 10.5 }} className="mono">
+            <div className="scroll-y table-scroll" style={{ maxHeight: 320 }}>
+              <table style={{ width: "100%", fontSize: 10.5 }} className="tbl mono">
                 <thead>
                   <tr>
-                    <th>#</th><th>side</th><th>entry</th><th>exit</th><th>volume</th>
-                    <th>SL</th><th>TP</th><th>exit reason</th><th>hold</th>
-                    <th>net P&amp;L</th><th>session</th>
+                    {["#", "side", "entry", "exit", "volume",
+                      "SL", "TP", "exit reason", "hold",
+                      "net P&L", "session"].map((h) => (
+                      <th key={h} style={{ position: "sticky", top: 0, background: "var(--bg-box, #1a2332)", zIndex: 1 }}>
+                        {h}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>

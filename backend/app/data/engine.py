@@ -48,6 +48,38 @@ def make_master_dataset_id(symbol: str, timeframe: str, profile_key: str, versio
     return f"{symbol}_{timeframe}_{safe_profile}_v{version}"
 
 
+# V6.7 §5 — cross-call concurrency control and cancellation for history sync.
+# One in-flight sync per (symbol, timeframe, profile): a second caller waits on
+# the lock and then reuses the already-synced store (no duplicate requests, no
+# duplicated work); every sync can be cancelled and always reaches a terminal
+# state.
+_SYNC_GUARD = threading.Lock()
+_SYNC_LOCKS: Dict[tuple, threading.Lock] = {}
+_SYNC_CANCELS: Dict[tuple, threading.Event] = {}
+
+
+def _sync_key(symbol: str, timeframe: str, profile_key: str) -> tuple:
+    return (str(symbol).upper(), str(timeframe).upper(), str(profile_key))
+
+
+def _sync_lock(key: tuple) -> threading.Lock:
+    with _SYNC_GUARD:
+        return _SYNC_LOCKS.setdefault(key, threading.Lock())
+
+
+def cancel_sync(symbol: str, timeframe: str, profile_key: str = "*") -> int:
+    """Request cancellation of any in-flight sync for this pair. Returns the
+    number of in-flight operations signalled."""
+    n = 0
+    with _SYNC_GUARD:
+        for (sym, tf, prof), ev in _SYNC_CANCELS.items():
+            if sym == str(symbol).upper() and tf == str(timeframe).upper() and \
+                    (profile_key == "*" or prof == str(profile_key)):
+                ev.set()
+                n += 1
+    return n
+
+
 class DataEngine:
     def __init__(self):
         self._lock = threading.RLock()
@@ -58,7 +90,8 @@ class DataEngine:
         self._feat_status_cache: Dict[tuple, tuple] = {}
 
     # ---------- master incremental sync (spec §4, §5, §6, §7) ----------
-    def sync_master(self, symbol: str, timeframe: str, force_full: bool = False) -> Dict:
+    def sync_master(self, symbol: str, timeframe: str, force_full: bool = False,
+                    progress_cb=None) -> Dict:
         """Incrementally sync the master dataset from the active bridge.
 
         Reads last stored timestamp. Requests ONLY the missing range from MT5.
@@ -122,6 +155,51 @@ class DataEngine:
                 "dataset_id": did, "action": "REUSING EXISTING DATA",
             }
 
+        # V6.7 §5 — one sync per (symbol, timeframe, profile): concurrent
+        # callers dedupe on the keyed lock and reuse the finished store.
+        lock_key = _sync_key(symbol, timeframe, mstore.profile_key)
+        lock = _sync_lock(lock_key)
+        if not lock.acquire(timeout=0.01):
+            # Another sync for this pair is already in flight — wait for it and
+            # return its outcome as reuse instead of firing duplicate requests.
+            activity.info("DATA", f"Sync for {symbol} {timeframe} already in flight — reusing it",
+                          operation_id=f"sync_{symbol.lower()}_{timeframe.lower()}")
+            lock.acquire()
+            try:
+                did = self._materialize_dataset_view(mstore)
+                return {
+                    "symbol": symbol, "timeframe": timeframe,
+                    "fetch_mode": "reuse_concurrent_sync",
+                    "new_bars": 0, "total_bars": mstore.rows, "version": mstore.version,
+                    "dataset_id": did, "action": "REUSING CONCURRENT SYNC",
+                }
+            finally:
+                lock.release()
+        cancel_ev = threading.Event()
+        with _SYNC_GUARD:
+            _SYNC_CANCELS[lock_key] = cancel_ev
+        try:
+            return self._sync_master_locked(symbol, timeframe, force_full, mstore,
+                                            cancel_ev, lock_key, progress_cb)
+        finally:
+            lock.release()
+            with _SYNC_GUARD:
+                _SYNC_CANCELS.pop(lock_key, None)
+
+    def _sync_master_locked(self, symbol: str, timeframe: str, force_full: bool,
+                            mstore, cancel_ev: threading.Event, lock_key: tuple,
+                            progress_cb=None) -> Dict:
+        cfg = get_config()
+        bridge = get_bridge()
+        profile = bridge.profile()
+        tf_min = TF_MINUTES.get(timeframe, 15)
+        step_s = tf_min * 60
+        now = time.time()
+        months = cfg.data.history_months.get(timeframe, 6)
+        default_start_ts = now - months * 30 * 86400
+        last_stored = mstore.last_ts
+        is_initial = (last_stored is None or force_full or mstore.rows == 0)
+
         # Multi-level job tracking (V2.7)
         jm = get_job_manager()
         job = jm.create_job(name=f"Sync {symbol} {timeframe}", job_type="ingest")
@@ -159,14 +237,117 @@ class DataEngine:
             activity.info("DATA", f"Initial bootstrap for {symbol} {timeframe}",
                           operation_id=op_id, progress=20.0)
 
+        # V6.7 §5 — chunked history fetch. ONE mega-request (the old
+        # "requesting recent 259205 bars") blocks the bridge and freezes the
+        # UI at a fake percentage; instead the range is walked in bounded
+        # chunks with per-chunk bounded retries, REAL progress, cancellation,
+        # and a wall-clock deadline. Every sync reaches a terminal state and
+        # reports requested vs actually-received coverage — partial data is
+        # labeled partial, never presented as complete.
+        CHUNK_BARS = 15000                 # bars per bridge request (bounded)
+        MAX_FETCH_SECONDS = 900            # overall deadline for the fetch stage
+        chunk_span = max(step_s * 10, step_s * CHUNK_BARS)
         activity.running("DATA", f"Requesting historical data from {bridge.source} for {symbol} {timeframe}",
                          operation_id=op_id, progress=35.0)
 
-        bars = bridge.copy_rates_range(symbol, timeframe, fetch_start, fetch_end)
-        if bars is None or len(bars) == 0:
-            activity.info("DATA", f"No range bars returned for {symbol} {timeframe}, requesting recent {n_bars_needed} bars",
+        collected: list = []
+        fetch_errors: list = []
+        t_fetch0 = time.time()
+        cursor = float(fetch_start)
+        consecutive_empty = 0
+        cancelled = False
+        timed_out = False
+        received_first_ts = None
+        received_last_ts = None
+        while cursor < fetch_end:
+            if cancel_ev.is_set():
+                cancelled = True
+                break
+            if time.time() - t_fetch0 > MAX_FETCH_SECONDS:
+                timed_out = True
+                break
+            chunk_end = min(cursor + chunk_span, fetch_end)
+            chunk = None
+            for attempt in range(3):            # bounded retries per chunk
+                try:
+                    chunk = bridge.copy_rates_range(symbol, timeframe, cursor, chunk_end)
+                    break
+                except Exception as e:
+                    fetch_errors.append(f"{type(e).__name__}: {e}"[:160])
+                    if attempt == 2:
+                        chunk = None
+                    else:
+                        time.sleep(min(2.0 * (attempt + 1), 5.0))
+            if chunk:
+                collected.extend(chunk)
+                consecutive_empty = 0
+                b_first = float(getattr(chunk[0], "ts", None)
+                                or chunk[0].to_dict().get("ts"))
+                b_last = float(getattr(chunk[-1], "ts", None)
+                               or chunk[-1].to_dict().get("ts"))
+                received_first_ts = b_first if received_first_ts is None else min(received_first_ts, b_first)
+                received_last_ts = b_last if received_last_ts is None else max(received_last_ts, b_last)
+            else:
+                consecutive_empty += 1
+                # a long run of empty chunks with nothing fetched at all means
+                # the bridge cannot serve this range — terminal, not infinite.
+                if consecutive_empty >= 5 and not collected:
+                    break
+            done_frac = min(1.0, (chunk_end - fetch_start) / max(1.0, fetch_end - fetch_start))
+            pct = 35.0 + 25.0 * done_frac
+            activity.running("DATA",
+                             f"Fetching {symbol} {timeframe}: {len(collected):,} bars "
+                             f"({done_frac * 100:.0f}% of requested range)",
+                             operation_id=op_id, progress=pct)
+            job.update_task_progress("fetch", "request_bars",
+                                     int(done_frac * n_bars_needed), n_bars_needed)
+            job.heartbeat(f"{len(collected):,} bars fetched in bounded chunks")
+            if progress_cb is not None:
+                try:
+                    progress_cb(pct, f"{len(collected):,} bars fetched in bounded chunks")
+                except Exception:
+                    pass
+            cursor = chunk_end
+
+        bars = collected
+        # Bounded legacy fallback: only when the range API produced NOTHING at
+        # all, and never more than 20k recent bars (the old unbounded
+        # copy_rates(n_bars_needed) call was the stall the user saw).
+        if not bars and not cancelled and not timed_out:
+            n_recent = min(n_bars_needed, 20000)
+            activity.info("DATA", f"No range bars returned for {symbol} {timeframe}, requesting recent {n_recent} bars",
                           operation_id=op_id, progress=45.0)
-            bars = bridge.copy_rates(symbol, timeframe, n_bars_needed)
+            try:
+                bars = list(bridge.copy_rates(symbol, timeframe, n_recent) or [])
+            except Exception as e:
+                fetch_errors.append(f"fallback copy_rates: {type(e).__name__}: {e}"[:160])
+                bars = []
+            if bars:
+                received_first_ts = float(getattr(bars[0], "ts", None)
+                                          or bars[0].to_dict().get("ts"))
+                received_last_ts = float(getattr(bars[-1], "ts", None)
+                                         or bars[-1].to_dict().get("ts"))
+
+        fetch_report = {
+            "requested_start": float(fetch_start),
+            "requested_end": float(fetch_end),
+            "received_start": received_first_ts,
+            "received_end": received_last_ts,
+            "bars_expected_estimate": int(n_bars_needed),
+            "bars_received": len(bars),
+            "chunks": int(max(1, (fetch_end - fetch_start + chunk_span - 1) // chunk_span)),
+            "errors": fetch_errors[-5:],
+        }
+
+        if cancelled:
+            msg = f"Sync cancelled for {symbol} {timeframe} ({len(bars):,} bars fetched before cancel)"
+            activity.warning("DATA", msg, operation_id=op_id)
+            job.fail(msg)
+            return {
+                "symbol": symbol, "timeframe": timeframe, "fetch_mode": fetch_mode,
+                "new_bars": 0, "total_bars": mstore.rows, "version": mstore.version,
+                "status": "cancelled", "fetch": fetch_report,
+            }
 
         if bars is None or len(bars) == 0:
             msg = f"No bars returned for {symbol} {timeframe} from {bridge.source}"
@@ -175,7 +356,7 @@ class DataEngine:
             return {
                 "symbol": symbol, "timeframe": timeframe, "fetch_mode": fetch_mode,
                 "new_bars": 0, "total_bars": mstore.rows, "version": mstore.version,
-                "status": "no_data_from_bridge",
+                "status": "no_data_from_bridge", "fetch": fetch_report,
             }
 
         job.update_task_progress("fetch", "request_bars", len(bars), max(len(bars), n_bars_needed))
@@ -257,6 +438,25 @@ class DataEngine:
                          f"{append_rep['accepted']} new bars appended (total: {mstore.rows:,})",
                          operation_id=op_id, progress=100.0)
 
+        # V6.7 §5.5 — requested vs actual coverage decides the terminal label:
+        # COMPLETE only when the received range covers the request; otherwise
+        # PARTIAL (with the reason) so the UI never presents short data as full.
+        end_margin = step_s * 10
+        covers_end = (received_last_ts is not None
+                      and received_last_ts >= fetch_end - end_margin)
+        covers_start = (received_first_ts is not None
+                        and received_first_ts <= fetch_start + step_s * max(5, CHUNK_BARS // 4))
+        if timed_out:
+            sync_status = "PARTIAL"
+            partial_reason = "fetch deadline reached — remaining range not downloaded"
+        elif covers_end and covers_start:
+            sync_status = "COMPLETE"
+            partial_reason = None
+        else:
+            sync_status = "PARTIAL"
+            partial_reason = ("bridge returned less history than requested"
+                              if bars else "range unavailable")
+        fetch_report.update({"status": sync_status, "partial_reason": partial_reason})
         return {
             "symbol": symbol, "timeframe": timeframe, "fetch_mode": fetch_mode,
             "new_bars": append_rep["accepted"],
@@ -266,6 +466,10 @@ class DataEngine:
             "master_version": mstore.version,
             "dataset_id": did,
             "integrity": integrity_rep.as_dict(),
+            "status": "complete" if sync_status == "COMPLETE" else "partial",
+            "sync_status": sync_status,
+            "partial_reason": partial_reason,
+            "fetch": fetch_report,
         }
 
     def _materialize_dataset_view(self, mstore: master.MasterStore) -> str:

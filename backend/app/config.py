@@ -350,11 +350,14 @@ def _resolve_data_tree(p: str) -> str:
             rel = _data_tree_suffix(ap) if P.DATA_ROOT_EXPLICIT else None
             if rel is None:
                 return str(pp)                  # outside DATA: untouched
-        return str((P.DATA_ROOT / rel).resolve())
+        # normpath, NOT resolve(): the configured path identity is preserved
+        # through DATA-tree symlinks so provenance records exactly the path the
+        # dataset is stored under ("what was tested"), in any deployment layout.
+        return os.path.normpath(str(P.DATA_ROOT / rel))
     parts = pp.parts
     if parts and parts[0] == "DATA":            # e.g. "DATA/DATABASE/lab_state.db"
         rel = Path(*parts[1:]) if len(parts) > 1 else Path()
-        return str((P.DATA_ROOT / rel).resolve())
+        return os.path.normpath(str(P.DATA_ROOT / rel))
     return str(ROOT_DIR / pp)                   # untouched legacy behaviour
 
 

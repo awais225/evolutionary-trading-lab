@@ -70,6 +70,30 @@ COMPONENT_STATES = {
 
 
 # ---------------- status ----------------
+def _peek_inventory_revision():
+    """Content revision of the committed inventory snapshot (None when absent)."""
+    try:
+        raw = get_db().get_meta("inventory_snapshot")
+        if raw:
+            return (json.loads(raw).get("inventory") or {}).get("inventory_revision")
+    except Exception:
+        pass
+    return None
+
+
+def _peek_qualified_authoritative():
+    """Authoritative qualified count from the committed snapshot (None when
+    the snapshot is absent — clients then load /api/inventory/snapshot)."""
+    try:
+        raw = get_db().get_meta("inventory_snapshot")
+        if raw:
+            inv = json.loads(raw).get("inventory") or {}
+            return (inv.get("counts_excl_legacy") or {}).get("qualified")
+    except Exception:
+        pass
+    return None
+
+
 @router.get("/status")
 def status() -> Dict:
     db = get_db()
@@ -92,6 +116,11 @@ def status() -> Dict:
         "bridge": bs,
         "paper": get_paper_engine().status()["running"],
         "status_counts": counts,
+        # V6.7 §3 — authoritative inventory identity for cross-surface checks.
+        # Existing keys are untouched; these let any client verify that two
+        # panels showing node counts came from the same inventory revision.
+        "inventory_revision": _peek_inventory_revision(),
+        "qualified_authoritative": _peek_qualified_authoritative(),
         "components": COMPONENT_STATES,
         "resources": rm.live_metrics(),
         "connection": mon.status_details(),
@@ -162,7 +191,94 @@ def lab_status() -> Dict:
 @router.post("/lab/recheck")
 @router.get("/lab/recheck")
 def lab_recheck() -> Dict:
-    return get_lab().recheck()
+    """V2.1 state reconstruction + V6.7 §3 authoritative inventory.
+
+    One call, one atomic snapshot commit: the node inventory (counts, identity,
+    rankings, generation metrics) is recomputed from the stored dataset — never
+    from a previously displayed value — and committed together with the
+    result + timestamp + any errors, so Overview, the node table, the qualified
+    count, rankings and DeepTesting all resolve to the same inventory revision.
+    Deterministic: identical underlying data produces identical results.
+    """
+    t0 = time.time()
+    errors: list = []
+    try:
+        state = get_lab().recheck()
+    except Exception as exc:
+        state = {"ok": False, "error": f"{type(exc).__name__}: {exc}"[:300]}
+        errors.append(state["error"])
+    inventory = None
+    try:
+        from ..research.populations import inventory_snapshot
+        inventory = inventory_snapshot()
+        errors.extend(inventory.get("errors") or [])
+        db = get_db()
+        try:
+            db.set_meta("inventory_snapshot", json.dumps({
+                "inventory": inventory,
+                "committed_at": time.time(),
+                "commit_source": "lab_recheck",
+            }))
+        except Exception as exc:
+            errors.append(f"snapshot commit failed: {type(exc).__name__}: {exc}"[:200])
+    except Exception as exc:
+        errors.append(f"inventory recompute failed: {type(exc).__name__}: {exc}"[:300])
+    return {
+        **(state or {}),
+        "inventory": inventory,
+        "inventory_revision": (inventory or {}).get("inventory_revision"),
+        "recheck_completed_at": time.time(),
+        "recheck_duration_ms": round((time.time() - t0) * 1000.0, 1),
+        "deterministic": True,
+        "errors": errors or (state or {}).get("errors") or [],
+    }
+
+
+@router.get("/inventory/snapshot")
+def inventory_snapshot_get(fresh: bool = False) -> Dict:
+    """The authoritative inventory snapshot (V6.7 §3).
+
+    Default: the atomically-committed snapshot when its content revision still
+    matches the stored dataset, otherwise a fresh recompute + commit. ``fresh``
+    forces the recompute (the reconciliation path RECHECK uses).
+    """
+    from ..research.populations import inventory_snapshot as _snap
+    db = get_db()
+    committed = None
+    try:
+        raw = db.get_meta("inventory_snapshot")
+        committed = json.loads(raw) if raw else None
+    except Exception:
+        committed = None
+    if not fresh and isinstance(committed, dict) and committed.get("inventory"):
+        # V6.7 §3 — the cache is valid ONLY while the recorded state token still
+        # matches the stored dataset. Any mutation since the commit (restoration
+        # import, run workflow, test activity) forces a recompute so a stale
+        # count can never be presented as current.
+        try:
+            from ..research.populations import db_state_token as _tok
+            fresh_token = _tok(db)
+        except Exception:
+            fresh_token = None
+        cached_inv = committed["inventory"]
+        if fresh_token and cached_inv.get("state_token") == fresh_token:
+            return {
+                "ok": True,
+                "cached": True,
+                **cached_inv,
+                "committed_at": committed.get("committed_at"),
+                "commit_source": committed.get("commit_source"),
+            }
+    try:
+        inventory = _snap()
+        db.set_meta("inventory_snapshot", json.dumps({
+            "inventory": inventory,
+            "committed_at": time.time(),
+            "commit_source": "inventory_snapshot",
+        }))
+        return {"ok": True, "cached": False, **inventory}
+    except Exception as exc:
+        raise HTTPException(500, f"inventory snapshot failed: {type(exc).__name__}: {exc}")
 
 
 @router.post("/lab/target")
@@ -258,7 +374,8 @@ def population(limit: int = 200, status: Optional[str] = None,
                sort: str = "fitness", timeframe: Optional[str] = None,
                generation: Optional[int] = None,
                data_source: Optional[str] = None,
-               run_id: Optional[str] = None) -> Dict:
+               run_id: Optional[str] = None,
+               sort_desc: bool = True) -> Dict:
     db = get_db()
     where, args = [], []
     if status:
@@ -278,8 +395,31 @@ def population(limit: int = 200, status: Optional[str] = None,
         where.append("COALESCE(s.data_source, 'USER_RESEARCH') <> 'LEGACY_TEST'")
 
     wsql = ("WHERE " + " AND ".join(where)) if where else ""
-    sort_col = {"fitness": "COALESCE(s.fitness,-1) DESC", "id": "s.id DESC",
-                "generation": "s.generation DESC"}[sort]
+    # V6.7 §4.3 — full-dataset deterministic ranking on real numeric types.
+    # Metric sorts rank over the stored generation record for EVERY row (never
+    # a limited slice's local order); missing metrics always rank AFTER real
+    # values (never as best/zero); ties break on the canonical node id.
+    _metric_exprs = {
+        "return_pct": "json_extract(m, '$.total_return_pct')",
+        "total_return_pct": "json_extract(m, '$.total_return_pct')",
+        "pf": "json_extract(m, '$.profit_factor')",
+        "profit_factor": "json_extract(m, '$.profit_factor')",
+        "dd": "json_extract(m, '$.max_drawdown_pct')",
+        "max_drawdown_pct": "json_extract(m, '$.max_drawdown_pct')",
+        "trades": "json_extract(m, '$.trades')",
+        "win_rate": "json_extract(m, '$.win_rate')",
+        "sharpe": "json_extract(m, '$.sharpe')",
+    }
+    _dir = "DESC" if sort_desc else "ASC"
+    if sort in _metric_exprs:
+        expr = _metric_exprs[sort]
+        sort_col = f"(m IS NULL OR json_valid(m)=0), {expr} {_dir}, s.id {_dir}"
+    elif sort == "id":
+        sort_col = f"s.id {_dir}"
+    elif sort == "generation":
+        sort_col = f"s.generation {_dir}, s.id {_dir}"
+    else:
+        sort_col = f"COALESCE(s.fitness,-1) {_dir}, s.id {_dir}"
     rows = db.q(f"""SELECT s.id,s.parent_id,s.generation,s.symbol,s.timeframe,s.direction,
                     s.status,s.fitness,s.species_key,s.complexity,s.mutation_type,
                     s.creation_reason,s.survival_reason,s.failure_reason,s.created_at,
@@ -5726,6 +5866,191 @@ def deeptest_run_cancel(run_id: str):
     return SC.cancel_run(db, run_id)
 
 
+@router.get("/deeptest/node-config/{node_id}")
+def deeptest_node_config_get(node_id: int) -> Dict[str, Any]:
+    """V6.7 §7.2/§7.3 — the SCENARIO popup's saved config for this node.
+
+    DeepTesting-only persistence (deeptest_node_configs): the popup shares the
+    LIVE TESTING schedule editor's PRESENTATION, never its storage. Reading or
+    writing here can never mutate live scheduling, risk or execution settings.
+    """
+    from ..deeptest import store as dstore
+    db = get_db()
+    dstore.ensure_schema(db)
+    cfg = dstore.get_node_config(db, node_id)
+    return {
+        "ok": True,
+        "node_id": node_id,
+        "config": cfg,
+        "configured": bool(cfg),
+        "storage": "deeptest_node_configs (DeepTesting only — live settings untouched)",
+    }
+
+
+@router.post("/deeptest/node-config/{node_id}")
+def deeptest_node_config_save(node_id: int, payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+    """Save the SCENARIO popup config (schedule + scenario settings) for a node."""
+    from ..deeptest import store as dstore
+    from ..deeptest.scenarios import NODE_SETTING_FIELDS
+    from ..live_testing.schedule import normalize_config as _norm_cfg
+    db = get_db()
+    dstore.ensure_schema(db)
+    cfg = dict(payload or {})
+    # validate the schedule part with the same normaliser the live editor uses
+    # (presentation parity) but persist ONLY here.
+    try:
+        norm = _norm_cfg(cfg) or {}
+    except Exception as exc:
+        raise HTTPException(400, f"invalid schedule config: {type(exc).__name__}: {exc}")
+    node_settings = {k: cfg.get(k) for k in NODE_SETTING_FIELDS if cfg.get(k) is not None}
+    saved = dstore.save_node_config(db, node_id, {
+        "schedule": norm,
+        "node_settings": node_settings,
+        "scenario": {k: cfg.get(k) for k in
+                     ("initial_capital", "spread_mode", "commission_model",
+                      "slippage_model", "max_trades", "notes")
+                     if cfg.get(k) is not None},
+        "updated_by": "deeptest-scenario-popup",
+    })
+    return {"ok": True, "node_id": node_id, "config": saved,
+            "note": "saved to DeepTesting config — live execution settings untouched"}
+
+
+@router.post("/deeptest/run/{run_id}/filtered")
+def deeptest_filtered_stats(run_id: str, payload: Dict[str, Any] = Body(default_factory=dict)) -> Dict[str, Any]:
+    """V6.7 §10 — interactive performance EXCLUSION filters over saved trades.
+
+    Pure post-trade analysis: recomputes every recalculable statistic from the
+    scenario's persisted trades with the same accounting the summary uses.
+    NEVER creates a scenario, never alters stored trades, never touches live.
+    Filter semantics are OR-style independent exclusion dimensions: a trade is
+    excluded when its entry day-of-week is excluded OR its entry session is.
+    Timestamp convention: the ACTUAL ENTRY timestamp (UTC); day-of-week and
+    session come from the framework fields recorded with each trade.
+    """
+    from datetime import datetime, timezone
+
+    from ..deeptest import analytics as A
+    from ..deeptest import scenarios as SC
+    from ..deeptest import store as dstore
+    db = get_db()
+    dstore.ensure_schema(db)
+    sc = dstore.get_scenario(db, run_id)
+    if not sc:
+        raise HTTPException(404, f"scenario {run_id} not found")
+    # ALL saved trades of this scenario (never a page of them — filtering must
+    # recalculate over the complete persisted trade list).
+    try:
+        trades = [dict(r) for r in (db.q(
+            "SELECT * FROM deeptest_trades WHERE run_id=? ORDER BY trade_no", (run_id,)) or [])]
+    except Exception:
+        trades = []
+    excl_days = {str(d).strip().lower() for d in (payload.get("exclude_days") or [])
+                 if str(d).strip()}
+    excl_sessions = {str(x).strip().lower() for x in (payload.get("exclude_sessions") or [])
+                     if str(x).strip()}
+    _day_names = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+
+    def _day_name(t):
+        dv = t.get("dow")
+        if dv is None:
+            try:
+                dv = datetime.fromtimestamp(float(t.get("entry_ts")), tz=timezone.utc).weekday()
+            except Exception:
+                return None
+        try:
+            return _day_names[int(dv) % 7]
+        except Exception:
+            return None
+
+    def _sess(t):
+        return str(t.get("session") or "").strip().lower() or None
+
+    def _excluded(t):
+        d = _day_name(t)
+        if d and d in excl_days:
+            return f"day:{d}"
+        sess = _sess(t)
+        if sess and sess in excl_sessions:
+            return f"session:{sess}"
+        return None
+
+    kept, dropped = [], []
+    for t in trades:
+        reason = _excluded(t)
+        if reason:
+            dropped.append({"trade_no": t.get("trade_no"), "reason": reason})
+        else:
+            kept.append(t)
+
+    # the same accounting as the stored summary: same initial capital, same
+    # fee/slippage conventions (values live in the persisted trades).
+    init_cap = float((sc.get("metrics") or {}).get("initial_capital")
+                     or (sc.get("settings") or {}).get("initial_capital") or 10000.0)
+
+    def _side_block(rows):
+        from collections import defaultdict
+        months: Dict[str, float] = {}
+        exits: Dict[str, Dict[str, Any]] = {}
+        days: Dict[str, Dict[str, Any]] = {}
+        sessions: Dict[str, Dict[str, Any]] = {}
+        for t in rows:
+            pnl = float(t.get("net_pnl") if t.get("net_pnl") is not None
+                        else t.get("pnl") or 0.0)
+            try:
+                m = datetime.fromtimestamp(float(t.get("entry_ts")), tz=timezone.utc).strftime("%Y-%m")
+            except Exception:
+                m = "unknown"
+            months[m] = months.get(m, 0.0) + pnl
+            er = str(t.get("exit_reason") or "UNKNOWN")
+            e = exits.setdefault(er, {"count": 0, "net_pnl": 0.0})
+            e["count"] += 1
+            e["net_pnl"] += pnl
+            d = _day_name(t) or "unknown"
+            dd_ = days.setdefault(d, {"count": 0, "net_pnl": 0.0})
+            dd_["count"] += 1
+            dd_["net_pnl"] += pnl
+            sess = _sess(t) or "unknown"
+            ss = sessions.setdefault(sess, {"count": 0, "net_pnl": 0.0})
+            ss["count"] += 1
+            ss["net_pnl"] += pnl
+        return {
+            "monthly_pnl": {k: round(v, 2) for k, v in sorted(months.items())},
+            "exit_reasons": {k: {"count": v["count"], "net_pnl": round(v["net_pnl"], 2)}
+                             for k, v in sorted(exits.items())},
+            "by_day_of_week": {k: {"count": v["count"], "net_pnl": round(v["net_pnl"], 2)}
+                               for k, v in days.items()},
+            "by_session": {k: {"count": v["count"], "net_pnl": round(v["net_pnl"], 2)}
+                           for k, v in sessions.items()},
+        }
+
+    orig_summary = sc.get("metrics") or {}
+    try:
+        filt_summary = A.summarize(kept, initial_capital=init_cap)
+    except Exception as exc:
+        filt_summary = {"error": f"recalculation failed: {type(exc).__name__}: {exc}"}
+    return {
+        "ok": True,
+        "run_id": run_id,
+        "timestamp_convention": "actual entry timestamp (UTC); day-of-week/session from framework trade fields",
+        "filter_semantics": ("OR-style independent exclusion dimensions: excluded when "
+                             "entry day-of-week is excluded OR entry session is excluded"),
+        "filters": {"exclude_days": sorted(excl_days),
+                    "exclude_sessions": sorted(excl_sessions)},
+        "active": bool(excl_days or excl_sessions),
+        "trade_counts": {"original": len(trades), "kept": len(kept),
+                         "excluded": len(dropped)},
+        "original": {"summary": orig_summary, **_side_block(trades)},
+        "filtered": {"summary": filt_summary, **_side_block(kept)},
+        "excluded_trades": dropped[:200],
+        "disclosure": ("post-trade exclusion analysis of saved results — NOT a "
+                       "re-simulation or re-backtest. Path-dependent metrics are "
+                       "rebuilt chronologically from the KEPT trades; values that "
+                       "cannot be recalculated from saved data are labelled "
+                       "unavailable, never shown as recalculated."),
+    }
+
+
 @router.get("/deeptest/scenarios")
 def deeptest_scenarios_list(node_id: Optional[int] = None,
                             statuses: Optional[str] = None):
@@ -6143,13 +6468,43 @@ def nodes_index(
         "score": "score", "generation": "generation", "fitness": "fitness",
         "node_id": "node_id", "node_label": "node_label", "net_profit": "net_profit",
         "expectancy": "expectancy",
+        # V6.7 §4.3 — generation-record and DeepTest sorts are DISTINCT keys so
+        # one can never silently read the other's numbers; coverage ranks on the
+        # recorded bar count of the data actually backing the node.
+        "generation_return": "generation_metrics:return_pct",
+        "generation_return_pct": "generation_metrics:return_pct",
+        "generation_pf": "generation_metrics:profit_factor",
+        "generation_profit_factor": "generation_metrics:profit_factor",
+        "generation_dd": "generation_metrics:max_drawdown_pct",
+        "generation_drawdown": "generation_metrics:max_drawdown_pct",
+        "generation_win_rate": "generation_metrics:win_rate",
+        "generation_trades": "generation_metrics:trades",
+        "generation_net_profit": "generation_metrics:net_profit",
+        "deeptest_return": "deeptest:return_pct",
+        "deeptest_pf": "deeptest:profit_factor",
+        "deeptest_dd": "deeptest:max_drawdown_pct",
+        "deeptest_win_rate": "deeptest:win_rate",
+        "deeptest_trades": "deeptest:trades",
+        "deeptest_net_profit": "deeptest:net_profit",
+        "coverage": "backtest_coverage:bars",
     }
     sort_key_name = _SORT_ALIASES.get(str(sort_by), str(sort_by))
 
     def _sort_value(r):
+        # namespaced keys (group:field) read exactly one group — never a mix
+        if ":" in str(sort_key_name):
+            gname, fname = str(sort_key_name).split(":", 1)
+            g = r.get(gname)
+            if isinstance(g, dict):
+                v = g.get(fname)
+                if v is None and gname == "backtest_coverage":
+                    v = (g.get("research_backtest") or {}).get("bars_window")
+                return v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+            return None
         if sort_key_name in r:
             return r.get(sort_key_name)
-        for group in ("metrics", "robustness", "live", "risk"):
+        for group in ("metrics", "robustness", "live", "risk",
+                      "generation_metrics", "deeptest"):
             g = r.get(group)
             if isinstance(g, dict) and sort_key_name in g:
                 return g.get(sort_key_name)

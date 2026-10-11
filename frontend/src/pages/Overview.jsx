@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useRef } from "react";
 import { api, fmt } from "../api.js";
 import { useLab } from "../App.jsx";
 import { Metric, Pill, EventFeed, SignedNum, ErrorNote } from "../components/common.jsx";
@@ -20,6 +20,11 @@ export default function Overview() {
   const [targetInput, setTargetInput] = useState("");
   const [recheckData, setRecheckData] = useState(null);
   const [rechecking, setRechecking] = useState(false);
+  // V6.7 §3 — the single authoritative inventory (counts/identity/rankings).
+  // Every count this page shows derives from this snapshot — never from a
+  // client-side sum of a status histogram or a competing fallback chain.
+  const [nodeInv, setNodeInv] = useState(null);
+  const invSeq = useRef(0);
 
   // V2.7 Data Inventory & Jobs State
   const [inventory, setInventory] = useState(null);
@@ -170,8 +175,10 @@ export default function Overview() {
   };
 
   useEffect(() => {
+    // V6.7 §4.3 — rankings come from the server's full-dataset sort (never a
+    // limited slice re-sorted locally); direction is part of the query.
     const fetchTop = () => {
-      api.population({ limit: 40, sort: "fitness" })
+      api.population({ limit: 15, sort: sortCol || "fitness", sort_desc: sortDir === "desc" ? "true" : "false" })
         .then((r) => setTop(r.strategies || []))
         .catch((e) => setErr(e.message));
     };
@@ -198,6 +205,7 @@ export default function Overview() {
     fetchRes();
     fetchInventory();
     fetchJobs();
+    fetchNodeInv();
     fetchInitialSettings();
     fetchShortlist();
     fetchRuns();
@@ -209,10 +217,12 @@ export default function Overview() {
       inFlightOverview = true;
       try {
         await Promise.all([
-          api.population({ limit: 40, sort: "fitness" }).then((r) => setTop(r.strategies || [])).catch(() => {}),
+          api.population({ limit: 15, sort: sortCol || "fitness", sort_desc: sortDir === "desc" ? "true" : "false" })
+            .then((r) => setTop(r.strategies || [])).catch(() => {}),
           api.resources().then(setResources).catch(() => {}),
           api.dataInventory().then(setInventory).catch(() => {}),
           api.jobs().then(setJobsData).catch(() => {}),
+          fetchNodeInv(),
           fetchRuns(),
         ]);
       } finally {
@@ -258,13 +268,26 @@ export default function Overview() {
     setTimeout(refreshStatus, 400);
   };
 
+  // V6.7 §3 — one shared authoritative snapshot load, latest-request-wins so a
+  // slower older response can never overwrite newer data.
+  const fetchNodeInv = async () => {
+    const seq = ++invSeq.current;
+    try {
+      const res = await api.inventorySnapshot();
+      if (seq === invSeq.current && res?.ok !== false) setNodeInv(res);
+    } catch (e) { /* non-fatal: RECHECK can still reconcile */ }
+  };
+
   // V2.1 RECHECK: fast reconstruction from SQLite without rerun (spec §V2.1 G)
+  // V6.7 §3: the same call atomically recomputes + commits the authoritative
+  // inventory — result, timestamp and errors are shown, never swallowed.
   const handleRecheck = async () => {
     setRechecking(true);
     setErr(null);
     try {
       const res = await api.recheck();
       setRecheckData(res);
+      if (res?.inventory) { invSeq.current += 1; setNodeInv(res.inventory); }
       if (res.target) setTargetInput(String(res.target));
       refreshStatus();
     } catch (e) {
@@ -318,11 +341,21 @@ export default function Overview() {
     return pState.current_run || (runsData.length > 0 ? runsData[0] : null);
   }, [selectedRunId, runsData, pState]);
 
+  // V6.7 §3 — the authoritative qualified count (node_bucket classifier from
+  // the inventory snapshot). Falls back to the RECHECK-committed inventory,
+  // then to the lab counters; the client never sums a status histogram.
+  // Declared BEFORE the memos that read it (useMemo factories run in place).
+  const inv = recheckData?.inventory || nodeInv;
+  const invCounts = inv?.counts_excl_legacy || null;
+  const qualifiedAuthoritative = invCounts?.qualified
+    ?? recheckData?.inventory?.counts_excl_legacy?.qualified
+    ?? null;
+
   const cumulativeStats = useMemo(() => {
     return pState.cumulative || {
       total_nodes: recheckData?.total_nodes ?? lab?.total_nodes ?? 0,
-      completed_nodes: counts.QUALIFIED || 0,
-      qualified_nodes: counts.QUALIFIED || 0,
+      completed_nodes: qualifiedAuthoritative ?? (counts.QUALIFIED || 0),
+      qualified_nodes: qualifiedAuthoritative ?? (counts.QUALIFIED || 0),
       total_runs: runsData.length || 1,
     };
   }, [pState, recheckData, lab, counts, runsData]);
@@ -330,7 +363,8 @@ export default function Overview() {
   const runGenNodes = currentRun?.generated_nodes ?? (recheckData?.total_nodes ?? lab?.total_nodes ?? 0);
   const runCeiling = currentRun?.node_ceiling ?? (recheckData?.target ?? lab?.target ?? 500);
   const runCompleted = currentRun?.completed_nodes ?? 0;
-  const runQualified = currentRun?.qualified_nodes ?? ((counts.QUALIFIED || 0) + (counts.PAPER || 0));
+  const runQualified = currentRun?.qualified_nodes ?? qualifiedAuthoritative
+    ?? ((counts.QUALIFIED || 0) + (counts.PAPER || 0));
   const runPendingBt = currentRun?.pending_backtesting ?? (counts.BACKTESTING || 0);
   const runPendingVal = currentRun?.pending_validation ?? (counts.VALIDATING || 0);
   const runGen = currentRun?.current_generation ?? (recheckData?.current_generation ?? lab?.generation ?? 0);
@@ -360,7 +394,14 @@ export default function Overview() {
   // NewResearchRunModal (backup+reset / resume+add / reset without backup) instead
   // of silently starting a bare new run id.
 
-  // Raw numeric sorting (spec §38)
+  // Raw numeric sorting (spec §38) — V6.7 §4.3: sorting happens over the FULL
+  // dataset server-side (missing metrics last, canonical-id tie-break); this
+  // handler only changes the query and re-fetches, never re-ranks a slice.
+  const refetchTop = () => {
+    api.population({ limit: 15, sort: sortCol || "fitness", sort_desc: sortDir === "desc" ? "true" : "false" })
+      .then((r) => setTop(r.strategies || []))
+      .catch((e) => setErr(e.message));
+  };
   const handleSort = (col) => {
     if (sortCol === col) {
       setSortDir((prev) => (prev === "desc" ? "asc" : "desc"));
@@ -368,21 +409,10 @@ export default function Overview() {
       setSortCol(col);
       setSortDir("desc");
     }
+    setTimeout(refetchTop, 0);
   };
 
-  const sortedTop = useMemo(() => {
-    const list = [...top];
-    list.sort((a, b) => {
-      let va = a[sortCol];
-      let vb = b[sortCol];
-      if (sortCol === "dd") { va = a.dd; vb = b.dd; }
-      if (sortCol === "return_pct") { va = a.return_pct; vb = b.return_pct; }
-      if (va == null) va = -Infinity;
-      if (vb == null) vb = -Infinity;
-      return sortDir === "desc" ? (vb > va ? 1 : vb < va ? -1 : 0) : (va > vb ? 1 : va < vb ? -1 : 0);
-    });
-    return list.slice(0, 15);
-  }, [top, sortCol, sortDir]);
+  const sortedTop = useMemo(() => top.slice(0, 15), [top]);
 
   const sortArrow = (col) => {
     if (sortCol !== col) return "";
@@ -397,7 +427,11 @@ export default function Overview() {
   const dead = recheckData?.dead ?? lab?.dead ?? 0;
   const backtesting = recheckData?.backtesting ?? lab?.backtesting ?? (counts.BACKTESTING || 0);
   const validating = recheckData?.validating ?? lab?.validating ?? (counts.VALIDATING || 0);
-  const qualified = recheckData?.qualified ?? lab?.qualified ?? ((counts.QUALIFIED || 0) + (counts.PAPER || 0));
+  // V6.7 §3 — one headline number everywhere: the authoritative inventory
+  // count. The older competing formulas remain visible only as explicitly
+  // labeled secondary lines in the reconciliation strip below.
+  const qualified = qualifiedAuthoritative ?? recheckData?.qualified ?? lab?.qualified
+    ?? ((counts.QUALIFIED || 0) + (counts.PAPER || 0));
   const currentGen = recheckData?.current_generation ?? lab?.generation ?? 0;
   const targetReached = totalNodes >= target;
   const progressPct = target > 0 ? Math.min(100, Math.round((totalNodes / target) * 1000) / 10) : 100;
@@ -432,6 +466,43 @@ export default function Overview() {
       </div>
 
       <ErrorNote err={err} />
+
+      {/* V6.7 §3 — RECHECK reconciliation strip: the authoritative inventory
+          result, its timestamp and any errors are visible on the dashboard. */}
+      <div className="panel" style={{ marginBottom: 14, padding: "8px 12px" }}>
+        <div className="flex items-center" style={{ gap: 14, flexWrap: "wrap", fontSize: "0.82rem" }}>
+          <b>Authoritative inventory</b>
+          <span className="muted mono" title="content-derived revision — two loads of the same data share it">
+            rev {inv?.inventory_revision || "—"}
+          </span>
+          <span className="muted">
+            reconciled {inv?.computed_at
+              ? new Date(inv.computed_at).toLocaleString()
+              : "—"}{rechecking ? " · rechecking…" : ""}
+          </span>
+          <span>
+            qualified <b className="pos mono">{qualifiedAuthoritative ?? "—"}</b>
+            <span className="muted"> (authoritative)</span>
+          </span>
+          {invCounts && (
+            <span className="muted mono">
+              total {invCounts.total} · alive {invCounts.alive} · blocked {invCounts.blocked} · failed {invCounts.failed}
+            </span>
+          )}
+          <span className="muted" title="secondary, labeled — never mixed into the authoritative count">
+            secondary: lab.qualified {lab?.qualified ?? "—"} · status-histogram sum {Object.values(counts || {}).reduce((a, b) => a + (Number(b) || 0), 0)}
+          </span>
+          <button className="btn" onClick={handleRecheck} disabled={rechecking}
+                  title="V2.1 recompute from SQLite + V6.7 atomic inventory commit">
+            {rechecking ? "RECHECKING…" : "RECHECK"}
+          </button>
+        </div>
+        {(inv?.errors || []).length > 0 && (
+          <div className="neg mono" style={{ fontSize: "0.75rem", marginTop: 6 }}>
+            {(inv.errors || []).join(" · ")}
+          </div>
+        )}
+      </div>
 
       {/* V2.1 TOTAL NODE TARGET & EVOLUTION CONTROL PANEL (spec §V2.1 D, G, H, I) */}
       <div className="panel" style={{

@@ -36,10 +36,25 @@ cannot be computed is reported as 0 with a reason in ``notes``.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
+from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Set
 
-from ..status import (ALIVE_STATUSES, STATUS_LABELS, is_alive, node_bucket, v5_status)
+from ..status import (ALIVE_STATUSES, STATUS_LABELS, is_alive, node_bucket,
+                     v5_status)
+
+
+def node_label(row: dict) -> str:
+    """Canonical identity label (V6.4 contract): 'Node #<canonical id>'."""
+    return f"Node #{row.get('id')}"
+
+
+def research_label(row: dict) -> str:
+    """Study-local display number, always explicitly labeled."""
+    num = row.get("research_node_num")
+    return f"research #{num}" if num is not None else ""
 
 log = logging.getLogger("research.populations")
 
@@ -473,3 +488,254 @@ def run_progress(run: Dict[str, Any], *, processed_bars: Optional[int] = None,
         "reason": reason,
         "source": "bars column" if (isinstance(bars, int) and bars > 0) else "estimate_bars(timeframe, window)",
     }
+
+
+# ---------------------------------------------------------------------------
+# V6.7 — SINGLE AUTHORITATIVE INVENTORY SNAPSHOT (V6.7 contract §3)
+# ---------------------------------------------------------------------------
+# Every surface that shows node counts, node identity, rankings or generation
+# metrics MUST derive them from this one function so that Overview, the node
+# inventory, qualified counts, rankings, search and DeepTesting can never
+# disagree. The snapshot is deterministic for identical underlying data (its
+# revision derives from the data itself, not the clock), is computed over the
+# FULL node dataset, and never trusts a previously displayed value.
+
+INVENTORY_SCHEMA_VERSION = 1
+
+# The exact node row shape the classifier and this snapshot consume — kept
+# identical to ``nodes_index`` so one universe has ONE set of counts.
+INVENTORY_ROW_COLS = """id, status, symbol, timeframe, generation, fitness, run_id,
+                  research_node_num, data_source, failure_reason, survival_reason,
+                  creation_reason, parent_id, mutation_type, created_at"""
+
+
+def node_label(row: dict) -> str:
+    """Canonical identity label (V6.4 contract): 'Node #<canonical id>'."""
+    return f"Node #{row.get('id')}"
+
+
+def research_label(row: dict) -> str:
+    """Study-local display number, always explicitly labeled."""
+    num = row.get("research_node_num")
+    return f"research #{num}" if num is not None else ""
+
+
+def _metrics_from_json(raw) -> dict:
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            v = json.loads(raw)
+            return v if isinstance(v, dict) else {}
+        except Exception:
+            return {}
+    return {}
+
+
+def _gen_metrics_from(met: dict) -> dict:
+    """Canonical generation metrics from a stored generation record (the
+    ``backtests.metrics`` JSON). Absent values stay absent; a real zero is a
+    real zero. These numbers are NEVER taken from current MT5 candle coverage
+    (a generation record can exist while no cached M1 bars exist)."""
+    def g(*keys):
+        for k in keys:
+            v = met.get(k)
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                return float(v)
+        return None
+    # NOTE on units (V6.7 §4.2): the historical generation records store
+    # total_return_pct / max_drawdown_pct / win_rate as FRACTIONS despite the
+    # names — display converts ×100; the raw stored value is kept here so a
+    # displayed percentage can always be asserted equal to the stored record.
+    return {
+        "return_pct": g("total_return_pct", "total_return", "return_pct"),
+        "net_profit": g("net_profit"),
+        "profit_factor": g("profit_factor"),
+        "max_drawdown_pct": g("max_drawdown_pct"),
+        "win_rate_pct": g("win_rate_pct", "win_rate"),
+        "trades": g("trades", "total_closed_trades", "total_trades"),
+        "sharpe": g("sharpe", "sharpe_ratio"),
+        "sortino": g("sortino", "sortino_ratio"),
+        "expectancy": g("expectancy"),
+        "avg_hold": g("avg_hold_bars", "avg_hold"),
+    }
+
+
+def _best_generation_record(db) -> dict:
+    """One scan of ``backtests``: per strategy the record nodes_index shows as
+    its generation performance (detail preferred over screen, newest wins)."""
+    out: dict = {}
+    try:
+        recs = db.q("""SELECT id, strategy_id, stage, metrics FROM backtests
+                       WHERE stage IN ('detail','screen') ORDER BY id""") or []
+    except Exception:
+        return out
+    for r in recs:
+        sid = r.get("strategy_id")
+        if sid is None:
+            continue
+        stage = (r.get("stage") or "")
+        rank = 0 if stage == "detail" else 1
+        prev = out.get(sid)
+        if prev is None or (rank, int(r.get("id") or 0)) < (prev[0], prev[1]):
+            out[sid] = (rank, int(r.get("id") or 0), _metrics_from_json(r.get("metrics")))
+    return {sid: v[2] for sid, v in out.items()}
+
+
+def _top_list(scored_rows: list, key: str, *, desc: bool, limit: int) -> list:
+    """Top-N over the FULL dataset. Missing metrics are excluded from the
+    ranking (never treated as 0); ties break deterministically on canonical
+    node id (then research number)."""
+    scored = [(t[0], t[1], t[2]) for t in scored_rows if t[0] is not None]
+    scored.sort(key=lambda t: ((-t[0] if desc else t[0]),
+                               int(t[1].get("id") or 0),
+                               int(t[1].get("research_node_num") or 0)))
+    out = []
+    for v, row, met in scored[:limit]:
+        out.append({
+            "canonical_node_id": row.get("id"),
+            "research_node_num": row.get("research_node_num"),
+            "node_label": node_label(row),
+            "research_label": research_label(row),
+            "bucket": node_bucket(row)["bucket"],
+            "v5_status": v5_status(row),
+            "stored_status": row.get("status"),
+            "metric": key,
+            "value": v,
+            "generation_metrics": met,
+        })
+    return out
+
+
+def db_state_token(db) -> str:
+    """Cheap freshness token for the strategies universe (V6.7 §3).
+
+    A committed inventory snapshot may be served only while this token still
+    matches the token recorded at compute time — any change to the node table
+    (restoration imports, run workflow, tests) invalidates the cache instead of
+    presenting stale counts as current."""
+    try:
+        row = db.one("""SELECT COUNT(*) c, COALESCE(MAX(id),0) mx,
+                               COALESCE(MAX(updated_at),0) mu,
+                               COALESCE(MAX(created_at),0) mc FROM strategies""") or {}
+        ds = db.one("SELECT COUNT(*) c FROM datasets") or {}
+        return "v1:%s:%s:%s:%s:%s" % (row.get("c"), row.get("mx"), row.get("mu"),
+                                      row.get("mc"), ds.get("c"))
+    except Exception:
+        return "v1:unknown"
+
+
+def inventory_snapshot(db=None, limit_top: int = 10) -> dict:
+    """THE authoritative inventory snapshot (V6.7 §3).
+
+    One atomic snapshot: authoritative bucket counts (the node_bucket
+    classifier), per-status histogram, identity mapping (canonical id ↔
+    research number), generation metrics and full-dataset top rankings.
+    Deterministic for identical data — the revision derives from the data
+    content so independent loads of the same state resolve to the same
+    revision. ``db`` may be a Database or a database file path.
+    """
+    owns = False
+    if isinstance(db, str):
+        # private handle for an explicit database file (tests) — closed here.
+        from app.db.database import Database as _DB
+        db = _DB(db)
+        owns = True
+    elif db is None:
+        # the shared process singleton — NEVER closed by this function.
+        from app.db.database import get_db as _gdb
+        db = _gdb()
+    try:
+        rows = [dict(r) for r in (db.q(f"SELECT {INVENTORY_ROW_COLS} FROM strategies")
+                                  or [])]
+        gen = _best_generation_record(db)
+
+        def _blank_counts(total: int) -> dict:
+            return {"qualified": 0, "alive": 0, "blocked": 0, "failed": 0,
+                    "unknown": 0, "total": total}
+
+        counts = _blank_counts(len(rows))            # ALL rows
+        nonlegacy = [r for r in rows if (r.get("data_source") or "USER_RESEARCH") != "LEGACY_TEST"]
+        counts_excl = _blank_counts(len(nonlegacy))  # display scope (lab recheck)
+        by_status: dict = {}
+        identity = {}
+        errors: list = []
+        scored = []          # (value, row, metrics) per ranking metric
+        fit_scored = []
+        for row in rows:
+            try:
+                bucket = node_bucket(row)["bucket"]
+            except Exception as exc:            # one bad row must not poison the snapshot
+                bucket = "unknown"
+                errors.append(f"node {row.get('id')}: classifier error {exc}")
+            counts[bucket] = counts.get(bucket, 0) + 1
+            if (row.get("data_source") or "USER_RESEARCH") != "LEGACY_TEST":
+                counts_excl[bucket] = counts_excl.get(bucket, 0) + 1
+            st = str(row.get("status") or "UNKNOWN")
+            by_status[st] = by_status.get(st, 0) + 1
+            rid, rnum = row.get("id"), row.get("research_node_num")
+            if rid is not None:
+                identity[int(rid)] = {
+                    "canonical_node_id": int(rid),
+                    "research_node_num": int(rnum) if rnum is not None else None,
+                    "node_label": node_label(row),
+                    "research_label": research_label(row),
+                    "stored_status": st,
+                    "bucket": bucket,
+                }
+            met = gen.get(rid) or gen.get(int(rid) if rid is not None else -1) or {}
+            met = _gen_metrics_from(met if isinstance(met, dict) else {})
+            # rankings describe the SAME universe /api/population ranks (the
+            # display scope: non-legacy rows) so one ranking can never show a
+            # different "top return" than the table the operator sees. The
+            # preserved historical rows stay fully mapped in `identity`.
+            if (row.get("data_source") or "USER_RESEARCH") != "LEGACY_TEST":
+                scored.append((row, met))
+                fv = row.get("fitness")
+                if isinstance(fv, (int, float)) and not isinstance(fv, bool):
+                    fit_scored.append((float(fv), row, met))
+
+        tops = {
+            "return_pct": _top_list([(m["return_pct"], r, m) for r, m in scored],
+                                    "return_pct", desc=True, limit=limit_top),
+            "profit_factor": _top_list([(m["profit_factor"], r, m) for r, m in scored],
+                                       "profit_factor", desc=True, limit=limit_top),
+            "max_drawdown_pct": _top_list([(m["max_drawdown_pct"], r, m) for r, m in scored],
+                                          "max_drawdown_pct", desc=False, limit=limit_top),
+            "trades": _top_list([(m["trades"], r, m) for r, m in scored],
+                                "trades", desc=True, limit=limit_top),
+            "fitness": _top_list(fit_scored, "fitness", desc=True, limit=limit_top),
+        }
+        content_fp = hashlib.sha256(json.dumps(
+            {"counts": counts, "counts_excl_legacy": counts_excl,
+             "by_status": by_status,
+             "top_ids": [[t.get("canonical_node_id") for t in v] for v in tops.values()],
+             "n_identity": len(identity)},
+            sort_keys=True, default=str).encode()).hexdigest()
+        try:
+            rev_base = str(db.get_meta("data_revision") or "0")
+        except Exception:
+            rev_base = "0"
+        return {
+            "schema_version": INVENTORY_SCHEMA_VERSION,
+            # content-derived revision: two loads of the same data agree.
+            "inventory_revision": f"{rev_base}:{content_fp[:12]}",
+            "state_token": db_state_token(db),
+            "computed_at": datetime.now(timezone.utc).isoformat(),
+            "counts": counts,                      # authoritative: bucket counts (all rows)
+            "counts_excl_legacy": counts_excl,     # same, display scope (no LEGACY_TEST)
+            "counts_by_status": by_status,         # raw stored-status histogram
+            "tops_scope": ("display scope (non-legacy rows) — identical universe "
+                           "to /api/population rankings"),
+            "identity": identity,
+            "tops": tops,
+            "errors": errors,
+            "sources_used": ["strategies (node_bucket classifier)",
+                             "backtests.metrics (generation records)"],
+        }
+    finally:
+        if owns:
+            try:
+                db.close()
+            except Exception:
+                pass

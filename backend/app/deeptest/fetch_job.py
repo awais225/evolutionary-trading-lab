@@ -70,7 +70,14 @@ def cancel_fetch(symbol: str, timeframe: str) -> Dict[str, Any]:
     if not job or job.state["status"] in ("DONE", "FAILED", "CANCELLED"):
         return {"ok": False, "error": "no fetch is running for this cache key"}
     job.cancel.set()
-    job.set(operation="cancelling after the current range completes")
+    # V6.7 §5 — cancellation reaches the chunked fetch loop itself (between
+    # bounded chunks), so every fetch reaches its terminal state promptly.
+    try:
+        from ..data.engine import cancel_sync
+        cancel_sync(symbol, timeframe)
+    except Exception:
+        pass
+    job.set(operation="cancelling — stopping after the current chunk")
     return {"ok": True, "job": job.state}
 
 
@@ -94,19 +101,29 @@ def _run(job: _FetchJob) -> None:
         # sync_master reads the last stored timestamp and requests ONLY the
         # missing range — the requested period extends the goal but the fetch
         # itself is strictly incremental
-        job.set(progress_pct=15.0, operation="bridge: copy_rates_range (missing range only)")
-        result = engine.sync_master(job.symbol, job.timeframe)
-        if job.cancel.is_set():
+        job.set(progress_pct=15.0, operation="bridge: chunked copy_rates_range (missing range only)")
+
+        def _prog(pct, msg):
+            job.set(progress_pct=15.0 + (pct - 35.0) * 0.75, operation=msg)
+
+        result = engine.sync_master(job.symbol, job.timeframe, progress_cb=_prog)
+        sync_status = str((result or {}).get("sync_status") or "").upper()
+        if job.cancel.is_set() or (result or {}).get("status") == "cancelled":
             job.set(status="CANCELLED", stage="CANCELLED", finished_at=time.time())
             return
         job.set(progress_pct=85.0, stage="VALIDATING",
                 operation="validating and persisting the merged store")
         from .coverage import pair_coverage
         cov = pair_coverage(job.symbol, job.timeframe)
-        job.set(status="DONE", stage="DONE", finished_at=time.time(),
+        # V6.7 §5.5 — terminal label reflects the REAL outcome: COMPLETE only
+        # when the received range covers the request; a short range is PARTIAL.
+        stage = "PARTIAL" if sync_status == "PARTIAL" else "COMPLETE"
+        note = (result or {}).get("partial_reason") or "history up to date"
+        job.set(status="DONE", stage=stage, finished_at=time.time(),
                 progress_pct=100.0,
-                operation="history up to date",
-                result={"sync": result, "coverage": cov})
+                operation=note,
+                result={"sync": result, "coverage": cov,
+                        "requested_vs_actual": (result or {}).get("fetch")})
     except Exception as e:  # noqa: BLE001 — a fetch failure must stay visible
         job.set(status="FAILED", stage="FAILED", finished_at=time.time(),
                 error=f"{type(e).__name__}: {e}"[:400])

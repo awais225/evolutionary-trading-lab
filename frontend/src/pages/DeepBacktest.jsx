@@ -25,6 +25,7 @@ import StrategyDrawer from "../components/StrategyDrawer";
 import DeepCoveragePanel from "../components/DeepCoveragePanel";
 import DeepCsvImportDialog from "../components/DeepCsvImportDialog";
 import DeepScenarioPanel from "../components/DeepScenarioPanel";
+import { ScheduleDialog } from "../components/LiveTestingPanels";
 import { arr, txt } from "../lib/safe.js";
 
 /* §5 — the node filters. ``qualified`` is the default: Deep Testing lists every
@@ -73,6 +74,13 @@ export default function DeepBacktest() {
   const [confirmState, setConfirmState] = useState(null); // §9 popup
   const [sortKey, setSortKey] = useState("node_id");
   const [sortDir, setSortDir] = useState(1);
+  // V6.7 §7.2 — the SCENARIO popup (scheduling/configuration; DeepTesting-only
+  // storage through the shared presentation component — live settings frozen).
+  const [scenarioFor, setScenarioFor] = useState(null);
+  // V6.7 §8 — DEEPTESTED NODES table search + sort
+  const [dtSearch, setDtSearch] = useState("");
+  const [dtSortKey, setDtSortKey] = useState("node_id");
+  const [dtSortDir, setDtSortDir] = useState(1);
   const pollRef = useRef(null);
 
   // ---- data loading --------------------------------------------------------
@@ -274,26 +282,102 @@ export default function DeepBacktest() {
   }, [dtNodes]);
 
   const sorted = useMemo(() => {
+    // V6.7 §4.3 — sorting over the FULL dataset (limit:0 fetch), real numeric
+    // comparisons, missing metrics never rank as best (always last), stable
+    // tie-break on the canonical node id. Generation metrics and DeepTest
+    // metrics are distinct sort keys — one can never read the other's values.
     const rows = [...nodes];
-    rows.sort((a, b) => {
-      let av, bv;
+    const val = (n) => {
       switch (sortKey) {
-        case "metrics": av = a.metrics?.return_pct; bv = b.metrics?.return_pct; break;
-        case "dt": av = dtByNode[a.node_id]?.scenario_count || 0; bv = dtByNode[b.node_id]?.scenario_count || 0; break;
-        case "symbol": av = a.symbol; bv = b.symbol; break;
-        case "timeframe": av = a.timeframe; bv = b.timeframe; break;
-        case "status": av = a.bucket; bv = b.bucket; break;
-        default: av = a.node_id; bv = b.node_id;
+        case "gen_return": return n.generation_metrics?.return_pct;
+        case "gen_pf": return n.generation_metrics?.profit_factor;
+        case "gen_dd": return n.generation_metrics?.max_drawdown_pct;
+        case "gen_wr": return n.generation_metrics?.win_rate;
+        case "gen_trades": return n.generation_metrics?.trades;
+        case "gen_net": return n.generation_metrics?.net_profit;
+        case "fitness": return n.fitness;
+        case "dt": return dtByNode[n.node_id]?.scenario_count || 0;
+        case "dt_return": return dtByNode[n.node_id]?.preferred?.analytics?.summary?.net_return_pct;
+        case "coverage": return n.backtest_coverage?.bars;
+        case "symbol": return n.symbol;
+        case "timeframe": return n.timeframe;
+        case "status": return n.bucket;
+        case "generation": return n.generation;
+        default: return n.node_id;
       }
-      if (av == null && bv == null) return 0;
+    };
+    rows.sort((a, b) => {
+      const av = val(a); const bv = val(b);
+      if (av == null && bv == null) return a.node_id - b.node_id;
       if (av == null) return 1;
       if (bv == null) return -1;
-      if (av < bv) return -sortDir;
-      if (av > bv) return sortDir;
-      return 0;
+      if (typeof av === "string" || typeof bv === "string") {
+        const cmp = String(av).localeCompare(String(bv));
+        if (cmp !== 0) return sortDir > 0 ? cmp : -cmp;
+      } else {
+        if (av < bv) return -sortDir;
+        if (av > bv) return sortDir;
+      }
+      return a.node_id - b.node_id;   // stable canonical-id tie-break
     });
     return rows;
   }, [nodes, sortKey, sortDir, dtByNode]);
+
+  // V6.7 §8 — DEEPTESTED NODES rows: generation metrics joined from the same
+  // canonical inventory, DeepTest metrics from the preferred scenario; sortable
+  // (numeric, missing-last, stable id tie-break) and searchable.
+  const genById = useMemo(() => {
+    const m = {};
+    for (const n of nodes) m[n.node_id] = { gen: n.generation_metrics, research_node_num: n.research_node_num };
+    return m;
+  }, [nodes]);
+  const dtRows = useMemo(() => {
+    const q = String(dtSearch || "").trim().toLowerCase();
+    let rows = (dtNodes || []).map((d) => ({
+      ...d,
+      gen: genById[d.node_id]?.gen || d.generation_metrics || null,
+      research_node_num: d.research_node_num ?? genById[d.node_id]?.research_node_num ?? null,
+    }));
+    if (q) {
+      rows = rows.filter((d) => String(d.node_id).includes(q)
+        || String(d.research_node_num ?? "").includes(q)
+        || `node #${d.node_id}`.includes(q)
+        || `research #${d.research_node_num}`.includes(q));
+    }
+    const val = (d) => {
+      const sum = d.preferred?.analytics?.summary || {};
+      switch (dtSortKey) {
+        case "gen_return": return d.gen?.return_pct;
+        case "gen_pf": return d.gen?.profit_factor;
+        case "gen_dd": return d.gen?.max_drawdown_pct;
+        case "gen_trades": return d.gen?.trades;
+        case "dt_return": return sum.net_return_pct;
+        case "dt_pf": return sum.profit_factor;
+        case "dt_dd": return sum.max_drawdown_pct;
+        case "dt_wr": return sum.win_rate;
+        case "dt_trades": return sum.trades;
+        case "dt_net": return sum.net_profit;
+        case "dt": return d.scenario_count || 0;
+        case "last_run": return d.last_run?.finished_at;
+        default: return d.node_id;
+      }
+    };
+    rows.sort((a, b) => {
+      const av = val(a); const bv = val(b);
+      if (av == null && bv == null) return a.node_id - b.node_id;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      if (av < bv) return -dtSortDir;
+      if (av > bv) return dtSortDir;
+      return a.node_id - b.node_id;
+    });
+    return rows;
+  }, [dtNodes, genById, dtSearch, dtSortKey, dtSortDir]);
+  const setDtSort = (k) => {
+    if (dtSortKey === k) setDtSortDir((v) => -v);
+    else { setDtSortKey(k); setDtSortDir(1); }
+  };
+  const dtArrow = (k) => (dtSortKey === k ? (dtSortDir > 0 ? " ↑" : " ↓") : "");
 
   const selectedNodes = useMemo(() => nodes.filter((n) => selected[n.node_id]), [nodes, selected]);
   const pairs = useMemo(() => {
@@ -399,23 +483,29 @@ export default function DeepBacktest() {
         <StateBlock loading={loading} error={error} onRetry={loadNodes}
                     empty={!loading && !error && !nodes.length} emptyText="no nodes match this filter" />
         <div className="table-scroll" style={{ marginTop: 6 }}>
-          <table style={{ width: "100%", fontSize: 10.8 }} className="mono">
+          <table style={{ width: "100%", fontSize: 10.8 }} className="tbl mono">
             <thead>
               <tr>
                 <th></th>
-                <th onClick={() => { setSortKey("node_id"); setSortDir(sortKey === "node_id" ? -sortDir : 1); }}>id</th>
+                <th onClick={() => { setSortKey("node_id"); setSortDir(sortKey === "node_id" ? -sortDir : 1); }}>node id (canonical · research)</th>
                 <th onClick={() => { setSortKey("status"); setSortDir(sortKey === "status" ? -sortDir : 1); }}>status</th>
-                <th>name</th>
+                <th onClick={() => { setSortKey("generation"); setSortDir(sortKey === "generation" ? -sortDir : 1); }}>gen</th>
+                <th>name / species</th>
                 <th onClick={() => { setSortKey("symbol"); setSortDir(sortKey === "symbol" ? -sortDir : 1); }}>symbol</th>
                 <th onClick={() => { setSortKey("timeframe"); setSortDir(sortKey === "timeframe" ? -sortDir : 1); }}>candle TF</th>
-                <th onClick={() => { setSortKey("metrics"); setSortDir(sortKey === "metrics" ? -sortDir : 1); }}>generation metrics</th>
-                <th>preferred DeepTest metrics</th>
+                <th onClick={() => { setSortKey("gen_return"); setSortDir(sortKey === "gen_return" ? -sortDir : 1); }} title="Generation Return — from the stored generation record only">Gen Return</th>
+                <th onClick={() => { setSortKey("gen_pf"); setSortDir(sortKey === "gen_pf" ? -sortDir : 1); }} title="Generation profit factor (ratio)">Gen PF</th>
+                <th onClick={() => { setSortKey("gen_dd"); setSortDir(sortKey === "gen_dd" ? -sortDir : 1); }} title="Generation max drawdown">Gen DD</th>
+                <th onClick={() => { setSortKey("gen_wr"); setSortDir(sortKey === "gen_wr" ? -sortDir : 1); }} title="Generation win rate">Gen WR</th>
+                <th onClick={() => { setSortKey("gen_trades"); setSortDir(sortKey === "gen_trades" ? -sortDir : 1); }} title="Generation closed trades">Gen Trades</th>
+                <th onClick={() => { setSortKey("fitness"); setSortDir(sortKey === "fitness" ? -sortDir : 1); }}>fitness</th>
+                <th onClick={() => { setSortKey("dt_return"); setSortDir(sortKey === "dt_return" ? -sortDir : 1); }} title="Preferred DeepTest metrics — never mixed into the generation columns">DeepTest (preferred)</th>
                 <th>scenario + coverage</th>
                 <th>risk mode / value</th>
                 <th>max trades</th>
                 <th>SL / TP offsets</th>
                 <th>schedule</th>
-                <th>data coverage</th>
+                <th onClick={() => { setSortKey("coverage"); setSortDir(sortKey === "coverage" ? -sortDir : 1); }} title="recorded bars of the data backing this node">data coverage</th>
                 <th>actions</th>
                 <th onClick={() => { setSortKey("dt"); setSortDir(sortKey === "dt" ? -sortDir : 1); }}>scenarios</th>
               </tr>
@@ -431,25 +521,30 @@ export default function DeepBacktest() {
                     <td><input type="checkbox" checked={!!selected[n.node_id]}
                                onChange={(e) => setSelected((m) => ({ ...m, [n.node_id]: e.target.checked }))} /></td>
                     <td>
-                      <button style={{ fontSize: 10.5 }} onClick={() => setDrawerId(n.node_id)}>
+                      <button className="btn" style={{ fontSize: 10.5 }} onClick={() => setDrawerId(n.node_id)}>
                         {n.node_label || `Node #${n.node_id}`}
                       </button>
-                    </td>
-                    <td title={txt(n.bucket_reason)}>{txt(n.bucket_label || n.bucket)}</td>
-                    <td>{txt(n.signal_logic?.entry_long ? "strategy" : "—")}</td>
-                    <td>{txt(n.symbol)}</td>
-                    <td>{txt(n.timeframe)}</td>
-                    <td>
-                      ret {fmtPct(n.metrics?.return_pct)} · PF {fmtNum(n.metrics?.profit_factor)}
-                      {" "}· DD {fmtPct(n.metrics?.max_drawdown_pct)} · WR {fmtPct(n.metrics?.win_rate)}
-                      {" "}· {n.metrics?.trades ?? "N/A"} trades
-                      {n.metrics_source && n.metrics_source !== "generation" && (
-                        <div style={{ fontSize: 9.5, opacity: 0.8 }}>
-                          shown from {txt(n.metrics_source_label || n.metrics_source)}
-                          {" "}· generation: ret {fmtPct(n.generation_metrics?.return_pct)}
+                      {n.research_node_num != null && (
+                        <div className="muted" style={{ fontSize: 9.5 }} title="study-local display number (explicit second namespace)">
+                          · research #{n.research_node_num}
                         </div>
                       )}
                     </td>
+                    <td title={txt(n.bucket_reason)}>{txt(n.bucket_label || n.bucket)}</td>
+                    <td>{n.generation ?? "—"}</td>
+                    <td title={txt(n.innovation ? `mutation: ${n.innovation}` : "")}>
+                      {txt(n.family || (n.signal_logic?.entry_long ? "strategy" : "—"))}
+                    </td>
+                    <td>{txt(n.symbol)}</td>
+                    <td>{txt(n.timeframe)}</td>
+                    {/* V6.7 §4.2 — generation metrics come from the stored generation
+                        record ONLY; real zeros show as 0, missing stays N/A. */}
+                    <td className="mono">{fmtPct(n.generation_metrics?.return_pct)}</td>
+                    <td className="mono">{fmtNum(n.generation_metrics?.profit_factor, 3)}</td>
+                    <td className="mono">{fmtPct(n.generation_metrics?.max_drawdown_pct)}</td>
+                    <td className="mono">{fmtPct(n.generation_metrics?.win_rate)}</td>
+                    <td className="mono">{n.generation_metrics?.trades ?? "N/A"}</td>
+                    <td className="mono">{fmtNum(n.fitness, 4)}</td>
                     <td>
                       {pref ? (
                         <span>
@@ -457,8 +552,13 @@ export default function DeepBacktest() {
                           {" "}· PF {fmtNum(pref.analytics?.summary?.profit_factor)}
                           {" "}· WR {fmtPct(pref.analytics?.summary?.win_rate)}
                           {" "}· {pref.analytics?.summary?.trades ?? "N/A"} trades
+                          {n.metrics_source && (
+                            <div style={{ fontSize: 9.5, opacity: 0.8 }}>
+                              effective stats from {txt(n.metrics_source_label || n.metrics_source)}
+                            </div>
+                          )}
                         </span>
-                      ) : "N/A"}
+                      ) : <span className="muted">NOT DEEPTESTED</span>}
                     </td>
                     <td>
                       {pref ? (
@@ -502,16 +602,24 @@ export default function DeepBacktest() {
                     <td>{txt(n.backtest_coverage?.bars ?? "—")} bars</td>
                     <td>
                       <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                        <button style={{ fontSize: 10 }} onClick={() => onFetch(n.symbol, n.timeframe)}>
+                        <button className="btn" style={{ fontSize: 10 }} onClick={() => onFetch(n.symbol, n.timeframe)}>
                           GET MT5 DATA
                         </button>
-                        <button style={{ fontSize: 10, fontWeight: 700 }} disabled={!!busy}
+                        <button className="btn" style={{ fontSize: 10, fontWeight: 700 }} disabled={!!busy}
                                 onClick={() => startDeeptest(n)}>
                           {busy ? (busy === "queued" || busy === "running" ? `${busy}…` : "failed") : "DEEPTEST"}
                         </button>
-                        <button style={{ fontSize: 10 }}
+                        {/* §7.2 — SCENARIO opens the scheduling/configuration popup
+                            (DeepTesting-only storage); INSPECT opens saved results. */}
+                        <button className="btn" style={{ fontSize: 10 }}
+                                title="Scenario / scheduling configuration for DeepTesting (saved separately from live settings)"
+                                onClick={() => setScenarioFor(n)}>
+                          SCENARIO
+                        </button>
+                        <button className="btn" style={{ fontSize: 10 }}
+                                title="Inspect saved DeepTest scenarios and trades"
                                 onClick={() => { setInspectNode(n.node_id); }}>
-                          scenarios
+                          INSPECT
                         </button>
                       </div>
                       {busy && busy !== "queued" && busy !== "running" && (
@@ -536,55 +644,100 @@ export default function DeepBacktest() {
       {/* ---- §7 MT5 DATA coverage ---------------------------------------- */}
       <DeepCoveragePanel pairs={pairs} fetchStates={fetchStates} onFetch={onFetch} />
 
-      {/* ---- §12 DEEPTESTED NODES ---------------------------------------- */}
+      {/* ---- §8 DEEPTESTED NODES ---------------------------------------- */}
       <div className="panel" style={{ marginTop: 8 }}>
         <b style={{ fontSize: 12.5 }}>DEEPTESTED NODES</b>
         <div style={{ fontSize: 10.5, opacity: 0.75, marginTop: 2 }}>
-          nodes with at least one DeepTest scenario — preferred scenario, periods tested, coverage
-          status (PARTIAL always marked), scenario count, metrics, last run. Inspect to select or
-          compare scenarios and choose the preferred one explicitly.
+          one row per DeepTested node — generation metrics and DeepTest metrics side by side,
+          preferred scenario, coverage (PARTIAL always marked), scenario count, last run.
+          Sortable and searchable; Inspect opens the saved scenarios, trades and analysis.
         </div>
-        {!dtNodes.length && <StateBlock empty emptyText="no DeepTest scenarios yet" />}
         {!!dtNodes.length && (
-          <table style={{ width: "100%", fontSize: 11, marginTop: 6 }} className="mono">
-            <thead>
-              <tr>
-                <th>node</th><th>preferred scenario</th><th>period</th><th>coverage</th>
-                <th>scenarios</th><th>metrics</th><th>last run</th><th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {dtNodes.map((d) => (
-                <tr key={d.node_id}>
-                  <td>Node #{d.node_id}</td>
-                  <td>{d.preferred ? txt(d.preferred.run_id) : "N/A"}</td>
-                  <td>{d.preferred ? txt(d.preferred.duration_key || "—") : "—"}</td>
-                  <td>
-                    {d.preferred?.coverage_status === "PARTIAL"
-                      ? <Badge tone="warn">PARTIAL COVERAGE</Badge>
-                      : txt(d.preferred?.coverage_status || "—")}
-                  </td>
-                  <td>{d.scenario_count ?? 0} ({d.valid_scenario_count ?? 0} valid)</td>
-                  <td>
-                    ret {fmtPct(d.preferred?.analytics?.summary?.net_return_pct)}
-                    {" "}· PF {fmtNum(d.preferred?.analytics?.summary?.profit_factor)}
-                    {" "}· trades {d.preferred?.analytics?.summary?.trades ?? "N/A"}
-                  </td>
-                  <td>{isoOf(d.last_run?.finished_at)}</td>
-                  <td>
-                    <button style={{ fontSize: 10 }} onClick={() => setInspectNode(d.node_id)}>
-                      inspect
-                    </button>
-                  </td>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6, flexWrap: "wrap" }}>
+            <input placeholder="search node id / research #" value={dtSearch}
+                   onChange={(e) => setDtSearch(e.target.value)} style={{ width: 200 }} />
+            <span style={{ fontSize: 10.5, opacity: 0.75 }}>
+              {dtRows.length} of {dtNodes.length} nodes shown
+            </span>
+          </div>
+        )}
+        {!dtNodes.length && <StateBlock empty emptyText="no DeepTest scenarios yet — run DEEPTEST on a node first" />}
+        {!!dtNodes.length && (
+          <div className="scroll-y table-scroll" style={{ marginTop: 6, maxHeight: 360 }}>
+            <table style={{ width: "100%", fontSize: 11 }} className="tbl mono">
+              <thead>
+                <tr>
+                  <th onClick={() => setDtSort("node_id")}>node (canonical · research){dtArrow("node_id")}</th>
+                  <th onClick={() => setDtSort("gen_return")} title="from the stored generation record">Gen Return{dtArrow("gen_return")}</th>
+                  <th onClick={() => setDtSort("gen_pf")}>Gen PF{dtArrow("gen_pf")}</th>
+                  <th onClick={() => setDtSort("gen_dd")}>Gen DD{dtArrow("gen_dd")}</th>
+                  <th onClick={() => setDtSort("gen_trades")}>Gen Trades{dtArrow("gen_trades")}</th>
+                  <th onClick={() => setDtSort("dt_return")} title="preferred DeepTest scenario">DeepTest Ret{dtArrow("dt_return")}</th>
+                  <th onClick={() => setDtSort("dt_pf")}>DeepTest PF{dtArrow("dt_pf")}</th>
+                  <th onClick={() => setDtSort("dt_dd")}>DeepTest DD{dtArrow("dt_dd")}</th>
+                  <th onClick={() => setDtSort("dt_wr")}>DeepTest WR{dtArrow("dt_wr")}</th>
+                  <th onClick={() => setDtSort("dt_trades")}>DeepTest Trades{dtArrow("dt_trades")}</th>
+                  <th onClick={() => setDtSort("dt_net")}>DeepTest Net{dtArrow("dt_net")}</th>
+                  <th>period</th>
+                  <th>coverage</th>
+                  <th>status</th>
+                  <th onClick={() => setDtSort("dt")}>scenarios{dtArrow("dt")}</th>
+                  <th>preferred</th>
+                  <th onClick={() => setDtSort("last_run")}>last run{dtArrow("last_run")}</th>
+                  <th></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {dtRows.map((d) => {
+                  const sum = d.preferred?.analytics?.summary || {};
+                  return (
+                    <tr key={d.node_id}>
+                      <td>
+                        Node #{d.node_id}
+                        {d.research_node_num != null && (
+                          <span className="muted" style={{ fontSize: 9.5 }}> · research #{d.research_node_num}</span>
+                        )}
+                      </td>
+                      <td className="mono">{fmtPct(d.gen?.return_pct)}</td>
+                      <td className="mono">{fmtNum(d.gen?.profit_factor, 3)}</td>
+                      <td className="mono">{fmtPct(d.gen?.max_drawdown_pct)}</td>
+                      <td className="mono">{d.gen?.trades ?? "N/A"}</td>
+                      <td className="mono">{fmtPct(sum.net_return_pct)}</td>
+                      <td className="mono">{fmtNum(sum.profit_factor, 3)}</td>
+                      <td className="mono">{fmtPct(sum.max_drawdown_pct)}</td>
+                      <td className="mono">{fmtPct(sum.win_rate)}</td>
+                      <td className="mono">{sum.trades ?? "N/A"}</td>
+                      <td className="mono">{fmtMoney(sum.net_profit)}</td>
+                      <td>{txt(d.preferred?.duration_key || "—")}</td>
+                      <td>
+                        {d.preferred?.coverage_status === "PARTIAL"
+                          ? <Badge tone="warn">PARTIAL COVERAGE</Badge>
+                          : txt(d.preferred?.coverage_status || "—")}
+                      </td>
+                      <td>{txt(d.preferred?.status || "—")}</td>
+                      <td>{d.scenario_count ?? 0} ({d.valid_scenario_count ?? 0} valid)</td>
+                      <td>{d.preferred ? txt(d.preferred.run_id) : "N/A"}</td>
+                      <td>{isoOf(d.last_run?.finished_at)}</td>
+                      <td>
+                        <button className="btn" style={{ fontSize: 10 }} onClick={() => setInspectNode(d.node_id)}>
+                          INSPECT
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {!dtRows.length && (
+                  <tr><td colSpan={18} className="muted">no node matches this search</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         )}
         {inspectNode != null && (
           <div>
             <button style={{ fontSize: 10, marginTop: 6 }} onClick={() => setInspectNode(null)}>close inspector</button>
             <DeepScenarioPanel key={inspectNode} nodeId={inspectNode}
+                               node={nodes.find((n) => n.node_id === inspectNode) || null}
                                onChanged={() => { loadDt(); }} />
           </div>
         )}
@@ -652,6 +805,19 @@ export default function DeepBacktest() {
 
       {drawerId != null && (
         <StrategyDrawer id={drawerId} onClose={() => setDrawerId(null)} />
+      )}
+
+      {/* V6.7 §7.2 — the SCENARIO popup: the shared scheduling presentation,
+          DeepTesting-only persistence (never the live settings). */}
+      {scenarioFor != null && (
+        <ScheduleDialog
+          nodeId={scenarioFor.node_id}
+          subtitle={`DeepTesting scenario configuration for Node #${scenarioFor.node_id} — saved separately from live scheduling/risk settings`}
+          loadFn={(id) => api.deeptestNodeConfig(id)}
+          saveFn={(id, body) => api.deeptestNodeConfigSave(id, body)}
+          onClose={() => setScenarioFor(null)}
+          onSaved={() => { setScenarioFor(null); loadNodes(); }}
+        />
       )}
     </div>
   );

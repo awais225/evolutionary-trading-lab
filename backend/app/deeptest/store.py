@@ -90,6 +90,11 @@ CREATE TABLE IF NOT EXISTS deeptest_confirmations (
     decided_at REAL NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS deeptest_node_configs (
+    node_id INTEGER PRIMARY KEY,
+    config_json TEXT NOT NULL,
+    updated_at REAL
+);
 CREATE TABLE IF NOT EXISTS deeptest_settings (
     key TEXT PRIMARY KEY,
     value TEXT,
@@ -133,7 +138,20 @@ SETTINGS_LIMITS = {
 }
 
 
+def _ensure_column(db: Any, table: str, col: str, ddl: str) -> None:
+    """Additive, migration-safe column add (V6.7): only ever ADDS a column."""
+    try:
+        cols = [r["name"] for r in (db.q(f"PRAGMA table_info({table})") or [])]
+        if col not in cols:
+            db.x(f"ALTER TABLE {table} ADD COLUMN {ddl}")
+    except Exception:
+        pass
+
+
 def ensure_schema(db: Any) -> None:
+    # V6.7 §7.1 — effective scenario signature column (additive).
+    _ensure_column(db, "deeptest_scenarios", "signature",
+                   "signature TEXT")
     """Create the V6.6 tables exactly once; safe to call repeatedly."""
     for stmt in [s.strip() for s in SCHEMA_SQL.split(";") if s.strip()]:
         db.x(stmt)
@@ -224,8 +242,8 @@ def insert_scenario(db: Any, row: Dict[str, Any]) -> str:
                 symbol, timeframe, dataset_id, dataset_fingerprint, bars_used,
                 coverage_status, gaps, settings, metrics, analytics, provenance,
                 genome_hash, config_hash, engine_versions, confirmed_fingerprint,
-                error, notes, created_at, started_at, finished_at)
-               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                error, notes, created_at, started_at, finished_at, signature)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (run_id, int(row["node_id"]), row.get("status") or "QUEUED",
              row.get("idempotency_key"), row.get("duration_key"),
              row.get("requested_start"), row.get("requested_end"),
@@ -239,7 +257,7 @@ def insert_scenario(db: Any, row: Dict[str, Any]) -> str:
              row.get("config_hash"), _jd(row.get("engine_versions")),
              row.get("confirmed_fingerprint"), row.get("error"),
              row.get("notes"), row.get("created_at") or time.time(),
-             row.get("started_at"), row.get("finished_at")))
+             row.get("started_at"), row.get("finished_at"), row.get("signature")))
     return run_id
 
 
@@ -414,3 +432,30 @@ def list_candle_sources(db: Any, symbol: Optional[str] = None,
         d["user_mapping"] = _jload(d.get("user_mapping"))
         out.append(d)
     return out
+
+
+# ---------------------------------------------------------------------------
+# V6.7 §7.2/§7.3 — per-node DeepTesting scenario/scheduling configuration.
+# STAYS SEPARATE from live execution settings: the UI shares the ScheduleDialog
+# presentation only; persistence lives here and never touches live_test_configs.
+# ---------------------------------------------------------------------------
+
+def get_node_config(db: Any, node_id: int) -> Dict[str, Any]:
+    row = db.one("SELECT config_json, updated_at FROM deeptest_node_configs WHERE node_id=?",
+                 (int(node_id),))
+    if not row:
+        return {}
+    try:
+        cfg = json.loads(row.get("config_json") or "{}")
+    except Exception:
+        cfg = {}
+    return cfg
+
+
+def save_node_config(db: Any, node_id: int, config: Dict[str, Any]) -> Dict[str, Any]:
+    db.x("""INSERT INTO deeptest_node_configs (node_id, config_json, updated_at)
+            VALUES (?,?,?)
+            ON CONFLICT(node_id) DO UPDATE SET config_json=excluded.config_json,
+                                               updated_at=excluded.updated_at""",
+         (int(node_id), json.dumps(config, sort_keys=True, default=str), time.time()))
+    return get_node_config(db, node_id)

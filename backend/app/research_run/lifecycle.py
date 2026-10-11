@@ -798,7 +798,14 @@ def resume_add_nodes(additional: int, start: bool = False) -> Dict[str, Any]:
         try:
             fingerprint_before = _population_fingerprint()
             ctx = _run_context()
-            current = int(ctx["run_nodes"]) if ctx["run_nodes"] else counts()["user_research_nodes"]
+            # V6.7: the target is raised above the PRESERVED user-research
+            # population this operation reports (existing_nodes below) — one
+            # population, one number. Deriving `current` from the run-scoped
+            # count while reporting the global preserved count made the target
+            # arithmetic disagree with its own result whenever a second
+            # user-research run existed (RUN-20261005-style preserved runs).
+            current = int(fingerprint_before["count"] or 0) or (
+                int(ctx["run_nodes"]) if ctx["run_nodes"] else counts()["user_research_nodes"])
             if current <= 0:
                 return {"ok": False, "stage": "VALIDATE",
                         "error": "no active USER_RESEARCH population to resume (use START FROM ZERO)"}

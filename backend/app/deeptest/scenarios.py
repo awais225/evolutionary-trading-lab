@@ -152,11 +152,77 @@ def record_decision(db: Any, *, confirmation_fingerprint: str, decision: str,
 # --------------------------------------------------------------------------- #
 # run lifecycle
 # --------------------------------------------------------------------------- #
+def effective_signature(*, node_id: int, genome_hash: str, config_hash: str,
+                        symbol: str, timeframe: str, duration_key: str,
+                        requested_start, requested_end,
+                        settings: Dict[str, Any], node_settings: Dict[str, Any],
+                        dataset_fingerprint, engine_version: str,
+                        node_config_hash: str = "") -> str:
+    """V6.7 §7.1 — the STABLE identity of a DeepTest scenario.
+
+    Hashes exactly what makes two runs "the same test": the node + its strategy
+    identity (genome/config fingerprints), symbol + timeframe, the requested
+    range + timerange choice, the scenario/scheduling config (settings +
+    node-level risk/offset settings), the dataset fingerprint actually behind
+    the run and the engine version. Unchanged reruns reuse the existing valid
+    scenario; any material change produces a different signature and therefore
+    a new scenario identity. It never contains a timestamp or a scenario id, so
+    recomputing it over identical inputs is deterministic.
+    """
+    payload = {
+        "node_id": int(node_id),
+        "genome_hash": genome_hash,
+        "config_hash": config_hash,
+        "symbol": str(symbol or "").upper(),
+        "timeframe": str(timeframe or "").upper(),
+        "duration_key": str(duration_key or ""),
+        "requested_start": requested_start,
+        "requested_end": requested_end,
+        "settings_fingerprint": settings_fingerprint(settings or {}),
+        "node_settings": {k: (node_settings or {}).get(k)
+                          for k in sorted(NODE_SETTING_FIELDS)},
+        "dataset_fingerprint": dataset_fingerprint,
+        "engine_version": engine_version,
+        "node_config_hash": node_config_hash,
+    }
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()[:24]
+
+
+def _reuse_scenario(db: Any, node_id: int, signature: str) -> Optional[Dict[str, Any]]:
+    """An earlier valid scenario with this exact effective signature, if any."""
+    rows = db.q("""SELECT run_id, status FROM deeptest_scenarios
+                   WHERE node_id=? AND signature=?
+                   ORDER BY rowid DESC""", (int(node_id), str(signature))) or []
+    for r in rows:
+        if (r.get("status") or "") in ("COMPLETED", "PARTIAL", "RUNNING", "QUEUED",
+                                       "FETCHING", "VALIDATING"):
+            return S.get_scenario(db, r["run_id"])
+    return None
+
+
+def _scenario_label(db: Any, run_id: str) -> str:
+    """Human label 'Scenario N' = the run's position in its node's history."""
+    sc = S.get_scenario(db, run_id)
+    if not sc:
+        return "Scenario"
+    rows = db.q("""SELECT run_id FROM deeptest_scenarios WHERE node_id=?
+                   ORDER BY rowid""", (sc.get("node_id"),)) or []
+    for i, r in enumerate(rows, 1):
+        if r["run_id"] == run_id:
+            return f"Scenario {i}"
+    return "Scenario"
+
+
 def start_run(db: Any, payload: Dict[str, Any]) -> Dict[str, Any]:
     """Validate + queue a DeepTest run. Returns the QUEUED scenario row.
 
     Idempotency: an existing scenario with the same idempotency_key is returned
-    unchanged instead of queueing a duplicate.
+    unchanged instead of queueing a duplicate. V6.7 §7.1: an identical rerun
+    (same effective signature) REUSES the existing valid scenario — "Already
+    DeepTested — see Scenario N" + an INSPECT action — and never reruns the
+    engine or overwrites the scenario's historical metrics/trades.
     """
     try:
         node_id = int(payload.get("node_id"))
@@ -209,11 +275,48 @@ def start_run(db: Any, payload: Dict[str, Any]) -> Dict[str, Any]:
     period = pf["period"]
     ghash = _genome_hash(node.get("genome"))
     cfg_hash = _genome_hash(node.get("config"))
+    # V6.7 §7.2/§7.3 — the SCENARIO popup's saved config (DeepTesting-only
+    # scheduling + scenario settings) is part of the scenario identity and is
+    # never written to the live execution settings.
+    node_cfg = S.get_node_config(db, node_id)
+    if node_cfg:
+        settings = {**settings, "node_config": node_cfg}
+    cov = pf.get("coverage") or {}
+    signature = effective_signature(
+        node_id=node_id, genome_hash=ghash, config_hash=cfg_hash,
+        symbol=node.get("symbol") or "", timeframe=node.get("timeframe") or "",
+        duration_key=period.get("duration_key") or "",
+        requested_start=period.get("start_ts"), requested_end=period.get("end_ts"),
+        settings=settings, node_settings=settings.get("node_settings") or {},
+        dataset_fingerprint=(cov.get("dataset_fingerprint")
+                             or cov.get("fingerprint")
+                             or cov.get("confirmation_fingerprint")),
+        engine_version=_product_version(),
+        node_config_hash=_genome_hash(node_cfg or {}),
+    )
+    # V6.7 §7.1 — identical effective configuration + range ⇒ reuse. The
+    # engine is NOT rerun and the existing scenario's historical metrics and
+    # trades are never overwritten.
+    existing = _reuse_scenario(db, node_id, signature)
+    if existing is not None:
+        label = _scenario_label(db, existing.get("run_id"))
+        return {
+            "ok": True,
+            "already_deep_tested": True,
+            "duplicate": True,
+            "existing_run_id": existing.get("run_id"),
+            "scenario": existing,
+            "label": label,
+            "message": f"Already DeepTested — see {label}",
+            "inspect": {"run_id": existing.get("run_id")},
+            "engine_rerun": False,
+        }
     run_id = S.new_run_id()
     S.insert_scenario(db, {
         "run_id": run_id,
         "node_id": node_id,
         "status": "QUEUED",
+        "signature": signature,
         "idempotency_key": str(idem) if idem else None,
         "duration_key": period["duration_key"],
         "requested_start": period["start_ts"],

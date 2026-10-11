@@ -42,6 +42,7 @@ export default function StrategyDrawer({ id, onClose, onOpen }) {
         {[["overview", "Overview"], ["trading", "Trading Info"], ["genome", "Genome"],
           ["history", "Research History"],
           ["matrices", "Matrices"], ["validation", "Validation"], ["backtests", "Backtests"],
+          ["deeptested", "DeepTested"],
           ["paper", "Paper"], ["hypotheses", "Hypotheses"]].map(([k, label]) => (
           <button key={k} className={tab === k ? "active" : ""} onClick={() => setTab(k)}>{label}</button>
         ))}
@@ -96,6 +97,7 @@ export default function StrategyDrawer({ id, onClose, onOpen }) {
       )}
 
       {tab === "trading" && <TradingInfoTab id={s.id} />}
+      {tab === "deeptested" && <DeepTestedTab id={s.id} />}
 
       {tab === "genome" && (
         <div>
@@ -451,4 +453,90 @@ export function TradingInfoTab({ id }) {
       )}
     </div>
   );
+}
+
+
+// ---------------------------------------------------------------------------
+// V6.7 §11 — Overview node-detail DEEPTESTED section.
+// Shows the node's DeepTest history through the SAME statistics priority the
+// DeepTesting tab uses (preferred DeepTest → latest valid → generation → N/A),
+// never mixing scenarios. No DeepTest history shows an explicit NOT DEEPTESTED.
+// ---------------------------------------------------------------------------
+function DeepTestedTab({ id }) {
+  const [state, setState] = React.useState({ loading: true, scenarios: [], error: null });
+  const [inspectOpen, setInspectOpen] = React.useState(false);
+  React.useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await api.deeptestScenarios({ node_id: id });
+        if (alive) setState({ loading: false, scenarios: (res && res.scenarios) || [], error: null });
+      } catch (e) {
+        if (alive) setState({ loading: false, scenarios: [], error: e });
+      }
+    })();
+    return () => { alive = false; };
+  }, [id]);
+
+  const when = (ts) => (ts ? new Date(ts * 1000).toISOString().replace("T", " ").slice(0, 19) + "Z" : "—");
+  const fmtPct = (v) => (v == null ? "N/A" : `${(Number(v) * 100).toFixed(3)}%`);
+  const fmtNum = (v) => (v == null ? "N/A" : Number(v).toFixed(3));
+
+  if (state.loading) return <p className="muted">loading DeepTest history…</p>;
+  if (state.error) return <p className="neg mono">DeepTest history unavailable: {String(state.error.message || state.error)}</p>;
+  const valid = state.scenarios.filter((x) => x.status === "COMPLETED" || x.status === "PARTIAL");
+  const preferred = state.scenarios.find((x) => x.preferred_run_id === x.run_id) || valid[0] || null;
+
+  if (!state.scenarios.length) {
+    return (
+      <div data-testid="deeptested-empty">
+        <p><b>NOT DEEPTESTED</b></p>
+        <p className="muted">this node has no DeepTest scenario yet — run one from the Deep Testing tab.</p>
+      </div>
+    );
+  }
+  const sum = (preferred && preferred.analytics && preferred.analytics.summary) || {};
+  return (
+    <div data-testid="deeptested-section">
+      <p className="muted" style={{ fontSize: 12 }}>
+        DeepTest history ({state.scenarios.length} scenario{state.scenarios.length === 1 ? "" : "s"}).
+        Metrics below belong to the preferred scenario only — scenarios are never mixed.
+      </p>
+      <table className="tbl"><tbody>
+        <tr><td>status</td><td className="mono">{preferred ? preferred.status : "—"}
+          {preferred && preferred.status === "PARTIAL" ? " (PARTIAL COVERAGE)" : ""}</td></tr>
+        <tr><td>scenario</td><td className="mono">{preferred ? preferred.run_id : "—"}</td></tr>
+        <tr><td>period</td><td className="mono">{preferred ? (preferred.duration_key || "—") : "—"}</td></tr>
+        <tr><td>requested range</td><td className="mono">
+          {preferred ? `${when(preferred.requested_start)} → ${when(preferred.requested_end)}` : "—"}</td></tr>
+        <tr><td>actual tested range</td><td className="mono">
+          {preferred ? `${when(preferred.actual_start)} → ${when(preferred.actual_end)}` : "—"}</td></tr>
+        <tr><td>coverage</td><td className="mono">{preferred ? (preferred.coverage_status || "—") : "—"}
+          {preferred && preferred.coverage_status === "PARTIAL" ? " — results valid only for the actual tested range" : ""}</td></tr>
+        <tr><td>return %</td><td className="mono">{fmtPct(sum.net_return_pct)}</td></tr>
+        <tr><td>net profit</td><td className="mono">{sum.net_profit == null ? "N/A" : Number(sum.net_profit).toFixed(2)}</td></tr>
+        <tr><td>profit factor</td><td className="mono">{fmtNum(sum.profit_factor)}</td></tr>
+        <tr><td>max drawdown %</td><td className="mono">{fmtPct(sum.max_drawdown_pct)}</td></tr>
+        <tr><td>win rate</td><td className="mono">{fmtPct(sum.win_rate)}</td></tr>
+        <tr><td>trades</td><td className="mono">{sum.trades ?? "N/A"}</td></tr>
+      </tbody></table>
+      <button className="btn" style={{ marginTop: 8 }} onClick={() => setInspectOpen((v) => !v)}>
+        {inspectOpen ? "hide INSPECT" : "open INSPECT (all scenarios, trades, filters)"}
+      </button>
+      {inspectOpen && (
+        <DeepScenarioPanelLazy nodeId={id} />
+      )}
+    </div>
+  );
+}
+
+// lazy-ish import wrapper keeps the drawer light when the tab is unused
+function DeepScenarioPanelLazy(props) {
+  const [C, setC] = React.useState(null);
+  React.useEffect(() => {
+    let alive = true;
+    import("./DeepScenarioPanel").then((m) => { if (alive) setC(() => m.default); });
+    return () => { alive = false; };
+  }, []);
+  return C ? <C {...props} /> : <p className="muted">loading inspector…</p>;
 }
