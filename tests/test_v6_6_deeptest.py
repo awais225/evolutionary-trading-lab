@@ -689,6 +689,36 @@ class TestProjection:
 # --------------------------------------------------------------------------- #
 # API surface
 # --------------------------------------------------------------------------- #
+class TestSharedFileRobustness:
+    """§14 — additive migrations must be safe when two connections interleave."""
+
+    def test_live_trade_columns_migration_tolerates_interleaving(self, tmp_path):
+        from app.db.database import Database
+        path = str(tmp_path / "shared.db")
+        db1 = Database(path)
+        db2 = Database(path)
+        seen = {"reentered": False}
+        orig_x = db1.x
+
+        def x_with_interleave(sql, *a, **k):
+            if (not seen["reentered"]) and sql.strip().upper().startswith("ALTER TABLE"):
+                # another connection finishes the whole migration mid-loop
+                seen["reentered"] = True
+                db2.ensure_live_trade_columns()
+            return orig_x(sql, *a, **k)
+
+        db1.x = x_with_interleave
+        db1.ensure_live_trade_columns()          # must not raise
+        cols = {r["name"] for r in db2.q("PRAGMA table_info(live_test_trades)")}
+        assert {n for n, _t in Database.V43_TRADE_COLUMNS} <= cols
+        # and a plain record write works right after
+        rid = db2.record_live_test_execution({"strategy_id": 7, "ticket": 1, "symbol": "XAUUSD",
+                                              "timeframe": "M15", "side": "BUY",
+                                              "entry_price": 2400.0, "lots": 0.1,
+                                              "status": "ORDER_SENT"})
+        assert rid
+
+
 class TestApi:
     def test_settings_get_and_put(self, client):
         r = client.get("/api/deeptest/settings")

@@ -1390,7 +1390,14 @@ class Database:
         cols = {r["name"] for r in self.q("PRAGMA table_info(live_test_trades)")}
         for name, typ in self.V43_TRADE_COLUMNS:
             if name not in cols:
-                self.x(f"ALTER TABLE live_test_trades ADD COLUMN {name} {typ}")
+                try:
+                    self.x(f"ALTER TABLE live_test_trades ADD COLUMN {name} {typ}")
+                except Exception as e:
+                    # a concurrent connection may add the same column between our
+                    # PRAGMA and this ALTER — the migration is additive/idempotent,
+                    # so a duplicate is a no-op, never a failure
+                    if "duplicate column name" not in str(e).lower():
+                        raise
 
     def record_live_test_execution(self, t: Dict[str, Any]) -> int:
         """Insert a V4.3 live-testing trade record (node -> MT5 ticket traceability)."""
