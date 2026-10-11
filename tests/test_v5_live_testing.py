@@ -383,9 +383,15 @@ def test_13_schedule_state_reads_the_nodes_own_trades_for_cooldown_and_cap(db, l
     blocked_rules = {r["rule"] for r in after["rules"] if not r["ok"]}
     assert "cooldown" in blocked_rules and "max_trades_per_day" in blocked_rules
 
-    # a trade from yesterday counts for the cap of *yesterday*, not today
+    # a trade from yesterday counts for the cap of *yesterday*, not today.
+    # The age must also predate the autouse weekday clock: on a Sunday that clock
+    # sits up to 2 days behind the real one (Sun->Fri), so a merely 26h-old trade
+    # would look like a future entry to the cooldown rule (it reported -1320 min
+    # and blocked). 26 + 48 hours is safely "a previous day" under both clocks.
+    # (Reproduced at V6.5.1 base 42c740eb on a Sunday — pre-existing test-data
+    # vs fixture-clock disagreement, not a product defect; assertions unchanged.)
     db.x("DELETE FROM live_test_trades")
-    record_today(db, hours_ago=26)
+    record_today(db, hours_ago=26 + 48)
     yesterday = eng.schedule_state(node)
     assert yesterday["trades_today"] == 0
     assert yesterday["allowed"] is True
