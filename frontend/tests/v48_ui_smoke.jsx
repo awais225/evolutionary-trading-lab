@@ -456,6 +456,126 @@ export function payloadFor(path, method = "GET") {
     total_bars: 1850, version: 3, dataset_id: "XAUUSD_M15", action: "REUSING EXISTING DATA",
   };
   if (path.includes("/api/data/management/status")) return MGMT;
+  /* ---- V6.6 Deep Testing API (the redesigned Deep Testing tab) ---- */
+  if (path.includes("/api/deeptest/settings") && (isPost || String(method || "").toUpperCase() === "PUT")) {
+    return { ok: true, settings: { total_capital: 200000, risk_pct: 1.0, max_active_trades_per_node: 0 } };
+  }
+  if (path.includes("/api/deeptest/settings")) return {
+    ok: true,
+    settings: { total_capital: 200000, risk_pct: 1.0, max_active_trades_per_node: 0 },
+    defaults: { total_capital: 200000, risk_pct: 1.0, max_active_trades_per_node: 0 },
+    limits: { total_capital: [100, 100000000], risk_pct: [0.01, 100], max_active_trades_per_node: [0, 100] },
+    notes: { isolation: "these settings apply to Deep Testing only and never touch the LIVE TESTING configuration" },
+  };
+  if (path.includes("/api/deeptest/periods")) return {
+    ok: true,
+    periods: ["1D", "7D", "14D", "1M", "3M", "6M", "1Y", "2Y", "3Y"].map((k) => ({
+      key: k, label: k, start_iso: "2026-07-01T00:00:00Z", end_iso: "2026-10-01T00:00:00Z",
+    })),
+    convention: "Calendar-based windows measured backwards from the period end (UTC).",
+  };
+  if (path.includes("/api/deeptest/coverage/pairs")) return {
+    ok: true, coverage: {
+      "XAUUSD|M15": {
+        symbol: "XAUUSD", timeframe: "M15", cache_key: "XAUUSD|M15",
+        bars: 2859, first: "2024-01-02T00:00:00Z", last: "2026-10-01T00:00:00Z",
+        coverage_label: "2.74 years (972.0 days)",
+        source: "MT5", broker: "ICMarkets", server: "Demo", fingerprint: "fp-c159b0718c43b43f",
+        quality: { bars: 2859, gaps: 2, missing_bars_total: 85, duplicate_timestamps: 0 },
+        missing_periods: [{ after: "2026-09-07T21:15:00Z", before: "2026-09-08T01:00:00Z", missing_bars: 14 }],
+        warnings: ["2 internal gap(s), 85 missing bar(s) — listed for inspection"],
+        error: null,
+      },
+    },
+  };
+  if (path.includes("/api/deeptest/coverage/")) return {
+    ok: true, coverage: { symbol: "XAUUSD", timeframe: "M15", bars: 2859, quality: {}, missing_periods: [], warnings: [], error: null },
+  };
+  if (path.includes("/api/deeptest/fetch/cancel")) return { ok: true };
+  if (path.includes("/api/deeptest/fetch/")) return { ok: true, job: null };
+  if (path.includes("/api/deeptest/fetch")) return {
+    ok: true, joined_existing: false,
+    job: { status: "FETCHING", stage: "FETCHING", symbol: "XAUUSD", timeframe: "M15",
+           progress_pct: 15, operation: "bridge: copy_rates_range (missing range only)" },
+  };
+  if (path.includes("/api/deeptest/preflight")) return {
+    ok: false, needs_confirmation: true,
+    error: "the requested history is incomplete — confirm the coverage warning before this run may start",
+    confirmation: {
+      coverage_status: "PARTIAL", will_be_partial: true,
+      symbol: "XAUUSD", timeframe: "M15",
+      requested: { start_ts: 1785000000, end_ts: 1787678400, start: "2026-07-01T00:00:00Z", end: "2026-10-01T00:00:00Z", span_days: 92 },
+      actual: { first_ts: 1785100000, last_ts: 1787000000, first: "2026-07-02T03:46:40Z", last: "2026-09-23T02:13:20Z", bars: 2859, span_days: 82.2 },
+      missing_start: true, missing_end: true, internal_gaps: 2,
+      missing_periods: [{ after: "2026-09-07T21:15:00Z", before: "2026-09-08T01:00:00Z", missing_bars: 14 }],
+      source: "MT5", data_source_label: "MT5 / ICMarkets Demo",
+      warnings: ["2 internal gap(s), 85 missing bar(s) — listed for inspection"],
+      confirmation_fingerprint: "fp-confirm-1",
+    },
+  };
+  if (path.includes("/api/deeptest/confirm")) return { ok: true, decision: "YES_PROCEED", fingerprint: "fp-confirm-1" };
+  if (path.includes("/api/deeptest/scenarios")) return {
+    ok: true,
+    scenarios: [
+      { run_id: "dt-aaa111", node_id: 837, status: "COMPLETED", coverage_status: "COMPLETE",
+        duration_key: "1M", finished_at: 1787000000, bars_used: 2859,
+        dataset_fingerprint: "fp-c159b0718c43b43f", gaps: [],
+        settings: { total_capital: 200000, risk_pct: 1, max_active_trades_per_node: 0 },
+        analytics: { summary: { initial_capital: 200000, final_equity: 201234.5, net_profit: 1234.5,
+                                net_return_pct: 0.00617, max_drawdown_pct: 0.012, sharpe: 1.4,
+                                profit_factor: 1.8, trades: 5, win_rate: 0.6, expectancy_per_trade: 246.9 } },
+        provenance: { requested_period: { start_ts: 1785000000, end_ts: 1787678400 },
+                      actual_tested_range: { start_ts: 1785100000, end_ts: 1787000000, bars: 2859 } } },
+      { run_id: "dt-bbb222", node_id: 837, status: "PARTIAL", coverage_status: "PARTIAL",
+        duration_key: "3M", finished_at: 1787100000, bars_used: 2400,
+        dataset_fingerprint: "fp-c159b0718c43b43f", gaps: [{ after: "a", before: "b" }],
+        settings: { total_capital: 200000, risk_pct: 1, max_active_trades_per_node: 0 },
+        analytics: { summary: { net_profit: -300, trades: 3, win_rate: 0.33 } },
+        provenance: { provisional: true } },
+    ],
+    count: 2,
+  };
+  if (path.includes("/api/deeptest/compare")) return {
+    ok: true,
+    scenarios: [{ node_id: 837, run_id: "dt-aaa111" }, { node_id: 837, run_id: "dt-bbb222" }],
+    config_and_coverage_differences: [
+      { field: "duration_key", left: "1M", right: "3M" },
+      { field: "coverage_status", left: "COMPLETE", right: "PARTIAL" },
+    ],
+    metrics: [{ metric: "net_profit", left: 1234.5, right: -300 },
+              { metric: "trades", left: 5, right: 3 }],
+    warning: "these scenarios differ in the fields listed above — do not treat their metrics as directly equivalent",
+  };
+  if (path.includes("/api/deeptest/prefer")) return { ok: true, preferred_run_id: "dt-aaa111", explicit: true };
+  if (path.includes("/api/deeptest/nodes")) return {
+    ok: true,
+    nodes: [{
+      node_id: 837, scenario_count: 2, valid_scenario_count: 2,
+      statuses: { COMPLETED: 1, PARTIAL: 1, QUEUED: 0, FETCHING: 0, VALIDATING: 0, RUNNING: 0, CANCELLED: 0, FAILED: 0 },
+      preferred: { run_id: "dt-aaa111", status: "COMPLETED", coverage_status: "COMPLETE",
+                   duration_key: "1M", finished_at: 1787000000,
+                   analytics: { summary: { net_return_pct: 0.00617, profit_factor: 1.8, trades: 5, win_rate: 0.6 } } },
+      last_run: { run_id: "dt-bbb222", status: "PARTIAL", finished_at: 1787100000 },
+    }, {
+      node_id: 877, scenario_count: 1, valid_scenario_count: 1,
+      statuses: { COMPLETED: 0, PARTIAL: 1 },
+      preferred: { run_id: "dt-ccc333", status: "PARTIAL", coverage_status: "PARTIAL",
+                   duration_key: "1Y", finished_at: 1787200000,
+                   analytics: { summary: { net_return_pct: -0.01, profit_factor: null, trades: 2, win_rate: 0.0 } } },
+      last_run: { run_id: "dt-ccc333", status: "PARTIAL", finished_at: 1787200000 },
+    }],
+    count: 2,
+    statistics_priority: "preferred DeepTest -> latest valid DeepTest -> generation metrics -> N/A",
+  };
+  if (path.includes("/api/deeptest/run/")) return {
+    ok: true,
+    scenario: { run_id: "dt-aaa111", node_id: 837, status: "COMPLETED", coverage_status: "COMPLETE" },
+    trades_sample: { trades: [], total: 0 },
+  };
+  if (path.includes("/api/deeptest/run")) return {
+    ok: true, run_id: "dt-new999",
+    scenario: { run_id: "dt-new999", node_id: 837, status: "QUEUED" },
+  };
   if (path.includes("/api/stats/overview")) return STATS;
   if (path.includes("/api/stats/")) return { scope: "USER_RESEARCH", total: 10000, nodes: [], population: STATS.population };
   if (path.includes("/api/research/facets")) return FACETS;
@@ -761,8 +881,11 @@ export async function runSmoke() {
     t.includes("MT5 terminal & account") && t.includes("Detect accounts"));
   await render("page:Mt5Backtest-simulator", wrap(<Mt5Backtest />), (t) =>
     t.includes("REAL MT5 TRADING UNAVAILABLE") && t.includes("SIMULATOR MODE ACTIVE"));
-  // 5c. V5.1a §6/§7/§32 — Deep Backtest lists qualified nodes with real metrics,
-  // multi-selects them, and shows what a completed run actually produced.
+  // 5c. V6.6 §3–§12 — the redesigned DEEP TESTING workspace: persistent global
+  // settings, the nine period buttons (history range only), the authoritative
+  // inventory (QUALIFIED default), GET MT5 DATA + DEEPTEST per node, the
+  // mandatory incomplete-history confirmation (3 exact choices), DEEPTESTED
+  // NODES with PARTIAL COVERAGE marked, and the statistics-priority line.
   {
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -771,57 +894,67 @@ export async function runSmoke() {
       await act(async () => {
         root.render(wrap(<DeepBacktest />));
         await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+        await new Promise((r) => setTimeout(r, 30));
+        await Promise.resolve(); await Promise.resolve();
       });
       const text = container.textContent || "";
-      if (!text.includes("Node_23")) throw new Error(`the qualified node list is missing Node_23 … "${text.slice(0, 200)}"`);
-      if (!text.includes("Qualified")) throw new Error("the node filter does not default to Qualified");
-      if (!text.includes("RUN-20261005-055251")) throw new Error("the experiment the list describes is not shown");
-      if (!text.toLowerCase().includes("deep backtest all qualified")) {
-        throw new Error("no 'deep backtest all' action for the selected filter");
+      if (!text.includes("Deep Testing")) throw new Error("the Deep Testing workspace header is missing");
+      if (!text.includes("Total Capital")) throw new Error("the global settings block is missing Total Capital");
+      if (!text.includes("never touch the LIVE TESTING configuration")) {
+        throw new Error("the settings block must state that LIVE TESTING is never touched");
       }
+      if (!text.includes("history range only") || !text.includes("1Y") || !text.includes("3Y")) {
+        throw new Error("the period selector (1D..3Y, history range only) is missing");
+      }
+      if (!text.includes("Qualified")) throw new Error("the node filter does not default to Qualified");
+      if (!text.includes("Node_23")) throw new Error(`the qualified node list is missing Node_23 … "${text.slice(0, 200)}"`);
+      if (!text.includes("GET MT5 DATA")) throw new Error("no GET MT5 DATA action on the node rows");
+      if (!text.includes("DEEPTEST")) throw new Error("no DEEPTEST action on the node rows");
+      if (!text.toLowerCase().includes("deeptest selected (0)")) {
+        throw new Error("no batch DEEPTEST action for the selection");
+      }
+      if (!text.includes("DEEPTESTED NODES")) throw new Error("the DEEPTESTED NODES section is missing");
+      if (!text.includes("PARTIAL COVERAGE")) throw new Error("a partial scenario must be marked PARTIAL COVERAGE");
+      if (!text.includes("preferred DeepTest → latest valid DeepTest → generation → N/A")) {
+        throw new Error("the statistics priority is not shown");
+      }
+      if (!text.includes("never hardcoded")) throw new Error("the inventory counts provenance is not stated");
+      // selection arms the batch action
       const rowBoxes = Array.from(container.querySelectorAll('input[type="checkbox"]'));
       if (rowBoxes.length < 2) throw new Error("the node rows have no selection checkboxes");
-      // selecting a node must arm the batch action with that node
       await act(async () => {
         rowBoxes[rowBoxes.length - 1].dispatchEvent(new MouseEvent("click", { bubbles: true }));
         await Promise.resolve();
       });
-      if (!/Deep backtest selected \(1\)/.test(container.textContent || "")) {
+      if (!/DEEPTEST selected \(1\)/.test(container.textContent || "")) {
         throw new Error("selecting a node did not update the batch action");
       }
-      // the runs table must show the verdict + the schedule that was applied
-      if (!text.includes("Completed — 2 trade(s) evaluated by the engine.")) {
-        throw new Error("a completed run must state its verdict in the table");
+      // §9 — DEEPTEST on a node whose history is incomplete opens the mandatory
+      // confirmation with EXACTLY the three documented choices
+      const deeptestBtns = Array.from(container.querySelectorAll("button"))
+        .filter((b) => (b.textContent || "").trim() === "DEEPTEST");
+      if (!deeptestBtns.length) throw new Error("no per-node DEEPTEST button");
+      await act(async () => { deeptestBtns[0].dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+      await act(async () => { await new Promise((r) => setTimeout(r, 60)); });
+      const pop = container.textContent || "";
+      if (!pop.includes("INCOMPLETE HISTORY")) throw new Error("the incomplete-history confirmation did not open");
+      const yes = container.querySelector('[data-testid="confirm-yes"]');
+      const no = container.querySelector('[data-testid="confirm-no"]');
+      const csv = container.querySelector('[data-testid="confirm-csv"]');
+      if (!yes || !no || !csv) throw new Error("the confirmation must offer exactly its three choices");
+      if (!/YES – PROCEED/.test(yes.textContent || "") || !/NO – CANCEL/.test(no.textContent || "")
+          || !/MANUALLY LOAD DATA – IMPORT CSV/.test(csv.textContent || "")) {
+        throw new Error("the three confirmation choices are not the documented ones");
       }
-      if (!/applied · 288/.test(text)) {
-        throw new Error(`the applied schedule is not reported … "${text.slice(0, 400)}"`);
+      if (!pop.includes("PARTIAL COVERAGE") || !pop.includes("Requested range")
+          || !pop.includes("Actual available range") || !pop.includes("Candle timeframe")) {
+        throw new Error("the confirmation must show node/TF/requested-vs-actual coverage");
       }
-
-      /* §32/§33 — opening a run's details must show the data-loading report
-       * (requested vs used, bars, completeness, gaps, source) and the balance
-       * fields, with the derived avg win/loss coming from the backend. */
-      /* the node rows also carry a "Details" button (which opens the drawer), so
-       * the runs table's own action is the last one on the page */
-      const detailsBtns = Array.from(container.querySelectorAll("button"))
-        .filter((b) => (b.textContent || "").trim() === "Details");
-      const open = detailsBtns[detailsBtns.length - 1];
-      if (!open) throw new Error("a run row has no Details action");
-      await act(async () => { open.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
-      await act(async () => { await new Promise((r) => setTimeout(r, 120)); });
-      const det = container.textContent || "";
-
-      if (!/Bars used/.test(det) || !/1850/.test(det)) throw new Error("the run details do not show the bar count actually used");
-      if (!/Completeness/.test(det) || !/68\.32/.test(det)) throw new Error("the completeness of the loaded data is not shown");
-      if (!/requested/i.test(det) || !/used 2026-09-07/.test(det)) {
-        throw new Error(`the requested vs used range is not shown … "${det.slice(0, 300)}"`);
-      }
-      if (!/missing periods/i.test(det)) throw new Error("the missing periods of the loaded data are not offered");
-      if (!det.includes("MT5 (the terminal's own historical bars)")) throw new Error("the data source is not named");
-      if (!det.includes("12.5")) throw new Error("avg win from the backend's derived block is not shown");
-      if (!det.includes("10000")) throw new Error("the start balance is not shown");
-      results.push({ label: "page:DeepBacktest-qualified", ok: true });
+      await act(async () => { no.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+      await act(async () => { await new Promise((r) => setTimeout(r, 40)); });
+      results.push({ label: "page:DeepTesting-workspace", ok: true });
     } catch (e) {
-      results.push({ label: "page:DeepBacktest-qualified", ok: false, error: e.message || String(e) });
+      results.push({ label: "page:DeepTesting-workspace", ok: false, error: e.message || String(e) });
     } finally {
       try { await act(async () => { root.unmount(); }); } catch {}
     }

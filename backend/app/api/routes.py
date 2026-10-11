@@ -12,7 +12,7 @@ log = logging.getLogger("api.routes")
 from ..jsonutil import jd
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Body, HTTPException, Query
+from fastapi import APIRouter, Body, HTTPException, Query, Request
 
 from ..versions import APP_VERSION, FULL_VERSION_STRING, APP_NAME, manifest
 from ..config import get_config, update_config
@@ -5500,6 +5500,280 @@ def nodes_deep_testing_plan() -> Dict:
     }
 
 
+
+# =========================================================================== #
+# V6.6 — DEEP TESTING API (additive, isolated; see V6_6_PLAN.md)
+# Persistent workspace settings, MT5 DATA coverage, GET MT5 DATA, CSV import,
+# §9 coverage confirmations, scenario runs, DEEPTESTED NODES, comparisons and
+# preference. Historical simulation only — no broker orders anywhere here.
+# =========================================================================== #
+
+#: in-flight CSV validations awaiting commit (token -> report + raw bytes)
+_DT_CSV_VALIDATED: Dict[str, Dict[str, Any]] = {}
+_DT_CSV_MAX = 4
+
+
+def _dt_keep_validation(token: str, box: Dict[str, Any]) -> None:
+    _DT_CSV_VALIDATED[token] = box
+    while len(_DT_CSV_VALIDATED) > _DT_CSV_MAX:
+        _DT_CSV_VALIDATED.pop(next(iter(_DT_CSV_VALIDATED)), None)
+
+
+@router.get("/deeptest/settings")
+def deeptest_settings_get():
+    from ..deeptest import store as S
+    db = get_db()
+    S.ensure_schema(db)
+    return {"ok": True, "settings": S.get_settings(db),
+            "defaults": S.DEFAULT_SETTINGS, "limits": S.SETTINGS_LIMITS,
+            "notes": {
+                "total_capital": "simulated starting capital per DeepTest scenario",
+                "risk_pct": "SL risk per trade as % of the scenario's simulated equity at entry",
+                "max_active_trades_per_node": ("0 = unlimited; N = at most N open simulated "
+                                               "trades at once (entries gated, exits never "
+                                               "forced early)"),
+                "isolation": "these settings apply to Deep Testing only and never touch "
+                             "the LIVE TESTING configuration",
+            }}
+
+
+@router.put("/deeptest/settings")
+def deeptest_settings_put(payload: Dict[str, Any] = Body(...)):
+    from ..deeptest import store as S
+    db = get_db()
+    res = S.save_settings(db, payload or {})
+    if not res.get("ok"):
+        return res
+    return {"ok": True, "settings": res["values"]}
+
+
+@router.get("/deeptest/periods")
+def deeptest_periods():
+    from ..deeptest.periods import PERIODS, PERIOD_CONVENTION, label_of, resolve_period
+    now = time.time()
+    return {"ok": True,
+            "periods": [{"key": k, "label": label_of(k), **{kk: vv for kk, vv in resolve_period(k, now).items()
+                         if kk in ("start_iso", "end_iso", "start_ts", "end_ts")}}
+                        for k in PERIODS],
+            "convention": PERIOD_CONVENTION}
+
+
+@router.get("/deeptest/coverage/{symbol}/{timeframe}")
+def deeptest_coverage(symbol: str, timeframe: str):
+    from ..deeptest.coverage import pair_coverage
+    return {"ok": True, "coverage": pair_coverage(symbol, timeframe)}
+
+
+@router.post("/deeptest/coverage/pairs")
+def deeptest_coverage_pairs(payload: Dict[str, Any] = Body(...)):
+    from ..deeptest.coverage import coverage_for_pairs
+    pairs = [(str(p.get("symbol")), str(p.get("timeframe"))) for p in (payload or {}).get("pairs") or []]
+    if not pairs:
+        return {"ok": False, "error": "pairs: [{symbol, timeframe}] is required"}
+    return {"ok": True, "coverage": coverage_for_pairs(pairs)}
+
+
+@router.post("/deeptest/fetch")
+def deeptest_fetch(payload: Dict[str, Any] = Body(...)):
+    """GET MT5 DATA — incremental missing-range fetch; never implies a backtest."""
+    from ..deeptest.fetch_job import start_fetch
+    symbol = str((payload or {}).get("symbol") or "").upper()
+    timeframe = str((payload or {}).get("timeframe") or "").upper()
+    if not symbol or not timeframe:
+        return {"ok": False, "error": "symbol and timeframe are required"}
+    return start_fetch(symbol, timeframe)
+
+
+@router.get("/deeptest/fetch/{symbol}/{timeframe}")
+def deeptest_fetch_status(symbol: str, timeframe: str):
+    from ..deeptest.fetch_job import fetch_status
+    return fetch_status(symbol, timeframe)
+
+
+@router.post("/deeptest/fetch/cancel")
+def deeptest_fetch_cancel(payload: Dict[str, Any] = Body(...)):
+    from ..deeptest.fetch_job import cancel_fetch
+    return cancel_fetch(str((payload or {}).get("symbol") or ""),
+                        str((payload or {}).get("timeframe") or ""))
+
+
+@router.post("/deeptest/csv/validate")
+async def deeptest_csv_validate(request: Request,
+                                symbol: str = Query(...),
+                                timeframe: str = Query(...),
+                                filename: str = Query(""),
+                                timezone_offset_hours: Optional[float] = Query(None),
+                                timestamp_mode: Optional[str] = Query(None)):
+    """Raw request body = the CSV file bytes (no multipart dependency)."""
+    from ..deeptest.csv_import import validate_frame
+    raw = await request.body()
+    if not raw:
+        return {"ok": False, "error": "the uploaded file is empty"}
+    if not symbol or not timeframe:
+        return {"ok": False, "error": "symbol and timeframe are required (never inferred "
+                                      "from the filename)"}
+    report = validate_frame(raw, symbol=symbol, timeframe=timeframe,
+                            filename=filename or "",
+                            timezone_offset_hours=timezone_offset_hours,
+                            timestamp_mode=timestamp_mode)
+    if not report.get("ok") and not report.get("needs_timezone_confirmation"):
+        return {k: v for k, v in report.items() if k != "frame"}   # frame is preview-only
+    import uuid as _uuid
+    token = "csv-" + _uuid.uuid4().hex[:12]
+    box_report = {k: v for k, v in report.items() if k != "frame"}
+    _dt_keep_validation(token, {"report": report, "raw": raw,
+                                "symbol": str(symbol).upper(),
+                                "timeframe": str(timeframe).upper(),
+                                "filename": filename or ""})
+    return {"ok": True, "validation_token": token,
+            "report": box_report,
+            "preview_rows": (report["frame"].head(50).to_dict("records")
+                             if report.get("frame") is not None and len(report["frame"]) > 0
+                             else []),
+            "needs_timezone_confirmation": bool(report.get("needs_timezone_confirmation")),
+            "commit_hint": ("POST /api/deeptest/csv/commit with the validation_token and "
+                            "timezone_confirmed (e.g. 'UTC' or 'UTC+5')")}
+
+
+@router.post("/deeptest/csv/commit")
+def deeptest_csv_commit(payload: Dict[str, Any] = Body(...)):
+    from ..deeptest.csv_import import commit_import
+    token = str((payload or {}).get("validation_token") or "")
+    box = _DT_CSV_VALIDATED.get(token)
+    if not box:
+        return {"ok": False, "error": "unknown or expired validation_token — validate the "
+                                      "file again"}
+    # a commit that CLAIMS a pair must claim the pair this file was validated
+    # for — a mismatched claim is rejected, never silently re-targeted
+    want_symbol = str((payload or {}).get("symbol") or "").upper()
+    want_tf = str((payload or {}).get("timeframe") or "").upper()
+    if want_symbol and want_symbol != str(box["symbol"]).upper():
+        return {"ok": False, "error": f"this file was validated for {box['symbol']} — it "
+                                      f"cannot be committed as {want_symbol} (refusing a "
+                                      f"symbol mismatch)"}
+    if want_tf and want_tf != str(box["timeframe"]).upper():
+        return {"ok": False, "error": f"this file was validated for {box['timeframe']} — it "
+                                      f"cannot be committed as {want_tf} (refusing a "
+                                      f"timeframe mismatch)"}
+    res = commit_import(box["report"], symbol=box["symbol"], timeframe=box["timeframe"],
+                        timezone_confirmed=(payload or {}).get("timezone_confirmed"))
+    if res.get("ok"):
+        _DT_CSV_VALIDATED.pop(token, None)
+        # §9 re-ask: after the import the coverage question is answered again
+        res["next_step"] = ("re-run the coverage preflight — if history is still incomplete "
+                            "the confirmation popup reappears")
+    return res
+
+
+@router.post("/deeptest/preflight")
+def deeptest_preflight(payload: Dict[str, Any] = Body(...)):
+    from ..deeptest import scenarios as SC
+    db = get_db()
+    try:
+        return SC.preflight(db, node_id=int((payload or {}).get("node_id")),
+                            duration_key=(payload or {}).get("duration_key") or "",
+                            requested_start=(payload or {}).get("requested_start"),
+                            requested_end=(payload or {}).get("requested_end"),
+                            settings=(payload or {}).get("settings"),
+                            node_settings=(payload or {}).get("node_settings"))
+    except (TypeError, ValueError) as e:
+        return {"ok": False, "error": str(e)[:300]}
+
+
+@router.post("/deeptest/confirm")
+def deeptest_confirm(payload: Dict[str, Any] = Body(...)):
+    from ..deeptest import scenarios as SC
+    db = get_db()
+    return SC.record_decision(db,
+                              confirmation_fingerprint=str((payload or {}).get("confirmation_fingerprint") or ""),
+                              decision=str((payload or {}).get("decision") or ""),
+                              node_id=(payload or {}).get("node_id"))
+
+
+@router.post("/deeptest/run")
+def deeptest_run_start(payload: Dict[str, Any] = Body(...)):
+    from ..deeptest import scenarios as SC
+    db = get_db()
+    try:
+        return SC.start_run(db, payload or {})
+    except ValueError as e:
+        return {"ok": False, "error": str(e)[:400]}
+
+
+@router.get("/deeptest/run/{run_id}")
+def deeptest_run_get(run_id: str, trades_sample: int = 20):
+    from ..deeptest import store as S
+    db = get_db()
+    sc = S.get_scenario(db, run_id)
+    if not sc:
+        raise HTTPException(status_code=404, detail=f"unknown run {run_id}")
+    sample = S.list_trades(db, run_id, limit=max(0, min(int(trades_sample), 500)))
+    return {"ok": True, "scenario": sc, "trades_sample": sample}
+
+
+@router.get("/deeptest/run/{run_id}/trades")
+def deeptest_run_trades(run_id: str, limit: int = 50, offset: int = 0):
+    from ..deeptest import store as S
+    db = get_db()
+    return {"ok": True, **S.list_trades(db, run_id, limit=max(1, min(int(limit), 500)),
+                                        offset=max(0, int(offset)))}
+
+
+@router.post("/deeptest/run/{run_id}/cancel")
+def deeptest_run_cancel(run_id: str):
+    from ..deeptest import scenarios as SC
+    db = get_db()
+    return SC.cancel_run(db, run_id)
+
+
+@router.get("/deeptest/scenarios")
+def deeptest_scenarios_list(node_id: Optional[int] = None,
+                            statuses: Optional[str] = None):
+    from ..deeptest import store as S
+    db = get_db()
+    st = [x.strip().upper() for x in (statuses or "").split(",") if x.strip()] or None
+    rows = S.list_scenarios(db, node_id=node_id, statuses=st)
+    return {"ok": True, "scenarios": rows, "count": len(rows)}
+
+
+@router.post("/deeptest/compare")
+def deeptest_compare(payload: Dict[str, Any] = Body(...)):
+    from ..deeptest import scenarios as SC
+    db = get_db()
+    return SC.compare(db, [str(x) for x in ((payload or {}).get("run_ids") or [])])
+
+
+@router.post("/deeptest/prefer")
+def deeptest_prefer(payload: Dict[str, Any] = Body(...)):
+    from ..deeptest import scenarios as SC
+    db = get_db()
+    try:
+        return SC.set_preferred(db, int((payload or {}).get("node_id")),
+                                str((payload or {}).get("run_id") or ""),
+                                explicit=bool((payload or {}).get("explicit", True)))
+    except (TypeError, ValueError) as e:
+        return {"ok": False, "error": str(e)[:300]}
+
+
+@router.get("/deeptest/nodes")
+def deeptest_nodes():
+    """DEEPTESTED NODES — every node with at least one DeepTest scenario."""
+    from ..deeptest import store as S
+    from ..deeptest import scenarios as SC
+    db = get_db()
+    S.ensure_schema(db)
+    rows = db.q("SELECT DISTINCT node_id FROM deeptest_scenarios ORDER BY node_id") or []
+    out = []
+    for r in rows:
+        try:
+            out.append(SC.node_deeptest_summary(db, int(r["node_id"])))
+        except Exception as e:                    # one bad node hides nothing
+            out.append({"node_id": int(r["node_id"]), "error": f"{type(e).__name__}: {e}"[:200]})
+    return {"ok": True, "nodes": out, "count": len(out),
+            "statistics_priority": ("preferred DeepTest -> latest valid DeepTest -> "
+                                    "generation metrics -> N/A")}
+
+
 @router.get("/nodes")
 def nodes_index(
     filter: str = "qualified",
@@ -5624,6 +5898,16 @@ def nodes_index(
         excluded_notes = {}
     live = per_node_live_stats(db)
     shortlist = set(db.get_shortlist())
+    # V6.6 §12 — statistics priority: one shared projection (preferred DeepTest
+    # -> latest valid DeepTest -> generation -> N/A) serves Deep Testing AND the
+    # LIVE TESTING performance-statistics display. One table scan; any failure
+    # degrades to generation metrics and never breaks the index.
+    try:
+        from ..stats.deeptest_projection import build_index as _dt_build_index
+        _dt_index = _dt_build_index(db)
+    except Exception as _dt_e:                     # pragma: no cover - defensive
+        log.warning("deeptest statistics index unavailable: %s", _dt_e)
+        _dt_index = {}
     search_clean = (search or "").strip().lower()
 
     # §7/§10 — the bucket counts describe the SAME universe the rows are drawn
@@ -5701,6 +5985,26 @@ def nodes_index(
         sched_desc = _describe_schedule(sched_norm) if sched_norm else None
         ls = live.get(sid, {})
         num = strat.get("research_node_num") or st.get("research_node_num")
+        # V6.6 §12 — the shared statistics projection for this row
+        _gen_metrics = {
+            "return_pct": m.get("total_return_pct"),
+            "profit_factor": m.get("profit_factor"),
+            "max_drawdown_pct": m.get("max_drawdown_pct"),
+            "win_rate": m.get("win_rate"),
+            "trades": m.get("trades"),
+            "net_profit": m.get("net_profit"),
+            "expectancy": m.get("expectancy"),
+            "avg_trade": m.get("avg_trade"),
+            "sharpe": m.get("sharpe"),
+        }
+        try:
+            from ..stats.deeptest_projection import effective_for as _dt_effective
+            _proj = _dt_effective(_dt_index, sid, generation_metrics=_gen_metrics)
+        except Exception:                          # never break the index
+            _proj = {"metrics": _gen_metrics,
+                     "metrics_source": "generation",
+                     "metrics_source_label": "generation backtest",
+                     "generation_metrics": _gen_metrics, "deeptest": None}
         _ws = _worker_state(sid)          # one read per row: worker + lifecycle
         rows.append({
             # V6.4 identity contract: the CANONICAL identity of a node is its
@@ -5751,17 +6055,15 @@ def nodes_index(
             "qualification": strat.get("status") or st.get("status"),
             "survival_evidence": strat.get("survival_reason") or strat.get("creation_reason") or bucket.get("reason"),
             "failure_reason": strat.get("failure_reason") or st.get("failure_reason"),
-            "metrics": {
-                "return_pct": m.get("total_return_pct"),
-                "profit_factor": m.get("profit_factor"),
-                "max_drawdown_pct": m.get("max_drawdown_pct"),
-                "win_rate": m.get("win_rate"),
-                "trades": m.get("trades"),
-                "net_profit": m.get("net_profit"),
-                "expectancy": m.get("expectancy"),
-                "avg_trade": m.get("avg_trade"),
-                "sharpe": m.get("sharpe"),
-            },
+            # V6.6 §12 — statistics priority (shared projection): preferred
+            # DeepTest -> latest valid DeepTest -> generation -> N/A. Generation
+            # metrics stay available verbatim under `generation_metrics`;
+            # live operational metrics above are untouched.
+            "metrics": _proj["metrics"],
+            "metrics_source": _proj["metrics_source"],
+            "metrics_source_label": _proj["metrics_source_label"],
+            "generation_metrics": _proj["generation_metrics"],
+            "deeptest": _proj["deeptest"],
             "robustness": {"score": val.get("robustness_score"), "passed": val.get("passed")},
             "backtest_coverage": cov,
             "risk": {"pct": eff.get("risk_pct"), "override_pct": override,

@@ -1,747 +1,658 @@
-// V5 §6–9 — DEEP BACKTEST
+// V6.6 — DEEP TESTING tab: a persistent, MT5-terminal-style workspace.
 //
-// One graphical table of every research node with its real evaluated metrics,
-// plus a run panel that executes a *deep* (detail-stage, full-cost) backtest on
-// the MT5 historical data for the node's own timeframe.
-//
-// Rules this page follows (spec V5):
-//   * Failed / data-unavailable / backtest-error nodes exist but `Show Failed`
-//     is OFF by default (§6, §21).
-//   * The date preset (1/3/7/14 days, 1/3/6/12 months, Custom from/to) is sent
-//     to the run as its real start/end dates — it is not a label (§8).
-//   * A run that cannot get MT5 history reports DATA_UNAVAILABLE; a run whose
-//     engine crashed reports BACKTEST_ERROR. Neither is shown as a strategy
-//     failure (§3).
-//   * Nothing here places an order.
+// Redesigned under the V6.6 directive (Deep Testing only — every other tab,
+// and LIVE TESTING in particular, stays frozen):
+//   * persistent workspace state: global settings, period, filters, per-node
+//     experimental settings, selected node, scroll-safe layout;
+//   * the nine period buttons (1D/7D/14D/1M/3M/6M/1Y/2Y/3Y) select the HISTORY
+//     RANGE only — the node's configured candle timeframe is never changed;
+//   * authoritative inventory: the SAME nodes index + the SAME qualification
+//     predicate as every other tab (counts come from the server's buckets —
+//     never hardcoded); filters QUALIFIED (default) / ALIVE / DEAD / ALL;
+//   * per node: GET MT5 DATA (incremental missing-range fetch) and DEEPTEST
+//     (the node's ACTUAL strategy on validated history — historical simulation
+//     only; no broker orders, no live-loop interference);
+//   * the mandatory incomplete-history confirmation (YES-PROCEED / NO-CANCEL /
+//     MANUALLY LOAD DATA-IMPORT CSV) with requested-vs-actual coverage;
+//   * DEEPTESTED NODES: scenario count, preferred scenario, coverage (PARTIAL
+//     COVERAGE always marked), statistics priority, inspect/compare/prefer;
+//   * statistics priority (shared projection): preferred DeepTest → latest
+//     valid DeepTest → generation → N/A.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api } from "../api";
-import { Card, StateBlock, Progress, ConfirmModal, Badge } from "../components/ui";
+import { api, fmt } from "../api";
+import { Badge, StateBlock } from "../components/ui";
 import StrategyDrawer from "../components/StrategyDrawer";
-import DeepDataPanel from "../components/DeepDataPanel";
-import NodePopulationStrip from "../components/NodePopulationStrip.jsx";
-import { fmt } from "../api";
+import DeepCoveragePanel from "../components/DeepCoveragePanel";
+import DeepCsvImportDialog from "../components/DeepCsvImportDialog";
+import DeepScenarioPanel from "../components/DeepScenarioPanel";
 import { arr, txt } from "../lib/safe.js";
 
-/* §7 — the node filters the operator chooses from. ``qualified`` is the default
- * (spec §6): Deep Backtest lists every qualified node, and the wider research
- * states are one click away rather than hidden. */
+/* §5 — the node filters. ``qualified`` is the default: Deep Testing lists every
+ * qualified node against the authoritative predicate; ALIVE / DEAD / ALL are one
+ * click away. (The server's bucket names are the API contract: "failed" is the
+ * judged-dead bucket.) */
 export const NODE_FILTERS = [
   { key: "qualified", label: "Qualified", hint: "cleared the research gates against real data" },
   { key: "alive", label: "Alive", hint: "qualified + still in research (not a dead end)" },
-  { key: "eligible", label: "Eligible", hint: "the live engine would accept it as a candidate" },
-  { key: "all", label: "All", hint: "every node in the experiment (+ legacy rows)" },
-  { key: "failed", label: "Failed", hint: "the strategy was judged and did not make it" },
-  { key: "excluded", label: "Excluded", hint: "outside this experiment (LEGACY_TEST)" },
-  { key: "blocked", label: "Blocked", hint: "data/infrastructure — the strategy was never judged" },
-  { key: "unknown", label: "Unknown", hint: "status needs investigation" },
+  { key: "failed", label: "Dead", hint: "judged and did not make it" },
+  { key: "all", label: "All", hint: "every node in the experiment" },
 ];
 
-/* §31 — the run states the operator can see. ``COMPLETED`` never means "no
- * results": the verdict line states what actually happened. */
-const RUN_METRIC_FIELDS = [
-  ["Return %", (m) => (m.total_return_pct == null ? null : `${(m.total_return_pct * 100).toFixed(3)}%`)],
-  ["Net profit", (m) => m.net_profit],
-  ["Profit factor", (m) => (m.profit_factor == null ? null : Number(m.profit_factor).toFixed(3))],
-  ["Max DD", (m) => m.max_drawdown],
-  ["Max DD %", (m) => (m.max_drawdown_pct == null ? null : `${(m.max_drawdown_pct * 100).toFixed(3)}%`)],
-  ["Win rate", (m) => (m.win_rate == null ? null : `${(m.win_rate * 100).toFixed(2)}%`)],
-  ["Trades", (m) => m.trades],
-  ["Avg trade", (m) => m.avg_trade],
-  // avg win/loss are derived from the run's own persisted trades by the backend
-  ["Avg win", (m, d) => m.avg_win ?? d.avg_win],
-  ["Avg loss", (m, d) => m.avg_loss ?? d.avg_loss],
-  ["Expectancy", (m) => m.expectancy],
-  ["Sharpe", (m) => (m.sharpe == null ? null : Number(m.sharpe).toFixed(3))],
-  ["Robustness", (m) => m.robustness_score],
-  ["Start balance", (m) => m.start_balance ?? m.initial_balance],
-  ["End balance", (m) => m.final_equity ?? m.end_balance],
-  ["Timeframe", (m) => m.timeframe],
-  ["Symbol", (m) => m.symbol],
-  ["Runtime ms", (m) => m.runtime_ms],
-];
+const PERIOD_KEYS = ["1D", "7D", "14D", "1M", "3M", "6M", "1Y", "2Y", "3Y"];
 
-export function RunMetrics({ metrics, derived, schedule, coverage, verdict, error, status }) {
-  const m = metrics || {};
-  const d = derived || {};
-  const cov = coverage || {};
-  return (
-    <div style={{ fontSize: 11.5 }}>
-      {verdict && <div style={{ marginBottom: 4 }}><b>{verdict}</b></div>}
-      {error && <div className="kit-inline-err">{error}</div>}
-      <div className="kit-strip" style={{ border: "none", padding: 0, flexWrap: "wrap" }}>
-        <div className="item"><span className="k">Status</span><span className="v mono">{status}</span></div>
-        <div className="item"><span className="k">Schedule applied</span>
-          <span className="v mono">{schedule?.applied_to_bars ? "yes" : (schedule?.configured ? "configured (no bar filter)" : "none")}</span></div>
-        <div className="item"><span className="k">Bars allowed / blocked</span>
-          <span className="v mono">{schedule?.bars_allowed ?? "—"} / {schedule?.bars_blocked ?? "—"}</span></div>
-        <div className="item"><span className="k">Data</span>
-          <span className="v mono">{cov.source_label || cov.dataset?.source || coverage?.source || "—"}
-            {cov.dataset?.id || coverage?.dataset_id ? ` · ${cov.dataset?.id || coverage?.dataset_id}` : ""}</span></div>
-        {cov.bars_used !== undefined && (
-          <div className="item"><span className="k">Bars used</span>
-            <span className="v mono">{txt(cov.bars_used, "—")}{cov.expected_bars ? ` / ${cov.expected_bars} expected` : ""}</span></div>
-        )}
-        {cov.completeness_pct !== undefined && cov.completeness_pct !== null && (
-          <div className="item"><span className="k">Completeness</span>
-            <span className="v mono">{fmt.num(cov.completeness_pct, 2)} %{cov.complete === false ? " (gaps present)" : ""}</span></div>
-        )}
-        {cov.quality?.gaps !== undefined && (
-          <div className="item"><span className="k">Gaps / missing bars</span>
-            <span className="v mono">{txt(cov.quality.gaps, "—")} / {txt(cov.quality.missing_bars_total, "—")}</span></div>
-        )}
-      </div>
-      {/* §32 — the data-loading report: requested vs actual, never a silent subset */}
-      {(cov.requested || cov.actual) && (
-        <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
-          requested {txt(cov.requested?.start_iso || cov.requested?.start, "—")} → {txt(cov.requested?.end_iso || cov.requested?.end, "—")}
-          {" · "}used {txt(cov.actual?.start, "—")} → {txt(cov.actual?.end, "—")}
-          {cov.period_adjusted ? " (adjusted to the dataset's own range)" : ""}
-        </div>
-      )}
-      {cov.interpretation && (
-        <div className="muted" style={{ fontSize: 10.5, marginTop: 2 }}>{cov.interpretation}</div>
-      )}
-      {arr(cov.missing_periods).length > 0 && (
-        <details style={{ marginTop: 4 }}>
-          <summary className="muted" style={{ fontSize: 11, cursor: "pointer" }}>
-            missing periods ({arr(cov.missing_periods).length}{cov.missing_periods_truncated ? "+" : ""})
-          </summary>
-          <ul style={{ margin: "4px 0 0 16px", fontSize: 11 }}>
-            {arr(cov.missing_periods).slice(0, 12).map((g, i) => (
-              <li key={i} className="mono">
-                {txt(g.after, "?")} → {txt(g.before, "?")} · {txt(g.missing_bars, "?")} bar(s)
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
-      {schedule?.description && (
-        <div className="muted" style={{ fontSize: 11 }}>schedule: {schedule.description}</div>
-      )}
-      <table className="tbl" style={{ marginTop: 6 }}>
-        <tbody>
-          {RUN_METRIC_FIELDS.map(([label, get]) => {
-            const v = get(m, d);
-            return (
-              <tr key={label}>
-                <td className="muted" style={{ width: 130 }}>{label}</td>
-                <td className="mono">{v == null || v === "" ? <span className="muted">not reported</span> : String(v)}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}
+const fmtMoney = (v) => (v == null ? "N/A" : `$${Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 })}`);
+const fmtPct = (v) => (v == null ? "N/A" : `${(Number(v) * 100).toFixed(3)}%`);
+const fmtNum = (v, d = 3) => (v == null ? "N/A" : (typeof v === "number" ? Number(v).toFixed(d) : String(v)));
+const isoOf = (ts) => (ts == null ? "—" : new Date(Number(ts) * 1000).toISOString().replace("T", " ").slice(0, 16) + "Z");
 
-const PRESETS = [
-  { key: "1d", label: "1 day", days: 1 },
-  { key: "3d", label: "3 days", days: 3 },
-  { key: "7d", label: "7 days", days: 7 },
-  { key: "14d", label: "14 days", days: 14 },
-  { key: "1m", label: "1 month", months: 1 },
-  { key: "3m", label: "3 months", months: 3 },
-  { key: "6m", label: "6 months", months: 6 },
-  { key: "12m", label: "12 months", months: 12 },
-  { key: "custom", label: "Custom", custom: true },
-];
-
-const RUN_STATES = {
-  QUEUED: { tone: "var(--amber)", label: "Queued" },
-  RUNNING: { tone: "var(--accent)", label: "Running" },
-  COMPLETED: { tone: "var(--green)", label: "Completed" },
-  FAILED: { tone: "var(--red)", label: "Failed" },
-  DATA_UNAVAILABLE: { tone: "var(--amber)", label: "Data unavailable" },
-  BACKTEST_ERROR: { tone: "var(--red)", label: "Backtest error" },
-  CANCELLED: { tone: "var(--muted)", label: "Cancelled" },
-};
-
-function isoDate(d) {
-  return d.toISOString().slice(0, 10);
-}
-
-/** Turn a preset (or custom range) into the real dates the run will use. */
-export function presetRange(presetKey, from, to) {
-  if (presetKey === "custom") {
-    if (!from || !to) return { start_date: "", end_date: "", valid: false };
-    return { start_date: from, end_date: to, valid: from <= to };
-  }
-  const p = PRESETS.find((x) => x.key === presetKey) || PRESETS[3];
-  const end = new Date();
-  const start = new Date(end);
-  if (p.months) start.setMonth(start.getMonth() - p.months);
-  else start.setDate(start.getDate() - (p.days || 7));
-  return { start_date: isoDate(start), end_date: isoDate(end), valid: true };
-}
-
-const STATUS_TONE = {
-  VALID: "var(--green)",
-  TESTING: "var(--accent)",
-  PENDING: "var(--muted)",
-  NOT_TESTED: "var(--muted)",
-  STRATEGY_FAILED: "var(--red)",
-  DATA_UNAVAILABLE: "var(--amber)",
-  DATA_CORRUPT: "var(--amber)",
-  BACKTEST_ERROR: "var(--red)",
-  LIVE_ELIGIBLE: "var(--accent)",
-  LIVE_TESTING: "var(--accent)",
-  LIVE_COMPLETED: "var(--green)",
-  MT5_DEMO: "var(--green)",
-};
-
-export function StatusCell({ row }) {
-  const tone = STATUS_TONE[row.v5_status] || "var(--muted)";
-  return (
-    <span className="mono" style={{ color: tone, fontSize: 10, whiteSpace: "nowrap" }} title={row.v5_status_hint || ""}>
-      ● {row.v5_status_label || row.v5_status}
-      {row.error_class === "INFRASTRUCTURE" ? <span className="muted" style={{ marginLeft: 4 }}>(infra)</span> : null}
-      {row.error_class === "STRATEGY" ? <span className="muted" style={{ marginLeft: 4 }}>(strategy)</span> : null}
-    </span>
-  );
-}
+/* §4 — the default global settings (validated server-side, snapshotted per
+ * scenario). Shown here exactly as stored — never rounded silently. */
+const DEFAULT_SETTINGS = { total_capital: 200000, risk_pct: 1.0, max_active_trades_per_node: 0 };
 
 export default function DeepBacktest() {
-  const [rows, setRows] = useState([]);
-  const [total, setTotal] = useState(0);
+  // ---- persistent workspace state -----------------------------------------
+  const [settings, setSettings] = useState(DEFAULT_SETTINGS);
+  const [settingsSaved, setSettingsSaved] = useState(null);
+  const [settingsErr, setSettingsErr] = useState(null);
+  const [periodKey, setPeriodKey] = useState("3M");
+  const [filter, setFilter] = useState("qualified");
   const [search, setSearch] = useState("");
-  const [tf, setTf] = useState("");
-  const [sortBy, setSortBy] = useState("total_return_pct");
-  const [sortDesc, setSortDesc] = useState(true);
-  const [nodeFilter, setNodeFilter] = useState("qualified"); // §6: qualified by default
-  /* §15 — which stored history a run uses. MT5 (the terminal's own bars) is the
-   * default and is never substituted silently: when a symbol/timeframe only
-   * exists in the lab's own dataset, the run is refused with the exact reason
-   * and the operator picks the source here. ``runTf`` overrides the node's own
-   * timeframe for a run, so a different timeframe really is a different test. */
-  const [dataScope, setDataScope] = useState("MT5");
-  const [runTf, setRunTf] = useState("");
-  const [counts, setCounts] = useState({});
+  const [nodes, setNodes] = useState([]);
+  const [counts, setCounts] = useState(null);
   const [experiment, setExperiment] = useState(null);
-  const [openRun, setOpenRun] = useState(null);
-  const [runDetail, setRunDetail] = useState({});
-  const [starredOnly, setStarredOnly] = useState(false);
-  /* V5.2.3 §10 — ONE scrollable table: no page state, no rows-per-page. */
-  const [selected, setSelected] = useState(() => new Set());
-  const [preset, setPreset] = useState("7d");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
-  const [busy, setBusy] = useState("");
-  const [error, setError] = useState("");
-  const [runs, setRuns] = useState([]);
-  const [caps, setCaps] = useState(null);
-  const [schedule, setSchedule] = useState({ mode: "now", at: "" });
-  const [confirm, setConfirm] = useState(null);
-  const [batchReport, setBatchReport] = useState(null);
+  const [dtNodes, setDtNodes] = useState([]);       // DEEPTESTED NODES summaries
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [selected, setSelected] = useState({});      // node_id -> true
+  const [rowCfg, setRowCfg] = useState({});          // node_id -> per-node experimental settings
+  const [fetchStates, setFetchStates] = useState({}); // "SYM|TF" -> job state
+  const [runBusy, setRunBusy] = useState({});        // node_id -> "queued"|"running"|error text
+  const [inspectNode, setInspectNode] = useState(null);
   const [drawerId, setDrawerId] = useState(null);
-  /* §14 — the readiness verdict per node, from the ONE backend authority. A node
-   * whose data is not there yet must not be offered a deep run that would only
-   * report "data unavailable". */
-  const [readiness, setReadiness] = useState(null);
-  const readyById = useMemo(() => {
-    const m = new Map();
-    for (const n of arr(readiness?.nodes)) m.set(Number(n.node_id), n);
-    return m;
-  }, [readiness]);
+  const [csvFor, setCsvFor] = useState(null);        // {symbol, timeframe}
+  const [confirmState, setConfirmState] = useState(null); // §9 popup
+  const [sortKey, setSortKey] = useState("node_id");
+  const [sortDir, setSortDir] = useState(1);
   const pollRef = useRef(null);
 
-  const range = useMemo(() => presetRange(preset, from, to), [preset, from, to]);
-
-  const load = useCallback(async () => {
-    setError("");
+  // ---- data loading --------------------------------------------------------
+  const loadNodes = useCallback(async () => {
+    setLoading(true);
+    setError(null);
     try {
-      const params = {
-        filter: nodeFilter,
-        limit: 0,            // all matching nodes — the table scrolls, it does not page
-        offset: 0,
-        sort_by: sortBy,
-        sort_desc: sortDesc ? 1 : 0,
-        search: search || undefined,
-        timeframe: tf || undefined,
-      };
-      const res = await api.nodes(params);
-      setRows(res.nodes || []);
-      setTotal(res.total || 0);
-      setCounts(res.counts || {});
+      const res = await api.nodes({ filter, search, limit: 0, offset: 0, sort_by: "node_id" });
+      setNodes(arr(res.nodes));
+      setCounts(res.filter_totals || res.counts || null);
       setExperiment(res.experiment || null);
     } catch (e) {
-      setError(e.message || String(e));
+      setError(e);
+    } finally {
+      setLoading(false);
     }
-  }, [search, sortBy, sortDesc, tf, nodeFilter]);
+  }, [filter, search]);
 
-  const loadRuns = useCallback(async () => {
+  const loadDt = useCallback(async () => {
     try {
-      const res = await api.mt5HistoricalRuns({ limit: 25 });
-      setRuns(res.runs || res.items || []);
-    } catch { /* the run list is informative; the table stays usable */ }
+      const res = await api.deeptestNodes();
+      setDtNodes(arr(res.nodes));
+    } catch { /* the DEEPTESTED section degrades to empty, never breaks the page */ }
   }, []);
 
-  const loadCaps = useCallback(async () => {
-    try { setCaps(await api.mt5HistoricalCapabilities()); } catch { setCaps(null); }
+  const loadSettings = useCallback(async () => {
+    try {
+      const res = await api.deeptestSettings();
+      if (res && res.settings) setSettings({ ...DEFAULT_SETTINGS, ...res.settings });
+    } catch { /* defaults stay visible */ }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
-  useEffect(() => { loadRuns(); loadCaps(); }, [loadRuns, loadCaps]);
   useEffect(() => {
-    pollRef.current = setInterval(() => { loadRuns(); }, 4000);
-    return () => clearInterval(pollRef.current);
-  }, [loadRuns]);
+    loadNodes();
+    loadDt();
+    loadSettings();
+  }, [loadNodes, loadDt, loadSettings]);
 
-  /* The timeframes this installation actually stores (plus the standard set, so
-   * the operator can ask for one and be told precisely what is missing). */
-  const runTfOptions = useMemo(() => {
-    const set = new Set();
-    for (const d of arr(caps?.datasets)) { if (d?.timeframe) set.add(String(d.timeframe)); }
-    for (const t of ["M1", "M5", "M15", "M30", "H1", "H4", "D1"]) set.add(t);
-    return [...set].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-  }, [caps]);
+  // light polling while any job is active (fetch or run)
+  useEffect(() => {
+    const active = Object.keys(fetchStates).some((k) => fetchStates[k]?.status === "FETCHING")
+      || Object.keys(runBusy).length > 0;
+    if (!active) return undefined;
+    const t = setInterval(async () => {
+      try {
+        const pairs = Object.keys(fetchStates).filter((k) => fetchStates[k]?.status === "FETCHING");
+        for (const key of pairs) {
+          const [sym, tf] = key.split("|");
+          const st = await api.deeptestFetchStatus(sym, tf);
+          if (st.job) setFetchStates((m) => ({ ...m, [key]: st.job }));
+        }
+        if (Object.keys(runBusy).length) {
+          await loadDt();
+          const res = await api.deeptestScenarios({ statuses: "QUEUED,FETCHING,VALIDATING,RUNNING" });
+          const running = new Set(arr(res.scenarios).map((s) => String(s.node_id)));
+          setRunBusy((m) => {
+            const out = {};
+            for (const [nid, v] of Object.entries(m)) if (running.has(String(nid)) || v === "queued") out[nid] = v;
+            return out;
+          });
+          if (inspectNode != null) {
+            // refresh the open scenario panel via key bump
+            setInspectNode((x) => x);
+          }
+        }
+      } catch { /* polling never crashes the page */ }
+    }, 4000);
+    return () => clearInterval(t);
+  }, [fetchStates, runBusy, loadDt, inspectNode]);
 
-  // the backend already filtered by bucket; only the local "starred" toggle applies
-  const visible = starredOnly ? rows.filter((r) => r.starred) : rows;
-
-  const toggleStar = async (row) => {
+  // ---- settings ------------------------------------------------------------
+  const saveSettings = async () => {
+    setSettingsErr(null);
     try {
-      const res = await api.toggleShortlist(row.node_id);
-      setRows((prev) => prev.map((p) => (p.node_id === row.node_id ? { ...p, starred: res.shortlisted } : p)));
-    } catch (e) { setError(e.message || String(e)); }
-  };
-
-  const runOne = async (row, { silent = false } = {}) => {
-    if (!range.valid) { setError("The custom range is invalid: start must be on or before end."); return; }
-    if (!silent) setBusy(`run-${row.node_id}`);
-    try {
-      const res = await api.mt5HistoricalStartRun({
-        strategy_id: row.node_id,
-        symbol: row.symbol,
-        timeframe: runTf || row.timeframe,
-        data_scope: dataScope,
-        start_date: range.start_date,
-        end_date: range.end_date,
-        schedule_at: schedule.mode === "at" && schedule.at ? new Date(schedule.at).toISOString() : undefined,
+      const res = await api.deeptestSaveSettings({
+        total_capital: settings.total_capital,
+        risk_pct: settings.risk_pct,
+        max_active_trades_per_node: settings.max_active_trades_per_node,
       });
-      await loadRuns();
-      if (!silent) setBusy("");
-      return res;
+      if (!res.ok) {
+        setSettingsErr((res.errors || []).map((e) => `${e.field}: ${e.error}`).join("; ") || "invalid settings");
+        return;
+      }
+      setSettings({ ...DEFAULT_SETTINGS, ...res.settings });
+      setSettingsSaved(new Date().toLocaleTimeString());
     } catch (e) {
-      if (!silent) setBusy("");
-      setError(`${row.node_label || row.node_id}: ${e.message || e}`);
+      setSettingsErr(e.message || String(e));
     }
   };
 
-  /* §6/§7 — one action for one / several / all selected nodes. The backend fans
-   * the request out over the *same* single-run path, so a node that cannot be
-   * queued comes back with its real reason instead of being dropped. */
-  const runMany = async (ids, label) => {
-    if (!ids.length) return;
-    setConfirm(null);
-    setBusy(`run-${label}`);
+  // ---- per-node experimental settings --------------------------------------
+  const cfgOf = useCallback((nid) => ({
+    risk_mode: "PERCENT", risk_pct: settings.risk_pct, risk_amount: 1000,
+    max_trades: "", sl_offset_pips: 0, tp_offset_pips: 0,
+    ...(rowCfg[nid] || {}),
+  }), [rowCfg, settings.risk_pct]);
+
+  const setCfgOf = (nid, patch) => setRowCfg((m) => ({ ...m, [nid]: { ...(m[nid] || {}), ...patch } }));
+
+  // ---- actions -------------------------------------------------------------
+  const onFetch = async (symbol, timeframe) => {
+    const key = `${String(symbol).toUpperCase()}|${String(timeframe).toUpperCase()}`;
     try {
-      const res = await api.mt5HistoricalStartBatch({
-        strategy_ids: ids,
-        data_scope: dataScope,
-        timeframe: runTf || undefined,
-        start_date: range.start_date,
-        end_date: range.end_date,
-        schedule_at: schedule.mode === "at" && schedule.at ? new Date(schedule.at).toISOString() : undefined,
+      const res = await api.deeptestFetch({ symbol, timeframe });
+      if (res.job) setFetchStates((m) => ({ ...m, [key]: res.job }));
+    } catch (e) {
+      setFetchStates((m) => ({ ...m, [key]: { status: "FAILED", operation: e.message || String(e) } }));
+    }
+  };
+
+  const nodeSettingsOf = (c) => ({
+    risk_mode: c.risk_mode,
+    risk_pct: c.risk_mode === "PERCENT" ? Number(c.risk_pct) : null,
+    risk_amount: c.risk_mode === "AMOUNT" ? Number(c.risk_amount) : null,
+    max_trades: c.max_trades === "" ? null : Number(c.max_trades),
+    sl_offset_pips: Number(c.sl_offset_pips) || 0,
+    tp_offset_pips: Number(c.tp_offset_pips) || 0,
+  });
+
+  const startDeeptest = async (node) => {
+    const nid = node.node_id;
+    const c = cfgOf(nid);
+    setRunBusy((m) => ({ ...m, [nid]: "queued" }));
+    try {
+      // preflight must see EXACTLY the settings the run will use — the §9
+      // confirmation is bound to them
+      const pre = await api.deeptestPreflight({
+        node_id: nid, duration_key: periodKey, settings,
+        node_settings: nodeSettingsOf(c),
       });
-      await loadRuns();
-      const failed = (res.runs || []).filter((r) => !r.ok);
-      setBatchReport({
-        label, requested: res.requested, started: res.started, failed: res.failed,
-        run_ids: res.run_ids || [],
-        problems: failed.map((f) => ({
-          node_id: f.strategy_id,
-          label: (rows.find((r) => r.node_id === f.strategy_id) || {}).node_label || `node ${f.strategy_id}`,
-          reason: (f.errors || []).map((e) => `${e.field}: ${e.error}`).join("; ") || f.status || "rejected",
-        })),
-      });
-      if (failed.length) {
-        setError(`${res.started} queued, ${res.failed} rejected — every node that could not be queued is listed below with its reason.`);
-      } else {
-        setError("");
+      if (!pre.ok && !pre.needs_confirmation) {
+        setRunBusy({ [nid]: pre.error || "preflight refused" });
+        return;
+      }
+      if (pre.needs_confirmation) {
+        setConfirmState({ pre, node, cfg: c });
+        setRunBusy((m) => { const o = { ...m }; delete o[nid]; return o; });
+        return;
+      }
+      await launchRun(node, c);
+    } catch (e) {
+      setRunBusy({ [nid]: e.message || String(e) });
+    }
+  };
+
+  const launchRun = async (node, c) => {
+    const nid = node.node_id;
+    const res = await api.deeptestRun({
+      node_id: nid,
+      duration_key: periodKey,
+      settings,
+      node_settings: nodeSettingsOf(c),
+      idempotency_key: `dt-${nid}-${periodKey}-${Date.now()}`,
+    });
+    if (res.ok) {
+      setRunBusy((m) => ({ ...m, [nid]: "running" }));
+      loadDt();
+    } else if (res.needs_confirmation) {
+      setConfirmState({ pre: res, node, cfg: c });
+      setRunBusy((m) => { const o = { ...m }; delete o[nid]; return o; });
+    } else {
+      setRunBusy({ [nid]: res.error || "run refused" });
+    }
+  };
+
+  const resolveConfirm = async (decision) => {
+    const st = confirmState;
+    if (!st) return;
+    const fp = st.pre?.confirmation?.confirmation_fingerprint
+      || st.pre?.coverage?.confirmation_fingerprint;
+    try {
+      if (decision === "YES_PROCEED") {
+        await api.deeptestConfirm({ confirmation_fingerprint: fp, decision, node_id: st.node.node_id });
+        setConfirmState(null);
+        await launchRun(st.node, st.cfg);
+        return;
+      }
+      if (decision === "NO_CANCEL") {
+        await api.deeptestConfirm({ confirmation_fingerprint: fp, decision, node_id: st.node.node_id });
+        setConfirmState(null);
+        return;
+      }
+      if (decision === "LOAD_CSV") {
+        await api.deeptestConfirm({ confirmation_fingerprint: fp, decision, node_id: st.node.node_id });
+        setCsvFor({ symbol: st.node.symbol, timeframe: st.node.timeframe });
+        setConfirmState(null);
       }
     } catch (e) {
-      setError(e.message || String(e));
-    } finally { setBusy(""); }
+      setConfirmState(null);
+      setRunBusy({ [st.node.node_id]: e.message || String(e) });
+    }
   };
 
-  const selectedIds = [...selected];
-  const starredIds = rows.filter((r) => r.starred).map((r) => r.node_id);
-  const allSelected = visible.length > 0 && visible.every((r) => selected.has(r.node_id));
+  // ---- derived -------------------------------------------------------------
+  const dtByNode = useMemo(() => {
+    const m = {};
+    for (const d of dtNodes || []) m[d.node_id] = d;
+    return m;
+  }, [dtNodes]);
+
+  const sorted = useMemo(() => {
+    const rows = [...nodes];
+    rows.sort((a, b) => {
+      let av, bv;
+      switch (sortKey) {
+        case "metrics": av = a.metrics?.return_pct; bv = b.metrics?.return_pct; break;
+        case "dt": av = dtByNode[a.node_id]?.scenario_count || 0; bv = dtByNode[b.node_id]?.scenario_count || 0; break;
+        case "symbol": av = a.symbol; bv = b.symbol; break;
+        case "timeframe": av = a.timeframe; bv = b.timeframe; break;
+        case "status": av = a.bucket; bv = b.bucket; break;
+        default: av = a.node_id; bv = b.node_id;
+      }
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      if (av < bv) return -sortDir;
+      if (av > bv) return sortDir;
+      return 0;
+    });
+    return rows;
+  }, [nodes, sortKey, sortDir, dtByNode]);
+
+  const selectedNodes = useMemo(() => nodes.filter((n) => selected[n.node_id]), [nodes, selected]);
+  const pairs = useMemo(() => {
+    const seen = new Set();
+    const out = [];
+    for (const n of (selectedNodes.length ? selectedNodes : nodes).slice(0, 12)) {
+      const key = `${n.symbol}|${n.timeframe}`;
+      if (!seen.has(key)) { seen.add(key); out.push({ symbol: n.symbol, timeframe: n.timeframe }); }
+    }
+    return out;
+  }, [nodes, selectedNodes]);
+
+  const anySelected = selectedNodes.length > 0;
 
   return (
-    <div className="stack">
-      {/* V5.2 §10 — same node-population authority as every other page */}
-      <NodePopulationStrip />
-      <Card title="DEEP BACKTEST" right={
-        <span className="muted" style={{ fontSize: 10 }}>
-          full-cost backtest on stored MT5 history for the node's own timeframe · never places an order
+    <div data-testid="deeptest-workspace" style={{ padding: 12, fontSize: 12 }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+        <h2 style={{ margin: 0 }}>Deep Testing</h2>
+        <span style={{ opacity: 0.8 }}>
+          persistent workspace · historical simulation only — never places an order
         </span>
-      }>
-        <div className="row" style={{ gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
-          <label className="field" style={{ minWidth: 180 }}>
-            <span>Search node / strategy</span>
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Node_240, XAUUSD…" />
-          </label>
-          <label className="field" style={{ width: 110 }}>
-            <span>Timeframe</span>
-            <select value={tf} onChange={(e) => setTf(e.target.value)}>
-              <option value="">All</option>
-              {["M1", "M5", "M15", "M30", "H1"].map((x) => <option key={x} value={x}>{x}</option>)}
-            </select>
-          </label>
-          <label className="field" style={{ width: 190 }}>
-            <span>Sort</span>
-            <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
-              <option value="total_return_pct">IS return</option>
-              <option value="profit_factor">Profit factor</option>
-              <option value="win_rate">Win rate</option>
-              <option value="trades">Trades</option>
-              <option value="max_drawdown_pct">Max drawdown</option>
-              <option value="sharpe">Sharpe</option>
-              <option value="id">Node id</option>
-              <option value="last_tested_at">Last tested</option>
-            </select>
-          </label>
-          <button className="btn ghost" onClick={() => setSortDesc((v) => !v)}>{sortDesc ? "▼ desc" : "▲ asc"}</button>
-          <label className="row" style={{ gap: 6, alignItems: "center" }}>
-            <input type="checkbox" checked={starredOnly} onChange={(e) => setStarredOnly(e.target.checked)} />
-            <span style={{ fontSize: 11 }}>Starred only</span>
-          </label>
-          <label className="field" style={{ width: 170 }} title={NODE_FILTERS.find((f) => f.key === nodeFilter)?.hint || ""}>
-            <span>Nodes</span>
-            <select value={nodeFilter} onChange={(e) => { setNodeFilter(e.target.value); setSelected(new Set()); }}>
-              {NODE_FILTERS.map((f) => (
-                <option key={f.key} value={f.key}>
-                  {f.label}{counts[f.key] != null ? ` (${counts[f.key]})` : ""}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button className="btn ghost" onClick={() => { setSelected(new Set()); setSearch(""); setTf(""); setStarredOnly(false); setNodeFilter("qualified"); }}>Reset view</button>
-        </div>
+        {experiment && (
+          <span className="mono" style={{ fontSize: 11, opacity: 0.85 }}>
+            experiment {txt(experiment.run_id)} · population {experiment.population ?? "—"}
+          </span>
+        )}
+      </div>
 
-        <div className="row" style={{ gap: 10, marginTop: 10, flexWrap: "wrap", alignItems: "center" }}>
-          <span className="muted" style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1 }}>Run period</span>
-          {PRESETS.map((p) => (
-            <button key={p.key} className={"btn " + (preset === p.key ? "primary" : "ghost")}
-                    onClick={() => setPreset(p.key)} style={{ fontSize: 11 }}>
-              {p.label}
+      {/* ---- §4 global settings ------------------------------------------ */}
+      <div className="panel" style={{ marginTop: 8 }}>
+        <b style={{ fontSize: 12.5 }}>Global settings</b>
+        <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center", marginTop: 6 }}>
+          <label style={{ fontSize: 11.5 }}>Total Capital&nbsp;
+            <input style={{ width: 110 }} value={settings.total_capital}
+                   onChange={(e) => setSettings({ ...settings, total_capital: e.target.value })} />
+          </label>
+          <label style={{ fontSize: 11.5 }}>SL Risk per Trade % (global)&nbsp;
+            <input style={{ width: 70 }} value={settings.risk_pct}
+                   onChange={(e) => setSettings({ ...settings, risk_pct: e.target.value })} />
+          </label>
+          <label style={{ fontSize: 11.5 }}>Max Active Trades/Node&nbsp;
+            <input style={{ width: 60 }} value={settings.max_active_trades_per_node}
+                   onChange={(e) => setSettings({ ...settings, max_active_trades_per_node: e.target.value })} />
+          </label>
+          <button onClick={saveSettings}>Save settings</button>
+          {settingsSaved && <span style={{ fontSize: 11, opacity: 0.8 }}>saved {settingsSaved}</span>}
+          {settingsErr && <span className="kit-inline-err">{settingsErr}</span>}
+        </div>
+        <div style={{ fontSize: 10.5, opacity: 0.75, marginTop: 4 }}>
+          Total Capital is the simulated starting capital of every new scenario. SL risk per trade is
+          taken as a % of the scenario's simulated equity at trade entry (equity starts at Total
+          Capital). Max Active Trades/Node: 0 = unlimited; 1 = one open simulated trade at a time
+          (a new entry only after a real strategy exit — never a premature close). These settings
+          apply to Deep Testing only and never touch the LIVE TESTING configuration.
+        </div>
+      </div>
+
+      {/* ---- §6 period selector ------------------------------------------ */}
+      <div className="panel" style={{ marginTop: 8 }}>
+        <b style={{ fontSize: 12.5 }}>Period (history range only — the node's candle timeframe is never changed)</b>
+        <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
+          {PERIOD_KEYS.map((k) => (
+            <button key={k} onClick={() => setPeriodKey(k)}
+                    style={{ fontSize: 13, fontWeight: periodKey === k ? 700 : 400,
+                             padding: "6px 12px", minWidth: 46,
+                             outline: periodKey === k ? "2px solid #4a9" : "none" }}>
+              {k}
             </button>
           ))}
-          {preset === "custom" && (
-            <>
-              <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-              <span className="muted">→</span>
-              <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
-            </>
-          )}
-          <label className="field" style={{ width: 190 }}>
-            <span>Data source</span>
-            <select value={dataScope} onChange={(e) => setDataScope(e.target.value)}>
-              {arr(caps?.scope?.options).length > 0
-                ? arr(caps.scope.options).map((o) => (
-                    <option key={o} value={o}>{o === "MT5" ? "MT5 — terminal's own bars" : "Lab simulator dataset"}</option>
-                  ))
-                : [<option key="MT5" value="MT5">MT5 — terminal's own bars</option>,
-                   <option key="SIM" value="SIMULATOR">Lab simulator dataset</option>]}
-            </select>
-          </label>
-          <label className="field" style={{ width: 170 }}>
-            <span>Run timeframe</span>
-            <select value={runTf} onChange={(e) => setRunTf(e.target.value)}>
-              <option value="">node's own (auto)</option>
-              {runTfOptions.map((t) => (
-                <option key={t} value={t}>{t}</option>
-              ))}
-            </select>
-          </label>
-          <span className="muted" style={{ fontSize: 10 }}>
-            runs will request {range.start_date || "—"} → {range.end_date || "—"} from {dataScope}
-            {runTf ? ` on ${runTf}` : " on each node's own timeframe"}
-            {range.valid ? "" : " — invalid range"}
+          <span style={{ marginLeft: 8, fontSize: 10.5, opacity: 0.75, alignSelf: "center" }}>
+            calendar-based windows measured backwards from now (UTC): days = 24-hour periods;
+            months/years = calendar months/years. Explicit start/end are persisted with each scenario.
           </span>
         </div>
+      </div>
 
-        <div className="row" style={{ gap: 8, marginTop: 10, flexWrap: "wrap", alignItems: "center" }}>
-          <label className="field" style={{ width: 150 }}>
-            <span>Schedule</span>
-            <select value={schedule.mode} onChange={(e) => setSchedule((s) => ({ ...s, mode: e.target.value }))}>
-              <option value="now">Run now</option>
-              <option value="at">At a time</option>
-            </select>
-          </label>
-          {schedule.mode === "at" && (
-            <input type="datetime-local" value={schedule.at} onChange={(e) => setSchedule((s) => ({ ...s, at: e.target.value }))} />
+      {/* ---- inventory filters + actions --------------------------------- */}
+      <div className="panel" style={{ marginTop: 8 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <b style={{ fontSize: 12.5 }}>Nodes</b>
+          {NODE_FILTERS.map((f) => (
+            <button key={f.key} title={f.hint} onClick={() => setFilter(f.key)}
+                    style={{ fontWeight: filter === f.key ? 700 : 400,
+                             outline: filter === f.key ? "2px solid #4a9" : "none" }}>
+              {f.label}
+            </button>
+          ))}
+          <input placeholder="search node id / symbol / status" value={search}
+                 onChange={(e) => setSearch(e.target.value)} style={{ width: 220 }} />
+          {counts && (
+            <span style={{ fontSize: 10.5, opacity: 0.8 }}>
+              authoritative counts:
+              {Object.entries(counts).slice(0, 8).map(([k, v]) => ` ${k}=${v}`)}
+              {" "}— same predicate as every tab (never hardcoded)
+            </span>
           )}
-          <button className="btn" disabled={!selectedIds.length || !!busy}
-                  onClick={() => setConfirm({ kind: "selected", ids: selectedIds })}
-                  title={selectedIds.length ? "" : "select nodes in the table first"}>
-            Deep backtest selected ({selectedIds.length})
-          </button>
-          <button className="btn" disabled={!starredIds.length || !!busy}
-                  onClick={() => setConfirm({ kind: "starred", ids: starredIds })}
-                  title={starredIds.length ? "" : "star a node to use this"}>
-            Deep backtest starred ({starredIds.length})
-          </button>
-          <button className="btn ghost" disabled={!!busy}
-                  onClick={() => setConfirm({ kind: "filtered", ids: visible.map((r) => r.node_id) })}
-                  title={`queue every node currently listed by the ${nodeFilter} filter`}>
-            Deep backtest all {nodeFilter} ({visible.length})
-          </button>
-          <button className="btn ghost" disabled={!rows.length} onClick={load}>Refresh</button>
+          <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+            <button disabled={!anySelected} onClick={() => selectedNodes.forEach((n) => startDeeptest(n))}>
+              DEEPTEST selected ({selectedNodes.length})
+            </button>
+          </span>
         </div>
-        {busy.startsWith("run-") && <Progress pct={null} label="queueing deep backtests…" />}
-        {error && <div className="error-note" style={{ marginTop: 8 }}>{error}</div>}
-        {batchReport && (
-          <div className="kit-strip" style={{ border: "none", padding: 0, marginTop: 8, flexWrap: "wrap" }}>
-            <div className="item"><span className="k">Batch ({batchReport.label})</span>
-              <span className="v mono">{batchReport.started}/{batchReport.requested} queued · {batchReport.failed} rejected</span></div>
-            {batchReport.run_ids.length > 0 && (
-              <div className="item"><span className="k">Run ids</span>
-                <span className="v mono" style={{ fontSize: 10 }}>{batchReport.run_ids.join(", ")}</span></div>
-            )}
-          </div>
-        )}
-        {batchReport?.problems?.length > 0 && (
-          <table className="tbl" style={{ marginTop: 6 }}>
-            <thead><tr><th>Node</th><th>Reason it was not queued</th></tr></thead>
+        <StateBlock loading={loading} error={error} onRetry={loadNodes}
+                    empty={!loading && !error && !nodes.length} emptyText="no nodes match this filter" />
+        <div className="table-scroll" style={{ marginTop: 6 }}>
+          <table style={{ width: "100%", fontSize: 10.8 }} className="mono">
+            <thead>
+              <tr>
+                <th></th>
+                <th onClick={() => { setSortKey("node_id"); setSortDir(sortKey === "node_id" ? -sortDir : 1); }}>id</th>
+                <th onClick={() => { setSortKey("status"); setSortDir(sortKey === "status" ? -sortDir : 1); }}>status</th>
+                <th>name</th>
+                <th onClick={() => { setSortKey("symbol"); setSortDir(sortKey === "symbol" ? -sortDir : 1); }}>symbol</th>
+                <th onClick={() => { setSortKey("timeframe"); setSortDir(sortKey === "timeframe" ? -sortDir : 1); }}>candle TF</th>
+                <th onClick={() => { setSortKey("metrics"); setSortDir(sortKey === "metrics" ? -sortDir : 1); }}>generation metrics</th>
+                <th>preferred DeepTest metrics</th>
+                <th>scenario + coverage</th>
+                <th>risk mode / value</th>
+                <th>max trades</th>
+                <th>SL / TP offsets</th>
+                <th>schedule</th>
+                <th>data coverage</th>
+                <th>actions</th>
+                <th onClick={() => { setSortKey("dt"); setSortDir(sortKey === "dt" ? -sortDir : 1); }}>scenarios</th>
+              </tr>
+            </thead>
             <tbody>
-              {batchReport.problems.map((p) => (
-                <tr key={p.node_id}><td className="mono">{p.label}</td>
-                  <td className="muted" style={{ fontSize: 11 }}>{p.reason}</td></tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </Card>
-
-      <DeepDataPanel onReadiness={setReadiness} />
-
-      <Card title={`NODES — ${NODE_FILTERS.find((f) => f.key === nodeFilter)?.label || nodeFilter}`}
-            right={<span className="muted" style={{ fontSize: 10 }}>
-              {total} match · all rows in one scrollable table
-              {experiment?.run_id ? ` · experiment ${experiment.run_id} (${experiment.population} nodes, numbered 1–${experiment.node_number_range?.[1] ?? "?"})` : ""}
-            </span>}>
-        <StateBlock loading={!rows.length && !error} error={error && !rows.length ? error : ""} empty={!visible.length}
-                    emptyHint={`No ${nodeFilter} nodes match the current filters. Other buckets: ${Object.entries(counts).filter(([k]) => k !== nodeFilter).map(([k, v]) => `${k} ${v}`).join(", ") || "none"}.`}
-                    onRetry={load}>
-          <div className="table-scroll">
-            <table className="tbl">
-              <thead>
-                <tr>
-                  <th style={{ width: 26 }}></th>
-                  <th style={{ width: 26 }}>
-                    <input type="checkbox" checked={allSelected}
-                           onChange={(e) => {
-                             const next = new Set(selected);
-                             visible.forEach((r) => { if (e.target.checked) next.add(r.node_id); else next.delete(r.node_id); });
-                             setSelected(next);
-                           }} />
-                  </th>
-                  <th>Node</th><th>State</th><th>Strategy</th><th>Symbol</th><th>TF</th>
-                  <th>IS return</th><th>PF</th><th>Win %</th><th>Trades</th><th>Max DD</th>
-                  <th>Sharpe</th><th>Generation</th><th>Schedule</th><th>Coverage</th><th>Evidence</th><th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visible.map((r) => {
-                  const m = r.metrics || {};
-                  const num = r.research_node_num ?? r.node_id;
-                  const notTested = m.trades == null;
-                  return (
-                  <tr key={r.node_id}>
+              {sorted.map((n) => {
+                const d = dtByNode[n.node_id] || null;
+                const pref = d?.preferred || null;
+                const c = cfgOf(n.node_id);
+                const busy = runBusy[n.node_id];
+                return (
+                  <tr key={n.node_id}>
+                    <td><input type="checkbox" checked={!!selected[n.node_id]}
+                               onChange={(e) => setSelected((m) => ({ ...m, [n.node_id]: e.target.checked }))} /></td>
                     <td>
-                      <button className={"star-btn" + (r.starred ? " on" : "")}
-                              title={r.starred ? "Remove from watchlist" : "Add to watchlist"}
-                              onClick={() => toggleStar(r)}>
-                        {r.starred ? "★" : "☆"}
+                      <button style={{ fontSize: 10.5 }} onClick={() => setDrawerId(n.node_id)}>
+                        {n.node_label || `Node #${n.node_id}`}
                       </button>
                     </td>
+                    <td title={txt(n.bucket_reason)}>{txt(n.bucket_label || n.bucket)}</td>
+                    <td>{txt(n.signal_logic?.entry_long ? "strategy" : "—")}</td>
+                    <td>{txt(n.symbol)}</td>
+                    <td>{txt(n.timeframe)}</td>
                     <td>
-                      <input type="checkbox" checked={selected.has(r.node_id)}
-                             onChange={(e) => {
-                               const next = new Set(selected);
-                               if (e.target.checked) next.add(r.node_id); else next.delete(r.node_id);
-                               setSelected(next);
-                             }} />
-                    </td>
-                    <td className="mono" title={`internal id ${r.node_id} · experiment ${r.run_id || "?"}`}>
-                      Node_{num}
-                      {r.node_label && r.node_label !== `Node_${num}` ? <span className="muted"> ({r.node_label})</span> : null}
-                    </td>
-                    <td>
-                      <span className="mono" style={{ color: STATUS_TONE[r.v5_status] || "var(--muted)", fontSize: 10, whiteSpace: "nowrap" }}
-                            title={`${r.bucket_reason || ""}${r.eligibility_note ? ` · ${r.eligibility_note}` : ""}`}>
-                        ● {r.bucket_label || r.v5_status_label || r.v5_status}
-                      </span>
-                      {r.is_infrastructure_failure ? <span className="muted" style={{ fontSize: 9, marginLeft: 4 }}>infra</span> : null}
-                    </td>
-                    <td style={{ fontSize: 11 }}>
-                      {r.direction || "both"} · {String(r.innovation || r.qualification || "").slice(0, 26)}
-                    </td>
-                    <td>{r.symbol}</td>
-                    <td>{r.timeframe}</td>
-                    <td className={"mono " + (m.return_pct > 0 ? "pos" : m.return_pct < 0 ? "neg" : "")}>
-                      {notTested ? <span className="muted">—</span> : `${(m.return_pct * 100).toFixed(2)}%`}
-                    </td>
-                    <td className="mono">{notTested ? "—" : Number(m.profit_factor || 0).toFixed(2)}</td>
-                    <td className="mono">{m.win_rate == null ? "—" : `${(m.win_rate * 100).toFixed(1)}%`}</td>
-                    <td className="mono">{m.trades ?? "—"}</td>
-                    <td className="mono">{m.max_drawdown_pct == null ? "—" : `${(m.max_drawdown_pct * 100).toFixed(1)}%`}</td>
-                    <td className="mono">{m.sharpe == null ? "—" : Number(m.sharpe).toFixed(2)}</td>
-                    <td className="mono">{r.generation ?? "—"}</td>
-                    <td className="mono" style={{ fontSize: 10 }} title={r.schedule?.description || "no schedule configured"}>
-                      {r.schedule?.description ? String(r.schedule.description).slice(0, 34) : <span className="muted">none</span>}
-                    </td>
-                    <td className="mono" style={{ fontSize: 10 }}>
-                      {r.backtest_coverage?.available
-                        ? <>{r.backtest_coverage.dataset_id}<div className="muted">
-                            {r.backtest_coverage.start} → {r.backtest_coverage.end} · {r.backtest_coverage.bars} bars · {r.backtest_coverage.source}
-                          </div></>
-                        : <span className="muted">dataset not found</span>}
-                    </td>
-                    <td style={{ fontSize: 10, maxWidth: 220 }}>
-                      <span className="muted">{String(r.survival_evidence || "—").slice(0, 80)}</span>
+                      ret {fmtPct(n.metrics?.return_pct)} · PF {fmtNum(n.metrics?.profit_factor)}
+                      {" "}· DD {fmtPct(n.metrics?.max_drawdown_pct)} · WR {fmtPct(n.metrics?.win_rate)}
+                      {" "}· {n.metrics?.trades ?? "N/A"} trades
+                      {n.metrics_source && n.metrics_source !== "generation" && (
+                        <div style={{ fontSize: 9.5, opacity: 0.8 }}>
+                          shown from {txt(n.metrics_source_label || n.metrics_source)}
+                          {" "}· generation: ret {fmtPct(n.generation_metrics?.return_pct)}
+                        </div>
+                      )}
                     </td>
                     <td>
-                      <div className="row" style={{ gap: 4 }}>
-                        <button className="btn ghost" style={{ fontSize: 10 }}
-                                onClick={() => setDrawerId(r.node_id)}>Details</button>
-                        <button className="btn" style={{ fontSize: 10 }}
-                                disabled={!!busy || (readyById.size > 0 && readyById.get(Number(r.node_id))?.ready === false)}
-                                title={readyById.get(Number(r.node_id))?.ready === false
-                                  ? `NOT READY: ${readyById.get(Number(r.node_id))?.reason || "required data is missing"} — fetch it with GET MT5 DATA first`
-                                  : "run the existing deep backtest engine on the stored history"}
-                                onClick={() => runOne(r)}>Deep test</button>
+                      {pref ? (
+                        <span>
+                          ret {fmtPct(pref.analytics?.summary?.net_return_pct)}
+                          {" "}· PF {fmtNum(pref.analytics?.summary?.profit_factor)}
+                          {" "}· WR {fmtPct(pref.analytics?.summary?.win_rate)}
+                          {" "}· {pref.analytics?.summary?.trades ?? "N/A"} trades
+                        </span>
+                      ) : "N/A"}
+                    </td>
+                    <td>
+                      {pref ? (
+                        <span>
+                          {txt(pref.duration_key || "—")} · {txt(pref.status)}
+                          {pref.coverage_status === "PARTIAL" ? " · " : " · "}
+                          {pref.coverage_status === "PARTIAL"
+                            ? <Badge tone="warn">PARTIAL COVERAGE</Badge>
+                            : <span>{txt(pref.coverage_status || "—")}</span>}
+                        </span>
+                      ) : "—"}
+                    </td>
+                    <td>
+                      <select value={c.risk_mode} style={{ fontSize: 10 }}
+                              onChange={(e) => setCfgOf(n.node_id, { risk_mode: e.target.value })}>
+                        <option value="PERCENT">PERCENT</option>
+                        <option value="AMOUNT">AMOUNT</option>
+                      </select>
+                      {c.risk_mode === "PERCENT" ? (
+                        <input style={{ width: 46, fontSize: 10 }} value={c.risk_pct}
+                               onChange={(e) => setCfgOf(n.node_id, { risk_pct: e.target.value })} />
+                      ) : (
+                        <input style={{ width: 60, fontSize: 10 }} value={c.risk_amount}
+                               onChange={(e) => setCfgOf(n.node_id, { risk_amount: e.target.value })} />
+                      )}
+                    </td>
+                    <td>
+                      <input style={{ width: 46, fontSize: 10 }} placeholder="0" value={c.max_trades}
+                             onChange={(e) => setCfgOf(n.node_id, { max_trades: e.target.value })} />
+                    </td>
+                    <td>
+                      <input style={{ width: 40, fontSize: 10 }} value={c.sl_offset_pips}
+                             onChange={(e) => setCfgOf(n.node_id, { sl_offset_pips: e.target.value })} />
+                      {" / "}
+                      <input style={{ width: 40, fontSize: 10 }} value={c.tp_offset_pips}
+                             onChange={(e) => setCfgOf(n.node_id, { tp_offset_pips: e.target.value })} />
+                    </td>
+                    <td title={txt(n.schedule?.description || "")}>
+                      {txt(n.schedule?.description || "—")}
+                    </td>
+                    <td>{txt(n.backtest_coverage?.bars ?? "—")} bars</td>
+                    <td>
+                      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                        <button style={{ fontSize: 10 }} onClick={() => onFetch(n.symbol, n.timeframe)}>
+                          GET MT5 DATA
+                        </button>
+                        <button style={{ fontSize: 10, fontWeight: 700 }} disabled={!!busy}
+                                onClick={() => startDeeptest(n)}>
+                          {busy ? (busy === "queued" || busy === "running" ? `${busy}…` : "failed") : "DEEPTEST"}
+                        </button>
+                        <button style={{ fontSize: 10 }}
+                                onClick={() => { setInspectNode(n.node_id); }}>
+                          scenarios
+                        </button>
                       </div>
+                      {busy && busy !== "queued" && busy !== "running" && (
+                        <div className="kit-inline-err" style={{ fontSize: 9.5 }}>{String(busy)}</div>
+                      )}
                     </td>
+                    <td>{d ? d.scenario_count : 0}</td>
                   </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          {/* V5.2.3 §10 — no pager: every matching node is in the table above. */}
-          <div className="row" style={{ justifyContent: "space-between", marginTop: 8 }}>
-            <span className="muted" style={{ fontSize: 11 }}>
-              {total} {nodeFilter} node(s) · {visible.length} row(s) in the table · {selected.size} selected
-            </span>
-            <button className="btn ghost" onClick={load}>reload</button>
-          </div>
-        </StateBlock>
-      </Card>
-
-      <Card title="DEEP RUNS" right={<button className="btn ghost" onClick={loadRuns}>Refresh</button>}>
-        <div className="muted" style={{ fontSize: 10, marginBottom: 6 }}>
-          {caps?.bridge?.note || "Deep runs execute over stored historical bars with the local engine."}
-          {caps?.bridge?.is_simulated === false ? " MT5 terminal attached." : ""}
-          {" "}A completed run always reports its metrics and an explicit verdict; a run that could not
-          execute reports why (data unavailable, blocked by the schedule, engine error) — never "completed" without results.
-        </div>
-        {!runs.length ? <div className="muted" style={{ fontSize: 11 }}>No deep runs yet.</div> : (
-          <table className="tbl">
-            <thead><tr><th>Run</th><th>Node</th><th>Status</th><th>Period</th><th>Progress</th><th>Result</th><th>Schedule</th><th></th></tr></thead>
-            <tbody>
-              {runs.map((run) => {
-                const st = RUN_STATES[String(run.status || "").toUpperCase()] || { tone: "var(--muted)", label: run.status };
-                const prog = run.progress ?? run.percent ?? null;
-                const m = run.results?.metrics || {};
-                const upper = String(run.status || "").toUpperCase();
-                const open = openRun === run.run_id;
-                return (
-                  <React.Fragment key={run.run_id}>
-                  <tr>
-                    <td className="mono" style={{ fontSize: 10 }}>{run.run_id}</td>
-                    <td className="mono">{run.strategy_id != null ? `Node_${run.strategy_id}` : (run.node_id || "—")}</td>
-                    <td title={run.error || ""}><span className="mono" style={{ color: st.tone, fontSize: 10 }}>● {st.label}</span></td>
-                    <td className="mono" style={{ fontSize: 10 }}>
-                      {run.period?.start || run.start_date || "—"} → {run.period?.end || run.end_date || "—"}
-                      {run.config?.scheduled_at && upper === "QUEUED"
-                        ? <div className="muted">scheduled {new Date(run.config.scheduled_at * 1000).toLocaleString()}</div>
-                        : null}
-                    </td>
-                    <td style={{ minWidth: 110 }}>
-                      {prog != null ? <Progress pct={prog} /> : <span className="muted" style={{ fontSize: 10 }}>{String(run.stage || run.status || "")}</span>}
-                    </td>
-                    <td className="mono" style={{ fontSize: 10, maxWidth: 280 }}>
-                      {run.verdict ? run.verdict : null}
-                      {!run.verdict && m.total_return_pct != null
-                        ? `${(m.total_return_pct * 100).toFixed(2)}% · PF ${Number(m.profit_factor || 0).toFixed(2)} · ${m.trades || 0} trades`
-                        : null}
-                      {!run.verdict && m.total_return_pct == null
-                        ? (run.error || (["QUEUED", "RUNNING"].includes(upper) ? "running…" : "no result reported"))
-                        : null}
-                    </td>
-                    <td className="mono" style={{ fontSize: 10 }}>
-                      {run.schedule?.configured
-                        ? <span title={run.schedule.description || ""}>
-                            {run.schedule.applied_to_bars
-                              ? `applied · ${run.schedule.bars_allowed}/${(run.schedule.bars_allowed || 0) + (run.schedule.bars_blocked || 0)} bars allowed`
-                              : "configured (no bar filter on this run)"}
-                          </span>
-                        : <span className="muted">none</span>}
-                    </td>
-                    <td>
-                      <div className="row" style={{ gap: 4 }}>
-                        <button className="btn ghost" style={{ fontSize: 10 }}
-                                onClick={async () => {
-                                  if (open) { setOpenRun(null); return; }
-                                  setOpenRun(run.run_id);
-                                  if (!runDetail[run.run_id]) {
-                                    try {
-                                      const full = await api.mt5HistoricalRun(run.run_id);
-                                      setRunDetail((d) => ({ ...d, [run.run_id]: full }));
-                                    } catch (e) { setError(e.message || String(e)); }
-                                  }
-                                }}>{open ? "Hide" : "Details"}</button>
-                        {["QUEUED", "RUNNING"].includes(upper) && (
-                          <button className="btn ghost" style={{ fontSize: 10 }}
-                                  onClick={async () => { await api.mt5HistoricalCancel(run.run_id); loadRuns(); }}>Cancel</button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                  {open && (
-                    <tr>
-                      <td colSpan={8} style={{ background: "rgba(148,163,184,0.06)" }}>
-                        {!runDetail[run.run_id]
-                          ? <span className="muted" style={{ fontSize: 11 }}>loading the run's own record…</span>
-                          : (
-                            <RunMetrics
-                              status={runDetail[run.run_id].status}
-                              metrics={(runDetail[run.run_id].results?.metrics) || m}
-                              derived={runDetail[run.run_id].results?.derived}
-                              schedule={runDetail[run.run_id].schedule || run.schedule}
-                              coverage={runDetail[run.run_id].coverage || runDetail[run.run_id].data}
-                              verdict={runDetail[run.run_id].verdict}
-                              error={runDetail[run.run_id].error}
-                            />
-                          )}
-                      </td>
-                    </tr>
-                  )}
-                  </React.Fragment>
                 );
               })}
             </tbody>
           </table>
-        )}
-      </Card>
-
-      {drawerId != null && <StrategyDrawer id={drawerId} onClose={() => setDrawerId(null)} />}
-
-      <ConfirmModal open={!!confirm} title={`Deep backtest ${confirm?.kind === "starred" ? "starred" : "selected"} nodes`}
-                    tone="info" confirmLabel={`Queue ${confirm?.ids?.length || 0} run(s)`}
-                    onCancel={() => setConfirm(null)}
-                    onConfirm={() => runMany(confirm?.ids || [], confirm?.kind || "batch")}>
-        <div style={{ fontSize: 12 }}>
-          {confirm?.ids?.length || 0} node(s) will be deep-tested on stored MT5 history
-          for <b>{range.start_date || "—"} → {range.end_date || "—"}</b>.
-          Runs execute one at a time through the single-run path; each node keeps its own timeframe
-          and its own saved schedule. This places no order.
         </div>
-      </ConfirmModal>
+        <div style={{ fontSize: 10.5, opacity: 0.75, marginTop: 6 }}>
+          statistics priority: <b>preferred DeepTest → latest valid DeepTest → generation → N/A</b>.
+          Generation metrics are preserved separately with provenance and never disappear. Live
+          operational metrics on the LIVE TESTING tab (status, P&amp;L, positions, account, execution)
+          are untouched by this precedence — only performance statistics display through it.
+        </div>
+      </div>
+
+      {/* ---- §7 MT5 DATA coverage ---------------------------------------- */}
+      <DeepCoveragePanel pairs={pairs} fetchStates={fetchStates} onFetch={onFetch} />
+
+      {/* ---- §12 DEEPTESTED NODES ---------------------------------------- */}
+      <div className="panel" style={{ marginTop: 8 }}>
+        <b style={{ fontSize: 12.5 }}>DEEPTESTED NODES</b>
+        <div style={{ fontSize: 10.5, opacity: 0.75, marginTop: 2 }}>
+          nodes with at least one DeepTest scenario — preferred scenario, periods tested, coverage
+          status (PARTIAL always marked), scenario count, metrics, last run. Inspect to select or
+          compare scenarios and choose the preferred one explicitly.
+        </div>
+        {!dtNodes.length && <StateBlock empty emptyText="no DeepTest scenarios yet" />}
+        {!!dtNodes.length && (
+          <table style={{ width: "100%", fontSize: 11, marginTop: 6 }} className="mono">
+            <thead>
+              <tr>
+                <th>node</th><th>preferred scenario</th><th>period</th><th>coverage</th>
+                <th>scenarios</th><th>metrics</th><th>last run</th><th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {dtNodes.map((d) => (
+                <tr key={d.node_id}>
+                  <td>Node #{d.node_id}</td>
+                  <td>{d.preferred ? txt(d.preferred.run_id) : "N/A"}</td>
+                  <td>{d.preferred ? txt(d.preferred.duration_key || "—") : "—"}</td>
+                  <td>
+                    {d.preferred?.coverage_status === "PARTIAL"
+                      ? <Badge tone="warn">PARTIAL COVERAGE</Badge>
+                      : txt(d.preferred?.coverage_status || "—")}
+                  </td>
+                  <td>{d.scenario_count ?? 0} ({d.valid_scenario_count ?? 0} valid)</td>
+                  <td>
+                    ret {fmtPct(d.preferred?.analytics?.summary?.net_return_pct)}
+                    {" "}· PF {fmtNum(d.preferred?.analytics?.summary?.profit_factor)}
+                    {" "}· trades {d.preferred?.analytics?.summary?.trades ?? "N/A"}
+                  </td>
+                  <td>{isoOf(d.last_run?.finished_at)}</td>
+                  <td>
+                    <button style={{ fontSize: 10 }} onClick={() => setInspectNode(d.node_id)}>
+                      inspect
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        {inspectNode != null && (
+          <div>
+            <button style={{ fontSize: 10, marginTop: 6 }} onClick={() => setInspectNode(null)}>close inspector</button>
+            <DeepScenarioPanel key={inspectNode} nodeId={inspectNode}
+                               onChanged={() => { loadDt(); }} />
+          </div>
+        )}
+      </div>
+
+      {/* ---- §9 incomplete-history confirmation --------------------------- */}
+      {confirmState && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 90,
+                      display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div className="panel" style={{ width: 640, maxHeight: "84vh", overflow: "auto", padding: 14 }}
+               data-testid="deeptest-coverage-confirm">
+            <b>INCOMPLETE HISTORY — CONFIRM BEFORE RUNNING</b>
+            <div style={{ fontSize: 11.5, marginTop: 8, lineHeight: 1.5 }}>
+              <div><b>Node:</b> Node #{confirmState.node.node_id} · <b>Symbol:</b> {confirmState.node.symbol}
+                {"  "}<b>Candle timeframe (never changed):</b> {confirmState.node.timeframe}</div>
+              <div><b>Requested range:</b>{" "}
+                {isoOf(confirmState.pre?.confirmation?.requested?.start_ts ?? confirmState.pre?.coverage?.requested?.start_ts)}
+                {" → "}
+                {isoOf(confirmState.pre?.confirmation?.requested?.end_ts ?? confirmState.pre?.coverage?.requested?.end_ts)}</div>
+              <div><b>Actual available range:</b>{" "}
+                {isoOf(confirmState.pre?.confirmation?.actual?.first_ts ?? confirmState.pre?.coverage?.actual?.first_ts)}
+                {" → "}
+                {isoOf(confirmState.pre?.confirmation?.actual?.last_ts ?? confirmState.pre?.coverage?.actual?.last_ts)}</div>
+              <div><b>Bars available:</b> {confirmState.pre?.confirmation?.actual?.bars
+                ?? confirmState.pre?.coverage?.actual?.bars ?? "—"}</div>
+              <div><b>Coverage:</b> {txt(confirmState.pre?.confirmation?.coverage_status
+                ?? confirmState.pre?.coverage?.coverage_status ?? "—")}
+                {` (missing start: ${String(!!(confirmState.pre?.confirmation?.missing_start ?? confirmState.pre?.coverage?.missing_start))}`},
+                {` missing end: ${String(!!(confirmState.pre?.confirmation?.missing_end ?? confirmState.pre?.coverage?.missing_end))})`}
+              </div>
+              <div><b>Gaps (listed, never filled):</b> {confirmState.pre?.confirmation?.internal_gaps
+                ?? confirmState.pre?.coverage?.internal_gaps ?? "—"}</div>
+              <div><b>Data source:</b> {txt(confirmState.pre?.confirmation?.data_source_label
+                ?? confirmState.pre?.coverage?.data_source_label ?? "persisted store")}</div>
+              {!!((confirmState.pre?.confirmation?.warnings || confirmState.pre?.coverage?.warnings || []).length) && (
+                <div className="kit-inline-err" style={{ marginTop: 6 }}>
+                  {(confirmState.pre?.confirmation?.warnings || confirmState.pre?.coverage?.warnings || []).join(" · ")}
+                </div>
+              )}
+              <div style={{ marginTop: 6, opacity: 0.85 }}>
+                If you proceed, the run is marked <b>PARTIAL COVERAGE</b> everywhere, only the actual
+                tested range is persisted, and nothing is extrapolated or filled in.
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+              <button data-testid="confirm-yes" style={{ fontWeight: 700 }} onClick={() => resolveConfirm("YES_PROCEED")}>
+                YES – PROCEED (mark PARTIAL COVERAGE)
+              </button>
+              <button data-testid="confirm-no" onClick={() => resolveConfirm("NO_CANCEL")}>
+                NO – CANCEL (nothing is lost)
+              </button>
+              <button data-testid="confirm-csv" onClick={() => resolveConfirm("LOAD_CSV")}>
+                MANUALLY LOAD DATA – IMPORT CSV
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---- §10 CSV import ------------------------------------------------ */}
+      <DeepCsvImportDialog open={!!csvFor}
+                           symbol={csvFor?.symbol || ""} timeframe={csvFor?.timeframe || ""}
+                           onClose={() => setCsvFor(null)}
+                           onImported={() => { loadNodes(); loadDt(); }} />
+
+      {drawerId != null && (
+        <StrategyDrawer id={drawerId} onClose={() => setDrawerId(null)} />
+      )}
     </div>
   );
 }

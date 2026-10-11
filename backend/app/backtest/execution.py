@@ -126,6 +126,16 @@ def lots_for_risk(equity: float, risk_per_trade: float, sl_distance: float,
     return round(float(lots), 2)
 
 
+def lots_for_amount(risk_amount: float, sl_distance: float,
+                    contract_size: float, max_lots: float,
+                    min_lots: float = 0.01, lot_step: float = 0.01) -> float:
+    """V6.6 Mode B — constant monetary risk per trade (money at risk if the stop
+    is hit), floored to the broker's lot step exactly like :func:`lots_for_risk`.
+    """
+    return lots_for_risk(1.0, float(risk_amount or 0.0), sl_distance,
+                         contract_size, max_lots, min_lots=min_lots, lot_step=lot_step)
+
+
 def commission_cost(lots: float, p: ExecutionParams) -> float:
     return lots * p.commission_per_lot * p.commission_mult
 

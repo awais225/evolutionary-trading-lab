@@ -425,6 +425,49 @@ export const api = {
   clearNodes: () => req("/api/data/clear/nodes", { method: "POST", signal: AbortSignal.timeout(20000) }),
   clearGenomes: () => req("/api/data/clear/genomes", { method: "POST", signal: AbortSignal.timeout(20000) }),
   clearAllData: (confirm) => req("/api/data/clear/all", { method: "POST", body: { confirm }, signal: AbortSignal.timeout(25000) }),
+
+  // V6.6 — DEEP TESTING (additive; historical simulation only, never broker orders)
+  deeptestSettings: () => req("/api/deeptest/settings"),
+  deeptestSaveSettings: (body) => req("/api/deeptest/settings", { method: "PUT", body }),
+  deeptestPeriods: () => req("/api/deeptest/periods"),
+  deeptestCoverage: (symbol, timeframe) => req(`/api/deeptest/coverage/${encodeURIComponent(symbol)}/${encodeURIComponent(timeframe)}`),
+  deeptestCoveragePairs: (pairs) => req("/api/deeptest/coverage/pairs", { method: "POST", body: { pairs } }),
+  deeptestFetch: (body) => req("/api/deeptest/fetch", { method: "POST", body, signal: AbortSignal.timeout(30000) }),
+  deeptestFetchStatus: (symbol, timeframe) => req(`/api/deeptest/fetch/${encodeURIComponent(symbol)}/${encodeURIComponent(timeframe)}`),
+  deeptestFetchCancel: (body) => req("/api/deeptest/fetch/cancel", { method: "POST", body }),
+  deeptestPreflight: (body) => req("/api/deeptest/preflight", { method: "POST", body, signal: AbortSignal.timeout(30000) }),
+  deeptestConfirm: (body) => req("/api/deeptest/confirm", { method: "POST", body }),
+  deeptestRun: (body) => req("/api/deeptest/run", { method: "POST", body, signal: AbortSignal.timeout(60000) }),
+  deeptestRunGet: (runId) => req(`/api/deeptest/run/${encodeURIComponent(runId)}`),
+  deeptestRunTrades: (runId, params = {}) => req(`/api/deeptest/run/${encodeURIComponent(runId)}/trades?${qs(params)}`),
+  deeptestRunCancel: (runId) => req(`/api/deeptest/run/${encodeURIComponent(runId)}/cancel`, { method: "POST" }),
+  deeptestScenarios: (params = {}) => req(`/api/deeptest/scenarios?${qs(params)}`),
+  deeptestCompare: (runIds) => req("/api/deeptest/compare", { method: "POST", body: { run_ids: runIds } }),
+  deeptestPrefer: (body) => req("/api/deeptest/prefer", { method: "POST", body }),
+  deeptestNodes: () => req("/api/deeptest/nodes"),
+  // CSV import sends the file as a RAW body (query carries metadata) — no
+  // multipart dependency; relative urls and qs() like everything else.
+  deeptestCsvValidate: (file, body = {}) => {
+    const query = qs({
+      symbol: body.symbol || "",
+      timeframe: body.timeframe || "",
+      filename: file?.name || "",
+      timezone_offset_hours: body.timezone_offset_hours,
+      timestamp_mode: body.timestamp_mode,
+    });
+    return file.arrayBuffer().then((buf) =>
+      fetch(`/api/deeptest/csv/validate?${query}`, {
+        method: "POST",
+        headers: { "Content-Type": "text/csv" },
+        body: buf,
+        signal: AbortSignal.timeout(120000),
+      }).then(async (res) => {
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(`${res.status}: ${formatErrorDetail(j.detail || j, res.statusText)}`);
+        return j;
+      }));
+  },
+  deeptestCsvCommit: (body) => req("/api/deeptest/csv/commit", { method: "POST", body }),
 };
 
 /* V4.7: every formatter is total - a value that is missing, an object, a string

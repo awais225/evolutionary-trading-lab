@@ -653,7 +653,12 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
                     <td className="mono">{txt(r.symbol, NA_TEXT)}</td>
                     <td className="mono">{txt(r.timeframe, NA_TEXT)}</td>
                     <td className="mono">{n2(r.fitness)}</td>
-                    <td className="mono">{pct(m.return_pct)}</td>
+                    {/* V6.6 §12 — statistics priority display: the ONLY permitted
+                        LIVE TESTING change. Same shared projection as Deep Testing
+                        (preferred DeepTest → latest valid DeepTest → generation →
+                        N/A); the tooltip states the source. No layout/behaviour
+                        change; live operational metrics stay live. */}
+                    <td className="mono" title={`performance statistics source: ${txt(r.metrics_source_label, "generation backtest")}${r.metrics_source && r.metrics_source !== "generation" ? " — generation metrics preserved separately (generation_metrics)" : ""}`}>{pct(m.return_pct)}</td>
                     <td className="mono">{n2(m.profit_factor)}</td>
                     <td className="mono">{pct(m.max_drawdown_pct)}</td>
                     <td className="mono">{pct(m.win_rate)}</td>

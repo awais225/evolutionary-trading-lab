@@ -1,0 +1,344 @@
+// V6.6 §11–13 — scenario inspector: all of a node's DeepTest scenarios,
+// preferred-scenario selection (explicit, never silently replaced), side-by-side
+// comparison that names config/coverage differences, full analytics, and the
+// searchable/sortable/paginated trade-level detail.
+import React, { useCallback, useEffect, useState } from "react";
+import { api } from "../api";
+import { Badge, StateBlock } from "./ui";
+
+function f2(v) { return v == null ? "N/A" : (typeof v === "number" ? v.toFixed(2) : String(v)); }
+function f4(v) { return v == null ? "N/A" : (typeof v === "number" ? v.toFixed(4) : String(v)); }
+function when(ts) { return ts ? new Date(ts * 1000).toISOString().replace("T", " ").slice(0, 19) + "Z" : "—"; }
+
+const SUMMARY_ROWS = [
+  ["Initial capital", (s) => f2(s.initial_capital)],
+  ["Final equity", (s) => f2(s.final_equity)],
+  ["Net profit", (s) => f2(s.net_profit)],
+  ["Gross profit / loss", (s) => `${f2(s.gross_profit)} / ${f2(s.gross_loss)}`],
+  ["Total costs", (s) => f2(s.total_costs)],
+  ["Return %", (s) => (s.net_return_pct == null ? "N/A" : `${(s.net_return_pct * 100).toFixed(3)}%`)],
+  ["Max drawdown %", (s) => (s.max_drawdown_pct == null ? "N/A" : `${(s.max_drawdown_pct * 100).toFixed(3)}%`)],
+  ["Sharpe", (s) => (s.sharpe == null ? "N/A" : Number(s.sharpe).toFixed(3))],
+  ["Profit factor", (s) => (s.profit_factor == null ? "N/A" : Number(s.profit_factor).toFixed(3))],
+  ["Trades", (s) => s.trades ?? "N/A"],
+  ["Wins / losses", (s) => `${s.winning_trades ?? "N/A"} / ${s.losing_trades ?? "N/A"}`],
+  ["Win rate", (s) => (s.win_rate == null ? "N/A" : `${(s.win_rate * 100).toFixed(2)}%`)],
+  ["Avg win / avg loss", (s) => `${f4(s.avg_win)} / ${f4(s.avg_loss)}`],
+  ["Largest win / loss", (s) => `${f2(s.largest_win)} / ${f2(s.largest_loss)}`],
+  ["Expectancy / trade", (s) => f4(s.expectancy_per_trade)],
+  ["Long net P&L", (s) => `${f2(s.long?.net_pnl)} (${s.long?.trades ?? 0} trades)`],
+  ["Short net P&L", (s) => `${f2(s.short?.net_pnl)} (${s.short?.trades ?? 0} trades)`],
+  ["Avg hold / max hold", (s) => {
+    const h = s.holding || {};
+    return `${h.avg_minutes == null ? "N/A" : h.avg_minutes + " min"} / ${h.max_seconds == null ? "N/A" : h.max_seconds + " s"}`;
+  }],
+  ["Max consecutive W / L", (s) => `${s.max_consecutive_wins ?? "N/A"} / ${s.max_consecutive_losses ?? "N/A"}`],
+];
+
+export default function DeepScenarioPanel({ nodeId, scenarios: scenariosProp = null, onChanged }) {
+  const [ownScenarios, setOwnScenarios] = useState(null);
+  const scenarios = scenariosProp || ownScenarios || [];
+  const reload = useCallback(async () => {
+    try {
+      const res = await api.deeptestScenarios({ node_id: nodeId });
+      setOwnScenarios(res.scenarios || []);
+    } catch { setOwnScenarios([]); }
+  }, [nodeId]);
+  useEffect(() => { if (!scenariosProp) reload(); }, [scenariosProp, reload]);
+  const [selected, setSelected] = useState(null);
+  const [detail, setDetail] = useState(null);
+  const [trades, setTrades] = useState(null);
+  const [page, setPage] = useState(0);
+  const [sortKey, setSortKey] = useState("trade_no");
+  const [sortDir, setSortDir] = useState(1);
+  const [search, setSearch] = useState("");
+  const [compareSel, setCompareSel] = useState([]);
+  const [compare, setCompare] = useState(null);
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  const loadDetail = useCallback(async (runId) => {
+    setError(null);
+    try {
+      const res = await api.deeptestRunGet(runId);
+      setDetail(res.scenario);
+      const tr = await api.deeptestRunTrades(runId, { limit: 200, offset: 0 });
+      setTrades(tr);
+      setPage(0);
+    } catch (e) {
+      setError(e);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (scenarios.length && !selected) {
+      setSelected(scenarios[0].run_id);
+      loadDetail(scenarios[0].run_id);
+    }
+    if (!scenarios.length) { setSelected(null); setDetail(null); setTrades(null); }
+  }, [scenarios, selected, loadDetail]);
+
+  const prefer = async (runId, explicit = true) => {
+    setBusy(true); setError(null);
+    try {
+      const res = await api.deeptestPrefer({ node_id: nodeId, run_id: runId, explicit });
+      if (!res.ok) setError(res.error || "could not set the preferred scenario");
+      if (onChanged) onChanged();
+    } catch (e) { setError(e); } finally { setBusy(false); }
+  };
+
+  const runCompare = async () => {
+    setBusy(true); setError(null);
+    try {
+      const res = await api.deeptestCompare(compareSel);
+      setCompare(res.ok ? res : null);
+      if (!res.ok) setError(res.error || "comparison refused");
+    } catch (e) { setError(e); } finally { setBusy(false); }
+  };
+
+  const tradeRows = (trades?.trades || []).filter((t) => {
+    if (!search.trim()) return true;
+    const q = search.trim().toLowerCase();
+    return JSON.stringify(t).toLowerCase().includes(q);
+  });
+  const sorted = [...tradeRows].sort((a, b) => {
+    const av = a[sortKey], bv = b[sortKey];
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;          // nulls always last
+    if (bv == null) return -1;
+    if (av < bv) return -sortDir;
+    if (av > bv) return sortDir;
+    return 0;
+  });
+  const pageSize = 10;
+  const pageRows = sorted.slice(page * pageSize, page * pageSize + pageSize);
+
+  const sel = detail || (scenarios.find((s) => s.run_id === selected) || null);
+  const summary = (sel?.analytics || {}).summary || {};
+  const breakdowns = (sel?.analytics || {}).breakdowns || {};
+  const unavail = (sel?.analytics || {}).unavailable || [];
+
+  return (
+    <div className="panel" style={{ marginTop: 8 }}>
+      <b style={{ fontSize: 12.5 }}>Scenarios — Node #{nodeId}</b>
+      <div style={{ fontSize: 11, opacity: 0.8, marginTop: 2 }}>
+        every scenario is an immutable snapshot (config, data fingerprint, coverage, assumptions,
+        metrics, trades). Preferred = latest valid initially; an explicit choice is never silently
+        replaced; failed/cancelled runs never displace a valid one.
+      </div>
+      {error && <div className="kit-inline-err">{String(error.message || error)}</div>}
+      {!scenarios.length && (
+        <StateBlock empty emptyText="no DeepTest scenarios yet — pick a period and press DEEPTEST" />
+      )}
+      {!!scenarios.length && (
+        <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <select value={selected || ""} onChange={(e) => { setSelected(e.target.value); loadDetail(e.target.value); }}>
+            {scenarios.map((s) => (
+              <option key={s.run_id} value={s.run_id}>
+                {s.run_id} · {s.duration_key || "?"} · {s.status}
+                {s.coverage_status === "PARTIAL" ? " · PARTIAL COVERAGE" : ""}
+                {s.preferred_run_id === s.run_id ? " · PREFERRED" : ""} · {when(s.finished_at)}
+              </option>
+            ))}
+          </select>
+          <button disabled={busy} onClick={() => prefer(selected, true)}>Set preferred</button>
+          <label style={{ fontSize: 11 }}>compare:</label>
+          {scenarios.slice(0, 6).map((s) => (
+            <label key={s.run_id} style={{ fontSize: 11 }}>
+              <input type="checkbox"
+                     checked={compareSel.includes(s.run_id)}
+                     onChange={(e) => setCompareSel(e.target.checked
+                       ? [...compareSel, s.run_id]
+                       : compareSel.filter((x) => x !== s.run_id))} />{" "}
+              {s.run_id}
+            </label>
+          ))}
+          <button disabled={busy || compareSel.length < 2} onClick={runCompare}>
+            Compare ({compareSel.length})
+          </button>
+        </div>
+      )}
+      {sel && (
+        <div style={{ marginTop: 8, fontSize: 11.5 }}>
+          <div className="kit-strip" style={{ border: "none", padding: 0, flexWrap: "wrap" }}>
+            <div className="item"><span className="k">Status</span><span className="v mono">{sel.status}</span></div>
+            <div className="item"><span className="k">Coverage</span>
+              <span className="v mono">
+                {sel.coverage_status || "—"}
+                {sel.coverage_status === "PARTIAL" ? " (PARTIAL COVERAGE — never labelled complete)" : ""}
+              </span></div>
+            <div className="item"><span className="k">Requested range</span>
+              <span className="v mono">
+                {when((sel.provenance?.requested_period || {}).start_ts ?? sel.requested_start)} →{" "}
+                {when((sel.provenance?.requested_period || {}).end_ts ?? sel.requested_end)}
+              </span></div>
+            <div className="item"><span className="k">Actual tested range</span>
+              <span className="v mono">
+                {when((sel.provenance?.actual_tested_range || {}).start_ts ?? sel.actual_start)} →{" "}
+                {when((sel.provenance?.actual_tested_range || {}).end_ts ?? sel.actual_end)}{" "}
+                ({(sel.provenance?.actual_tested_range || {}).bars ?? sel.bars_used ?? "—"} bars)
+              </span></div>
+            <div className="item"><span className="k">Dataset fingerprint</span>
+              <span className="v mono">{String(sel.dataset_fingerprint || "—").slice(0, 18)}</span></div>
+            <div className="item"><span className="k">Gaps (listed, never filled)</span>
+              <span className="v mono">{(sel.gaps || []).length}</span></div>
+            <div className="item"><span className="k">Started / finished</span>
+              <span className="v mono">{when(sel.started_at)} / {when(sel.finished_at)}</span></div>
+            <div className="item"><span className="k">Engine versions</span>
+              <span className="v mono">{JSON.stringify(sel.engine_versions || {})}</span></div>
+            {sel.error && (
+              <div className="item"><span className="k">Error</span><span className="v mono">{sel.error}</span></div>
+            )}
+          </div>
+          {sel.status === "PARTIAL" && (
+            <Badge tone="warn">PARTIAL COVERAGE — results valid only for the actual tested range</Badge>
+          )}
+
+          <div style={{ display: "flex", gap: 16, marginTop: 8, flexWrap: "wrap" }}>
+            <div style={{ minWidth: 320 }}>
+              <b>Metrics</b>
+              <table style={{ width: "100%", fontSize: 11 }}>
+                <tbody>
+                  {SUMMARY_ROWS.map(([label, fn]) => (
+                    <tr key={label}>
+                      <td style={{ opacity: 0.8 }}>{label}</td>
+                      <td className="mono" style={{ textAlign: "right" }}>
+                        {summary.initial_capital === undefined && label !== "Trades" ? "N/A" : (() => {
+                          try { return String(fn(summary)); } catch { return "N/A"; }
+                        })()}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {unavail.length > 0 && (
+                <div style={{ fontSize: 10.5, opacity: 0.8, marginTop: 4 }}>
+                  N/A (with reason): {unavail.map((u) => `${u.field} — ${u.reason}`).join("; ")}
+                </div>
+              )}
+            </div>
+            <div style={{ minWidth: 260 }}>
+              <b>Time breakdowns</b>
+              <div style={{ fontSize: 11 }}>
+                <div style={{ opacity: 0.8, marginTop: 4 }}>By day of week</div>
+                {Object.entries(breakdowns.by_day_of_week || {}).map(([d, b]) => (
+                  <div key={d} className="mono" style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span>{d}</span><span>{b.trades} trades · {f2(b.net_pnl)} · {b.win_rate == null ? "N/A" : (b.win_rate * 100).toFixed(0) + "%"}</span>
+                  </div>
+                ))}
+                <div style={{ opacity: 0.8, marginTop: 6 }}>By session</div>
+                {Object.entries(breakdowns.by_session || {}).map(([sname, b]) => (
+                  <div key={sname} className="mono" style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span>{sname}</span><span>{b.trades} trades · {f2(b.net_pnl)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {!!(sel.provenance?.assumptions || sel.provisional) && (
+            <details style={{ marginTop: 8, fontSize: 11 }}>
+              <summary>assumptions &amp; provisional flags (saved with this scenario)</summary>
+              <pre className="mono" style={{ maxHeight: 200, overflow: "auto", fontSize: 10.5 }}>
+                {JSON.stringify({
+                  ...(sel.provenance?.assumptions || {}),
+                  provisional: sel.provenance?.provisional ?? null,
+                }, null, 2)}
+              </pre>
+            </details>
+          )}
+
+          <div style={{ marginTop: 10 }}>
+            <b>Trades ({trades?.total ?? "—"})</b>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", margin: "6px 0", flexWrap: "wrap" }}>
+              <input placeholder="search trades" value={search}
+                     onChange={(e) => { setSearch(e.target.value); setPage(0); }} style={{ width: 180 }} />
+              <span style={{ fontSize: 10.5, opacity: 0.75 }}>sort:</span>
+              {["trade_no", "entry_ts", "exit_ts", "net_pnl", "hold_seconds"].map((k) => (
+                <button key={k} style={{ fontSize: 10.5 }}
+                        onClick={() => { if (sortKey === k) setSortDir(-sortDir); else { setSortKey(k); setSortDir(1); } }}>
+                  {k}{sortKey === k ? (sortDir === 1 ? " ▲" : " ▼") : ""}
+                </button>
+              ))}
+            </div>
+            <div className="table-scroll">
+              <table style={{ width: "100%", fontSize: 10.5 }} className="mono">
+                <thead>
+                  <tr>
+                    <th>#</th><th>side</th><th>entry</th><th>exit</th><th>volume</th>
+                    <th>SL</th><th>TP</th><th>exit reason</th><th>hold</th>
+                    <th>net P&amp;L</th><th>session</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pageRows.map((t) => (
+                    <tr key={t.id ?? t.trade_no}>
+                      <td>{t.trade_no}</td>
+                      <td>{t.side}</td>
+                      <td>{when(t.entry_ts)} @ {f2(t.entry_price)}</td>
+                      <td>{when(t.exit_ts)} @ {f2(t.exit_price)}</td>
+                      <td>{t.volume ?? "N/A"}</td>
+                      <td>{t.sl == null ? "N/A" : t.sl}</td>
+                      <td>{t.tp == null ? "N/A" : t.tp}</td>
+                      <td>{t.exit_reason || "N/A"}</td>
+                      <td>{t.hold_seconds == null ? "N/A" : `${Math.round(t.hold_seconds)}s`}</td>
+                      <td>{f2(t.net_pnl)}</td>
+                      <td>{t.session || "N/A"}{t.dow != null ? ` · d${t.dow}` : ""}</td>
+                    </tr>
+                  ))}
+                  {!pageRows.length && (
+                    <tr><td colSpan={11} style={{ opacity: 0.7 }}>no trades match</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 6, fontSize: 11, alignItems: "center" }}>
+              <button disabled={page === 0} onClick={() => setPage(page - 1)}>prev</button>
+              <span>page {page + 1} / {Math.max(1, Math.ceil(sorted.length / pageSize))}</span>
+              <button disabled={(page + 1) * pageSize >= sorted.length} onClick={() => setPage(page + 1)}>next</button>
+              <span style={{ opacity: 0.7 }}>{sorted.length} row(s)</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {compare && (
+        <div style={{ marginTop: 12, fontSize: 11 }}>
+          <b>Comparison</b>
+          <div className="kit-inline-err" style={{ marginTop: 4 }}>{compare.warning}</div>
+          <div style={{ marginTop: 6 }}>
+            <b>config &amp; coverage differences</b>
+            {(compare.config_and_coverage_differences || []).length === 0 && (
+              <div style={{ opacity: 0.8 }}>none among the compared fields</div>
+            )}
+            <table style={{ width: "100%", fontSize: 10.5 }} className="mono">
+              <tbody>
+                {(compare.config_and_coverage_differences || []).map((d) => (
+                  <tr key={d.field}>
+                    <td>{d.field}</td>
+                    <td>{JSON.stringify(d.left)}</td>
+                    <td>{JSON.stringify(d.right)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ marginTop: 6 }}>
+            <b>metrics side by side</b>
+            <table style={{ width: "100%", fontSize: 10.5 }} className="mono">
+              <tbody>
+                {(compare.metrics || []).map((r) => (
+                  <tr key={r.metric}>
+                    <td>{r.metric}</td>
+                    <td>{r.left == null ? "N/A" : String(r.left)}</td>
+                    <td>{r.right == null ? "N/A" : String(r.right)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

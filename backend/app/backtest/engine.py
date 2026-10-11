@@ -63,6 +63,17 @@ class BacktestRequest:
     # components may fire. None = the node has no schedule configured.
     schedule: Optional[Dict[str, Any]] = None
     conditions: Optional[Dict[str, Any]] = None
+    # V6.6 — Deep Testing scenario controls. ALL optional: when left unset the
+    # behaviour is exactly the historical research path (initial capital from
+    # cfg.backtest, risk from genome/cfg as a fraction of equity, one open trade
+    # at a time via the next_free gate, unshifted SL/TP levels).
+    initial_balance: Optional[float] = None     # scenario Total Capital
+    risk_per_trade_pct: Optional[float] = None  # e.g. 1.0 = 1% of equity at entry
+    risk_mode: Optional[str] = None             # "PERCENT" | "AMOUNT"
+    risk_amount: Optional[float] = None         # Mode B: money at risk if the SL is hit
+    max_active_trades: Optional[int] = None     # None/1 = one at a time; 0 = unlimited
+    sl_offset_pips: float = 0.0                 # + = SL farther from entry (V6.5 convention)
+    tp_offset_pips: float = 0.0                 # + = TP closer to entry (V6.5 convention)
 
 
 @dataclass
@@ -337,7 +348,8 @@ class Backtester:
             }
         metrics_schedule = schedule_meta
 
-        balance = cfg.backtest.initial_balance
+        balance = (float(req.initial_balance) if req.initial_balance
+                   else cfg.backtest.initial_balance)
         equity = balance
         peak = balance
         max_dd = 0.0
@@ -353,12 +365,33 @@ class Backtester:
         slip_draws = slip.draw(len(entries) * 2 + 2)
         s_i = 0
         next_free = 0
+        # V6.6 §4 — active-trade limit. None/1 = the historical one-open-trade
+        # gate (next_free). 0 = unlimited concurrent simulated trades (the
+        # strategy's own signals decide), N = at most N open at once. Exits are
+        # NEVER forced early to free a slot: the limit gates ENTRIES only.
+        mat = req.max_active_trades
+        concurrent = mat is not None and int(mat) != 1
+        mat_n = int(mat) if mat is not None else 1
         risk_cfg = g.get("risk") or {}
         rpt = float(risk_cfg.get("risk_per_trade", cfg.backtest.risk_per_trade))
+        if req.risk_per_trade_pct is not None:
+            rpt = float(req.risk_per_trade_pct) / 100.0
+        risk_mode = (str(req.risk_mode).upper() if req.risk_mode else "PERCENT")
+        risk_amount = float(req.risk_amount or 0.0)
         max_lots = cfg.risk.max_position_size_lots
 
         for idx in entries:
-            if idx < next_free or idx + 1 >= n:
+            if idx + 1 >= n:
+                continue
+            if concurrent:
+                # V6.6: count the simulated positions still open at this signal;
+                # 0 = unlimited
+                if mat_n > 0:
+                    open_now = sum(1 for t in trades
+                                   if t.entry_idx <= idx + 1 <= t.exit_idx)
+                    if open_now >= mat_n:
+                        continue
+            elif idx < next_free:
                 continue
             side = "buy" if sig_long[idx] else "sell"
             e_i = idx + 1                      # execution delay: fill next bar open
@@ -369,9 +402,30 @@ class Backtester:
             entry_price = entry_fill_price(side, o[e_i], half_spread[e_i], sp_in, ep.point)
             sl_dist = sl_mult * a if sl_mult > 0 else 0.0
             tp_dist = tp_mult * a if tp_mult > 0 else 0.0
-            lots = lots_for_risk(equity, rpt, sl_dist if sl_dist > 0 else a * 1.5,
-                                 ep.contract_size, max_lots,
-                                 min_lots=ep.min_lots, lot_step=ep.lot_step)
+            # V6.6 §5 — experimental SL/TP offsets (V6.5 live convention): +SL
+            # moves the stop FARTHER from entry, +TP moves the target CLOSER.
+            # 0 = the strategy's own levels, unchanged.
+            if req.sl_offset_pips or req.tp_offset_pips:
+                from .symbol_specs import pip_size_from_digits, pips_to_price
+                _pip = pip_size_from_digits(getattr(symbol_specs, "digits", None), ep.point)
+                if not _pip:
+                    raise ValueError(
+                        "SL/TP offsets were requested but the pip size is unknown for "
+                        "this symbol (digits/point not established) — refusing to guess")
+                if req.sl_offset_pips:
+                    sl_dist = max(0.0, sl_dist + pips_to_price(float(req.sl_offset_pips), _pip))
+                if req.tp_offset_pips and tp_dist > 0:
+                    tp_dist = max(0.0, tp_dist - pips_to_price(float(req.tp_offset_pips), _pip))
+            if risk_mode == "AMOUNT" and risk_amount > 0:
+                from .execution import lots_for_amount
+                lots = lots_for_amount(risk_amount,
+                                       sl_dist if sl_dist > 0 else a * 1.5,
+                                       ep.contract_size, max_lots,
+                                       min_lots=ep.min_lots, lot_step=ep.lot_step)
+            else:
+                lots = lots_for_risk(equity, rpt, sl_dist if sl_dist > 0 else a * 1.5,
+                                     ep.contract_size, max_lots,
+                                     min_lots=ep.min_lots, lot_step=ep.lot_step)
             if lots <= 0:
                 continue
             if sl_dist > 0:
@@ -475,6 +529,9 @@ class Backtester:
                 "dow": t.dow, "regime": t.regime,
                 "slippage_points": round(float(t.slippage_points), 2),
                 "spread_paid": round(float(t.spread_paid), 4),
+                # V6.6 §11 — the stop/target levels this trade was managed with
+                "sl": (round(float(t.sl), 3) if t.sl is not None else None),
+                "tp": (round(float(t.tp), 3) if t.tp is not None else None),
                 "hold_bars": int(t.exit_idx - t.entry_idx)}
 
     def _metrics(self, trades: List[Trade], equity: float, balance: float,
