@@ -140,6 +140,20 @@
       "release": "V6.7",
       "src_file_count": 67,
       "src_hash": "e14e7c6a43ce41a031226f6439603e5825a6ea0b2c833af77f2a8f271403244a"
+    },
+    {
+      "code_files": 127,
+      "code_hash": "f58935d2aa7bb544c8fc07ff6da8de008272f70c0fa03b33a86e1000340a8384",
+      "commit": "d2e1c18fe1008753b3f66c0ccedb0df7d6331fc5",
+      "entry_assets": [
+        "assets/index-B-kEpM3_.js",
+        "assets/index-DG45pVtK.css"
+      ],
+      "index_sha256": "f76b2a4d47584b1eb2fed4b85a406f96c262338d6eda749478d709b7e4298aa6",
+      "recorded_at": "2026-10-12T08:34:34Z",
+      "release": "V6.8",
+      "src_file_count": 67,
+      "src_hash": "49c7486ae44e54120ed5d813c84e45cadb775c743e56b3bc34c968f17cadcc22"
     }
   ],
   "schema": 1
