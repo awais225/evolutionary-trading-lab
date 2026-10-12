@@ -87,8 +87,15 @@ def _span_label(days: float) -> str:
     return f"{days:.1f} days"
 
 
-def pair_coverage(symbol: str, timeframe: str) -> Dict[str, Any]:
-    """The MT5 DATA panel payload for one (symbol, timeframe) cache key."""
+def pair_coverage(symbol: str, timeframe: str,
+                  range_start: float | None = None,
+                  range_end: float | None = None) -> Dict[str, Any]:
+    """The MT5 DATA panel payload for one (symbol, timeframe) cache key.
+
+    V6.8 §7.1 — when a test range is supplied, ``bars_in_range`` is a REAL
+    count of the persisted timestamps inside it (never estimated): the range
+    bar count can differ from the total stored bars when the cache holds extra
+    history, and stays ``None`` (unavailable) when it cannot be counted."""
     import numpy as np
     tf_s = tf_seconds(timeframe)
     rec: Dict[str, Any] = {
@@ -101,6 +108,7 @@ def pair_coverage(symbol: str, timeframe: str) -> Dict[str, Any]:
         "fingerprint": None, "version": None,
         "last_fetch": None, "fetch_status": None,
         "quality": {}, "missing_periods": [],
+        "bars_in_range": None, "range_start": range_start, "range_end": range_end,
         "warnings": [], "error": None,
         "cache_key": f"{str(symbol or '').upper()}|{str(timeframe or '').upper()}",
         "checked_at": time.time(),
@@ -132,7 +140,12 @@ def pair_coverage(symbol: str, timeframe: str) -> Dict[str, Any]:
         try:
             ts = mstore.all_timestamps()
             if ts is not None and len(ts) > 0:
-                g = _scan_gaps(np.sort(np.asarray(ts, dtype="float64")), tf_s)
+                arr_ts = np.sort(np.asarray(ts, dtype="float64"))
+                if range_start is not None and range_end is not None:
+                    # REAL count of persisted bars inside the requested range
+                    rec["bars_in_range"] = int(np.sum(
+                        (arr_ts >= float(range_start)) & (arr_ts <= float(range_end))))
+                g = _scan_gaps(arr_ts, tf_s)
                 rec["quality"] = {
                     "bars": int(len(ts)),
                     "monotonic_increasing": g["monotonic_increasing"],
@@ -166,8 +179,11 @@ def pair_coverage(symbol: str, timeframe: str) -> Dict[str, Any]:
     return rec
 
 
-def coverage_for_pairs(pairs: List[Tuple[str, str]]) -> Dict[str, Dict[str, Any]]:
-    return {f"{s}|{t}": pair_coverage(s, t) for s, t in pairs}
+def coverage_for_pairs(pairs: List[Tuple[str, str]],
+                       range_start: float | None = None,
+                       range_end: float | None = None) -> Dict[str, Dict[str, Any]]:
+    return {f"{s}|{t}": pair_coverage(s, t, range_start=range_start, range_end=range_end)
+            for s, t in pairs}
 
 
 # --------------------------------------------------------------------------- #

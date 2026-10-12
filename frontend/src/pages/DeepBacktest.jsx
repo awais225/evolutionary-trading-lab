@@ -81,7 +81,17 @@ export default function DeepBacktest() {
   const [dtSearch, setDtSearch] = useState("");
   const [dtSortKey, setDtSortKey] = useState("node_id");
   const [dtSortDir, setDtSortDir] = useState(1);
+  // V6.8 §5 — every saved scenario individually addressable (Inspect S1/S2/…,
+  // Compare S1/S2) — nothing is hidden behind the preferred scenario.
+  const [expandedDt, setExpandedDt] = useState({});
+  const [cmpSel, setCmpSel] = useState({});          // node_id -> [run_id, run_id]
+  const [inspectRun, setInspectRun] = useState(null);
+  const [inspectCompare, setInspectCompare] = useState(null);
   const pollRef = useRef(null);
+  // V6.8 §7 — persisted-coverage map per symbol|timeframe: recomputed from the
+  // stored candles after every sync, joined into every node row sharing the pair.
+  const [covMap, setCovMap] = useState({});
+  const [nodesMeta, setNodesMeta] = useState(null);
 
   // ---- data loading --------------------------------------------------------
   const loadNodes = useCallback(async () => {
@@ -92,12 +102,34 @@ export default function DeepBacktest() {
       setNodes(arr(res.nodes));
       setCounts(res.filter_totals || res.counts || null);
       setExperiment(res.experiment || null);
+      setNodesMeta({ revision: res.data_revision, search_scope: res.search_scope });
     } catch (e) {
       setError(e);
     } finally {
       setLoading(false);
     }
   }, [filter, search]);
+
+  // §7.2 — coverage recomputed from the PERSISTED candles (never a promised
+  // count): every node row sharing a symbol|timeframe shows the same numbers.
+  const loadCoverage = useCallback(async (nodeList) => {
+    try {
+      const seen = new Set();
+      const pairs = [];
+      for (const n of (nodeList || nodes)) {
+        const key = `${String(n.symbol || "").toUpperCase()}|${String(n.timeframe || "").toUpperCase()}`;
+        if (!seen.has(key)) { seen.add(key); pairs.push({ symbol: n.symbol, timeframe: n.timeframe }); }
+      }
+      if (!pairs.length) return;
+      const res = await api.deeptestCoveragePairs(pairs, periodKey);
+      const map = {};
+      for (const rec of arr(res.coverage || res.pairs || res)) {
+        const key = `${String(rec.symbol || "").toUpperCase()}|${String(rec.timeframe || "").toUpperCase()}`;
+        map[key] = rec;
+      }
+      setCovMap(map);
+    } catch { /* coverage degrades to the last known good map */ }
+  }, [nodes, periodKey]);
 
   const loadDt = useCallback(async () => {
     try {
@@ -114,9 +146,10 @@ export default function DeepBacktest() {
   }, []);
 
   useEffect(() => {
-    loadNodes();
+    loadNodes().then(() => loadCoverage());
     loadDt();
     loadSettings();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadNodes, loadDt, loadSettings]);
 
   // light polling while any job is active (fetch or run)
@@ -127,10 +160,24 @@ export default function DeepBacktest() {
     const t = setInterval(async () => {
       try {
         const pairs = Object.keys(fetchStates).filter((k) => fetchStates[k]?.status === "FETCHING");
+        let fetchFinished = false;
         for (const key of pairs) {
           const [sym, tf] = key.split("|");
           const st = await api.deeptestFetchStatus(sym, tf);
-          if (st.job) setFetchStates((m) => ({ ...m, [key]: st.job }));
+          if (st.job) {
+            setFetchStates((m) => ({ ...m, [key]: st.job }));
+            const terminal = ["DONE", "FAILED", "CANCELLED", "COMPLETE", "PARTIAL"].includes(
+              String(st.job.status || "").toUpperCase())
+              || ["DONE", "FAILED", "CANCELLED"].includes(String(st.job.stage || "").toUpperCase());
+            if (terminal) fetchFinished = true;
+          }
+        }
+        // §7.2 — a finished sync immediately refreshes the persisted bar
+        // counts/timestamps in the node table (all rows of that symbol/TF),
+        // without a page reload; sort state is preserved because it is state.
+        if (fetchFinished) {
+          await loadNodes();
+          await loadCoverage();
         }
         if (Object.keys(runBusy).length) {
           await loadDt();
@@ -149,7 +196,7 @@ export default function DeepBacktest() {
       } catch { /* polling never crashes the page */ }
     }, 4000);
     return () => clearInterval(t);
-  }, [fetchStates, runBusy, loadDt, inspectNode]);
+  }, [fetchStates, runBusy, loadDt, inspectNode, loadNodes, loadCoverage]);
 
   // ---- settings ------------------------------------------------------------
   const saveSettings = async () => {
@@ -281,6 +328,22 @@ export default function DeepBacktest() {
     return m;
   }, [dtNodes]);
 
+  // §7.1 — coverage of the node's exact symbol/timeframe from the persisted
+  // store (shared by every node of the pair), plus bars inside the SELECTED
+  // test range derived from the persisted first/last timestamps (missing data
+  // is missing — never fabricated).
+  const covOf = useCallback((n) => {
+    const key = `${String(n.symbol || "").toUpperCase()}|${String(n.timeframe || "").toUpperCase()}`;
+    return covMap[key] || n.backtest_coverage || null;
+  }, [covMap]);
+  const barsInRangeOf = useCallback((n) => {
+    // the REAL persisted bar count inside the selected test range (computed
+    // server-side from the stored timestamps); null = unavailable, never an
+    // estimate and never a fabricated zero.
+    const c = covOf(n);
+    return c ? c.bars_in_range : null;
+  }, [covOf]);
+
   const sorted = useMemo(() => {
     // V6.7 §4.3 — sorting over the FULL dataset (limit:0 fetch), real numeric
     // comparisons, missing metrics never rank as best (always last), stable
@@ -298,7 +361,12 @@ export default function DeepBacktest() {
         case "fitness": return n.fitness;
         case "dt": return dtByNode[n.node_id]?.scenario_count || 0;
         case "dt_return": return dtByNode[n.node_id]?.preferred?.analytics?.summary?.net_return_pct;
-        case "coverage": return n.backtest_coverage?.bars;
+        case "dt_pf": return dtByNode[n.node_id]?.preferred?.analytics?.summary?.profit_factor;
+        case "dt_dd": return dtByNode[n.node_id]?.preferred?.analytics?.summary?.max_drawdown_pct;
+        case "dt_wr": return dtByNode[n.node_id]?.preferred?.analytics?.summary?.win_rate;
+        case "dt_trades": return dtByNode[n.node_id]?.preferred?.analytics?.summary?.trades;
+        case "coverage": return covOf(n)?.bars ?? n.backtest_coverage?.bars;
+        case "bars_range": return barsInRangeOf(n);
         case "symbol": return n.symbol;
         case "timeframe": return n.timeframe;
         case "status": return n.bucket;
@@ -378,6 +446,15 @@ export default function DeepBacktest() {
     else { setDtSortKey(k); setDtSortDir(1); }
   };
   const dtArrow = (k) => (dtSortKey === k ? (dtSortDir > 0 ? " ↑" : " ↓") : "");
+  // V6.8 §8 — visible, themed column-header sort (full dataset; numeric;
+  // missing-last; canonical-id tie-break). Clicking toggles the direction.
+  const sortTh = (key, label, title) => (
+    <th key={key} title={title} onClick={() => { setSortKey(key); setSortDir(sortKey === key ? -sortDir : 1); }}
+        style={{ cursor: "pointer", whiteSpace: "nowrap", userSelect: "none" }}
+        aria-sort={sortKey === key ? (sortDir > 0 ? "ascending" : "descending") : "none"}>
+      {label}<span style={{ color: "var(--accent)" }}>{sortKey === key ? (sortDir > 0 ? " ↑" : " ↓") : " ↕"}</span>
+    </th>
+  );
 
   const selectedNodes = useMemo(() => nodes.filter((n) => selected[n.node_id]), [nodes, selected]);
   const pairs = useMemo(() => {
@@ -396,8 +473,12 @@ export default function DeepBacktest() {
     <div data-testid="deeptest-workspace" style={{ padding: 12, fontSize: 12 }}>
       <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
         <h2 style={{ margin: 0 }}>Deep Testing</h2>
-        <span style={{ opacity: 0.8 }}>
+        <span className="muted">
           persistent workspace · historical simulation only — never places an order
+        </span>
+        <span className="muted" style={{ fontSize: 11 }}
+              title="node records, qualification labels and generation metrics come from the shared node-data authority (app.research.node_data) — the same source the Overview reads">
+          node data rev {nodesMeta?.revision || "—"}
         </span>
         {experiment && (
           <span className="mono" style={{ fontSize: 11, opacity: 0.85 }}>
@@ -459,23 +540,26 @@ export default function DeepBacktest() {
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <b style={{ fontSize: 12.5 }}>Nodes</b>
           {NODE_FILTERS.map((f) => (
-            <button key={f.key} title={f.hint} onClick={() => setFilter(f.key)}
+            <button key={f.key} className="btn" title={f.hint} onClick={() => setFilter(f.key)}
                     style={{ fontWeight: filter === f.key ? 700 : 400,
-                             outline: filter === f.key ? "2px solid #4a9" : "none" }}>
+                             outline: filter === f.key ? "2px solid var(--accent)" : "none" }}>
               {f.label}
+              {counts && counts[f.key] != null ? ` (${counts[f.key]})` : ""}
             </button>
           ))}
-          <input placeholder="search node id / symbol / status" value={search}
-                 onChange={(e) => setSearch(e.target.value)} style={{ width: 220 }} />
+          <input className="input" placeholder="search node id / research # / symbol (spans the full research history)"
+                 value={search} onChange={(e) => setSearch(e.target.value)} style={{ width: 320 }}
+                 title="an identity search finds every stored record (Node #718 AND research #718) regardless of the active filter — each result shows its own status" />
           {counts && (
-            <span style={{ fontSize: 10.5, opacity: 0.8 }}>
-              authoritative counts:
-              {Object.entries(counts).slice(0, 8).map(([k, v]) => ` ${k}=${v}`)}
-              {" "}— same predicate as every tab (never hardcoded)
+            <span className="muted" style={{ fontSize: 10.5 }}
+                  title="every count is measured from the stored records at request time by the shared node-data authority — the same predicate every tab uses">
+              counts: {Object.entries(counts).slice(0, 8).map(([k, v]) => ` ${k}=${v}`)}
+              {nodesMeta?.revision ? ` · rev ${nodesMeta.revision}` : ""}
+              {" "}— measured from the stored records, never hardcoded
             </span>
           )}
           <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
-            <button disabled={!anySelected} onClick={() => selectedNodes.forEach((n) => startDeeptest(n))}>
+            <button className="btn primary" disabled={!anySelected} onClick={() => selectedNodes.forEach((n) => startDeeptest(n))}>
               DEEPTEST selected ({selectedNodes.length})
             </button>
           </span>
@@ -487,27 +571,32 @@ export default function DeepBacktest() {
             <thead>
               <tr>
                 <th></th>
-                <th onClick={() => { setSortKey("node_id"); setSortDir(sortKey === "node_id" ? -sortDir : 1); }}>node id (canonical · research)</th>
-                <th onClick={() => { setSortKey("status"); setSortDir(sortKey === "status" ? -sortDir : 1); }}>status</th>
-                <th onClick={() => { setSortKey("generation"); setSortDir(sortKey === "generation" ? -sortDir : 1); }}>gen</th>
+                {sortTh("node_id", "node id (canonical · research)", "canonical database id; the study-local number is labelled 'research #'")}
+                {sortTh("status", "status", "stored classification (bucket)")}
+                {sortTh("generation", "gen", "generation number")}
                 <th>name / species</th>
-                <th onClick={() => { setSortKey("symbol"); setSortDir(sortKey === "symbol" ? -sortDir : 1); }}>symbol</th>
-                <th onClick={() => { setSortKey("timeframe"); setSortDir(sortKey === "timeframe" ? -sortDir : 1); }}>candle TF</th>
-                <th onClick={() => { setSortKey("gen_return"); setSortDir(sortKey === "gen_return" ? -sortDir : 1); }} title="Generation Return — from the stored generation record only">Gen Return</th>
-                <th onClick={() => { setSortKey("gen_pf"); setSortDir(sortKey === "gen_pf" ? -sortDir : 1); }} title="Generation profit factor (ratio)">Gen PF</th>
-                <th onClick={() => { setSortKey("gen_dd"); setSortDir(sortKey === "gen_dd" ? -sortDir : 1); }} title="Generation max drawdown">Gen DD</th>
-                <th onClick={() => { setSortKey("gen_wr"); setSortDir(sortKey === "gen_wr" ? -sortDir : 1); }} title="Generation win rate">Gen WR</th>
-                <th onClick={() => { setSortKey("gen_trades"); setSortDir(sortKey === "gen_trades" ? -sortDir : 1); }} title="Generation closed trades">Gen Trades</th>
-                <th onClick={() => { setSortKey("fitness"); setSortDir(sortKey === "fitness" ? -sortDir : 1); }}>fitness</th>
-                <th onClick={() => { setSortKey("dt_return"); setSortDir(sortKey === "dt_return" ? -sortDir : 1); }} title="Preferred DeepTest metrics — never mixed into the generation columns">DeepTest (preferred)</th>
+                {sortTh("symbol", "symbol")}
+                {sortTh("timeframe", "candle TF")}
+                {sortTh("gen_return", "Gen Return", "Generation Return — from the stored generation record only")}
+                {sortTh("gen_net", "Gen Net", "Generation net profit")}
+                {sortTh("gen_pf", "Gen PF", "Generation profit factor (ratio)")}
+                {sortTh("gen_dd", "Gen DD", "Generation max drawdown")}
+                {sortTh("gen_wr", "Gen WR", "Generation win rate")}
+                {sortTh("gen_trades", "Gen Trades", "Generation closed trades")}
+                {sortTh("fitness", "fitness")}
+                {sortTh("dt_return", "DeepTest Ret", "Preferred DeepTest return — never mixed into the generation columns")}
+                {sortTh("dt_pf", "DT PF")}
+                {sortTh("dt_dd", "DT DD")}
+                {sortTh("dt_trades", "DT Trades")}
                 <th>scenario + coverage</th>
                 <th>risk mode / value</th>
                 <th>max trades</th>
                 <th>SL / TP offsets</th>
                 <th>schedule</th>
-                <th onClick={() => { setSortKey("coverage"); setSortDir(sortKey === "coverage" ? -sortDir : 1); }} title="recorded bars of the data backing this node">data coverage</th>
+                {sortTh("coverage", "stored bars", "persisted bars for this symbol/timeframe (refreshed after every sync)")}
+                {sortTh("bars_range", "range bars", "persisted bars inside the selected test range (real count; unavailable = missing, never faked)")}
                 <th>actions</th>
-                <th onClick={() => { setSortKey("dt"); setSortDir(sortKey === "dt" ? -sortDir : 1); }}>scenarios</th>
+                {sortTh("dt", "scenarios", "saved DeepTest scenarios")}
               </tr>
             </thead>
             <tbody>
@@ -540,26 +629,24 @@ export default function DeepBacktest() {
                     {/* V6.7 §4.2 — generation metrics come from the stored generation
                         record ONLY; real zeros show as 0, missing stays N/A. */}
                     <td className="mono">{fmtPct(n.generation_metrics?.return_pct)}</td>
+                    <td className="mono">{n.generation_metrics?.net_profit == null
+                      ? <span className="muted">N/A</span>
+                      : <span className={n.generation_metrics.net_profit >= 0 ? "pos" : "neg"}>{fmtMoney(n.generation_metrics.net_profit)}</span>}</td>
                     <td className="mono">{fmtNum(n.generation_metrics?.profit_factor, 3)}</td>
-                    <td className="mono">{fmtPct(n.generation_metrics?.max_drawdown_pct)}</td>
+                    <td className="mono neg">{fmtPct(n.generation_metrics?.max_drawdown_pct)}</td>
                     <td className="mono">{fmtPct(n.generation_metrics?.win_rate)}</td>
                     <td className="mono">{n.generation_metrics?.trades ?? "N/A"}</td>
                     <td className="mono">{fmtNum(n.fitness, 4)}</td>
-                    <td>
-                      {pref ? (
-                        <span>
-                          ret {fmtPct(pref.analytics?.summary?.net_return_pct)}
-                          {" "}· PF {fmtNum(pref.analytics?.summary?.profit_factor)}
-                          {" "}· WR {fmtPct(pref.analytics?.summary?.win_rate)}
-                          {" "}· {pref.analytics?.summary?.trades ?? "N/A"} trades
-                          {n.metrics_source && (
-                            <div style={{ fontSize: 9.5, opacity: 0.8 }}>
-                              effective stats from {txt(n.metrics_source_label || n.metrics_source)}
-                            </div>
-                          )}
+                    <td className="mono">{pref ? fmtPct(pref.analytics?.summary?.net_return_pct) : <span className="muted">NOT DEEPTESTED</span>}</td>
+                    <td className="mono">{pref ? fmtNum(pref.analytics?.summary?.profit_factor, 3) : "—"}</td>
+                    <td className="mono">{pref ? fmtPct(pref.analytics?.summary?.max_drawdown_pct) : "—"}</td>
+                    <td className="mono">{pref ? (pref.analytics?.summary?.trades ?? "N/A") : "—"}
+                      {pref && n.metrics_source ? (
+                        <span className="muted" style={{ fontSize: 9.5 }}
+                              title={`effective stats from ${n.metrics_source_label || n.metrics_source}`}>
+                          {" "}· {txt(n.metrics_source_label || n.metrics_source)}
                         </span>
-                      ) : <span className="muted">NOT DEEPTESTED</span>}
-                    </td>
+                      ) : null}</td>
                     <td>
                       {pref ? (
                         <span>
@@ -599,7 +686,25 @@ export default function DeepBacktest() {
                     <td title={txt(n.schedule?.description || "")}>
                       {txt(n.schedule?.description || "—")}
                     </td>
-                    <td>{txt(n.backtest_coverage?.bars ?? "—")} bars</td>
+                    <td className="mono" title={covOf(n)
+                      ? `persisted: ${covOf(n).first || "—"} → ${covOf(n).last || "—"}${covOf(n).fetch_status ? ` · ${covOf(n).fetch_status}` : ""}`
+                      : "coverage unavailable"}>
+                      {(() => {
+                        const c = covOf(n);
+                        const bars = c?.bars ?? n.backtest_coverage?.bars;
+                        return (
+                          <>
+                            {bars ?? <span className="muted">N/A</span>}
+                            {c?.last ? <span className="muted" style={{ fontSize: 9.5 }}>{` → ${String(c.last).slice(0, 16)}`}</span> : null}
+                          </>
+                        );
+                      })()}
+                    </td>
+                    <td className="mono" title="persisted bars inside the selected test range — real count, refreshed after every sync">
+                      {barsInRangeOf(n) == null
+                        ? <span className="muted">N/A</span>
+                        : barsInRangeOf(n)}
+                    </td>
                     <td>
                       <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                         <button className="btn" style={{ fontSize: 10 }} onClick={() => onFetch(n.symbol, n.timeframe)}>
@@ -690,8 +795,11 @@ export default function DeepBacktest() {
               <tbody>
                 {dtRows.map((d) => {
                   const sum = d.preferred?.analytics?.summary || {};
+                  const scs = arr(d.scenarios);
+                  const picked = cmpSel[d.node_id] || [];
                   return (
-                    <tr key={d.node_id}>
+                    <React.Fragment key={d.node_id}>
+                    <tr>
                       <td>
                         Node #{d.node_id}
                         {d.research_node_num != null && (
@@ -719,11 +827,76 @@ export default function DeepBacktest() {
                       <td>{d.preferred ? txt(d.preferred.run_id) : "N/A"}</td>
                       <td>{isoOf(d.last_run?.finished_at)}</td>
                       <td>
-                        <button className="btn" style={{ fontSize: 10 }} onClick={() => setInspectNode(d.node_id)}>
-                          INSPECT
-                        </button>
+                        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                          <button className="btn" style={{ fontSize: 10 }} onClick={() => { setInspectRun(null); setInspectCompare(null); setInspectNode(d.node_id); }}>
+                            INSPECT
+                          </button>
+                          {!!scs.length && (
+                            <button className="btn" style={{ fontSize: 10 }}
+                                    title="every saved scenario — inspect or compare any of them"
+                                    onClick={() => setExpandedDt((m) => ({ ...m, [d.node_id]: !m[d.node_id] }))}>
+                              {scs.length} scenario{scs.length === 1 ? "" : "s"} {expandedDt[d.node_id] ? "▴" : "▾"}
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
+                    {expandedDt[d.node_id] && scs.map((sc, i) => (
+                      <tr key={`${d.node_id}-${sc.run_id}`} style={{ background: "rgba(79,142,247,0.05)" }}>
+                        <td colSpan={2} style={{ paddingLeft: 18 }}>
+                          <b>S{i + 1}</b>
+                          {sc.is_preferred ? <Badge tone="ok">PREFERRED</Badge> : null}{" "}
+                          <span className="muted mono" style={{ fontSize: 9.5 }}>{txt(sc.run_id)}</span>
+                        </td>
+                        <td>{txt(sc.status)}</td>
+                        <td colSpan={2} className="muted mono" style={{ fontSize: 9.5 }}>
+                          {isoOf(sc.requested_start)} → {isoOf(sc.requested_end)}
+                          {sc.actual_start != null ? ` | actual ${isoOf(sc.actual_start)} → ${isoOf(sc.actual_end)}` : ""}
+                        </td>
+                        <td className="mono">{fmtPct(sc.headline?.net_return_pct)}</td>
+                        <td className="mono">{sc.headline?.net_profit == null ? "N/A" : <span className={sc.headline.net_profit >= 0 ? "pos" : "neg"}>{fmtMoney(sc.headline.net_profit)}</span>}</td>
+                        <td className="mono">{fmtNum(sc.headline?.profit_factor, 3)}</td>
+                        <td className="mono neg">{fmtPct(sc.headline?.max_drawdown_pct)}</td>
+                        <td className="mono">{fmtPct(sc.headline?.win_rate)}</td>
+                        <td className="mono">{sc.headline?.trades ?? "N/A"}</td>
+                        <td className="mono">—</td>
+                        <td>{txt(sc.duration_key || "—")}</td>
+                        <td>{sc.coverage_status === "PARTIAL" ? <Badge tone="warn">PARTIAL COVERAGE</Badge> : txt(sc.coverage_status || "—")}</td>
+                        <td colSpan={4} className="muted" style={{ fontSize: 9.5 }}>
+                          bars used {sc.bars_used ?? "—"} · sig {String(sc.signature || "—").slice(0, 10)}
+                        </td>
+                        <td>
+                          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                            <button className="btn" style={{ fontSize: 10 }}
+                                    onClick={() => { setInspectRun(sc.run_id); setInspectCompare(null); setInspectNode(d.node_id); }}>
+                              Inspect S{i + 1}
+                            </button>
+                            <label style={{ fontSize: 9.5 }} title="select two scenarios of this node to compare">
+                              <input type="checkbox"
+                                     checked={picked.includes(sc.run_id)}
+                                     onChange={(e) => setCmpSel((m) => {
+                                       const cur = m[d.node_id] || [];
+                                       const next = e.target.checked
+                                         ? [...cur, sc.run_id].slice(-2)
+                                         : cur.filter((x) => x !== sc.run_id);
+                                       return { ...m, [d.node_id]: next };
+                                     })} /> cmp
+                            </label>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {expandedDt[d.node_id] && picked.length === 2 && (
+                      <tr>
+                        <td colSpan={18} style={{ paddingLeft: 18 }}>
+                          <button className="btn primary" style={{ fontSize: 10 }}
+                                  onClick={() => { setInspectRun(null); setInspectCompare(picked); setInspectNode(d.node_id); }}>
+                            Compare {scs.findIndex((x) => x.run_id === picked[0]) + 1}/{scs.findIndex((x) => x.run_id === picked[1]) + 1} side by side
+                          </button>
+                        </td>
+                      </tr>
+                    )}
+                    </React.Fragment>
                   );
                 })}
                 {!dtRows.length && (
@@ -736,8 +909,11 @@ export default function DeepBacktest() {
         {inspectNode != null && (
           <div>
             <button style={{ fontSize: 10, marginTop: 6 }} onClick={() => setInspectNode(null)}>close inspector</button>
-            <DeepScenarioPanel key={inspectNode} nodeId={inspectNode}
+            <DeepScenarioPanel key={`${inspectNode}-${inspectRun || "all"}-${(inspectCompare || []).join(",")}`}
+                               nodeId={inspectNode}
                                node={nodes.find((n) => n.node_id === inspectNode) || null}
+                               initialRunId={inspectRun}
+                               initialCompare={inspectCompare}
                                onChanged={() => { loadDt(); }} />
           </div>
         )}

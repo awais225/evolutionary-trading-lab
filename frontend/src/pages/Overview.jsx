@@ -25,6 +25,11 @@ export default function Overview() {
   // client-side sum of a status histogram or a competing fallback chain.
   const [nodeInv, setNodeInv] = useState(null);
   const invSeq = useRef(0);
+  // V6.8 §3 — THE node-data authority (established formulas over the stored
+  // records; app.research.node_data). One source for every count/ranking this
+  // page and the other node tabs display — never a per-tab re-derivation.
+  const [nodeData, setNodeData] = useState(null);
+  const ndSeq = useRef(0);
 
   // V2.7 Data Inventory & Jobs State
   const [inventory, setInventory] = useState(null);
@@ -178,7 +183,11 @@ export default function Overview() {
     // V6.7 §4.3 — rankings come from the server's full-dataset sort (never a
     // limited slice re-sorted locally); direction is part of the query.
     const fetchTop = () => {
-      api.population({ limit: 15, sort: sortCol || "fitness", sort_desc: sortDir === "desc" ? "true" : "false" })
+      // V6.8 §3 — ranking over the SAME complete stored research history the
+      // node-data authority counts (include_legacy follows the established
+      // V4.5 /research/* pattern); server-side full-dataset sort, never a
+      // limited slice re-ranked locally.
+      api.population({ limit: 15, sort: sortCol || "fitness", sort_desc: sortDir === "desc" ? "true" : "false", include_legacy: true })
         .then((r) => setTop(r.strategies || []))
         .catch((e) => setErr(e.message));
     };
@@ -206,6 +215,7 @@ export default function Overview() {
     fetchInventory();
     fetchJobs();
     fetchNodeInv();
+    fetchNodeData();
     fetchInitialSettings();
     fetchShortlist();
     fetchRuns();
@@ -217,12 +227,13 @@ export default function Overview() {
       inFlightOverview = true;
       try {
         await Promise.all([
-          api.population({ limit: 15, sort: sortCol || "fitness", sort_desc: sortDir === "desc" ? "true" : "false" })
+          api.population({ limit: 15, sort: sortCol || "fitness", sort_desc: sortDir === "desc" ? "true" : "false", include_legacy: true })
             .then((r) => setTop(r.strategies || [])).catch(() => {}),
           api.resources().then(setResources).catch(() => {}),
           api.dataInventory().then(setInventory).catch(() => {}),
           api.jobs().then(setJobsData).catch(() => {}),
           fetchNodeInv(),
+          fetchNodeData(),
           fetchRuns(),
         ]);
       } finally {
@@ -278,6 +289,14 @@ export default function Overview() {
     } catch (e) { /* non-fatal: RECHECK can still reconcile */ }
   };
 
+  const fetchNodeData = async () => {
+    const seq = ++ndSeq.current;
+    try {
+      const res = await api.nodeData();
+      if (seq === ndSeq.current && res?.ok !== false && res?.node_data) setNodeData(res.node_data);
+    } catch (e) { /* non-fatal — RECHECK retries */ }
+  };
+
   // V2.1 RECHECK: fast reconstruction from SQLite without rerun (spec §V2.1 G)
   // V6.7 §3: the same call atomically recomputes + commits the authoritative
   // inventory — result, timestamp and errors are shown, never swallowed.
@@ -288,6 +307,8 @@ export default function Overview() {
       const res = await api.recheck();
       setRecheckData(res);
       if (res?.inventory) { invSeq.current += 1; setNodeInv(res.inventory); }
+      // V6.8 §3 — RECHECK refreshes the SAME authority the page first loaded
+      if (res?.node_data) { ndSeq.current += 1; setNodeData(res.node_data); }
       if (res.target) setTargetInput(String(res.target));
       refreshStatus();
     } catch (e) {
@@ -341,24 +362,29 @@ export default function Overview() {
     return pState.current_run || (runsData.length > 0 ? runsData[0] : null);
   }, [selectedRunId, runsData, pState]);
 
-  // V6.7 §3 — the authoritative qualified count (node_bucket classifier from
-  // the inventory snapshot). Falls back to the RECHECK-committed inventory,
-  // then to the lab counters; the client never sums a status histogram.
+  // V6.8 §3 — the node-data authority (established formulas over the stored
+  // records). `inv`/`invCounts` remain ONLY as the V6.7 consistency verifier
+  // shown in the strip below; the headline never reads a competing formula.
   // Declared BEFORE the memos that read it (useMemo factories run in place).
   const inv = recheckData?.inventory || nodeInv;
   const invCounts = inv?.counts_excl_legacy || null;
-  const qualifiedAuthoritative = invCounts?.qualified
-    ?? recheckData?.inventory?.counts_excl_legacy?.qualified
-    ?? null;
+  const ndCounts = nodeData?.counts || null;
+  const ndCurrent = nodeData?.counts_current_experiment || null;
+  // established QUALIFIED+PAPER tier over the complete stored research history
+  // (same formula as get_qualified_strategies / run-history sums / the manifest
+  // ledger — the value the user anchored: 99 on the live data).
+  const qualifiedAuthoritative = ndCounts?.qualified
+    ?? recheckData?.qualified ?? lab?.qualified
+    ?? ((counts.QUALIFIED || 0) + (counts.PAPER || 0));
 
   const cumulativeStats = useMemo(() => {
     return pState.cumulative || {
-      total_nodes: recheckData?.total_nodes ?? lab?.total_nodes ?? 0,
+      total_nodes: ndCounts?.total ?? recheckData?.total_nodes ?? lab?.total_nodes ?? 0,
       completed_nodes: qualifiedAuthoritative ?? (counts.QUALIFIED || 0),
       qualified_nodes: qualifiedAuthoritative ?? (counts.QUALIFIED || 0),
       total_runs: runsData.length || 1,
     };
-  }, [pState, recheckData, lab, counts, runsData]);
+  }, [pState, recheckData, lab, counts, runsData, ndCounts, qualifiedAuthoritative]);
 
   const runGenNodes = currentRun?.generated_nodes ?? (recheckData?.total_nodes ?? lab?.total_nodes ?? 0);
   const runCeiling = currentRun?.node_ceiling ?? (recheckData?.target ?? lab?.target ?? 500);
@@ -398,7 +424,7 @@ export default function Overview() {
   // dataset server-side (missing metrics last, canonical-id tie-break); this
   // handler only changes the query and re-fetches, never re-ranks a slice.
   const refetchTop = () => {
-    api.population({ limit: 15, sort: sortCol || "fitness", sort_desc: sortDir === "desc" ? "true" : "false" })
+    api.population({ limit: 15, sort: sortCol || "fitness", sort_desc: sortDir === "desc" ? "true" : "false", include_legacy: true })
       .then((r) => setTop(r.strategies || []))
       .catch((e) => setErr(e.message));
   };
@@ -419,19 +445,19 @@ export default function Overview() {
     return sortDir === "desc" ? " ↓" : " ↑";
   };
 
-  // Derived V2.1 metrics
-  const totalNodes = recheckData?.total_nodes ?? lab?.total_nodes ?? 0;
+  // Derived V2.1 metrics — V6.8 §3: the node-data authority first (one source
+  // every tab reads), then the established fallbacks. The scope is labelled on
+  // the cards and in the strip below.
+  const totalNodes = ndCounts?.total ?? recheckData?.total_nodes ?? lab?.total_nodes ?? 0;
   const target = recheckData?.target ?? lab?.target ?? 500;
   const remaining = recheckData?.remaining ?? lab?.remaining ?? Math.max(0, target - totalNodes);
-  const alive = recheckData?.alive ?? lab?.alive ?? 0;
-  const dead = recheckData?.dead ?? lab?.dead ?? 0;
-  const backtesting = recheckData?.backtesting ?? lab?.backtesting ?? (counts.BACKTESTING || 0);
-  const validating = recheckData?.validating ?? lab?.validating ?? (counts.VALIDATING || 0);
-  // V6.7 §3 — one headline number everywhere: the authoritative inventory
-  // count. The older competing formulas remain visible only as explicitly
-  // labeled secondary lines in the reconciliation strip below.
-  const qualified = qualifiedAuthoritative ?? recheckData?.qualified ?? lab?.qualified
-    ?? ((counts.QUALIFIED || 0) + (counts.PAPER || 0));
+  const alive = ndCounts?.alive ?? recheckData?.alive ?? lab?.alive ?? 0;
+  const dead = ndCounts?.dead ?? recheckData?.dead ?? lab?.dead ?? 0;
+  const backtesting = ndCounts?.backtesting ?? recheckData?.backtesting ?? lab?.backtesting ?? (counts.BACKTESTING || 0);
+  const validating = ndCounts?.validating ?? recheckData?.validating ?? lab?.validating ?? (counts.VALIDATING || 0);
+  // one headline number everywhere: the established QUALIFIED+PAPER tier over
+  // the complete stored research history (never a per-tab re-derivation).
+  const qualified = qualifiedAuthoritative;
   const currentGen = recheckData?.current_generation ?? lab?.generation ?? 0;
   const targetReached = totalNodes >= target;
   const progressPct = target > 0 ? Math.min(100, Math.round((totalNodes / target) * 1000) / 10) : 100;
@@ -467,39 +493,48 @@ export default function Overview() {
 
       <ErrorNote err={err} />
 
-      {/* V6.7 §3 — RECHECK reconciliation strip: the authoritative inventory
-          result, its timestamp and any errors are visible on the dashboard. */}
+      {/* V6.8 §3 — node-data authority strip: the source every tab reads,
+          its revision/timestamp/errors, and every competing formula labelled. */}
       <div className="panel" style={{ marginBottom: 14, padding: "8px 12px" }}>
         <div className="flex items-center" style={{ gap: 14, flexWrap: "wrap", fontSize: "0.82rem" }}>
-          <b>Authoritative inventory</b>
-          <span className="muted mono" title="content-derived revision — two loads of the same data share it">
-            rev {inv?.inventory_revision || "—"}
+          <b>Node data authority</b>
+          <span className="muted mono" title="one revision per data state — two tabs showing different revisions are a mixed snapshot">
+            rev {nodeData?.revision || "—"}
           </span>
           <span className="muted">
-            reconciled {inv?.computed_at
-              ? new Date(inv.computed_at).toLocaleString()
+            computed {nodeData?.computed_at
+              ? new Date(nodeData.computed_at).toLocaleString()
               : "—"}{rechecking ? " · rechecking…" : ""}
           </span>
-          <span>
-            qualified <b className="pos mono">{qualifiedAuthoritative ?? "—"}</b>
-            <span className="muted"> (authoritative)</span>
+          <span title={ndCounts?.formula || ""}>
+            qualified <b className="pos mono">{qualifiedAuthoritative}</b>
+            <span className="muted"> · {ndCounts?.scope || "stored research records"}</span>
           </span>
-          {invCounts && (
+          {ndCounts && (
             <span className="muted mono">
-              total {invCounts.total} · alive {invCounts.alive} · blocked {invCounts.blocked} · failed {invCounts.failed}
+              total {ndCounts.total} · alive {ndCounts.alive} · dead {ndCounts.dead}
             </span>
           )}
-          <span className="muted" title="secondary, labeled — never mixed into the authoritative count">
-            secondary: lab.qualified {lab?.qualified ?? "—"} · status-histogram sum {Object.values(counts || {}).reduce((a, b) => a + (Number(b) || 0), 0)}
+          {ndCurrent && !ndCurrent.error && (
+            <span className="muted" title={ndCurrent.formula || ""}>
+              labelled secondary · current experiment: qualified {ndCurrent.qualified} / total {ndCurrent.total}
+            </span>
+          )}
+          <span className="muted mono" title="ranking over the same records — highest generation return">
+            top return: {(nodeData?.tops?.return_pct || []).slice(0, 1)
+              .map((t) => `${t.node_label} ${(t.generation_metrics?.return_pct * 100).toFixed(3)}%`).join("") || "—"}
+          </span>
+          <span className="muted mono" title="V6.7 inventory kept as consistency verifier only">
+            verifier rev {inv?.inventory_revision || "—"}
           </span>
           <button className="btn" onClick={handleRecheck} disabled={rechecking}
-                  title="V2.1 recompute from SQLite + V6.7 atomic inventory commit">
+                  title="V2.1 recompute from SQLite — refreshes this same node-data authority (never a different qualification algorithm)">
             {rechecking ? "RECHECKING…" : "RECHECK"}
           </button>
         </div>
-        {(inv?.errors || []).length > 0 && (
+        {((nodeData?.errors || []).length > 0 || (inv?.errors || []).length > 0) && (
           <div className="neg mono" style={{ fontSize: "0.75rem", marginTop: 6 }}>
-            {(inv.errors || []).join(" · ")}
+            {(nodeData?.errors || []).concat(inv?.errors || []).join(" · ")}
           </div>
         )}
       </div>
@@ -1153,6 +1188,10 @@ export default function Overview() {
         <div className="panel">
           <div className="flex justify-between items-center">
             <h3>Top strategies (sortable, click column header)</h3>
+            <div className="muted" style={{ fontSize: "11px", marginTop: -6, marginBottom: 8 }}>
+              ranking over the complete stored research history (preserved runs included) —
+              the same records the node-data authority counts
+            </div>
             <span className="muted" style={{ fontSize: "0.8rem" }}>Sorted by: <b>{sortCol}</b> ({sortDir})</span>
           </div>
           <div className="scroll-y" style={{ maxHeight: 330 }}>

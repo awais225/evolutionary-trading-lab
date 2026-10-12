@@ -24,6 +24,7 @@ import threading
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from . import analytics as A
@@ -644,6 +645,30 @@ def node_deeptest_summary(db: Any, node_id: int) -> Dict[str, Any]:
         "last_run": ({"run_id": rows[0]["run_id"], "status": rows[0]["status"],
                       "finished_at": rows[0].get("finished_at")}
                      if rows else None),
+        # V6.8 §5.1 — every saved scenario, individually addressable (Inspect
+        # S1/S2/… and Compare); each keeps its OWN metrics, never blended.
+        "scenarios": [{
+            "run_id": r["run_id"],
+            "status": r.get("status"),
+            "coverage_status": r.get("coverage_status"),
+            "duration_key": r.get("duration_key"),
+            "requested_start": r.get("requested_start"),
+            "requested_end": r.get("requested_end"),
+            "actual_start": r.get("actual_start"),
+            "actual_end": r.get("actual_end"),
+            "bars_used": r.get("bars_used"),
+            "signature": r.get("signature"),
+            "headline": {
+                "net_profit": ((r.get("analytics") or {}).get("summary") or {}).get("net_profit"),
+                "net_return_pct": ((r.get("analytics") or {}).get("summary") or {}).get("net_return_pct"),
+                "profit_factor": ((r.get("analytics") or {}).get("summary") or {}).get("profit_factor"),
+                "max_drawdown_pct": ((r.get("analytics") or {}).get("summary") or {}).get("max_drawdown_pct"),
+                "win_rate": ((r.get("analytics") or {}).get("summary") or {}).get("win_rate"),
+                "trades": ((r.get("analytics") or {}).get("summary") or {}).get("trades"),
+            },
+            "is_preferred": bool(pref and pref.get("run_id") == r["run_id"]),
+            "finished_at": r.get("finished_at"),
+        } for r in rows],
     }
 
 
@@ -694,20 +719,67 @@ def compare(db: Any, run_ids: List[str]) -> Dict[str, Any]:
             differences.append({"field": k, "left": left.get(k), "right": right.get(k)})
     metrics_rows = []
     keys = ["net_profit", "net_return_pct", "max_drawdown_pct", "sharpe", "profit_factor",
-            "trades", "win_rate", "expectancy_per_trade"]
+            "trades", "win_rate", "expectancy_per_trade", "avg_trade", "sortino",
+            "winning_trades", "losing_trades"]
+    sa, sb = (a.get("analytics") or {}).get("summary") or {}, (b.get("analytics") or {}).get("summary") or {}
+    ma, mb = a.get("metrics") or {}, b.get("metrics") or {}
     for k in keys:
-        metrics_rows.append({
-            "metric": k,
-            "left": ((a.get("analytics") or {}).get("summary") or {}).get(k),
-            "right": ((b.get("analytics") or {}).get("summary") or {}).get(k),
-        })
+        lv = sa.get(k) if sa.get(k) is not None else ma.get(k)
+        rv = sb.get(k) if sb.get(k) is not None else mb.get(k)
+        delta = None
+        if isinstance(lv, (int, float)) and isinstance(rv, (int, float)) \
+                and not isinstance(lv, bool) and not isinstance(rv, bool):
+            delta = float(lv) - float(rv)
+        metrics_rows.append({"metric": k, "left": lv, "right": rv, "delta": delta,
+                             "unavailable_reason": (None if (lv is not None or rv is not None)
+                                                    else "not recomputable from the stored scenario summary")})
+
+    # V6.8 §5.2 — monthly PnL + exit-reason counts/PnL per scenario, each from
+    # ITS OWN saved trades (never combined), plus explicit non-equivalence notes.
+    def _blocks(sc_row):
+        rid_ = sc_row["run_id"]
+        trades = [dict(r) for r in (db.q(
+            "SELECT * FROM deeptest_trades WHERE run_id=? ORDER BY trade_no", (rid_,)) or [])]
+        months: Dict[str, float] = {}
+        exits: Dict[str, Dict[str, Any]] = {}
+        for t in trades:
+            pnl = float(t.get("net_pnl") if t.get("net_pnl") is not None else 0.0)
+            try:
+                m = datetime.fromtimestamp(float(t.get("entry_ts")), tz=timezone.utc).strftime("%Y-%m")
+            except Exception:
+                m = "unknown"
+            months[m] = months.get(m, 0.0) + pnl
+            er = str(t.get("exit_reason") or "UNKNOWN")
+            e = exits.setdefault(er, {"count": 0, "net_pnl": 0.0})
+            e["count"] += 1
+            e["net_pnl"] = round(e["net_pnl"] + pnl, 2)
+        return {"trade_count": len(trades),
+                "monthly_pnl": {k: round(v, 2) for k, v in sorted(months.items())},
+                "exit_reasons": exits}
+
+    warnings = []
+    if differences:
+        warnings.append("these scenarios differ in the fields listed above — do not treat "
+                        "their metrics as directly equivalent")
+    if left.get("requested") != right.get("requested"):
+        warnings.append("different requested date ranges — results are NOT directly comparable")
+    if left.get("coverage_status") != right.get("coverage_status"):
+        warnings.append("different data completeness (coverage) — the shorter run's metrics "
+                        "cover a different slice of history")
+    if left.get("dataset_fingerprint") != right.get("dataset_fingerprint"):
+        warnings.append("different data fingerprints — the scenarios ran on different candle stores")
+    if left.get("genome_hash") != right.get("genome_hash") or left.get("config_hash") != right.get("config_hash"):
+        warnings.append("different strategy/engine identity — the strategies are not the same build")
+    if (left.get("total_capital"), left.get("risk_pct")) != (right.get("total_capital"), right.get("risk_pct")):
+        warnings.append("different capital or risk assumptions — money metrics are not equivalent")
     return {
         "ok": True,
         "scenarios": [left, right],
         "config_and_coverage_differences": differences,
         "metrics": metrics_rows,
-        "warning": ("these scenarios differ in the fields listed above — do not treat "
-                    "their metrics as directly equivalent") if differences else
+        "monthly_pnl": {"left": _blocks(a), "right": _blocks(b)},
+        "warnings": warnings,
+        "warning": warnings[0] if warnings else
                    "same configuration and coverage binding for the compared fields",
     }
 

@@ -81,6 +81,24 @@ def _peek_inventory_revision():
     return None
 
 
+def _node_data_revision_token() -> str:
+    """Cheap data-revision stamp for list responses (mixed-snapshot detector)."""
+    try:
+        return str(get_db().get_meta("data_revision") or "0")
+    except Exception:
+        return "0"
+
+
+def _peek_node_data_revision() -> Optional[str]:
+    """Node-data authority revision stamp (V6.8 §3) — CHEAP: the revision is
+    committed to meta whenever the authority is computed (never re-scanned on
+    every status poll). Mixed snapshots are detected by comparing stamps."""
+    try:
+        return get_db().get_meta("node_data_revision")
+    except Exception:
+        return None
+
+
 def _peek_qualified_authoritative():
     """Authoritative qualified count from the committed snapshot (None when
     the snapshot is absent — clients then load /api/inventory/snapshot)."""
@@ -121,6 +139,9 @@ def status() -> Dict:
         # panels showing node counts came from the same inventory revision.
         "inventory_revision": _peek_inventory_revision(),
         "qualified_authoritative": _peek_qualified_authoritative(),
+        # V6.8 §3 — the node-data authority stamp (the source every tab reads;
+        # additive, existing keys untouched)
+        "node_data_revision": _peek_node_data_revision(),
         "components": COMPONENT_STATES,
         "resources": rm.live_metrics(),
         "connection": mon.status_details(),
@@ -223,15 +244,50 @@ def lab_recheck() -> Dict:
             errors.append(f"snapshot commit failed: {type(exc).__name__}: {exc}"[:200])
     except Exception as exc:
         errors.append(f"inventory recompute failed: {type(exc).__name__}: {exc}"[:300])
+    # V6.8 §3 — RECHECK refreshes the SAME node-data authority the tabs first
+    # load (app.research.node_data): established formulas over the stored
+    # records, never a different qualification algorithm.
+    node_data = None
+    try:
+        from ..research.node_data import node_data_snapshot as _nd
+        node_data = _nd()
+        errors.extend(node_data.get("errors") or [])
+        try:
+            get_db().set_meta("node_data_revision", node_data.get("revision"))
+        except Exception:
+            pass
+    except Exception as exc:
+        errors.append(f"node data recompute failed: {type(exc).__name__}: {exc}"[:300])
     return {
         **(state or {}),
         "inventory": inventory,
         "inventory_revision": (inventory or {}).get("inventory_revision"),
+        "node_data": node_data,
         "recheck_completed_at": time.time(),
         "recheck_duration_ms": round((time.time() - t0) * 1000.0, 1),
         "deterministic": True,
         "errors": errors or (state or {}).get("errors") or [],
     }
+
+
+@router.get("/node-data")
+def node_data_get() -> Dict[str, Any]:
+    """V6.8 §3 — THE authoritative node-data projection (see
+    ``app.research.node_data``): stored records + established qualification
+    formulas + established generation metrics, one revision per response.
+    Every node tab reads this source so counts, identities, rankings and
+    generation metrics cannot diverge between tabs. Nothing is recalculated,
+    reinterpreted or reclassified here."""
+    from ..research.node_data import node_data_snapshot as _nd
+    try:
+        nd = _nd()
+        try:
+            get_db().set_meta("node_data_revision", nd.get("revision"))
+        except Exception:
+            pass
+        return {"ok": True, "node_data": nd}
+    except Exception as exc:
+        raise HTTPException(500, f"node data snapshot failed: {type(exc).__name__}: {exc}")
 
 
 @router.get("/inventory/snapshot")
@@ -375,7 +431,8 @@ def population(limit: int = 200, status: Optional[str] = None,
                generation: Optional[int] = None,
                data_source: Optional[str] = None,
                run_id: Optional[str] = None,
-               sort_desc: bool = True) -> Dict:
+               sort_desc: bool = True,
+               include_legacy: bool = False) -> Dict:
     db = get_db()
     where, args = [], []
     if status:
@@ -388,10 +445,14 @@ def population(limit: int = 200, status: Optional[str] = None,
         where.append("s.run_id=?"); args.append(run_id)
     if data_source and data_source.upper() != "ALL":
         where.append("s.data_source=?"); args.append(data_source)
-    else:
+    elif not include_legacy:
         # V4.0 legacy visibility isolation: the ~787 LEGACY_TEST infrastructure
         # records are hidden from this user-facing node list by default. An
         # explicit data_source=LEGACY_TEST request still returns them.
+        # V6.8 §3: `include_legacy=true` (the established V4.5 /research/*
+        # pattern) lists the COMPLETE stored research history — every record
+        # the node-data authority counts — so a ranking shown over "all the
+        # research records" can never silently drop rows another tab lists.
         where.append("COALESCE(s.data_source, 'USER_RESEARCH') <> 'LEGACY_TEST'")
 
     wsql = ("WHERE " + " AND ".join(where)) if where else ""
@@ -445,8 +506,19 @@ def population(limit: int = 200, status: Optional[str] = None,
         r["has_matrix"] = bool(r.get("has_matrix"))
         r["has_equity_curve"] = bool(m.get("equity_curve") and len(m.get("equity_curve")) > 1) or bool(m.get("trades_sample"))
         out.append(r)
+    try:
+        _rev = db.get_meta("data_revision")
+    except Exception:
+        _rev = None
     return {"count": len(out), "strategies": out,
-            "status_counts": db.count_by_status(run_id=run_id, exclude_legacy=True)}
+            "status_counts": db.count_by_status(run_id=run_id, exclude_legacy=True),
+            # V6.8 §3 — scope + revision stamps (additive): which record set
+            # this list draws from, and which data revision it was read at.
+            "scope": ("complete stored research history (include_legacy)"
+                      if include_legacy else
+                      "current experiment scope (LEGACY_TEST-classified rows hidden)"),
+            "include_legacy": bool(include_legacy),
+            "data_revision": _rev}
 
 
 @router.get("/strategies/qualified")
@@ -5710,7 +5782,23 @@ def deeptest_coverage_pairs(payload: Dict[str, Any] = Body(...)):
     pairs = [(str(p.get("symbol")), str(p.get("timeframe"))) for p in (payload or {}).get("pairs") or []]
     if not pairs:
         return {"ok": False, "error": "pairs: [{symbol, timeframe}] is required"}
-    return {"ok": True, "coverage": coverage_for_pairs(pairs)}
+    # V6.8 §7.1 — optional test range (duration_key or explicit ts bounds) so
+    # the node table can show the REAL persisted bars inside the selected range
+    # alongside the total stored bars (never an estimate).
+    range_start = range_end = None
+    try:
+        if (payload or {}).get("range_start") is not None:
+            range_start = float(payload.get("range_start"))
+            range_end = float(payload.get("range_end"))
+        elif (payload or {}).get("duration_key"):
+            from ..deeptest.periods import resolve_period
+            pr = resolve_period(str(payload.get("duration_key")))
+            range_start = pr.get("start_ts")
+            range_end = pr.get("end_ts")
+    except Exception:
+        range_start = range_end = None
+    return {"ok": True, "coverage": coverage_for_pairs(pairs, range_start=range_start,
+                                                      range_end=range_end)}
 
 
 @router.post("/deeptest/fetch")
@@ -6026,9 +6114,18 @@ def deeptest_filtered_stats(run_id: str, payload: Dict[str, Any] = Body(default_
 
     orig_summary = sc.get("metrics") or {}
     try:
-        filt_summary = A.summarize(kept, initial_capital=init_cap)
+        filt_full = A.summarize(kept, initial_capital=init_cap)
+        # summarize() returns {summary, breakdowns, unavailable, conventions} —
+        # the filtered statistics are its `summary`, computed from the kept
+        # trades with the same accounting as the stored scenario summary.
+        filt_summary = dict(filt_full.get("summary") or {})
+        filt_extra = {"breakdowns": filt_full.get("breakdowns"),
+                      "unavailable": filt_full.get("unavailable")}
+        if not filt_summary.get("trades"):
+            filt_summary["trades"] = len(kept)      # zero-trade state is explicit
     except Exception as exc:
         filt_summary = {"error": f"recalculation failed: {type(exc).__name__}: {exc}"}
+        filt_extra = {}
     return {
         "ok": True,
         "run_id": run_id,
@@ -6041,7 +6138,7 @@ def deeptest_filtered_stats(run_id: str, payload: Dict[str, Any] = Body(default_
         "trade_counts": {"original": len(trades), "kept": len(kept),
                          "excluded": len(dropped)},
         "original": {"summary": orig_summary, **_side_block(trades)},
-        "filtered": {"summary": filt_summary, **_side_block(kept)},
+        "filtered": {"summary": filt_summary, **_side_block(kept), **filt_extra},
         "excluded_trades": dropped[:200],
         "disclosure": ("post-trade exclusion analysis of saved results — NOT a "
                        "re-simulation or re-backtest. Path-dependent metrics are "
@@ -6210,7 +6307,14 @@ def nodes_index(
                                 creation_reason, parent_id, mutation_type, created_at
                          FROM strategies WHERE data_source='LEGACY_TEST'""") or []
     strategies = list(base_rows)
-    if wanted in ("all", "excluded", "blocked", "failed", "unknown"):
+    # V6.8 §3.3 — an identity search spans the COMPLETE stored research
+    # history: a node can never disappear from a tab because one endpoint
+    # interprets its identity or live status differently.  Searching "718"
+    # therefore surfaces canonical Node #718 AND research #718 with their own
+    # labels/buckets; the bucket filter semantics themselves are unchanged.
+    _search_spans_history = bool((search or "").strip()) and wanted not in (
+        "all", "excluded", "blocked", "failed", "unknown")
+    if wanted in ("all", "excluded", "blocked", "failed", "unknown") or (search or "").strip():
         strategies = strategies + list(legacy_rows)
 
     try:
@@ -6250,6 +6354,21 @@ def nodes_index(
         counts = {}
         log.warning("node bucket counting failed: %s", e)
 
+    # V6.8 §3.3 — identity search matches BOTH namespaces and spans the
+    # complete stored research history (definition hoisted above the loop so a
+    # matching identity row is kept regardless of the active bucket filter).
+    def _hit(r) -> bool:
+        # V6.4 identity contract — a search matches BOTH namespaces with
+        # explicit labels: "6658" finds Node #6658 (canonical) and any node
+        # whose study-local number is 6658 (labeled "research #6658"), never
+        # one bare number standing for two different nodes.
+        blob = " ".join(str(r.get(k) or "") for k in
+                        ("node_label", "research_label", "node_id",
+                         "research_node_num", "symbol", "timeframe",
+                         "qualification", "v5_status", "generation",
+                         "bucket")).lower()
+        return search_clean in blob
+
     rows: List[Dict[str, Any]] = []
     for st in strategies:
         sid = int(st["id"])
@@ -6259,8 +6378,6 @@ def nodes_index(
             bucket = {"bucket": "unknown", "label": "Unknown", "reason": str(e)[:200],
                       "v5_status": None}
         b = bucket["bucket"]
-        if not node_matches_filter(b, wanted):
-            continue
         cfg = db.one("SELECT * FROM live_test_configs WHERE strategy_id=?", (sid,)) or {}
         strat = db.get_strategy(sid) or st
         genome = _genome_of(strat)
@@ -6434,20 +6551,14 @@ def nodes_index(
             "risk_mode": _risk_mode_row(cfg),
             "lifecycle": _lifecycle_of(_ws, cfg.get("is_active"), cfg.get("status")),
         })
-
-    if search_clean:
-        def _hit(r):
-            # V6.4 identity contract — a search matches BOTH namespaces with
-            # explicit labels: "6658" finds Node #6658 (canonical) and any node
-            # whose study-local number is 6658 (labeled "research #6658"), never
-            # one bare number standing for two different nodes.
-            blob = " ".join(str(r.get(k) or "") for k in
-                            ("node_label", "research_label", "node_id",
-                             "research_node_num", "symbol", "timeframe",
-                             "qualification", "v5_status", "generation",
-                             "bucket")).lower()
-            return search_clean in blob
-        rows = [r for r in rows if _hit(r)]
+        _row = rows[-1]
+        # keep-rule: with a search, identity matches span the full history
+        # (§3.3); without one, the bucket filter decides — unchanged semantics.
+        if search_clean:
+            if not _hit(_row):
+                rows.pop()
+        elif not node_matches_filter(b, wanted):
+            rows.pop()
     if symbol:
         rows = [r for r in rows if str(r.get("symbol") or "").upper() == symbol.upper()]
     if timeframe:
@@ -6607,6 +6718,11 @@ def nodes_index(
         "truncated": (_cap is not None) and (_offset + len(page) < total),
         "experiment": experiment,
         "nodes": page,
+        # V6.8 §3 — scope + revision stamps (additive)
+        "search_scope": ("identity search spans the complete stored research history"
+                         if _search_spans_history or (search or "").strip() else
+                         "filter scope"),
+        "data_revision": _node_data_revision_token(),
         "risk": {"global_risk_pct": global_pct, "limits": limits},
         "note": ("Metrics are the node's own recorded research/live results. "
                  "A node with no recorded value shows null — never 0."),

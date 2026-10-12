@@ -35,7 +35,23 @@ const SUMMARY_ROWS = [
   ["Max consecutive W / L", (s) => `${s.max_consecutive_wins ?? "N/A"} / ${s.max_consecutive_losses ?? "N/A"}`],
 ];
 
-export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scenariosProp = null, onChanged }) {
+const DAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+const SESSION_KEYS = ["asia", "london", "newyork", "off"];
+
+// §6.2 — OR-style independent exclusion dimensions over the SAVED trades:
+// a trade is excluded when its entry day-of-week is excluded OR its entry
+// session is. Timestamps = actual entry timestamp (UTC); day/session come
+// from the framework fields recorded with each trade.
+function isKeptTrade(t, days, sessions) {
+  const dd = t.dow == null ? null : String(DAY_KEYS[Number(t.dow) % 7]);
+  const sess = t.session ? String(t.session).toLowerCase() : null;
+  if (dd && days.includes(dd)) return false;
+  if (sess && sessions.includes(sess)) return false;
+  return true;
+}
+
+export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scenariosProp = null, onChanged,
+                                            initialRunId = null, initialCompare = null }) {
   const [ownScenarios, setOwnScenarios] = useState(null);
   const scenarios = scenariosProp || ownScenarios || [];
   const reload = useCallback(async () => {
@@ -56,22 +72,34 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
   const [compare, setCompare] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
-  // V6.7 §10 — performance EXCLUSION filters (day-of-week + session) and the
-  // §9 monthly/exit-reason blocks, recomputed from the scenario's saved trades.
-  const [exclDays, setExclDays] = useState([]);
-  const [exclSessions, setExclSessions] = useState([]);
+  // V6.8 §6 — performance EXCLUSION filters: checkbox state drives the
+  // filtered trade set which drives EVERY displayed statistic (recalculated
+  // from the saved trades, never scaled from the original summary).
+  const [flt, setFltState] = useState({ days: [], sessions: [] });
+  const filtByRun = useRef({});          // per-scenario filter state (restore on switch)
+  const filtSeq = useRef(0);             // latest-request-wins for filtered fetches
   const [filt, setFilt] = useState(null);
   const [filtBusy, setFiltBusy] = useState(false);
+  const setFlt = (next) => {
+    setFltState(next);
+    if (selected) filtByRun.current[selected] = next;
+  };
+  const exclDays = flt.days;
+  const exclSessions = flt.sessions;
+  const filtersActive = flt.days.length > 0 || flt.sessions.length > 0;
 
   const loadFiltered = useCallback(async (runId, days, sessions) => {
     if (!runId) return;
+    const seq = ++filtSeq.current;
     setFiltBusy(true);
     try {
       const res = await api.deeptestFilteredStats(runId, {
         exclude_days: days, exclude_sessions: sessions,
       });
-      setFilt(res);
-    } catch { setFilt(null); } finally { setFiltBusy(false); }
+      // §6.4 — an older async response can never overwrite the current results
+      if (seq === filtSeq.current) setFilt(res);
+    } catch { if (seq === filtSeq.current) setFilt(null); }
+    finally { if (seq === filtSeq.current) setFiltBusy(false); }
   }, []);
 
   const loadDetail = useCallback(async (runId) => {
@@ -79,7 +107,9 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
     try {
       const res = await api.deeptestRunGet(runId);
       setDetail(res.scenario);
-      const tr = await api.deeptestRunTrades(runId, { limit: 200, offset: 0 });
+      // the complete saved trade list — the filter recalculation and the
+      // visible list must both cover every trade of the scenario
+      const tr = await api.deeptestRunTrades(runId, { limit: 10000, offset: 0 });
       setTrades(tr);
       setPage(0);
     } catch (e) {
@@ -89,9 +119,16 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
 
   // filters recalculating never refetches the scenario itself — only the
   // derived analysis of its saved trades.
+  // switching scenarios restores THAT scenario's own filter state (never a
+  // leak of another scenario's exclusions) — §6.4
   useEffect(() => {
-    if (selected) loadFiltered(selected, exclDays, exclSessions);
-  }, [selected, exclDays, exclSessions, loadFiltered]);
+    setFltState(filtByRun.current[selected] || { days: [], sessions: [] });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected]);
+
+  useEffect(() => {
+    if (selected) loadFiltered(selected, flt.days, flt.sessions);
+  }, [selected, flt, loadFiltered]);
 
   useEffect(() => {
     if (scenarios.length && !selected) {
@@ -110,16 +147,38 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
     } catch (e) { setError(e); } finally { setBusy(false); }
   };
 
-  const runCompare = async () => {
+  const runCompareIds = async (ids) => {
     setBusy(true); setError(null);
     try {
-      const res = await api.deeptestCompare(compareSel);
+      const res = await api.deeptestCompare(ids);
       setCompare(res.ok ? res : null);
       if (!res.ok) setError(res.error || "comparison refused");
     } catch (e) { setError(e); } finally { setBusy(false); }
   };
+  const runCompare = () => runCompareIds(compareSel);
+
+  // §5.2 — a comparison opened from the DEEPTESTED table (initialCompare)
+  // runs automatically once the scenarios are known; a per-scenario INSPECT
+  // (initialRunId) selects exactly that scenario.
+  const initialRef = useRef({ run: initialRunId, cmp: initialCompare });
+  useEffect(() => {
+    if (!scenarios.length) return;
+    const { run, cmp } = initialRef.current;
+    if (run && scenarios.some((x) => x.run_id === run) && selected !== run) {
+      setSelected(run);
+      loadDetail(run);
+    }
+    if (cmp && cmp.length === 2 && !compare) {
+      setCompareSel(cmp);
+      runCompareIds(cmp);
+    }
+    initialRef.current = { run: null, cmp: null };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scenarios]);
 
   const tradeRows = (trades?.trades || []).filter((t) => {
+    // §6.2 — exclusion semantics: keep only trades matching NO active exclusion
+    if (!isKeptTrade(t, flt.days, flt.sessions)) return false;
     if (!search.trim()) return true;
     const q = search.trim().toLowerCase();
     return JSON.stringify(t).toLowerCase().includes(q);
@@ -137,9 +196,19 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
   const pageRows = sorted.slice(page * pageSize, page * pageSize + pageSize);
 
   const sel = detail || (scenarios.find((s) => s.run_id === selected) || null);
-  const summary = (sel?.analytics || {}).summary || {};
+  // §6 — when filters are active EVERY displayed statistic comes from the
+  // filtered trades' own recomputation (same accounting), never from the
+  // original summary scaled or left in place. Unfiltered = the scenario's own
+  // saved analytics, exactly as stored.
+  const origSummary = (sel?.analytics || {}).summary || {};
+  const summary = (filtersActive && filt?.filtered && !filt.filtered.error)
+    ? (filt.filtered.summary || {})
+    : origSummary;
   const breakdowns = (sel?.analytics || {}).breakdowns || {};
   const unavail = (sel?.analytics || {}).unavailable || [];
+  const blocks = (filtersActive && filt?.filtered) ? filt.filtered
+    : (filt?.original || {});
+  const shownTradeCounts = filt?.trade_counts || null;
 
   return (
     <div className="panel" style={{ marginTop: 8 }}>
@@ -240,6 +309,7 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
           <div style={{ display: "flex", gap: 16, marginTop: 8, flexWrap: "wrap" }}>
             <div style={{ minWidth: 320 }}>
               <b>Metrics</b>
+              {filtersActive && <Badge tone="warn">FILTERED — recomputed from the kept trades</Badge>}
               <table style={{ width: "100%", fontSize: 11 }}>
                 <tbody>
                   {SUMMARY_ROWS.map(([label, fn]) => (
@@ -283,28 +353,29 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
               filters, all recalculated from this scenario's saved trades. */}
           <div style={{ display: "flex", gap: 16, marginTop: 10, flexWrap: "wrap" }}>
             <div style={{ minWidth: 260 }}>
-              <b>Monthly PnL <span style={{ fontWeight: 400, opacity: 0.75 }}>(reconciles with trades)</span></b>
+              <b>Monthly PnL <span style={{ fontWeight: 400, opacity: 0.75 }}>(reconciles with the shown trades{filtersActive ? " · FILTERED" : ""})</span></b>
               <div style={{ fontSize: 11, marginTop: 4 }}>
-                {Object.entries((filt?.original || {}).monthly_pnl || {}).map(([m, v]) => (
+                {Object.entries(blocks.monthly_pnl || {}).map(([m, v]) => (
                   <div key={m} className="mono" style={{ display: "flex", justifyContent: "space-between" }}>
-                    <span>{m}</span><span>{f2(v)}</span>
+                    <span>{m}</span>
+                    <span className={v >= 0 ? "pos" : "neg"}>{f2(v)}</span>
                   </div>
                 ))}
-                {!Object.keys((filt?.original || {}).monthly_pnl || {}).length && (
-                  <span style={{ opacity: 0.7 }}>{filtBusy ? "computing…" : "no saved trades"}</span>
+                {!Object.keys(blocks.monthly_pnl || {}).length && (
+                  <span className="muted">{filtBusy ? "computing…" : (filtersActive ? "no trades match the filters" : "no saved trades")}</span>
                 )}
               </div>
             </div>
             <div style={{ minWidth: 260 }}>
-              <b>Exit reasons <span style={{ fontWeight: 400, opacity: 0.75 }}>(count + net PnL, from saved trades)</span></b>
+              <b>Exit reasons <span style={{ fontWeight: 400, opacity: 0.75 }}>(count + net PnL, from the shown trades{filtersActive ? " · FILTERED" : ""})</span></b>
               <div style={{ fontSize: 11, marginTop: 4 }}>
-                {Object.entries((filt?.original || {}).exit_reasons || {}).map(([r, v]) => (
+                {Object.entries(blocks.exit_reasons || {}).map(([r, v]) => (
                   <div key={r} className="mono" style={{ display: "flex", justifyContent: "space-between" }}>
-                    <span>{r}</span><span>{v.count} × {f2(v.net_pnl)}</span>
+                    <span>{r}</span><span>{v.count} × <span className={v.net_pnl >= 0 ? "pos" : "neg"}>{f2(v.net_pnl)}</span></span>
                   </div>
                 ))}
-                {!Object.keys((filt?.original || {}).exit_reasons || {}).length && (
-                  <span style={{ opacity: 0.7 }}>{filtBusy ? "computing…" : "no saved trades"}</span>
+                {!Object.keys(blocks.exit_reasons || {}).length && (
+                  <span className="muted">{filtBusy ? "computing…" : (filtersActive ? "no trades match the filters" : "no saved trades")}</span>
                 )}
               </div>
             </div>
@@ -323,26 +394,31 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
               <div style={{ display: "flex", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
                 <div>
                   <div style={{ opacity: 0.8, fontSize: 10.5 }}>exclude day-of-week</div>
-                  {["mon", "tue", "wed", "thu", "fri", "sat", "sun"].map((d) => (
+                  {DAY_KEYS.map((d) => (
                     <label key={d} style={{ fontSize: 11, marginRight: 6 }}>
                       <input type="checkbox" checked={exclDays.includes(d)}
-                             onChange={(e) => setExclDays(e.target.checked
-                               ? [...exclDays, d] : exclDays.filter((x) => x !== d))} /> {d}
+                             onChange={(e) => setFlt({
+                               days: e.target.checked ? [...exclDays, d] : exclDays.filter((x) => x !== d),
+                               sessions: exclSessions,
+                             })} /> {d}
                     </label>
                   ))}
                 </div>
                 <div>
                   <div style={{ opacity: 0.8, fontSize: 10.5 }}>exclude session</div>
-                  {["asia", "london", "newyork", "off"].map((sx) => (
+                  {SESSION_KEYS.map((sx) => (
                     <label key={sx} style={{ fontSize: 11, marginRight: 6 }}>
                       <input type="checkbox" checked={exclSessions.includes(sx)}
-                             onChange={(e) => setExclSessions(e.target.checked
-                               ? [...exclSessions, sx] : exclSessions.filter((x) => x !== sx))} /> {sx}
+                             onChange={(e) => setFlt({
+                               days: exclDays,
+                               sessions: e.target.checked ? [...exclSessions, sx] : exclSessions.filter((x) => x !== sx),
+                             })} /> {sx}
                     </label>
                   ))}
                 </div>
                 <button className="btn" style={{ fontSize: 10.5, alignSelf: "flex-start" }}
-                        onClick={() => { setExclDays([]); setExclSessions([]); }}>
+                        title="restores the scenario's original unfiltered metrics and trade list"
+                        onClick={() => { setFlt({ days: [], sessions: [] }); if (selected) filtByRun.current[selected] = { days: [], sessions: [] }; }}>
                   Reset filters
                 </button>
               </div>
@@ -396,7 +472,10 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
           )}
 
           <div style={{ marginTop: 10 }}>
-            <b>Trades ({trades?.total ?? "—"})</b>
+            <b>Trades ({shownTradeCounts
+              ? `${shownTradeCounts.kept}${filtersActive ? ` of ${shownTradeCounts.original}` : ""}`
+              : (trades?.total ?? "—")})</b>
+            {filtersActive && <Badge tone="warn">FILTERED</Badge>}
             <div style={{ display: "flex", gap: 8, alignItems: "center", margin: "6px 0", flexWrap: "wrap" }}>
               <input placeholder="search trades" value={search}
                      onChange={(e) => { setSearch(e.target.value); setPage(0); }} style={{ width: 180 }} />
@@ -454,35 +533,92 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
       )}
 
       {compare && (
-        <div style={{ marginTop: 12, fontSize: 11 }}>
-          <b>Comparison</b>
-          <div className="kit-inline-err" style={{ marginTop: 4 }}>{compare.warning}</div>
-          <div style={{ marginTop: 6 }}>
+        <div style={{ marginTop: 12, fontSize: 11 }} className="panel">
+          <b>Scenario comparison — side by side</b>
+          <div className="muted" style={{ marginTop: 2 }}>
+            each scenario keeps its OWN saved results; trades and statistics are never combined
+          </div>
+          {(compare.warnings || [compare.warning]).filter(Boolean).map((w) => (
+            <div key={w} className="kit-inline-err" style={{ marginTop: 4 }}>{w}</div>
+          ))}
+          <div style={{ display: "flex", gap: 12, marginTop: 8, flexWrap: "wrap" }}>
+            {(compare.scenarios || []).map((sc, i) => (
+              <div key={sc.run_id} style={{ flex: "1 1 280px", border: "1px solid var(--border)", borderRadius: 6, padding: 8 }}>
+                <b>{i === 0 ? "Scenario A" : "Scenario B"}</b>
+                <div className="muted mono" style={{ fontSize: 9.5 }}>{sc.run_id}</div>
+                <div className="mono" style={{ fontSize: 10.5, marginTop: 4 }}>
+                  status {sc.status} · coverage {sc.coverage_status || "—"} · bars used {sc.bars_used ?? "—"}
+                  <br />requested {when((sc.requested || {}).start_ts)} → {when((sc.requested || {}).end_ts)}
+                  <br />actual {when((sc.actual_tested_range || {}).start_ts)} → {when((sc.actual_tested_range || {}).end_ts)}
+                  <br />capital {sc.total_capital ?? "—"} · risk {sc.risk_pct ?? "—"}%
+                  <br />genome {String(sc.genome_hash || "—").slice(0, 10)} · config {String(sc.config_hash || "—").slice(0, 10)}
+                  <br />data fp {String(sc.dataset_fingerprint || "—").slice(0, 14)}
+                </div>
+                <button className="btn" style={{ fontSize: 10, marginTop: 6 }}
+                        onClick={() => { setSelected(sc.run_id); loadDetail(sc.run_id); setCompare(null); setCompareSel([]); }}>
+                  Inspect this scenario
+                </button>
+              </div>
+            ))}
+          </div>
+          <div style={{ marginTop: 8 }}>
+            <b>metrics side by side (left = A, right = B; Δ = A − B)</b>
+            <table className="tbl mono" style={{ width: "100%", fontSize: 10.5, marginTop: 4 }}>
+              <thead>
+                <tr><th>metric</th><th>A</th><th>B</th><th>Δ</th></tr>
+              </thead>
+              <tbody>
+                {(compare.metrics || []).map((r) => (
+                  <tr key={r.metric}>
+                    <td>{r.metric}{r.unavailable_reason ? <span className="muted" title={r.unavailable_reason}> (N/A)</span> : null}</td>
+                    <td className="mono">{r.left == null ? "N/A" : String(r.left)}</td>
+                    <td className="mono">{r.right == null ? "N/A" : String(r.right)}</td>
+                    <td className="mono">{r.delta == null
+                      ? <span className="muted">—</span>
+                      : <span className={r.delta >= 0 ? "pos" : "neg"}>{r.delta >= 0 ? "+" : ""}{Number(r.delta).toFixed(4)}</span>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ display: "flex", gap: 16, marginTop: 8, flexWrap: "wrap" }}>
+            {["left", "right"].map((side) => {
+              const b = ((compare.monthly_pnl || {})[side]) || {};
+              return (
+                <div key={side} style={{ flex: "1 1 280px" }}>
+                  <b>Monthly PnL &amp; exits — {side === "left" ? "Scenario A" : "Scenario B"}</b>
+                  <div className="mono" style={{ fontSize: 10.5, marginTop: 4 }}>
+                    {Object.entries(b.monthly_pnl || {}).map(([m, v]) => (
+                      <div key={m} style={{ display: "flex", justifyContent: "space-between" }}>
+                        <span>{m}</span><span className={v >= 0 ? "pos" : "neg"}>{f2(v)}</span>
+                      </div>
+                    ))}
+                    {!Object.keys(b.monthly_pnl || {}).length ? <span className="muted">no monthly data</span> : null}
+                    <div style={{ marginTop: 6 }}>
+                      {Object.entries(b.exit_reasons || {}).map(([r, v]) => (
+                        <div key={r} style={{ display: "flex", justifyContent: "space-between" }}>
+                          <span>{r}</span><span>{v.count} × {f2(v.net_pnl)}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="muted" style={{ marginTop: 4 }}>trades in scenario: {b.trade_count ?? "—"}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ marginTop: 8 }}>
             <b>config &amp; coverage differences</b>
             {(compare.config_and_coverage_differences || []).length === 0 && (
               <div style={{ opacity: 0.8 }}>none among the compared fields</div>
             )}
-            <table style={{ width: "100%", fontSize: 10.5 }} className="mono">
+            <table style={{ width: "100%", fontSize: 10.5 }} className="tbl mono">
               <tbody>
                 {(compare.config_and_coverage_differences || []).map((d) => (
                   <tr key={d.field}>
                     <td>{d.field}</td>
                     <td>{JSON.stringify(d.left)}</td>
                     <td>{JSON.stringify(d.right)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div style={{ marginTop: 6 }}>
-            <b>metrics side by side</b>
-            <table style={{ width: "100%", fontSize: 10.5 }} className="mono">
-              <tbody>
-                {(compare.metrics || []).map((r) => (
-                  <tr key={r.metric}>
-                    <td>{r.metric}</td>
-                    <td>{r.left == null ? "N/A" : String(r.left)}</td>
-                    <td>{r.right == null ? "N/A" : String(r.right)}</td>
                   </tr>
                 ))}
               </tbody>

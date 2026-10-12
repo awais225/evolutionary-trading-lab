@@ -154,6 +154,9 @@ export const api = {
   recheck: () => req("/api/lab/recheck", { method: "POST" }),
   // V6.7 §3 — the single authoritative node-inventory snapshot
   inventorySnapshot: (fresh = false) => req(`/api/inventory/snapshot${fresh ? "?fresh=1" : ""}`),
+  // V6.8 §3 — THE node-data authority every tab reads (counts/identity/
+  // rankings/generation metrics, one revision per response).
+  nodeData: () => req("/api/node-data"),
   setTarget: (target) => req("/api/lab/target", { method: "POST", body: { target } }),
   getTarget: () => req("/api/lab/target"),
   labRuns: () => req("/api/lab/runs"),
@@ -433,7 +436,8 @@ export const api = {
   deeptestSaveSettings: (body) => req("/api/deeptest/settings", { method: "PUT", body }),
   deeptestPeriods: () => req("/api/deeptest/periods"),
   deeptestCoverage: (symbol, timeframe) => req(`/api/deeptest/coverage/${encodeURIComponent(symbol)}/${encodeURIComponent(timeframe)}`),
-  deeptestCoveragePairs: (pairs) => req("/api/deeptest/coverage/pairs", { method: "POST", body: { pairs } }),
+  deeptestCoveragePairs: (pairs, durationKey) =>
+    req("/api/deeptest/coverage/pairs", { method: "POST", body: { pairs, duration_key: durationKey || undefined } }),
   deeptestFetch: (body) => req("/api/deeptest/fetch", { method: "POST", body, signal: AbortSignal.timeout(30000) }),
   deeptestFetchStatus: (symbol, timeframe) => req(`/api/deeptest/fetch/${encodeURIComponent(symbol)}/${encodeURIComponent(timeframe)}`),
   deeptestFetchCancel: (body) => req("/api/deeptest/fetch/cancel", { method: "POST", body }),
