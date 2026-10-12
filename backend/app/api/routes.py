@@ -5838,13 +5838,24 @@ def deeptest_coverage_pairs(payload: Dict[str, Any] = Body(...)):
 
 @router.post("/deeptest/fetch")
 def deeptest_fetch(payload: Dict[str, Any] = Body(...)):
-    """GET MT5 DATA — incremental missing-range fetch; never implies a backtest."""
+    """GET MT5 DATA — fetch the REQUESTED history range; never implies a backtest.
+
+    V7.0 §2 — the selected duration (``duration_key``: 1D..3Y) or explicit UTC
+    ``range_start``/``range_end`` bounds travel with the request and define the
+    fetch goal; the backend never substitutes a fixed recent window for the
+    operator's selected range."""
     from ..deeptest.fetch_job import start_fetch
     symbol = str((payload or {}).get("symbol") or "").upper()
     timeframe = str((payload or {}).get("timeframe") or "").upper()
     if not symbol or not timeframe:
         return {"ok": False, "error": "symbol and timeframe are required"}
-    return start_fetch(symbol, timeframe)
+    period = {}
+    if (payload or {}).get("duration_key"):
+        period["duration_key"] = str(payload.get("duration_key"))
+    if (payload or {}).get("range_start") is not None:
+        period["start_ts"] = payload.get("range_start")
+        period["end_ts"] = payload.get("range_end")
+    return start_fetch(symbol, timeframe, period=period or None)
 
 
 @router.get("/deeptest/fetch/{symbol}/{timeframe}")

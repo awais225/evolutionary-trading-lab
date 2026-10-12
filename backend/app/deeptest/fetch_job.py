@@ -106,7 +106,28 @@ def _run(job: _FetchJob) -> None:
         def _prog(pct, msg):
             job.set(progress_pct=15.0 + (pct - 35.0) * 0.75, operation=msg)
 
-        result = engine.sync_master(job.symbol, job.timeframe, progress_cb=_prog)
+        # V7.0 §2 — the selected duration/requested range travels with the job
+        # and defines the fetch goal (explicit UTC bounds via the documented
+        # period semantics). No period = the legacy config window.
+        req_start = req_end = None
+        period = job.period or {}
+        try:
+            from .periods import explicit_period, resolve_period
+            if period.get("start_ts") is not None and period.get("end_ts") is not None:
+                pr = explicit_period(float(period["start_ts"]), float(period["end_ts"]))
+            elif period.get("duration_key"):
+                pr = resolve_period(str(period["duration_key"]))
+            else:
+                pr = None
+            if pr:
+                req_start, req_end = pr["start_ts"], pr["end_ts"]
+                job.set(operation=f"bridge: chunked copy_rates_range for the requested "
+                                  f"range {pr.get('start_iso')} → {pr.get('end_iso')}")
+        except Exception as e:
+            job.set(operation=f"requested range rejected: {type(e).__name__}: {e}")
+            raise
+        result = engine.sync_master(job.symbol, job.timeframe, progress_cb=_prog,
+                                    request_start=req_start, request_end=req_end)
         sync_status = str((result or {}).get("sync_status") or "").upper()
         if job.cancel.is_set() or (result or {}).get("status") == "cancelled":
             job.set(status="CANCELLED", stage="CANCELLED", finished_at=time.time())

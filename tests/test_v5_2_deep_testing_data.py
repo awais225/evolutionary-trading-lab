@@ -248,6 +248,12 @@ class FakeEngine:
 
     def sync_master(self, symbol, timeframe, force_full=False):
         self.calls.append((symbol, timeframe, bool(force_full)))
+        # hold the "running" window long enough that a second start attempt
+        # deterministically lands WHILE the job is running (the double was
+        # instant, which made the while-running assertion a scheduling coin
+        # flip on a busy machine)
+        import time as _t
+        _t.sleep(0.25)
         if self.fail_on == (symbol, timeframe):
             raise RuntimeError("bridge returned nothing")
         return {"symbol": symbol, "timeframe": timeframe, "fetch_mode": "initial_bootstrap",

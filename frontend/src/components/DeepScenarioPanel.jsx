@@ -4,11 +4,16 @@
 // searchable/sortable/paginated trade-level detail.
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import { Badge, StateBlock } from "./ui";
+import { Badge, Kpi, StateBlock } from "./ui";
+import { txt } from "../lib/safe.js";
 
 function f2(v) { return v == null ? "N/A" : (typeof v === "number" ? v.toFixed(2) : String(v)); }
 function f4(v) { return v == null ? "N/A" : (typeof v === "number" ? v.toFixed(4) : String(v)); }
 function when(ts) { return ts ? new Date(ts * 1000).toISOString().replace("T", " ").slice(0, 19) + "Z" : "—"; }
+function numOrNa(v, d = 3) { return v == null || !Number.isFinite(Number(v)) ? "N/A" : Number(v).toFixed(d); }
+function pctOrNa(v, d = 3) { return v == null || !Number.isFinite(Number(v)) ? "N/A" : `${(Number(v) * 100).toFixed(d)}%`; }
+function moneyOrNa(v) { return v == null || !Number.isFinite(Number(v)) ? "N/A" : `$${Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 })}`; }
+function numTone(v) { return v == null || !Number.isFinite(Number(v)) ? "mute" : (Number(v) >= 0 ? "pos" : "neg"); }
 
 const SUMMARY_ROWS = [
   ["Initial capital", (s) => f2(s.initial_capital)],
@@ -183,14 +188,21 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
     const q = search.trim().toLowerCase();
     return JSON.stringify(t).toLowerCase().includes(q);
   });
+  // V7.0 §3.3 — full-set sorting (the complete loaded scenario trades, never
+  // just the visible page), numeric/chronological per column, missing values
+  // last in both directions, stable canonical tie-break on trade_no.
   const sorted = [...tradeRows].sort((a, b) => {
     const av = a[sortKey], bv = b[sortKey];
-    if (av == null && bv == null) return 0;
+    if (av == null && bv == null) return (a.trade_no ?? 0) - (b.trade_no ?? 0);
     if (av == null) return 1;          // nulls always last
     if (bv == null) return -1;
+    if (typeof av === "string" || typeof bv === "string") {
+      const cmp = String(av).localeCompare(String(bv));
+      return (cmp !== 0 ? (sortDir > 0 ? cmp : -cmp) : (a.trade_no ?? 0) - (b.trade_no ?? 0));
+    }
     if (av < bv) return -sortDir;
     if (av > bv) return sortDir;
-    return 0;
+    return (a.trade_no ?? 0) - (b.trade_no ?? 0);
   });
   const pageSize = 10;
   const pageRows = sorted.slice(page * pageSize, page * pageSize + pageSize);
@@ -313,26 +325,48 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
           )}
 
           <div style={{ display: "flex", gap: 16, marginTop: 8, flexWrap: "wrap" }}>
-            <div style={{ minWidth: 320 }}>
-              <b>Metrics</b>
-              {filtersActive && <Badge tone="warn">FILTERED — recomputed from the kept trades</Badge>}
-              <table style={{ width: "100%", fontSize: 11 }}>
-                <tbody>
-                  {SUMMARY_ROWS.map(([label, fn]) => (
-                    <tr key={label}>
-                      <td style={{ opacity: 0.8 }}>{label}</td>
-                      <td className="mono" style={{ textAlign: "right" }}>
-                        {summary.initial_capital === undefined && label !== "Trades" ? "N/A" : (() => {
-                          try { return String(fn(summary)); } catch { return "N/A"; }
-                        })()}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div style={{ flex: "1 1 460px", minWidth: 340 }}>
+              {/* V7.0 §3 — statistics as themed cards on the existing design
+                  system (Kpi), each labelled with its source; a value that is
+                  missing or statistically invalid renders as unavailable —
+                  never invented, never borrowed from another scenario. */}
+              <b>Scenario statistics</b>
+              {" "}<span className="muted" style={{ fontSize: 10.5 }}>
+                source: {txt(sel?.run_id ? `DeepTest scenario ${sel.run_id}` : "DeepTest scenario")}
+                {filtersActive ? " · FILTERED (kept trades)" : ""}
+              </span>
+              {filtersActive && <Badge tone="warn">FILTERED</Badge>}
+              <div className="grid cols-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(140px,1fr))", marginTop: 8 }}>
+                <Kpi label="Return %" value={pctOrNa(summary.net_return_pct)}
+                     tone={numTone(summary.net_return_pct)}
+                     sub={filtersActive ? "filtered trades" : "scenario result"} />
+                <Kpi label="Net P&L" value={moneyOrNa(summary.net_profit)}
+                     tone={numTone(summary.net_profit)}
+                     sub={`initial ${f2(summary.initial_capital)}`} />
+                <Kpi label="Profit factor" value={numOrNa(summary.profit_factor, 3)}
+                     sub="gross win / gross loss" />
+                <Kpi label="Max drawdown" value={pctOrNa(summary.max_drawdown_pct)}
+                     tone="neg" sub="from the chronological equity curve" />
+                <Kpi label="Win rate" value={pctOrNa(summary.win_rate, 2)}
+                     sub={`${summary.winning_trades ?? "—"}W / ${summary.losing_trades ?? "—"}L`} />
+                <Kpi label="Total trades" value={summary.trades ?? "N/A"}
+                     sub={filtersActive ? `${shownTradeCounts?.excluded ?? 0} excluded by filters` : "closed trades"} />
+                <Kpi label="Avg trade" value={moneyOrNa(summary.avg_trade ?? summary.expectancy_per_trade)}
+                     sub="per closed trade" />
+                <Kpi label="Expectancy" value={numOrNa(summary.expectancy_per_trade, 4)}
+                     sub="expected value per trade" />
+                <Kpi label="Sharpe" value={numOrNa(summary.sharpe, 3)}
+                     sub={summary.sharpe == null ? "not computable from stored trades" : "from the saved series"} />
+                <Kpi label="Sortino" value={numOrNa(summary.sortino, 3)}
+                     sub={summary.sortino == null ? "not computable from stored trades" : "from the saved series"} />
+                <Kpi label="Bars tested" value={sel?.bars_used ?? "N/A"}
+                     sub={txt(sel?.coverage_status || "", "persisted candles")} />
+                <Kpi label="Status / id" value={`${txt(sel?.status, "—")}`}
+                     sub={`${txt(sel?.run_id, "—")}`} />
+              </div>
               {unavail.length > 0 && (
-                <div style={{ fontSize: 10.5, opacity: 0.8, marginTop: 4 }}>
-                  N/A (with reason): {unavail.map((u) => `${u.field} — ${u.reason}`).join("; ")}
+                <div className="muted" style={{ fontSize: 10.5, marginTop: 6 }} title="a statistic that cannot be faithfully recomputed is reported unavailable with its reason — never faked">
+                  unavailable: {unavail.map((u) => `${u.field} — ${u.reason}`).join("; ")}
                 </div>
               )}
             </div>
@@ -401,7 +435,10 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
                 <div>
                   <div style={{ opacity: 0.8, fontSize: 10.5 }}>exclude day-of-week</div>
                   {DAY_KEYS.map((d) => (
-                    <label key={d} style={{ fontSize: 11, marginRight: 6 }}>
+                    <label key={d} className="kit-chip" style={{ fontSize: 11, marginRight: 6,
+                            opacity: exclDays.includes(d) ? 0.55 : 1,
+                            borderColor: exclDays.includes(d) ? "var(--red)" : undefined,
+                            textDecoration: exclDays.includes(d) ? "line-through" : "none" }}>
                       <input type="checkbox" checked={exclDays.includes(d)}
                              onChange={(e) => setFlt({
                                days: e.target.checked ? [...exclDays, d] : exclDays.filter((x) => x !== d),
@@ -413,7 +450,10 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
                 <div>
                   <div style={{ opacity: 0.8, fontSize: 10.5 }}>exclude session</div>
                   {SESSION_KEYS.map((sx) => (
-                    <label key={sx} style={{ fontSize: 11, marginRight: 6 }}>
+                    <label key={sx} className="kit-chip" style={{ fontSize: 11, marginRight: 6,
+                            opacity: exclSessions.includes(sx) ? 0.55 : 1,
+                            borderColor: exclSessions.includes(sx) ? "var(--red)" : undefined,
+                            textDecoration: exclSessions.includes(sx) ? "line-through" : "none" }}>
                       <input type="checkbox" checked={exclSessions.includes(sx)}
                              onChange={(e) => setFlt({
                                days: exclDays,
@@ -485,11 +525,14 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
             <div style={{ display: "flex", gap: 8, alignItems: "center", margin: "6px 0", flexWrap: "wrap" }}>
               <input placeholder="search trades" value={search}
                      onChange={(e) => { setSearch(e.target.value); setPage(0); }} style={{ width: 180 }} />
-              <span style={{ fontSize: 10.5, opacity: 0.75 }}>sort:</span>
-              {["trade_no", "entry_ts", "exit_ts", "net_pnl", "hold_seconds"].map((k) => (
-                <button key={k} style={{ fontSize: 10.5 }}
+              <span className="muted" style={{ fontSize: 10.5 }}>sort:</span>
+              {[["trade_no", "#"], ["entry_ts", "entry"], ["exit_ts", "exit"],
+                ["net_pnl", "P&L"], ["hold_seconds", "hold"], ["side", "side"],
+                ["exit_reason", "exit reason"], ["session", "session"]].map(([k, label]) => (
+                <button key={k} className="btn ghost" style={{ fontSize: 10.5 }}
+                        aria-sort={sortKey === k ? (sortDir > 0 ? "ascending" : "descending") : "none"}
                         onClick={() => { if (sortKey === k) setSortDir(-sortDir); else { setSortKey(k); setSortDir(1); } }}>
-                  {k}{sortKey === k ? (sortDir === 1 ? " ▲" : " ▼") : ""}
+                  {label}{sortKey === k ? (sortDir > 0 ? " ↑" : " ↓") : ""}
                 </button>
               ))}
             </div>
@@ -509,17 +552,17 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
                 <tbody>
                   {pageRows.map((t) => (
                     <tr key={t.id ?? t.trade_no}>
-                      <td>{t.trade_no}</td>
-                      <td>{t.side}</td>
-                      <td>{when(t.entry_ts)} @ {f2(t.entry_price)}</td>
-                      <td>{when(t.exit_ts)} @ {f2(t.exit_price)}</td>
-                      <td>{t.volume ?? "N/A"}</td>
-                      <td>{t.sl == null ? "N/A" : t.sl}</td>
-                      <td>{t.tp == null ? "N/A" : t.tp}</td>
-                      <td>{t.exit_reason || "N/A"}</td>
-                      <td>{t.hold_seconds == null ? "N/A" : `${Math.round(t.hold_seconds)}s`}</td>
-                      <td>{f2(t.net_pnl)}</td>
-                      <td>{t.session || "N/A"}{t.dow != null ? ` · d${t.dow}` : ""}</td>
+                      <td className="mono">{t.trade_no}</td>
+                      <td><Badge tone={String(t.side || "").toLowerCase() === "buy" ? "pos" : "neg"}>{t.side || "N/A"}</Badge></td>
+                      <td className="mono">{when(t.entry_ts)} @ {f2(t.entry_price)}</td>
+                      <td className="mono">{when(t.exit_ts)} @ {f2(t.exit_price)}</td>
+                      <td className="mono">{t.volume ?? <span className="muted">N/A</span>}</td>
+                      <td className="mono">{t.sl == null ? <span className="muted">N/A</span> : t.sl}</td>
+                      <td className="mono">{t.tp == null ? <span className="muted">N/A</span> : t.tp}</td>
+                      <td>{t.exit_reason || <span className="muted">N/A</span>}</td>
+                      <td className="mono">{t.hold_seconds == null ? <span className="muted">N/A</span> : `${Math.round(t.hold_seconds)}s`}</td>
+                      <td className="mono"><span className={numTone(t.net_pnl)}>{f2(t.net_pnl)}</span></td>
+                      <td>{t.session || <span className="muted">N/A</span>}{t.dow != null ? <span className="muted">{` · d${t.dow}`}</span> : ""}</td>
                     </tr>
                   ))}
                   {!pageRows.length && (

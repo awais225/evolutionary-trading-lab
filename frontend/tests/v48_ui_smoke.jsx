@@ -567,9 +567,75 @@ export function payloadFor(path, method = "GET") {
     count: 2,
     statistics_priority: "preferred DeepTest -> latest valid DeepTest -> generation metrics -> N/A",
   };
+  /* V7.0 §3 — INSPECT interaction stubs: a completed scenario with real
+     trade rows (sortable) and a DYNAMIC /filtered response whose numbers are
+     computed from the posted exclusions — so the smoke can assert that the
+     displayed statistics actually recalculate. */
+  if (path.includes("/filtered")) {
+    let body = {};
+    try { body = JSON.parse(opts.body || "{}"); } catch {}
+    const TRADES = [
+      { trade_no: 1, side: "buy", entry_ts: 1788894900, exit_ts: 1788897600, entry_price: 2400, exit_price: 2405, volume: 0.1, sl: 2390, tp: 2410, exit_reason: "TP", hold_seconds: 2700, net_pnl: 50, session: "london", dow: 0 },
+      { trade_no: 2, side: "sell", entry_ts: 1788981300, exit_ts: 1788984000, entry_price: 2405, exit_price: 2402, volume: 0.1, sl: 2415, tp: 2395, exit_reason: "SL", hold_seconds: 2700, net_pnl: -30, session: "london", dow: 1 },
+      { trade_no: 3, side: "buy", entry_ts: 1789067700, exit_ts: 1789070400, entry_price: 2402, exit_price: 2409, volume: 0.1, sl: 2392, tp: 2412, exit_reason: "TP", hold_seconds: 2700, net_pnl: 70, session: "asia", dow: 3 },
+    ];
+    const days = (body.exclude_days || []).map((x) => String(x).toLowerCase());
+    const sessions = (body.exclude_sessions || []).map((x) => String(x).toLowerCase());
+    const DOWS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+    const kept = TRADES.filter((t) => !days.includes(DOWS[t.dow]) && !sessions.includes(t.session));
+    const net = (rs) => rs.reduce((a, t) => a + t.net_pnl, 0);
+    const wins = kept.filter((t) => t.net_pnl > 0).length;
+    const sum = (rs) => ({
+      initial_capital: 10000, net_profit: net(rs), net_return_pct: net(rs) / 10000,
+      trades: rs.length, winning_trades: wins, losing_trades: rs.length - wins,
+      win_rate: rs.length ? wins / rs.length : null,
+      profit_factor: rs.length ? 2.0 : null, max_drawdown_pct: 0.05,
+      expectancy_per_trade: rs.length ? net(rs) / rs.length : null, sharpe: 1.5,
+    });
+    return {
+      ok: true,
+      timestamp_convention: "entry ts UTC",
+      filter_semantics: "OR exclusions",
+      filters: { exclude_days: days, exclude_sessions: sessions },
+      active: days.length + sessions.length > 0,
+      trade_counts: { original: TRADES.length, kept: kept.length, excluded: TRADES.length - kept.length },
+      original: { summary: sum(TRADES), monthly_pnl: { "2026-09": net(TRADES) }, exit_reasons: { TP: { count: 2, net_pnl: 120 }, SL: { count: 1, net_pnl: -30 } } },
+      filtered: {
+        summary: sum(kept),
+        monthly_pnl: kept.length ? { "2026-09": net(kept) } : {},
+        exit_reasons: Object.fromEntries(["TP", "SL"].map((r) => [r, { count: kept.filter((t) => t.exit_reason === r).length, net_pnl: net(kept.filter((t) => t.exit_reason === r)) }]).filter(([, v]) => v.count)),
+        trades: kept,
+      },
+      excluded_trades: TRADES.filter((t) => !kept.includes(t)).map((t) => ({ trade_no: t.trade_no, reason: "excluded" })),
+      disclosure: "post-trade exclusion analysis of saved results — NOT a re-simulation",
+    };
+  }
+  if (path.includes("/trades")) return {
+    ok: true, total: 3,
+    trades: [
+      { trade_no: 1, side: "buy", entry_ts: 1788894900, exit_ts: 1788897600, entry_price: 2400, exit_price: 2405, volume: 0.1, sl: 2390, tp: 2410, exit_reason: "TP", hold_seconds: 2700, net_pnl: 50, session: "london", dow: 0 },
+      { trade_no: 2, side: "sell", entry_ts: 1788981300, exit_ts: 1788984000, entry_price: 2405, exit_price: 2402, volume: 0.1, sl: 2415, tp: 2395, exit_reason: "SL", hold_seconds: 2700, net_pnl: -30, session: "london", dow: 1 },
+      { trade_no: 3, side: "buy", entry_ts: 1789067700, exit_ts: 1789070400, entry_price: 2402, exit_price: 2409, volume: 0.1, sl: 2392, tp: 2412, exit_reason: "TP", hold_seconds: 2700, net_pnl: 70, session: "asia", dow: 3 },
+    ],
+  };
   if (path.includes("/api/deeptest/run/")) return {
     ok: true,
-    scenario: { run_id: "dt-aaa111", node_id: 837, status: "COMPLETED", coverage_status: "COMPLETE" },
+    scenario: {
+      run_id: "dt-aaa111", node_id: 837, status: "COMPLETED", coverage_status: "COMPLETE",
+      duration_key: "3M", bars_used: 2859, requested_start: 1785000000, requested_end: 1787678400,
+      actual_start: 1785100000, actual_end: 1787000000, signature: "sig-aaa111",
+      analytics: {
+        summary: {
+          initial_capital: 200000, net_profit: 4810, net_return_pct: 0.1481,
+          profit_factor: 2.545, max_drawdown_pct: 0.0405, win_rate: 0.7724,
+          trades: 905, winning_trades: 699, losing_trades: 206,
+          expectancy_per_trade: 5.31, sharpe: 35.181, avg_trade: 5.31,
+        },
+        breakdowns: { by_day_of_week: { mon: { trades: 12, net_pnl: 40, win_rate: 0.7 } },
+                      by_session: { london: { trades: 20, net_pnl: 60 } } },
+        unavailable: [],
+      },
+    },
     trades_sample: { trades: [], total: 0 },
   };
   if (path.includes("/api/deeptest/run")) return {
@@ -960,15 +1026,52 @@ export async function runSmoke() {
       if (!inspectBtns.length) throw new Error("no per-node INSPECT button");
       await act(async () => { inspectBtns[0].dispatchEvent(new MouseEvent("click", { bubbles: true })); });
       await act(async () => { await new Promise((r) => setTimeout(r, 60)); });
-      const inspectText = container.textContent || "";
+      let inspectText = container.textContent || "";
       if (!/Scenarios \u2014 Node #|Scenarios — Node #/.test(inspectText)) {
         throw new Error(`INSPECT did not mount the scenario inspector: "${inspectText.slice(0, 200)}"`);
       }
+      // V7.0 §3 — the themed statistic cards render
+      for (const label of ["Return %", "Profit factor", "Max drawdown", "Total trades", "Expectancy"]) {
+        if (!inspectText.includes(label)) throw new Error(`INSPECT statistic card missing: ${label}`);
+      }
+      results.push({ label: "Inspect-stat-cards", ok: true });
+      // V7.0 §3 — the trade table sorts (click the P&L header; the row order flips)
+      const sortBtns = Array.from(container.querySelectorAll("button"))
+        .filter((b) => (b.textContent || "").includes("P&L"));
+      if (!sortBtns.length) throw new Error("no P&L sort control on the trade table");
+      await act(async () => { sortBtns[0].dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+      await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+      if ((sortBtns[0].getAttribute("aria-sort") || "") !== "ascending") {
+        throw new Error("trade sorting does not expose its direction state");
+      }
+      results.push({ label: "Inspect-trade-sorting", ok: true });
+      // V7.0 §3 — filters drive the scenario's actual data and recalculate
+      const thuBoxes = Array.from(container.querySelectorAll('input[type="checkbox"]'));
+      const thu = thuBoxes.find((b) => (b.parentElement?.textContent || "").trim().startsWith("thu"));
+      if (!thu) throw new Error("no Thursday exclusion control");
+      await act(async () => { thu.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+      await act(async () => { await new Promise((r) => setTimeout(r, 40)); });
+      inspectText = container.textContent || "";
+      if (!inspectText.includes("FILTERED")) throw new Error("exclusion did not mark the stats as FILTERED");
+      if (!/kept/.test(inspectText)) throw new Error("filtered trade counts did not appear");
+      results.push({ label: "Inspect-filter-recalc", ok: true });
+      const resetBtn = Array.from(container.querySelectorAll("button"))
+        .find((b) => (b.textContent || "").includes("Reset filters"));
+      if (!resetBtn) throw new Error("no Reset filters control");
+      await act(async () => { resetBtn.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+      await act(async () => { await new Promise((r) => setTimeout(r, 40)); });
+      if ((container.textContent || "").includes("FILTERED")) {
+        throw new Error("Reset filters did not restore the unfiltered results");
+      }
+      results.push({ label: "Inspect-filter-reset", ok: true });
       results.push({ label: "DeepTesting-INSPECT-mounts", ok: true });
       results.push({ label: "page:DeepTesting-workspace", ok: true });
     } catch (e) {
-      results.push({ label: "DeepTesting-INSPECT-mounts", ok: false, error: e.message || String(e) });
-      results.push({ label: "page:DeepTesting-workspace", ok: false, error: e.message || String(e) });
+      for (const lbl of ["Inspect-stat-cards", "Inspect-trade-sorting",
+                         "Inspect-filter-recalc", "Inspect-filter-reset",
+                         "DeepTesting-INSPECT-mounts", "page:DeepTesting-workspace"]) {
+        results.push({ label: lbl, ok: false, error: e.message || String(e) });
+      }
     } finally {
       try { await act(async () => { root.unmount(); }); } catch {}
     }

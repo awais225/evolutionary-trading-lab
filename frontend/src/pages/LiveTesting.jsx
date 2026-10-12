@@ -46,7 +46,11 @@ export default function LiveTesting() {
   const [engine, setEngine] = useState(null);
   const [results, setResults] = useState(null);
   const [risk, setRisk] = useState(null);
-  const [manualOpen, setManualOpen] = useState(false);
+  // V7.0 §4 — V6.4 visibility restored: the Manual Trading Panel is OPEN by
+  // default (the V6.5-era collapsed default made it look disappeared). The
+  // collapse toggle is retained as an optional convenience and never resets
+  // the form.
+  const [manualOpen, setManualOpen] = useState(true);
   const [reloadKey, setReloadKey] = useState(0);
   const [error, setError] = useState(null);
   const [selectedNode, setSelectedNode] = useState("");
@@ -182,20 +186,11 @@ export default function LiveTesting() {
        * pages report (and can change) the one account the engine orders from. */}
       <Mt5AccountSelector title="MT5 terminal & account (engine)" />
 
-      {/* ---------------------------------------------------------- 3 */}
-      <LiveNodeTable
-        onOpenNode={openNode}
-        onToggleStar={toggleShortlist}
-        globalRisk={risk?.global_risk_pct}
-        onRiskChanged={() => { setReloadKey((k) => k + 1); load(); }}
-      />
-
-      {/* ---------------------------------------------------------- 4 —
-        * collapsible manual demo trade panel (§3.3). The panel itself stays
-        * mounted (form values survive collapse); only its body is hidden.
-        * The header keeps the demo-only safety label visible at all times. */}
+      {/* V7.0 §4 — V6.4 "Action controls": the Manual Trading Panel sits with
+        * the action controls BEFORE the node table (where the proven V6.4
+        * layout had it), on the same MT5 execution path as the engine. */}
       <SectionTitle
-        hint="The manual order panel uses the same MT5 execution path as the engine. Collapsing hides the form — it never resets it."
+        hint="The manual order panel uses the same MT5 execution path as the engine (V6.4 Action controls). Collapsing hides the form — it never resets it."
         right={
           <button className="btn ghost" style={{ padding: "2px 8px", fontSize: 11 }}
                   aria-expanded={manualOpen}
@@ -204,13 +199,22 @@ export default function LiveTesting() {
           </button>
         }
       >
-        Manual Demo Trade {manualOpen ? null : <Badge tone="warn">demo only · collapsed</Badge>}
+        Action controls — Manual Trading Panel {manualOpen ? null : <Badge tone="warn">collapsed</Badge>}
       </SectionTitle>
-      <div style={{ display: manualOpen ? "block" : "none" }}>
+      <div style={{ display: manualOpen ? "block" : "none" }} data-testid="manual-trading-panel">
         <ManualOrderPanel defaultSymbol={marketSymbol} />
       </div>
 
-      {/* ---------------------------------------------------------- 4 */}
+      {/* ---------------------------------------------------------- 3 */}
+      <LiveNodeTable
+        onOpenNode={openNode}
+        onToggleStar={toggleShortlist}
+        globalRisk={risk?.global_risk_pct}
+        onRiskChanged={() => { setReloadKey((k) => k + 1); load(); }}
+      />
+
+      {/* V7.0 §4 — the manual panel now lives in "Action controls" above (its
+        * V6.4 position); nothing else in this reading order changed. */}
       {accountRisk}
 
       {/* ---------------------------------------------------------- 5 */}

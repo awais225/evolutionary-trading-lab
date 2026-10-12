@@ -247,7 +247,9 @@ export default function DeepBacktest() {
   const onFetch = async (symbol, timeframe) => {
     const key = `${String(symbol).toUpperCase()}|${String(timeframe).toUpperCase()}`;
     try {
-      const res = await api.deeptestFetch({ symbol, timeframe });
+      // V7.0 §2 — the selected duration defines the requested range; it is
+      // transmitted explicitly and the backend fetches exactly that window.
+      const res = await api.deeptestFetch({ symbol, timeframe, duration_key: periodKey });
       if (res.job) setFetchStates((m) => ({ ...m, [key]: res.job }));
     } catch (e) {
       setFetchStates((m) => ({ ...m, [key]: { status: "FAILED", operation: e.message || String(e) } }));
