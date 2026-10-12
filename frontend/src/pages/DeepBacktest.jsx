@@ -33,10 +33,15 @@ import { arr, txt } from "../lib/safe.js";
  * click away. (The server's bucket names are the API contract: "failed" is the
  * judged-dead bucket.) */
 export const NODE_FILTERS = [
-  { key: "qualified", label: "Qualified", hint: "cleared the research gates against real data" },
-  { key: "alive", label: "Alive", hint: "qualified + still in research (not a dead end)" },
-  { key: "failed", label: "Dead", hint: "judged and did not make it" },
-  { key: "all", label: "All", hint: "every node in the experiment" },
+  // V6.9 §2.3 — the filter KEYS and row sets are the frozen node_bucket
+  // semantics (unchanged); the LABELS name the concept truthfully so a filter
+  // row count can never be read as the qualified research-node statistic.
+  { key: "qualified", label: "Qualified tier",
+    hint: "gate-passed / VALID tier (stored status SURVIVED or QUALIFIED) — a FILTER row count, not the qualified research-node statistic" },
+  { key: "alive", label: "Alive",
+    hint: "qualified tier + still in research (not a dead end) — filter row count" },
+  { key: "failed", label: "Dead", hint: "judged and did not make it — filter row count" },
+  { key: "all", label: "All", hint: "every stored research record" },
 ];
 
 const PERIOD_KEYS = ["1D", "7D", "14D", "1M", "3M", "6M", "1Y", "2Y", "3Y"];
@@ -92,6 +97,9 @@ export default function DeepBacktest() {
   // stored candles after every sync, joined into every node row sharing the pair.
   const [covMap, setCovMap] = useState({});
   const [nodesMeta, setNodesMeta] = useState(null);
+  // V6.9 §2 — the shared node-data authority (same source as Overview/LIVE
+  // TESTING): THE qualified research-node count, one revision per snapshot.
+  const [authority, setAuthority] = useState(null);
 
   // ---- data loading --------------------------------------------------------
   const loadNodes = useCallback(async () => {
@@ -145,10 +153,18 @@ export default function DeepBacktest() {
     } catch { /* defaults stay visible */ }
   }, []);
 
+  const loadAuthority = useCallback(async () => {
+    try {
+      const res = await api.nodeData();
+      if (res?.node_data) setAuthority(res.node_data);
+    } catch { /* keep the last known authority */ }
+  }, []);
+
   useEffect(() => {
     loadNodes().then(() => loadCoverage());
     loadDt();
     loadSettings();
+    loadAuthority();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadNodes, loadDt, loadSettings]);
 
@@ -539,6 +555,10 @@ export default function DeepBacktest() {
       <div className="panel" style={{ marginTop: 8 }}>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <b style={{ fontSize: 12.5 }}>Nodes</b>
+          <span title="status QUALIFIED+PAPER over the complete stored research history — the same authority Overview and LIVE TESTING read">
+            Qualified research nodes: <b className="pos mono">{authority?.counts?.qualified ?? "…"}</b>
+            <span className="muted"> · rev {authority?.revision || "—"}</span>
+          </span>
           {NODE_FILTERS.map((f) => (
             <button key={f.key} className="btn" title={f.hint} onClick={() => setFilter(f.key)}
                     style={{ fontWeight: filter === f.key ? 700 : 400,
@@ -552,10 +572,10 @@ export default function DeepBacktest() {
                  title="an identity search finds every stored record (Node #718 AND research #718) regardless of the active filter — each result shows its own status" />
           {counts && (
             <span className="muted" style={{ fontSize: 10.5 }}
-                  title="every count is measured from the stored records at request time by the shared node-data authority — the same predicate every tab uses">
-              counts: {Object.entries(counts).slice(0, 8).map(([k, v]) => ` ${k}=${v}`)}
+                  title="these are FILTER row counts of the frozen inventory buckets (gate-passed/VALID tier, alive, dead, excluded, blocked) — inventory statistics, never the qualified research-node statistic shown above; every number is measured from the stored records, never hardcoded">
+              filter row counts: {Object.entries(counts).slice(0, 8).map(([k, v]) => ` ${k}=${v}`)}
               {nodesMeta?.revision ? ` · rev ${nodesMeta.revision}` : ""}
-              {" "}— measured from the stored records, never hardcoded
+              {" "}— inventory statistics (gate-passed/VALID-tier ≠ qualified research nodes), never hardcoded
             </span>
           )}
           <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>

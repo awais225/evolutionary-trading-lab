@@ -952,8 +952,22 @@ export async function runSmoke() {
       }
       await act(async () => { no.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
       await act(async () => { await new Promise((r) => setTimeout(r, 40)); });
+      // V6.9 §4 — INSPECT must actually mount the scenario inspector (this is
+      // the `useRef is not defined` crash path): open it from a node row and
+      // assert the panel renders its content without any runtime exception.
+      const inspectBtns = Array.from(container.querySelectorAll("button"))
+        .filter((b) => (b.textContent || "").trim() === "INSPECT");
+      if (!inspectBtns.length) throw new Error("no per-node INSPECT button");
+      await act(async () => { inspectBtns[0].dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+      await act(async () => { await new Promise((r) => setTimeout(r, 60)); });
+      const inspectText = container.textContent || "";
+      if (!/Scenarios \u2014 Node #|Scenarios — Node #/.test(inspectText)) {
+        throw new Error(`INSPECT did not mount the scenario inspector: "${inspectText.slice(0, 200)}"`);
+      }
+      results.push({ label: "DeepTesting-INSPECT-mounts", ok: true });
       results.push({ label: "page:DeepTesting-workspace", ok: true });
     } catch (e) {
+      results.push({ label: "DeepTesting-INSPECT-mounts", ok: false, error: e.message || String(e) });
       results.push({ label: "page:DeepTesting-workspace", ok: false, error: e.message || String(e) });
     } finally {
       try { await act(async () => { root.unmount(); }); } catch {}

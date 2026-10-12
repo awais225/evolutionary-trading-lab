@@ -44,8 +44,8 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from .populations import (INVENTORY_ROW_COLS, _best_generation_record,
-                          _gen_metrics_from, _top_list, node_label,
-                          research_label)
+                          _gen_metrics_from, _top_list, db_state_token,
+                          node_label, research_label)
 
 # The frozen qualified-tier predicate — copied verbatim from
 # db.get_qualified_strategies / reconstruct_state / the per-run counter.
@@ -68,9 +68,59 @@ def _own(db):
     return db, False
 
 
-def node_data_snapshot(db=None, limit_top: int = 10) -> Dict[str, Any]:
+# V6.9 §6 — serve-time cache: the snapshot is recomputed ONLY when the cheap
+# state token changes (any insert/update of the strategies universe). This is
+# what makes the authority safe to include in every status response — first
+# paint and refresh then read the SAME number with no delayed-hydration window.
+_SNAPSHOT_CACHE: Dict[str, Dict[str, Any]] = {}
+_SNAPSHOT_LOCK = __import__("threading").Lock()
+
+
+def node_data_snapshot(db=None, limit_top: int = 10, use_cache: bool = True) -> Dict[str, Any]:
     """One authoritative snapshot of the stored node records (see module doc)."""
     db, owns = _own(db)
+    try:
+        # the cache key includes the DATABASE identity as well as the state
+        # token — two different databases with identical shapes can never share
+        # a snapshot (mixed-snapshot guard).
+        try:
+            db_key = str(getattr(db, "path", None) or getattr(db, "_path", None) or id(db))
+        except Exception:
+            db_key = str(id(db))
+        if use_cache and not isinstance(db, str):
+            try:
+                token = db_state_token(db)
+            except Exception:
+                token = None
+            if token:
+                with _SNAPSHOT_LOCK:
+                    hit = _SNAPSHOT_CACHE.get((db_key, token))
+                if hit is not None:
+                    out = dict(hit)
+                    out["cached"] = True
+                    return out
+        out = _node_data_snapshot_uncached(db, limit_top=limit_top)
+        if use_cache and out.get("state_token"):
+            with _SNAPSHOT_LOCK:
+                _SNAPSHOT_CACHE.clear()
+                _SNAPSHOT_CACHE[(db_key, out["state_token"])] = dict(out)
+        return out
+    finally:
+        if owns:
+            try:
+                db.close()
+            except Exception:
+                pass
+
+
+def _node_data_snapshot_uncached(db, limit_top: int = 10) -> Dict[str, Any]:
+    # §2.1 — mixed-snapshot detection: the cheap state token is read before and
+    # after the scan; if the stored data changed mid-computation the result is
+    # explicitly flagged instead of presenting a misleading mixture.
+    try:
+        token_before = db_state_token(db)
+    except Exception:
+        token_before = None
     try:
         rows = [dict(r) for r in (db.q(f"SELECT {INVENTORY_ROW_COLS} FROM strategies")
                                   or [])]
@@ -174,10 +224,15 @@ def node_data_snapshot(db=None, limit_top: int = 10) -> Dict[str, Any]:
             rev_base = str(db.get_meta("data_revision") or "0")
         except Exception:
             rev_base = "0"
+        try:
+            token_after = db_state_token(db)
+        except Exception:
+            token_after = token_before
         return {
             "schema_version": 1,
             "revision": f"{rev_base}:{content_fp[:12]}",
             "state_token": token,
+            "mixed_snapshot": bool(token_before and token_after and token_before != token_after),
             "computed_at": datetime.now(timezone.utc).isoformat(),
             "counts": counts,
             "counts_by_status": by_status,
@@ -187,8 +242,4 @@ def node_data_snapshot(db=None, limit_top: int = 10) -> Dict[str, Any]:
             "errors": errors,
         }
     finally:
-        if owns:
-            try:
-                db.close()
-            except Exception:
-                pass
+        pass

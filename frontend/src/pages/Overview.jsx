@@ -368,20 +368,23 @@ export default function Overview() {
   // Declared BEFORE the memos that read it (useMemo factories run in place).
   const inv = recheckData?.inventory || nodeInv;
   const invCounts = inv?.counts_excl_legacy || null;
-  const ndCounts = nodeData?.counts || null;
-  const ndCurrent = nodeData?.counts_current_experiment || null;
-  // established QUALIFIED+PAPER tier over the complete stored research history
-  // (same formula as get_qualified_strategies / run-history sums / the manifest
-  // ledger — the value the user anchored: 99 on the live data).
-  const qualifiedAuthoritative = ndCounts?.qualified
-    ?? recheckData?.qualified ?? lab?.qualified
-    ?? ((counts.QUALIFIED || 0) + (counts.PAPER || 0));
+  // V6.9 §2/§6 — THE qualified count comes from the shared node-data authority,
+  // which rides the very FIRST status response (serve-time cached). There is no
+  // different-scope fallback: until the authority is present the page shows an
+  // explicit loading state — a partial result is never presented as the final
+  // authoritative count (the old lab fallback showed the exclude-legacy scope:
+  // "88 first, 99 later").
+  const ndFromStatus = status?.node_data || null;
+  const ndCounts = nodeData?.counts || ndFromStatus?.counts || null;
+  const ndCurrent = nodeData?.counts_current_experiment || ndFromStatus?.counts_current_experiment || null;
+  const qualifiedAuthoritative = ndCounts?.qualified ?? null;
+  const ndLoading = qualifiedAuthoritative == null;
 
   const cumulativeStats = useMemo(() => {
     return pState.cumulative || {
       total_nodes: ndCounts?.total ?? recheckData?.total_nodes ?? lab?.total_nodes ?? 0,
-      completed_nodes: qualifiedAuthoritative ?? (counts.QUALIFIED || 0),
-      qualified_nodes: qualifiedAuthoritative ?? (counts.QUALIFIED || 0),
+      completed_nodes: qualifiedAuthoritative ?? 0,
+      qualified_nodes: qualifiedAuthoritative ?? 0,
       total_runs: runsData.length || 1,
     };
   }, [pState, recheckData, lab, counts, runsData, ndCounts, qualifiedAuthoritative]);
@@ -389,8 +392,9 @@ export default function Overview() {
   const runGenNodes = currentRun?.generated_nodes ?? (recheckData?.total_nodes ?? lab?.total_nodes ?? 0);
   const runCeiling = currentRun?.node_ceiling ?? (recheckData?.target ?? lab?.target ?? 500);
   const runCompleted = currentRun?.completed_nodes ?? 0;
-  const runQualified = currentRun?.qualified_nodes ?? qualifiedAuthoritative
-    ?? ((counts.QUALIFIED || 0) + (counts.PAPER || 0));
+  // per-RUN counter (frozen run scope, labelled "this run"); the authoritative
+  // research count is `qualifiedDisplay` — never silently mixed.
+  const runQualified = currentRun?.qualified_nodes ?? qualifiedAuthoritative ?? 0;
   const runPendingBt = currentRun?.pending_backtesting ?? (counts.BACKTESTING || 0);
   const runPendingVal = currentRun?.pending_validation ?? (counts.VALIDATING || 0);
   const runGen = currentRun?.current_generation ?? (recheckData?.current_generation ?? lab?.generation ?? 0);
@@ -457,7 +461,8 @@ export default function Overview() {
   const validating = ndCounts?.validating ?? recheckData?.validating ?? lab?.validating ?? (counts.VALIDATING || 0);
   // one headline number everywhere: the established QUALIFIED+PAPER tier over
   // the complete stored research history (never a per-tab re-derivation).
-  const qualified = qualifiedAuthoritative;
+  const qualified = qualifiedAuthoritative;   // null while loading — rendered as such
+  const qualifiedDisplay = ndLoading ? "…" : qualified;
   const currentGen = recheckData?.current_generation ?? lab?.generation ?? 0;
   const targetReached = totalNodes >= target;
   const progressPct = target > 0 ? Math.min(100, Math.round((totalNodes / target) * 1000) / 10) : 100;
@@ -507,9 +512,19 @@ export default function Overview() {
               : "—"}{rechecking ? " · rechecking…" : ""}
           </span>
           <span title={ndCounts?.formula || ""}>
-            qualified <b className="pos mono">{qualifiedAuthoritative}</b>
-            <span className="muted"> · {ndCounts?.scope || "stored research records"}</span>
+            qualified <b className="pos mono">{ndLoading ? "…" : qualifiedAuthoritative}</b>
+            <span className="muted"> · {ndCounts?.scope || "loading node-data authority…"}</span>
           </span>
+          {(nodeData?.mixed_snapshot || ndFromStatus?.mixed_snapshot) && (
+            <span className="neg" title="the stored data changed while this snapshot was computed">
+              mixed snapshot — RECHECK to reconcile
+            </span>
+          )}
+          {ndFromStatus?.cached != null && (
+            <span className="muted mono" title="serve-time cache keyed by the data state token">
+              {ndFromStatus.cached ? "cached snapshot" : "fresh snapshot"}
+            </span>
+          )}
           {ndCounts && (
             <span className="muted mono">
               total {ndCounts.total} · alive {ndCounts.alive} · dead {ndCounts.dead}
@@ -762,8 +777,10 @@ export default function Overview() {
           </div>
           <div style={{ padding: "8px 10px", background: "var(--bg-box)", borderRadius: "4px", border: "1px solid rgba(255,255,255,0.05)" }}>
             <div className="muted" style={{ fontSize: "0.7rem", letterSpacing: "0.05em" }}>QUALIFIED</div>
-            <div style={{ fontSize: "1.25rem", fontWeight: 700, color: "var(--green)", fontFamily: "monospace" }}>{qualified}</div>
-            <div className="muted" style={{ fontSize: "0.68rem" }}>Robust survivors</div>
+            <div style={{ fontSize: "1.25rem", fontWeight: 700, color: "var(--green)", fontFamily: "monospace" }}>{qualifiedDisplay}</div>
+            <div className="muted" style={{ fontSize: "0.68rem" }} title="status QUALIFIED+PAPER over the complete stored research history — the same authority every tab reads">
+              Qualified research nodes{ndLoading ? " · loading authority…" : ""}
+            </div>
           </div>
           <div style={{ padding: "8px 10px", background: "var(--bg-box)", borderRadius: "4px", border: "1px solid rgba(255,255,255,0.05)" }}>
             <div className="muted" style={{ fontSize: "0.7rem", letterSpacing: "0.05em" }}>CURRENT GENERATION</div>

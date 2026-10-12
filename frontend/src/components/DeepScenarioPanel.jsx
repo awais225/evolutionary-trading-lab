@@ -2,7 +2,7 @@
 // preferred-scenario selection (explicit, never silently replaced), side-by-side
 // comparison that names config/coverage differences, full analytics, and the
 // searchable/sortable/paginated trade-level detail.
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { Badge, StateBlock } from "./ui";
 
@@ -284,6 +284,12 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
               <span className="v mono">genome {String(sel.genome_hash || "—").slice(0, 12)} · config {String(sel.config_hash || "—").slice(0, 12)}</span></div>
             {node && (
               <>
+                <div className="item"><span className="k">Live layer</span>
+                  <span className="v mono" title="live-testing records only — never copied from generation or DeepTest metrics">
+                    {(node.live && (node.live.trades || node.live.closed || node.live.total_pnl != null))
+                      ? `state ${node.live?.status || node.lifecycle || "?"} · ${node.live?.trades ?? 0} trades · P&L ${node.live?.total_pnl ?? "N/A"}`
+                      : "NO LIVE DATA"}
+                  </span></div>
                 <div className="item"><span className="k">Node fitness / complexity</span>
                   <span className="v mono">{node.fitness == null ? "N/A" : Number(node.fitness).toFixed(4)}
                     {" / "}{node.signal_logic ? "declared" : "N/A"}</span></div>
@@ -425,8 +431,8 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
               {!!filt && (
                 <div style={{ fontSize: 11, marginTop: 6 }}>
                   <div className="mono" style={{ opacity: 0.85 }}>
-                    trades: {filt.trade_counts.kept} of {filt.trade_counts.original} kept
-                    ({filt.trade_counts.excluded} excluded)
+                    trades: {filt.trade_counts?.kept ?? tradeRows.length} of {filt.trade_counts?.original ?? (trades?.total ?? "—")} kept
+                    ({filt.trade_counts?.excluded ?? 0} excluded)
                     {filtBusy ? " · recalculating…" : ""}
                   </div>
                   <div style={{ display: "flex", gap: 14, marginTop: 4, flexWrap: "wrap" }}>
@@ -437,7 +443,7 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
                         {filt.original?.summary?.net_return_pct == null ? "N/A"
                           : (filt.original.summary.net_return_pct * 100).toFixed(3) + "%"}
                         {" "}· PF {f2(filt.original?.summary?.profit_factor)}
-                        {" "}· trades {filt.original?.summary?.trades ?? filt.trade_counts.original}
+                        {" "}· trades {filt.original?.summary?.trades ?? filt.trade_counts?.original ?? (trades?.total ?? 0)}
                       </div>
                     </div>
                     <div>
@@ -447,7 +453,7 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
                         {filt.filtered?.summary?.net_return_pct == null ? "N/A"
                           : (filt.filtered.summary.net_return_pct * 100).toFixed(3) + "%"}
                         {" "}· PF {f2(filt.filtered?.summary?.profit_factor)}
-                        {" "}· trades {filt.filtered?.summary?.trades ?? filt.trade_counts.kept}
+                        {" "}· trades {filt.filtered?.summary?.trades ?? filt.trade_counts?.kept ?? tradeRows.length}
                       </div>
                     </div>
                   </div>

@@ -26,6 +26,12 @@ export default function PopulationSummary({ onPick, statusFilter, setStatusFilte
 
   const population = objOrNull(facets?.population) || {};
   const counts = objOrNull(lab?.status_counts) || {};
+  // V6.9 §2 — THE qualified count comes from the shared node-data authority
+  // (status QUALIFIED+PAPER over the complete stored research history, the
+  // get_qualified_strategies formula). Never a per-page recount, never a
+  // different-scope fallback presented as the same number.
+  const nd = objOrNull(lab?.node_data) || {};
+  const ndCounts = objOrNull(nd.counts) || {};
   const distribution = useMemo(() => {
     const fromFacets = arr(facets?.statuses);
     if (fromFacets.length) return fromFacets.map((s) => [txt(s.value, "?"), numOrNull(s.count) ?? 0]);
@@ -42,10 +48,14 @@ export default function PopulationSummary({ onPick, statusFilter, setStatusFilte
           </span>}>
       <StateBlock loading={loading} error={err}>
         <div className="grid cols-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(140px,1fr))", marginBottom: 10 }}>
-          <Kpi label="Total" value={total === null ? NA_TEXT : total.toLocaleString()} sub="USER_RESEARCH scope" />
-          <Kpi label="Alive" value={numOrNull(lab?.alive_nodes) === null ? NA_TEXT : numOrNull(lab.alive_nodes).toLocaleString()} tone="pos" />
+          <Kpi label="Total" value={numOrNull(ndCounts.total ?? total) === null ? NA_TEXT : numOrNull(ndCounts.total ?? total).toLocaleString()}
+               sub={ndCounts.scope || "stored research records"} />
+          <Kpi label="Alive" value={numOrNull(lab?.alive_nodes) === null ? NA_TEXT : numOrNull(lab.alive_nodes).toLocaleString()} tone="pos"
+               sub="inventory statistic — not a dead end" />
           <Kpi label="Dead" value={numOrNull(lab?.dead_nodes) === null ? NA_TEXT : numOrNull(lab.dead_nodes).toLocaleString()} tone="mute" sub="kept visible here" />
-          <Kpi label="Qualified" value={numOrNull(lab?.qualified_nodes) === null ? NA_TEXT : numOrNull(lab.qualified_nodes).toLocaleString()} tone="pos" />
+          <Kpi label="Qualified research nodes" value={numOrNull(ndCounts.qualified) === null ? NA_TEXT : numOrNull(ndCounts.qualified).toLocaleString()}
+               tone="pos" title={txt(ndCounts.formula, "")}
+               sub="status QUALIFIED+PAPER — same authority as Overview/DeepTesting" />
           <Kpi label="Generation" value={txt(lab?.generation_number ?? lab?.generation, NA_TEXT)} sub={txt(lab?.generation_status, "")} />
           <Kpi label="Legacy (excluded)" value={numOrNull(population.legacy_test) === null ? "787" : numOrNull(population.legacy_test).toLocaleString()}
                sub="never a research or trading candidate" tone="warn" title="LEGACY_TEST infrastructure rows stay outside the research population" />

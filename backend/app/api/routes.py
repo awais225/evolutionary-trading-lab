@@ -99,6 +99,36 @@ def _peek_node_data_revision() -> Optional[str]:
         return None
 
 
+def _peek_node_data_summary() -> Optional[Dict[str, Any]]:
+    """The authority's counts + revision for the status payload (V6.9 §2/§6).
+
+    Backed by the serve-time cache in app.research.node_data (recomputed only
+    when the stored data changes), so this is cheap on every poll and the very
+    first response already carries the same qualified count every later
+    refresh shows."""
+    try:
+        from ..research.node_data import node_data_snapshot as _nd
+        nd = _nd()
+        try:
+            get_db().set_meta("node_data_revision", nd.get("revision"))
+        except Exception:
+            pass
+        return {
+            "counts": nd.get("counts"),
+            "counts_by_status": nd.get("counts_by_status"),
+            "counts_current_experiment": nd.get("counts_current_experiment"),
+            "revision": nd.get("revision"),
+            "state_token": nd.get("state_token"),
+            "computed_at": nd.get("computed_at"),
+            "cached": nd.get("cached", False),
+            "mixed_snapshot": nd.get("mixed_snapshot", False),
+            "formula": (nd.get("counts") or {}).get("formula"),
+            "top_return": ((nd.get("tops") or {}).get("return_pct") or [None])[0],
+        }
+    except Exception:
+        return None
+
+
 def _peek_qualified_authoritative():
     """Authoritative qualified count from the committed snapshot (None when
     the snapshot is absent — clients then load /api/inventory/snapshot)."""
@@ -126,6 +156,7 @@ def status() -> Dict:
     rm = get_resource_manager()
     mon = get_connection_monitor()
     sm = get_stage_manager()
+    _nd_summary = _peek_node_data_summary()
     return {
         "app_version": FULL_VERSION_STRING,
         "version": FULL_VERSION_STRING,
@@ -139,9 +170,13 @@ def status() -> Dict:
         # panels showing node counts came from the same inventory revision.
         "inventory_revision": _peek_inventory_revision(),
         "qualified_authoritative": _peek_qualified_authoritative(),
-        # V6.8 §3 — the node-data authority stamp (the source every tab reads;
-        # additive, existing keys untouched)
-        "node_data_revision": _peek_node_data_revision(),
+        # V6.9 §2/§6 — the authority itself rides the FIRST status response
+        # (serve-time cached), so first paint and refresh can never show a
+        # different-scope fallback count ("88 first, 99 later"). Every tab
+        # reads THESE counts for the qualified research-node statistic. The
+        # revision stamp is taken from the SAME snapshot (never a stale meta).
+        "node_data": _nd_summary,
+        "node_data_revision": (_nd_summary or {}).get("revision"),
         "components": COMPONENT_STATES,
         "resources": rm.live_metrics(),
         "connection": mon.status_details(),
@@ -5954,25 +5989,71 @@ def deeptest_run_cancel(run_id: str):
     return SC.cancel_run(db, run_id)
 
 
+def _deeptest_schedule_contract(db, node_id: int, cfg: Dict[str, Any]) -> Dict[str, Any]:
+    """V6.9 §5 — the schedule-editor data contract, shared with the LIVE
+    TESTING editor's PRESENTATION: real option lists from the authoritative
+    application definitions + the node's own genome, the node's identity
+    metadata, and a real engine evaluation from the SAME evaluator
+    (app.live_testing.schedule / eng.schedule_state) the live engine uses.
+
+    The evaluated schedule is the DeepTesting override when one is saved, else
+    the node's live schedule (the established DeepTest semantics: the DeepTest
+    applies the schedule the operator saved for this node). Storage stays
+    DeepTesting-only; nothing here mutates live configuration.
+    """
+    from ..deeptest import store as dstore
+    from ..live_testing.schedule import (SESSION_HOURS_UTC, conditions_for_genome,
+                                         describe, supported_options)
+    strat = db.get_strategy(node_id) or {}
+    genome = _genome_of(strat) if strat else {}
+    live_cfg = db.get_live_test_config(node_id) or {}
+    saved = cfg or dstore.get_node_config(db, node_id) or {}
+    saved_sched = saved.get("schedule") or {}
+    effective = saved_sched or live_cfg
+    node = {"id": node_id, "config": effective, "genome": genome}
+    try:
+        state = _live_engine().schedule_state(node)
+    except Exception as exc:
+        state = {"allowed": None, "reason": f"engine evaluation unavailable: {type(exc).__name__}: {exc}"}
+    out = dict(state)
+    # the dialog's save handler merges `res.evaluation` — mirror the live save
+    # endpoint's shape so the verdict/clock refresh immediately after saving
+    out["evaluation"] = {k: out.get(k) for k in
+                         ("allowed", "reason", "rules", "local_time", "timezone",
+                          "conditions", "trades_today", "last_entry_ts", "timeframe")}
+    out.update({
+        "description": describe(effective),
+        "config": saved,
+        "config_source": ("DeepTesting scenario override" if saved_sched else
+                          "the node's live schedule (no DeepTesting override saved)"),
+        "session_hours_utc": SESSION_HOURS_UTC,
+        "options": supported_options(genome),
+        "node": {
+            "strategy_id": node_id,
+            "research_node_num": strat.get("research_node_num"),
+            "run_id": strat.get("run_id"),
+            "symbol": strat.get("symbol"),
+            "timeframe": strat.get("timeframe"),
+            "status": strat.get("status"),
+            "conditions": conditions_for_genome(genome),
+        },
+        "configured": bool(saved),
+        "storage": "deeptest_node_configs (DeepTesting only — live settings untouched)",
+    })
+    return out
+
+
+@router.get("/deeptest/node-config/{node_id}")
 @router.get("/deeptest/node-config/{node_id}")
 def deeptest_node_config_get(node_id: int) -> Dict[str, Any]:
-    """V6.7 §7.2/§7.3 — the SCENARIO popup's saved config for this node.
-
-    DeepTesting-only persistence (deeptest_node_configs): the popup shares the
-    LIVE TESTING schedule editor's PRESENTATION, never its storage. Reading or
-    writing here can never mutate live scheduling, risk or execution settings.
-    """
+    """V6.7 §7.2/§7.3 + V6.9 §5 — the SCENARIO popup's full editor contract."""
     from ..deeptest import store as dstore
     db = get_db()
     dstore.ensure_schema(db)
-    cfg = dstore.get_node_config(db, node_id)
-    return {
-        "ok": True,
-        "node_id": node_id,
-        "config": cfg,
-        "configured": bool(cfg),
-        "storage": "deeptest_node_configs (DeepTesting only — live settings untouched)",
-    }
+    out = _deeptest_schedule_contract(db, node_id, {})
+    out["ok"] = True
+    out["node_id"] = node_id
+    return out
 
 
 @router.post("/deeptest/node-config/{node_id}")
@@ -6000,8 +6081,13 @@ def deeptest_node_config_save(node_id: int, payload: Dict[str, Any] = Body(...))
                      if cfg.get(k) is not None},
         "updated_by": "deeptest-scenario-popup",
     })
-    return {"ok": True, "node_id": node_id, "config": saved,
-            "note": "saved to DeepTesting config — live execution settings untouched"}
+    # V6.9 §5 — saving returns the SAME editor contract (fresh evaluation of
+    # the schedule just saved, real option lists, node metadata) so the summary
+    # refreshes immediately and reopening restores exactly what was stored.
+    out = _deeptest_schedule_contract(db, node_id, saved)
+    out.update({"ok": True, "node_id": node_id, "config": saved,
+                "note": "saved to DeepTesting config — live execution settings untouched"})
+    return out
 
 
 @router.post("/deeptest/run/{run_id}/filtered")
