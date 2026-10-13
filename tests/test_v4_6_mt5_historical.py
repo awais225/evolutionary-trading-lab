@@ -621,11 +621,18 @@ def test_frontend_is_wired_to_the_v46_surface(db):
     assert "RESEARCH EXECUTION — NO ORDERS" in panel
     results = (ROOT / "frontend" / "src" / "components" / "HistoricalRunResults.jsx")
     assert results.exists()
-    page = (ROOT / "frontend" / "src" / "pages" / "Mt5Backtest.jsx").read_text()
-    assert "HistoricalRunResults" in page and "HISTORICAL MT5 BACKTEST" in page
-    matrix = (ROOT / "frontend" / "src" / "pages" / "BacktestMatrix.jsx").read_text()
-    assert "MT5 HISTORICAL RUNS" in matrix and "RESEARCH BACKTEST RESULTS" in matrix
-    assert "mt5HistoricalRuns" in matrix
+    # V8 — the MT5 Backtest page was removed; the shared historical runner
+    # components survive inside Strategy Lab (asserted above) and Node Economics.
+    assert not (ROOT / "frontend" / "src" / "pages" / "Mt5Backtest.jsx").exists()
+    assert not (ROOT / "frontend" / "src" / "pages" / "BacktestMatrix.jsx").exists()
+    lab_src = (ROOT / "frontend" / "src" / "pages" / "StrategyLab.jsx").read_text()
+    panel_src = (ROOT / "frontend" / "src" / "components" / "HistoricalBacktestPanel.jsx").read_text()
+    # the shared runner stays wired to the retained surfaces (Strategy Lab +
+    # Node Economics) and to the historical API family
+    assert "HistoricalBacktestPanel" in lab_src
+    assert "mt5Historical" in panel_src
+    econ_src = (ROOT / "frontend" / "src" / "pages" / "NodeEconomics.jsx").read_text()
+    assert "mt5HistoricalRuns" in econ_src
 
 
 # --------------------------------------------------------------------------- #

@@ -214,12 +214,12 @@ export default function NodeEconomics() {
     {
       key: "backtest", name: "Backtest", status: txt(node?.dataset_id, "no dataset"),
       ret: pctOrNull(returns.backtest_return_pct), pnl: numOrNull(backtest.net_profit),
-      trades: numOrNull(backtest.trades), action: { label: "Backtest Matrix", onClick: () => quickNav("matrix") },
+      trades: numOrNull(backtest.trades), action: { label: "Open in Strategy Lab", onClick: () => quickNav("lab") },
     },
     {
       key: "validation", name: "Validation / Robustness", status: validation.passed === true ? "PASSED" : validation.passed === false ? "FAILED" : "NOT RUN",
       ret: pctOrNull(returns.validation_oos_return_pct), pnl: numOrNull(validation.total_pnl ?? validation.net_profit),
-      trades: numOrNull(validation.trades), action: { label: "Backtest Matrix", onClick: () => quickNav("matrix") },
+      trades: numOrNull(validation.trades), action: { label: "Open in Strategy Lab", onClick: () => quickNav("lab") },
     },
     {
       key: "live", name: "Live Testing", status: txt(liveT.status, "IDLE"),
@@ -229,7 +229,7 @@ export default function NodeEconomics() {
     {
       key: "demo", name: "MT5 Demo", status: txt(demoT.status, "STOPPED"),
       ret: pctOrNull(returns.mt5_demo_return_pct), pnl: numOrNull(demoT.total_pnl),
-      trades: numOrNull(demoT.total_trades), action: { label: "MT5 Demo Trading", onClick: () => quickNav("mt5_demo") },
+      trades: numOrNull(demoT.total_trades), action: { label: "Live Testing", onClick: () => quickNav("live_test") },
     },
   ];
 
@@ -501,9 +501,10 @@ export default function NodeEconomics() {
             {/* -------------------------------------------------- quick navigation */}
             <SectionTitle hint="The current node is carried into the destination page.">Quick Navigation</SectionTitle>
             <div className="btn-row">
-              <button className="btn" onClick={() => quickNav("mt5_backtest")}>MT5 Backtest →</button>
+              {/* V8 — the MT5 Backtest / Backtest Matrix destinations were
+                  purged with their modules; the retained destinations keep
+                  carrying the selected node. */}
               <button className="btn" onClick={() => quickNav("live_test")}>Live Testing →</button>
-              <button className="btn" onClick={() => quickNav("matrix")}>Backtest Matrix →</button>
               <button className="btn" onClick={() => quickNav("lab")}>Strategy Lab →</button>
             </div>
 

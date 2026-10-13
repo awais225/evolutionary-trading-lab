@@ -192,11 +192,9 @@ export const api = {
   tree: (p = {}) => req(`/api/tree?${qs(p)}`),
   strategy: (id) => req(`/api/strategies/${id}`),
   strategyCharts: (sid) => req(`/api/strategies/${sid}/charts`),
-  generateMatrix: (sid) => req(`/api/strategies/${sid}/matrix`, { method: "POST" }),
   reconcileTasks: () => req("/api/tasks/reconcile", { method: "POST" }),
 
   // Authoritative Strategy Data Model & Node Economics (V4)
-  authoritativeStrategy: (sid) => req(`/api/strategies/${sid}/authoritative`),
   nodeEconomics: (sid) => req(`/api/strategies/${sid}/economics`),
   updatePipelineStage: (sid, stage, notes = "") =>
     req(`/api/strategies/${sid}/pipeline-stage`, { method: "POST", body: { stage, notes } }),
@@ -204,24 +202,16 @@ export const api = {
   // Research Filtering & Shortlist
   researchShortlist: (params = {}) => req(`/api/research/shortlist?${qs(params)}`),
   researchFilter: (body) => req("/api/research/filter", { method: "POST", body }),
-  strategyTrades: (sid) => req(`/api/strategies/${sid}/trades`),
-  strategyRerunBacktest: (sid) => req(`/api/strategies/${sid}/backtest`, { method: "POST" }),
-  strategyRunValidation: (sid) => req(`/api/strategies/${sid}/validate`, { method: "POST" }),
   savedShortlist: () => req("/api/research/shortlist/saved"),
   toggleShortlist: (sid, notes = "") => req("/api/research/shortlist/toggle", { method: "POST", body: { strategy_id: sid, notes } }),
   clearShortlist: () => req("/api/research/shortlist/clear", { method: "POST" }),
 
   // MT5 Strategy Tester Backtest (V4)
-  mt5BacktestRun: (sid, config = {}) => req(`/api/mt5-backtest/strategies/${sid}/run`, { method: "POST", body: config }),
-  mt5BacktestResults: (sid = null) => req(`/api/mt5-backtest/results${sid ? `?strategy_id=${sid}` : ""}`),
-  mt5StrategyBacktests: (sid) => req(`/api/mt5-backtest/strategies/${sid}`),
 
   // V4.6 — MT5 historical backtest execution (research; never places an order)
   // V5.2 §11–§14 — Deep Testing data requirements / suggested data / GET MT5 DATA /
   // readiness, all derived from the real deep-eligible nodes on the backend.
   // V5.2 §16 — the same schedule system on MT5 Demo Trading.
-  mt5DemoSchedule: (sid) => req(`/api/mt5-demo/schedule/${sid}`),
-  mt5DemoSaveSchedule: (sid, body) => req(`/api/mt5-demo/schedule/${sid}`, { method: "POST", body }),
   mt5DemoClearSchedule: (sid) => req(`/api/mt5-demo/schedule/${sid}`, { method: "DELETE" }),
   deepTestingState: () => req("/api/nodes/deep-testing/state"),
   deepTestingRequirements: () => req("/api/nodes/deep-testing/requirements"),
@@ -323,15 +313,8 @@ export const api = {
   powerHeartbeat: () => req("/api/power/heartbeat", { method: "POST" }),
 
   // MT5 Demo Trading (V4)
-  mt5DemoStatus: () => req("/api/mt5-demo/status"),
   toggleMt5Demo: (sid, confirmed = true) =>
     req(`/api/mt5-demo/strategies/${sid}/toggle`, { method: "POST", body: { confirmed_demo_only: confirmed } }),
-  mt5DemoStartAll: (confirmed = true) =>
-    req("/api/mt5-demo/start-all", { method: "POST", body: { confirmed_demo_only: confirmed } }),
-  mt5DemoStartShortlist: (confirmed = true) =>
-    req("/api/mt5-demo/start-shortlist", { method: "POST", body: { confirmed_demo_only: confirmed } }),
-  mt5DemoStopAll: () => req("/api/mt5-demo/stop-all", { method: "POST" }),
-  mt5DemoPauseAll: () => req("/api/mt5-demo/pause-all", { method: "POST" }),
 
   // V4.2 — controlled MT5 demo order execution (manual, explicitly confirmed)
   mt5ExecutionState: () => req("/api/mt5-execution/state"),
@@ -356,22 +339,13 @@ export const api = {
   dataSync: (body) => req("/api/data/sync", { method: "POST", body }),
 
   // Internal Paper Trading
-  paperStatus: () => req("/api/paper/status"),
-  paperPromoted: () => req("/api/paper/promoted"),
   paperCandidates: (limit = 100) => req(`/api/paper/candidates?limit=${limit}`),
   paperPromoteCandidate: (id) => req(`/api/paper/candidates/${id}/promote`, { method: "POST" }),
   paperDemoteCandidate: (id) => req(`/api/paper/candidates/${id}/demote`, { method: "POST" }),
   paperBatchPromote: (strategyIds) => req("/api/paper/candidates/batch_promote", { method: "POST", body: { strategy_ids: strategyIds } }),
-  paperStart: () => req("/api/paper/start", { method: "POST" }),
-  paperStop: () => req("/api/paper/stop", { method: "POST" }),
-  paperTrades: (limit = 150) => req(`/api/paper/trades?limit=${limit}`),
-  executions: (limit = 150) => req(`/api/paper/executions?limit=${limit}`),
-  calibration: () => req("/api/calibration"),
-  recalibrate: () => req("/api/calibration/recalibrate", { method: "POST" }),
 
   // Risk Controls
   risk: () => req("/api/risk"),
-  killSwitch: (on) => req("/api/risk/kill-switch", { method: "POST", body: { on } }),
   realExecution: (enabled) =>
     req("/api/risk/real-execution", {
       method: "POST",

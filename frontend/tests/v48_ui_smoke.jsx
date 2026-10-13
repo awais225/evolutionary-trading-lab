@@ -34,16 +34,13 @@ import { RiskStrip, ManualOrderPanel, LiveMarketPanel, StageTimeline,
 import { LiveNodeTable } from "../src/components/LiveNodeIndex.jsx";
 import PowerButton from "../src/components/PowerButton.jsx";
 import { TradingInfoTab } from "../src/components/StrategyDrawer.jsx";
-import Mt5Backtest from "../src/pages/Mt5Backtest.jsx";
 import LiveTestResults from "../src/pages/LiveTestResults.jsx";
 import NewResearchRunModal from "../src/components/NewResearchRunModal.jsx";
 import NodeDetailDrawer from "../src/components/NodeDetailDrawer.jsx";
 import LiveTesting from "../src/pages/LiveTesting.jsx";
-import Mt5DemoTrading from "../src/pages/Mt5DemoTrading.jsx";
 import NodeEconomics from "../src/pages/NodeEconomics.jsx";
 import StartupBanner from "../src/components/StartupBanner.jsx";
 import { JsonView } from "../src/components/common.jsx";
-import FinalTesting from "../src/pages/FinalTesting.jsx";
 import DeepBacktest from "../src/pages/DeepBacktest.jsx";
 import { arr as safeArr, numOrNull, objOrNull } from "../src/lib/safe.js";
 
@@ -935,18 +932,9 @@ export async function runSmoke() {
   // 5. the pages that carry the V4.8 safety wording
   await render("page:LiveTesting-idle", wrap(<LiveTesting />), (t) =>
     t.includes("IDLE ON ENTRY") && t.includes("MT5 terminal & account (engine)"));
-  await render("page:Mt5DemoTrading-demo-only", wrap(<Mt5DemoTrading />), (t) =>
-    t.includes("DEMO ACCOUNT ONLY"));
-  // V5.1a-next §7/§15 — the MT5 Demo Trading page must carry the manual trade
-  // calculator itself (default $10, 300-pip stop, live entry, auto lot).
-  await render("page:Mt5DemoTrading-manual-calculator", wrap(<Mt5DemoTrading />), (t) =>
-    t.includes("Amount / risk") && t.includes("Recalculate now") && t.includes("Lot size")
-    && t.includes("money at risk"));
-  // V5.1a-next §B — both MT5 pages must offer the account selector.
-  await render("page:Mt5DemoTrading-account-selector", wrap(<Mt5DemoTrading />), (t) =>
-    t.includes("MT5 terminal & account") && t.includes("Detect accounts"));
-  await render("page:Mt5Backtest-simulator", wrap(<Mt5Backtest />), (t) =>
-    t.includes("REAL MT5 TRADING UNAVAILABLE") && t.includes("SIMULATOR MODE ACTIVE"));
+  // V8 — the Mt5DemoTrading / Mt5Backtest pages were purged; their shared
+  // ManualOrderPanel + account selector survive on Live Testing (asserted in
+  // the page:LiveTesting-idle case above and the ManualOrderPanel case below).
   // 5c. V6.6 §3–§12 — the redesigned DEEP TESTING workspace: persistent global
   // settings, the nine period buttons (history range only), the authoritative
   // inventory (QUALIFIED default), GET MT5 DATA + DEEPTEST per node, the
@@ -1078,7 +1066,9 @@ export async function runSmoke() {
   }
 
   await render("page:NodeEconomics", wrap(<NodeEconomics />));
-  await render("page:FinalTesting", wrap(<FinalTesting />));
+  // V8 §10 — the five purged modules are not rendered anywhere in this smoke;
+  // test_v4_8_frontend::test_removed_modules_have_no_page_files_or_navigation
+  // pins the App.jsx source contract.
 
   // 6. real button behaviour: the preview converts, the order panel refuses to
   // send without the confirmation dialog, and a refused submission is shown
@@ -1823,102 +1813,9 @@ export async function runSmoke() {
     }
   }
 
-  {
-    // §19: the node's own symbol/timeframe must be resolvable to a real stored dataset
-    const container = document.createElement("div");
-    document.body.appendChild(container);
-    const root = createRoot(container);
-    try {
-      await act(async () => { root.render(wrap(<Mt5Backtest />)); await Promise.resolve(); await Promise.resolve(); });
-      const text = container.textContent || "";
-      for (const needle of ["Data for this node", "XAUUSD M15", "MT5 DATA", "1,850 bars", "sha256:9f2c",
-                            "eligible", "dataset XAUUSD_M15", "dataset integrity: 88 rows, minimum 300 bars required"]) {
-        if (!text.includes(needle)) throw new Error(`the node-data panel is missing ${needle} … "${text.slice(0, 260)}"`);
-      }
-      const fetchBtn = Array.from(container.querySelectorAll("button"))
-        .find((b) => /fetch \/ extend stored data/.test(b.textContent || ""));
-      if (!fetchBtn) throw new Error("the node-data panel has no fetch action");
-      dataSyncCalls.length = 0;
-      await act(async () => { fetchBtn.click(); await Promise.resolve(); await Promise.resolve(); });
-      if (!dataSyncCalls.some((b) => b.symbol === "XAUUSD" && b.timeframe === "M15" && b.force === false)) {
-        throw new Error(`the fetch action did not request the node's own data (calls: ${JSON.stringify(dataSyncCalls)}, disabled=${fetchBtn.disabled}, hasErr=${(container.textContent || "").includes("fetch failed")}, btn="${(fetchBtn.textContent || "")}"))`);
-      }
-      if (!(container.textContent || "").includes("REUSING EXISTING DATA")) {
-        throw new Error("the engine's own answer was not shown back");
-      }
-      results.push({ label: "Mt5Backtest:node-data-availability+fetch", ok: true });
-    } catch (e) {
-      results.push({ label: "Mt5Backtest:node-data-availability+fetch", ok: false, error: e.message || String(e) });
-    } finally {
-      try { await act(async () => { root.unmount(); }); } catch {}
-    }
-  }
-
-  {
-    // §19: choose the node from real research rows — search, sort, star, ONE table, backtest this
-    const container = document.createElement("div");
-    document.body.appendChild(container);
-    const root = createRoot(container);
-    try {
-      await act(async () => { root.render(wrap(<Mt5Backtest />)); await Promise.resolve(); await Promise.resolve(); });
-      let text = container.textContent || "";
-      // V5.2.3 §10 — no pager any more: the picker lists the whole result set in one
-      // scrollable table, and says how many rows it is showing.
-      for (const needle of ["Choose a node to backtest", "Node_10825", "Node_30000", "1.743", "27.70 %",
-                            "12.6 %", "legacy rows excluded: 787", "in the table above"]) {
-        if (!text.includes(needle)) throw new Error(`the node picker is missing ${needle} … "${text.slice(0, 240)}"`);
-      }
-      if (/page \d+ of \d+/i.test(text)) throw new Error("the node picker still pages instead of listing every row");
-      if (!container.querySelector(".table-scroll")) throw new Error("the node picker is not in one scrollable table");
-      // a failed row must be shown as failed with N/A metrics — never as a zero
-      const failedRow = Array.from(container.querySelectorAll("tr"))
-        .find((tr) => (tr.textContent || "").includes("Node_30000"));
-      if (!failedRow || !(failedRow.textContent || "").includes("FAILED")) throw new Error("the failed node is not marked FAILED");
-      if (!(failedRow.textContent || "").includes("N/A")) throw new Error("missing metrics must render as N/A, not 0");
-
-      // star toggles through the real endpoint
-      shortlistToggles.length = 0;
-      const star = Array.from(container.querySelectorAll("button")).find((b) => (b.textContent || "").trim() === "☆");
-      if (!star) throw new Error("no star action in the node picker");
-      await act(async () => { star.click(); await Promise.resolve(); await Promise.resolve(); });
-      if (!shortlistToggles.some((b) => b.strategy_id !== undefined && b.strategy_id !== null)) {
-        throw new Error(`the star action did not call the shortlist endpoint (calls: ${JSON.stringify(shortlistToggles)})`);
-      }
-
-      // search + sort + starred-only must be re-requested from the backend
-      seenUrls.length = 0;
-      const searchBox = Array.from(container.querySelectorAll("input"))
-        .find((i) => /search id/.test(i.placeholder || ""));
-      if (!searchBox) throw new Error("the node picker has no search box");
-      await act(async () => {
-        // React tracks the previous value: set it through the native setter, as a
-        // real browser would, otherwise onChange is never dispatched
-        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-        setter.call(searchBox, "30000");
-        searchBox.dispatchEvent(new Event("input", { bubbles: true }));
-        await Promise.resolve();
-      });
-      await act(async () => { await Promise.resolve(); await Promise.resolve(); });
-      if (!seenUrls.some((s) => s.includes("/api/research/strategies") && s.includes("search=30000"))) {
-        throw new Error(`the search box did not re-query the backend (seen: ${JSON.stringify(seenUrls.slice(-3))})`);
-      }
-
-      // "backtest this" loads that node into the page
-      const useBtn = Array.from(container.querySelectorAll("button"))
-        .find((b) => (b.textContent || "").includes("backtest this"));
-      if (!useBtn) throw new Error("no \"backtest this\" action in the node picker");
-      seenUrls.length = 0;
-      await act(async () => { useBtn.click(); await Promise.resolve(); await Promise.resolve(); });
-      if (!seenUrls.some((s) => /\/api\/strategies\/10825\/authoritative$/.test(s))) {
-        throw new Error(`\"backtest this\" did not load the node (seen: ${JSON.stringify(seenUrls.slice(-3))})`);
-      }
-      results.push({ label: "Mt5Backtest:node-picker+search+star", ok: true });
-    } catch (e) {
-      results.push({ label: "Mt5Backtest:node-picker+search+star", ok: false, error: e.message || String(e) });
-    } finally {
-      try { await act(async () => { root.unmount(); }); } catch {}
-    }
-  }
+  // V8 — the Mt5Backtest page (its data-availability + node-picker cases) was
+  // removed with the module; the shared node picker/search/star UI lives on the
+  // retained Deep Testing and Live Testing surfaces and is covered above/below.
 
   // 6. a status probe that cannot be read must never be reported as a failed backend
   {

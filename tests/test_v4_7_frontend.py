@@ -37,8 +37,12 @@ def test_pages_are_lazy_loaded_and_awaited_with_suspense():
     app = _read(SRC / "App.jsx")
     assert "const Stats = lazy(() => import(" in app
     assert "const StrategyLab = lazy(() => import(" in app
-    assert "const Mt5Backtest = lazy(() => import(" in app
     assert "<Suspense fallback={" in app
+    # V8 — the purged modules keep neither lazy import nor tab entry
+    for gone in ("FinalTesting", "BacktestMatrix", "Mt5Backtest",
+                 "Mt5DemoTrading", "PaperTrading"):
+        assert f"const {gone} = lazy" not in app, gone
+        assert f"], {gone}]" not in app, gone
     # no page may stay a static top-level import (that is what kept the whole
     # dashboard in one bundle)
     static_page_imports = re.findall(r'^import\s+\w+\s+from\s+"\./pages/', app, re.M)
@@ -102,11 +106,8 @@ def test_the_v47_render_crash_sites_stay_fixed():
     pins = {
         "pages/Activity.jsx": ["[...arr(events)]"],
         "pages/MarketData.jsx": ["arr(ds?.datasets)", "arr(bars?.bars)"],
-        "pages/PaperTrading.jsx": ["arr(promoted)", "arr(st.divergence_flags)",
-                                   "arr(risk.recent_rejections)", "arr(trades.trades)", "arr(execs)"],
         "components/HistoricalRunResults.jsx": ["arr(run?.results?.unavailable)", "arr(trades.trades)"],
         "components/BacktestMatrixTable.jsx": ["txt(data.count", "txt(data.scope"],
-        "components/DemoOrderPanel.jsx": ['mt5_package_installed === true ? "yes"'],
     }
     for rel, needles in pins.items():
         text = _read(SRC / rel)

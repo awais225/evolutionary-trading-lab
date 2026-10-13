@@ -473,48 +473,6 @@ def test_21_activation_outside_the_schedule_is_reported_not_hidden(db, monkeypat
     assert stored["status"] == "SCHEDULE_BLOCKED"
 
 
-def test_22_the_demo_status_publishes_each_nodes_schedule_and_verdict(db, monkeypatch):
-    import app.api.routes as routes
-    from app.mt5 import demo_schedule as DS
-    sid = _ids(db)[0]
-    _demo_cfg(db, sid)
-    saved = DS.save_schedule(sid, {"timezone": "UTC"}, db=db)
-    assert saved["ok"] is True, saved.get("errors")
-    monkeypatch.setattr(routes, "get_db", lambda: db, raising=False)
-    monkeypatch.setattr(routes, "get_bridge", lambda: _StubBridge(), raising=False)
-    out = routes.mt5_demo_status()
-    cfg = [c for c in out["active_configs"] if int(c["strategy_id"]) == sid][0]
-    assert cfg["schedule_configured"] is True
-    assert cfg["schedule_allowed"] is True
-    assert cfg["schedule_description"] and cfg["schedule_description"] != ""
-    assert "app.live_testing.schedule" in out["schedule_authority"]
-
-
-def test_22b_start_shortlist_respects_the_schedule_too(db, monkeypatch):
-    """Activation is gated on both batch paths — the shortlist is not a back door."""
-    import app.api.routes as routes
-    from app.mt5 import demo_schedule as DS
-    sid = _ids(db)[0]
-    _demo_cfg(db, sid, enabled=False, status="STOPPED")
-    db.add_to_shortlist(sid)
-    today = datetime.now(timezone.utc).weekday()
-    DS.save_schedule(sid, {"days": [(today + 4) % 7], "timezone": "UTC"}, db=db)
-    monkeypatch.setattr(routes, "get_db", lambda: db, raising=False)
-
-    out = routes.mt5_demo_start_shortlist({"confirmed_demo_only": True})
-    assert out["ok"] is True and out["shortlist_size"] == 1
-    assert out["schedule_blocked_count"] == 1
-    assert out["schedule_blocked"][0]["strategy_id"] == sid
-    assert out["schedule_blocked"][0]["reason"]
-    assert db.get_mt5_demo_config(sid)["status"] == "SCHEDULE_BLOCKED"
-
-    # an unconfigured node keeps the product default and is activated normally
-    DS.clear_schedule(sid, db=db)
-    out2 = routes.mt5_demo_start_shortlist({"confirmed_demo_only": True})
-    assert out2["schedule_blocked_count"] == 0
-    assert db.get_mt5_demo_config(sid)["status"] == "RUNNING"
-
-
 class _StubBridge:
     source = "SIMULATOR"
     is_simulated = True

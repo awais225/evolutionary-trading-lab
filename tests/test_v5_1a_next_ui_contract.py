@@ -107,7 +107,10 @@ def test_07_the_generator_is_idempotent():
 # ===========================================================================
 def test_08_the_selector_is_one_component_used_by_both_mt5_pages():
     assert SELECTOR.exists()
-    for rel in ("pages/Mt5DemoTrading.jsx", "pages/LiveTesting.jsx"):
+    # V8 — the MT5 Demo Trading page was purged; its shared account selector
+    # survives (unchanged) on the retained Live Testing page.
+    assert not (SRC / "pages/Mt5DemoTrading.jsx").exists()
+    for rel in ("pages/LiveTesting.jsx",):
         src = (SRC / rel).read_text(encoding="utf-8")
         assert "Mt5AccountSelector" in src, rel
         assert "<Mt5AccountSelector" in src, rel

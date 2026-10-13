@@ -29,8 +29,7 @@ FRONTEND = ROOT / "frontend"
 SRC = FRONTEND / "src"
 CSS = SRC / "styles.css"
 
-TOUCHED = ["pages/LiveTesting.jsx", "pages/LiveTestResults.jsx",
-           "pages/Mt5Backtest.jsx", "pages/Mt5DemoTrading.jsx"]
+TOUCHED = ["pages/LiveTesting.jsx", "pages/LiveTestResults.jsx"]
 
 
 def _css() -> str:
@@ -127,8 +126,7 @@ def test_07_no_pictographic_emoji_icons(page):
 BUTTON_GLYPHS = "\u25b6\u23f9\u23f8\u21bb\u21ba\u23ee\u23ed"
 
 CONTROL_FILES = ["components/LiveTestingControl.jsx", "components/LiveTestingPanels.jsx",
-                 "pages/LiveTesting.jsx", "pages/LiveTestResults.jsx",
-                 "pages/Mt5Backtest.jsx", "pages/Mt5DemoTrading.jsx"]
+                 "pages/LiveTesting.jsx", "pages/LiveTestResults.jsx"]
 
 
 @pytest.mark.parametrize("path", CONTROL_FILES)

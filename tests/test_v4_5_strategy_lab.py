@@ -509,9 +509,11 @@ def test_frontend_is_wired_to_the_v45_endpoints():
     assert "NodeResearchDetail" in lab                    # V4.4 node detail reused
     assert "selectedIds" in lab                           # multi-selection for comparison
 
-    matrix_page = (root / "frontend" / "src" / "pages" / "BacktestMatrix.jsx").read_text()
-    assert "BacktestMatrixTable" in matrix_page
-    assert "generateMatrix" in matrix_page                # the V3.6 diagnostic view is preserved
+    # V8 — the standalone Backtest Matrix page was removed with its exclusive
+    # generate-matrix route; the SHARED comparison table survives inside
+    # Strategy Lab and the strategy-detail matrices path is untouched.
+    assert not (root / "frontend" / "src" / "pages" / "BacktestMatrix.jsx").exists()
+    assert "generateMatrix" not in api_js
 
     # one shared per-node detail implementation, reused by both pages
     detail = root / "frontend" / "src" / "components" / "NodeResearchDetail.jsx"

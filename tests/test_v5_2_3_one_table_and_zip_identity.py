@@ -39,8 +39,6 @@ BAT = REPO / "CHECK_RUNNING_DASHBOARD.bat"
 ONE_TABLE_FILES = {
     "Live Testing": REPO / "frontend" / "src" / "components" / "LiveNodeIndex.jsx",
     "Deep Backtest": REPO / "frontend" / "src" / "pages" / "DeepBacktest.jsx",
-    "MT5 Backtest": REPO / "frontend" / "src" / "pages" / "Mt5Backtest.jsx",
-    "Final Testing": REPO / "frontend" / "src" / "pages" / "FinalTesting.jsx",
     "Deep run trades": REPO / "frontend" / "src" / "components" / "HistoricalRunResults.jsx",
 }
 
@@ -160,15 +158,12 @@ def test_06_the_scroll_container_is_themed_and_pins_the_header():
 def test_07_the_tables_ask_for_all_rows():
     live = (REPO / "frontend" / "src" / "components" / "LiveNodeIndex.jsx").read_text(encoding="utf-8")
     deep = (REPO / "frontend" / "src" / "pages" / "DeepBacktest.jsx").read_text(encoding="utf-8")
-    pick = (REPO / "frontend" / "src" / "pages" / "Mt5Backtest.jsx").read_text(encoding="utf-8")
-    final = (REPO / "frontend" / "src" / "pages" / "FinalTesting.jsx").read_text(encoding="utf-8")
+    # V8 — those two pages were purged with their modules (see V8 reports)
     # V5.3 §2 — the live index no longer sends an offset at all (it is meaningless
     # with limit=0) and only sends starred_only when it is actually set.
     assert "limit: 0" in live and "offset: 0" not in live
     assert "...(starredOnly ? { starred_only: true } : {})" in live
     assert "limit: 0," in deep and "offset: 0," in deep
-    assert "limit: 0, offset: 0" in pick
-    assert "limit: 0," in final
     trades = (REPO / "frontend" / "src" / "components" / "HistoricalRunResults.jsx").read_text(encoding="utf-8")
     assert "{ limit: 0, offset: 0 }" in trades
 

@@ -23,20 +23,15 @@ import HistoricalBacktestPanel from "../src/components/HistoricalBacktestPanel.j
 import BacktestMatrixTable from "../src/components/BacktestMatrixTable.jsx";
 import Stats from "../src/pages/Stats.jsx";
 import StrategyLab from "../src/pages/StrategyLab.jsx";
-import BacktestMatrix from "../src/pages/BacktestMatrix.jsx";
 import NodeEconomics from "../src/pages/NodeEconomics.jsx";
-import Mt5Backtest from "../src/pages/Mt5Backtest.jsx";
-import Mt5DemoTrading from "../src/pages/Mt5DemoTrading.jsx";
 import LiveTesting from "../src/pages/LiveTesting.jsx";
 import LiveTestResults from "../src/pages/LiveTestResults.jsx";
-import PaperTrading from "../src/pages/PaperTrading.jsx";
 import Population from "../src/pages/Population.jsx";
 import Overview from "../src/pages/Overview.jsx";
 import Activity from "../src/pages/Activity.jsx";
 import Logs from "../src/pages/Logs.jsx";
 import Settings from "../src/pages/Settings.jsx";
 import MarketData from "../src/pages/MarketData.jsx";
-import FinalTesting from "../src/pages/FinalTesting.jsx";
 import EvolutionTree from "../src/pages/EvolutionTree.jsx";
 import ResearchAI from "../src/pages/ResearchAI.jsx";
 import DeepBacktest from "../src/pages/DeepBacktest.jsx";
@@ -98,10 +93,10 @@ const OBJECTS_NODE = {
 
 const PAGES = [
   ["Overview", Overview], ["Stats", Stats], ["StrategyLab", StrategyLab],
-  ["BacktestMatrix", BacktestMatrix], ["NodeEconomics", NodeEconomics], ["Mt5Backtest", Mt5Backtest],
-  ["Mt5DemoTrading", Mt5DemoTrading], ["LiveTesting", LiveTesting], ["LiveTestResults", LiveTestResults],
-  ["PaperTrading", PaperTrading], ["Population", Population], ["Activity", Activity],
-  ["Logs", Logs], ["Settings", Settings], ["MarketData", MarketData], ["FinalTesting", FinalTesting],
+  ["NodeEconomics", NodeEconomics],
+  ["LiveTesting", LiveTesting], ["LiveTestResults", LiveTestResults],
+  ["Population", Population], ["Activity", Activity],
+  ["Logs", Logs], ["Settings", Settings], ["MarketData", MarketData],
   ["EvolutionTree", EvolutionTree], ["ResearchAI", ResearchAI],
   ["DeepBacktest", DeepBacktest],
 ];

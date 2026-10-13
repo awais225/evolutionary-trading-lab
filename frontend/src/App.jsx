@@ -14,17 +14,12 @@ const EvolutionTree = lazy(() => import("./pages/EvolutionTree.jsx"));
 const Population = lazy(() => import("./pages/Population.jsx"));
 const StrategyLab = lazy(() => import("./pages/StrategyLab.jsx"));
 const NodeEconomics = lazy(() => import("./pages/NodeEconomics.jsx"));
-const BacktestMatrix = lazy(() => import("./pages/BacktestMatrix.jsx"));
-const Mt5Backtest = lazy(() => import("./pages/Mt5Backtest.jsx"));
 const LiveTesting = lazy(() => import("./pages/LiveTesting.jsx"));
 const LiveTestResults = lazy(() => import("./pages/LiveTestResults.jsx"));
-const Mt5DemoTrading = lazy(() => import("./pages/Mt5DemoTrading.jsx"));
-const PaperTrading = lazy(() => import("./pages/PaperTrading.jsx"));
 const MarketData = lazy(() => import("./pages/MarketData.jsx"));
 const ResearchAI = lazy(() => import("./pages/ResearchAI.jsx"));
 const Settings = lazy(() => import("./pages/Settings.jsx"));
 const Logs = lazy(() => import("./pages/Logs.jsx"));
-const FinalTesting = lazy(() => import("./pages/FinalTesting.jsx"));
 const DeepBacktest = lazy(() => import("./pages/DeepBacktest.jsx"));
 import StrategyDrawer from "./components/StrategyDrawer.jsx";
 import TopStatusRow from "./components/TopStatusRow.jsx";
@@ -38,16 +33,11 @@ export const useLab = () => useContext(LabContext);
 const PAGES = [
   ["overview", "1", "Overview", Overview],
   ["stats", "2", "Stats", Stats],
-  ["final_testing", "3", "Final Testing", FinalTesting],
   ["deep_backtest", "4", "Deep Backtest", DeepBacktest],
   ["lab", "5", "Strategy Laboratory", StrategyLab],
   ["economics", "5", "Node Economics", NodeEconomics],
-  ["matrix", "6", "Backtest Matrix", BacktestMatrix],
-  ["mt5_backtest", "7", "MT5 Backtest", Mt5Backtest],
   ["live_test", "8", "Live Testing", LiveTesting],
   ["live_results", "9", "Live Test Results", LiveTestResults],
-  ["mt5_demo", "10", "MT5 Demo Trading", Mt5DemoTrading],
-  ["paper", "11", "Paper Trading", PaperTrading],
   ["activity", "12", "Activity Stream", Activity],
   ["tree", "13", "Evolution Tree", EvolutionTree],
   ["population", "14", "Population", Population],

@@ -21,7 +21,6 @@ from ..logging_setup import get_logs
 from ..mt5 import bridge_status, get_bridge
 from ..mt5.factory import reset_bridge
 from ..orchestrator.lab import get_lab
-from ..paper import calibration as calib
 from ..paper.engine import get_paper_engine
 from ..live_testing import get_live_testing_engine
 from ..live_testing.risk import RiskBlock, validate_risk_settings
@@ -853,39 +852,6 @@ def strategy_charts(sid: int) -> Dict:
     return get_db().get_strategy_charts(sid)
 
 
-@router.post("/strategies/{sid}/matrix")
-def generate_strategy_matrix(sid: int) -> Dict:
-    """Check and generate diagnostic matrices from real persisted backtest data (V3.6)."""
-    db = get_db()
-    row = db.get_strategy(sid)
-    if not row:
-        raise HTTPException(404, "Strategy not found")
-    mats = db.one("SELECT * FROM matrices WHERE strategy_id=?", (sid,))
-    if mats:
-        for k in ("timeframe", "session", "day", "regime", "direction"):
-            mats[k] = json.loads(mats[k]) if mats.get(k) else None
-        return {"ok": True, "generated": False, "matrices": mats}
-
-    bt = db.one("SELECT metrics FROM backtests WHERE strategy_id=? AND stage='detail' ORDER BY id DESC LIMIT 1", (sid,))
-    if not bt:
-        bt = db.one("SELECT metrics FROM backtests WHERE strategy_id=? ORDER BY id DESC LIMIT 1", (sid,))
-    if not bt or not bt.get("metrics"):
-        raise HTTPException(400, "Cannot generate matrix: no persisted backtest trade data found")
-
-    m = json.loads(bt["metrics"])
-    trades = m.get("trades_sample", [])
-    from ..specialization.matrix import full_matrices
-    computed = full_matrices(row["genome"], row["genome"].get("symbol", "XAUUSD"), trades)
-    now_ts = time.time()
-    db.x("""INSERT OR REPLACE INTO matrices
-            (strategy_id, timeframe, session, day, regime, direction, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)""",
-         (sid, json.dumps(computed["timeframe"]), json.dumps(computed["session"]),
-          json.dumps(computed["day"]), json.dumps(computed["regime"]),
-          json.dumps(computed["direction"]), now_ts))
-    return {"ok": True, "generated": True, "matrices": computed}
-
-
 @router.post("/tasks/reconcile")
 def reconcile_tasks() -> Dict:
     """Reconcile in-flight tasks and transition lifecycle to COMPLETED_AT_CEILING (V3.6)."""
@@ -1383,142 +1349,6 @@ def clear_saved_shortlist() -> Dict:
     return {"ok": True, "shortlist": []}
 
 
-@router.get("/strategies/{sid}/trades")
-def get_strategy_trades(sid: int) -> Dict:
-    db = get_db()
-    strat = db.get_strategy(sid)
-    if not strat:
-        raise HTTPException(404, f"Strategy #{sid} not found")
-    trades = []
-    # 1. Try reading complete trade history from persistent trades.parquet (spec §11)
-    candidates = [
-        P.DATA_ROOT / "backtests" / f"strategy_{sid:06d}" / "trades.parquet",
-        P.DATA_ROOT / "research" / "backtests" / f"strategy_{sid:06d}" / "trades.parquet",
-        P.RESEARCH_DIR / "backtests" / f"strategy_{sid:06d}" / "trades.parquet",
-    ]
-    for p in candidates:
-        if p.exists():
-            try:
-                tdf = pd.read_parquet(p)
-                for idx, r in enumerate(tdf.to_dict(orient="records"), 1):
-                    e_ts = r.get("entry_ts", 0)
-                    x_ts = r.get("exit_ts", 0)
-                    dur_s = max(0, x_ts - e_ts) if (e_ts and x_ts) else (r.get("hold_bars", 1) * 3600)
-                    trades.append({
-                        "trade_num": idx,
-                        "side": str(r.get("side", "buy")).upper(),
-                        "entry_ts": e_ts,
-                        "exit_ts": x_ts,
-                        "entry_price": float(r.get("entry_price", 0.0)),
-                        "exit_price": float(r.get("exit_price", 0.0)),
-                        "duration_seconds": dur_s,
-                        "duration_minutes": round(dur_s / 60.0, 1),
-                        "pnl": float(r.get("pnl", 0.0)),
-                        "pnl_pct": round(float(r.get("pnl", 0.0)) / 10000.0 * 100, 3),
-                        "exit_reason": r.get("exit_reason", "SIGNAL"),
-                        "session": r.get("session", "–"),
-                    })
-                if trades:
-                    return {"strategy_id": sid, "total_trades": len(trades), "trades": trades}
-            except Exception:
-                pass
-
-    # 2. Fall back to trades_sample from metrics JSON
-    bt = db.one("SELECT metrics FROM backtests WHERE strategy_id=? ORDER BY id DESC LIMIT 1", (sid,))
-    if bt and bt.get("metrics"):
-        try:
-            m = json.loads(bt["metrics"]) if isinstance(bt["metrics"], str) else bt["metrics"]
-            raw_trades = m.get("trades_sample", [])
-            for idx, t in enumerate(raw_trades, 1):
-                e_ts = t.get("entry_ts", 0)
-                x_ts = t.get("exit_ts", 0)
-                dur_s = max(0, x_ts - e_ts) if (e_ts and x_ts) else (t.get("hold_bars", 1) * 3600)
-                trades.append({
-                    "trade_num": idx,
-                    "side": t.get("side", "buy").upper(),
-                    "entry_ts": e_ts,
-                    "exit_ts": x_ts,
-                    "entry_price": t.get("entry_price", 0.0),
-                    "exit_price": t.get("exit_price", 0.0),
-                    "duration_seconds": dur_s,
-                    "duration_minutes": round(dur_s / 60.0, 1),
-                    "pnl": t.get("pnl", 0.0),
-                    "pnl_pct": round(t.get("pnl", 0.0) / 10000.0 * 100, 3),
-                    "exit_reason": t.get("exit_reason", "SIGNAL"),
-                    "session": t.get("session", "–"),
-                })
-        except Exception:
-            pass
-    return {"strategy_id": sid, "total_trades": len(trades), "trades": trades}
-
-
-@router.post("/strategies/{sid}/backtest")
-def rerun_strategy_backtest(sid: int) -> Dict:
-    db = get_db()
-    strat = db.get_strategy(sid)
-    if not strat:
-        raise HTTPException(404, f"Strategy #{sid} not found")
-    genome = strat["genome"]
-    from ..data.engine import get_data_engine
-    de = get_data_engine()
-    ds_info = de.latest_dataset(genome["symbol"], genome["timeframe"])
-    if not ds_info:
-        raise HTTPException(400, f"No dataset found for {genome['symbol']} {genome['timeframe']}")
-    split = de.train_test_split(ds_info["id"])
-    w = (0, split["cut"])
-    from ..orchestrator.lab import get_lab, _bt_payload
-    from ..fitness.evaluator import fitness, death_check
-    payload = _bt_payload(genome, ds_info["id"], "detail", window=w)
-    lab = get_lab()
-    res = lab._run_batch([payload])[0]
-    if res["ok"]:
-        m = res["metrics"]
-        m["trades_sample"] = res["trades"][-300:]
-        f, components = fitness(m, genome)
-        died, reasons = death_check(m, genome, stage="detail")
-        verdict = "KILLED" if died else "SURVIVED"
-        db.x("""INSERT INTO backtests
-                     (strategy_id,stage,dataset_id,window,params,metrics,fitness,
-                      verdict,created_at,fingerprint,dataset_version,engine_versions)
-                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
-                  (sid, "detail", ds_info["id"], json.dumps(m.get("window")),
-                   json.dumps({"components": components}), json.dumps(m), f,
-                   verdict, time.time(),
-                   "", ds_info.get("dataset_version", 1), json.dumps(manifest())))
-        db.update_strategy(sid, fitness=f, status=verdict)
-        return {"ok": True, "metrics": m, "fitness": f, "verdict": verdict}
-    else:
-        raise HTTPException(500, f"Backtest execution failed: {res.get('error')}")
-
-
-@router.post("/strategies/{sid}/validate")
-def run_strategy_validation(sid: int) -> Dict:
-    db = get_db()
-    strat = db.get_strategy(sid)
-    if not strat:
-        raise HTTPException(404, f"Strategy #{sid} not found")
-    bt = db.one("SELECT * FROM backtests WHERE strategy_id=? ORDER BY id DESC LIMIT 1", (sid,))
-    if not bt:
-        raise HTTPException(400, "Strategy has no backtest results to validate")
-    base_metrics = json.loads(bt["metrics"]) if isinstance(bt["metrics"], str) else bt["metrics"]
-    base_fitness = bt["fitness"] or 0.0
-    from ..validation.battery import full_validation
-    v = full_validation(strat, base_metrics, base_fitness, base_metrics.get("trades_sample", []))
-    passed = v.get("passed", False)
-    db.x("""INSERT OR REPLACE INTO validations
-                 (strategy_id,oos,walkforward,perturbation,spread_stress,slippage_stress,
-                  montecarlo,regime_holdout,robustness_score,passed,notes,created_at,fingerprint)
-                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-              (sid, json.dumps(v.get("oos")), json.dumps(v.get("walkforward")),
-               json.dumps(v.get("perturbation")), json.dumps(v.get("spread_slippage_stress")), None,
-               json.dumps(v.get("montecarlo")), json.dumps(v.get("regime_holdout")),
-               v.get("robustness_score"), 1 if passed else 0,
-               json.dumps(v.get("death_reasons", [])), time.time(), ""))
-    new_status = "QUALIFIED" if passed else "KILLED"
-    db.update_strategy(sid, status=new_status)
-    return {"ok": True, "passed": passed, "status": new_status, "validation": v}
-
-
 @router.get("/research/shortlist")
 def get_research_shortlist(
     min_trades: Optional[int] = None,
@@ -1794,54 +1624,6 @@ def ticks(symbol: Optional[str] = None, n: int = 1) -> Dict:
 
 
 # ---------------- paper ----------------
-@router.get("/paper/status")
-def paper_status() -> Dict:
-    return get_paper_engine().status()
-
-
-@router.get("/paper/promoted")
-def paper_promoted() -> Dict:
-    pe = get_paper_engine()
-    return {
-        "promoted_strategies": pe.promoted_strategies(),
-        "account": pe.get_account_state(),
-    }
-
-
-@router.post("/paper/start")
-def paper_start() -> Dict:
-    return get_paper_engine().start()
-
-
-@router.post("/paper/stop")
-def paper_stop() -> Dict:
-    return get_paper_engine().stop()
-
-
-@router.get("/paper/trades")
-def paper_trades(limit: int = 200, strategy_id: Optional[int] = None) -> Dict:
-    db = get_db()
-    if strategy_id:
-        rows = db.q("SELECT * FROM paper_trades WHERE strategy_id=? ORDER BY id DESC LIMIT ?",
-                    (strategy_id, limit))
-    else:
-        rows = db.q("SELECT * FROM paper_trades ORDER BY id DESC LIMIT ?", (limit,))
-    summary = db.one("""SELECT COUNT(*) n,
-                        SUM(CASE WHEN status='OPEN' THEN 1 ELSE 0 END) open_n,
-                        COALESCE(SUM(CASE WHEN status='CLOSED' THEN pnl END),0) pnl,
-                        AVG(CASE WHEN status='CLOSED' THEN slippage_points END) slip,
-                        AVG(CASE WHEN status='CLOSED' THEN spread_points END) spread,
-                        AVG(CASE WHEN status='CLOSED' THEN exec_delay_ms END) delay
-                        FROM paper_trades""")
-    return {"trades": rows, "summary": summary}
-
-
-@router.get("/paper/executions")
-def paper_executions(limit: int = 200) -> Dict:
-    rows = get_db().q("SELECT * FROM executions ORDER BY id DESC LIMIT ?", (limit,))
-    return {"executions": rows}
-
-
 # ---------------- paper trading candidate selection (spec §9) ----------------
 @router.get("/paper/candidates")
 def paper_candidates(limit: int = 100) -> Dict[str, Any]:
@@ -1930,18 +1712,6 @@ def paper_candidates_batch_promote(payload: Dict[str, Any] = Body(...)) -> Dict[
                 pass
     activity.success("PAPER", f"Batch promoted {len(promoted)} strategies to Paper Trading pool")
     return {"ok": True, "promoted": promoted, "count": len(promoted)}
-
-
-@router.get("/calibration")
-def calibration() -> Dict:
-    return calib.report()
-
-
-@router.post("/calibration/recalibrate")
-def recalibrate() -> Dict:
-    res = calib.recalibrate(apply_to_config=True)
-    bus.publish("recalibrated", res["applied"])
-    return res
 
 
 # ---------------- risk ----------------
@@ -3718,17 +3488,6 @@ def clear_all_data(payload: Dict[str, Any] = Body(...)):
 
 
 # ---------------- V4: Authoritative Strategy & Node Economics ----------------
-@router.get("/strategies/{sid}/authoritative")
-def get_strategy_authoritative(sid: int) -> Dict:
-    """Authoritative strategy data model (single source of truth across all tabs)."""
-    from ..strategies.authoritative import get_authoritative_strategy
-    db = get_db()
-    strat = get_authoritative_strategy(sid, db)
-    if not strat:
-        raise HTTPException(404, f"Strategy #{sid} not found")
-    return strat
-
-
 @router.get("/strategies/{sid}/economics")
 def get_strategy_economics(sid: int) -> Dict:
     """Node Economics breakdown: actual genome indicators, conditions, position sizing, and stage returns."""
@@ -3759,114 +3518,6 @@ def update_strategy_pipeline_stage(sid: int, payload: Dict = Body(...)) -> Dict:
 
 
 # ---------------- V4: MT5 Backtest Execution & Persistent Storage ----------------
-@router.get("/mt5-backtest/results")
-def list_mt5_backtests(strategy_id: Optional[int] = None) -> Dict:
-    db = get_db()
-    rows = db.get_mt5_backtests(strategy_id)
-    return {"count": len(rows), "results": rows}
-
-
-@router.get("/mt5-backtest/strategies/{sid}")
-def get_strategy_mt5_backtests(sid: int) -> Dict:
-    db = get_db()
-    rows = db.get_mt5_backtests(sid)
-    return {"strategy_id": sid, "count": len(rows), "results": rows}
-
-
-@router.post("/mt5-backtest/strategies/{sid}/run")
-def run_mt5_strategy_tester(sid: int, payload: Dict = Body(default_factory=dict)) -> Dict:
-    """Execute MT5 Strategy Tester on node (or high-fidelity simulator with exact MT5 fees if bridge unavailable)."""
-    db = get_db()
-    strat = db.get_strategy(sid)
-    if not strat:
-        raise HTTPException(404, f"Strategy #{sid} not found")
-    genome = strat["genome"] if isinstance(strat["genome"], dict) else json.loads(strat["genome"])
-    symbol = payload.get("symbol") or strat.get("symbol") or genome.get("symbol", "XAUUSD")
-    timeframe = payload.get("timeframe") or strat.get("timeframe") or genome.get("timeframe", "M15")
-    initial_deposit = float(payload.get("initial_deposit", 10000.0))
-    leverage = int(payload.get("leverage", 100))
-    spread = float(payload.get("spread", 20.0))
-    commission = float(payload.get("commission", 7.0))
-    slippage = float(payload.get("slippage", 1.0))
-    start_date = payload.get("start_date", "2026-01-01")
-    end_date = payload.get("end_date", "2026-10-01")
-
-    # Bridge availability check (spec §36: clearly report when bridge unavailable)
-    bridge = get_bridge()
-    is_real_mt5 = bridge.available() and not bridge.is_simulated and getattr(bridge, "_connected", False)
-
-    bt = db.one("""
-        SELECT * FROM backtests WHERE strategy_id=? AND stage IN ('detail', 'screen')
-        ORDER BY CASE stage WHEN 'detail' THEN 0 ELSE 1 END, id DESC LIMIT 1
-    """, (sid,))
-    m = json.loads(bt["metrics"]) if (bt and bt.get("metrics")) else {}
-
-    base_trades = m.get("trades", 150)
-    base_pf = m.get("profit_factor", 1.8)
-    base_wr = m.get("win_rate", 0.65)
-    base_ret = m.get("total_return_pct", 0.45)
-
-    # MT5 commission, spread, and slippage deduction
-    comm_cost = base_trades * (commission * 0.1)
-    spread_cost = base_trades * ((spread + slippage) * 0.1)
-    total_fees = comm_cost + spread_cost
-
-    net_pnl = (initial_deposit * base_ret) - total_fees
-    final_cap = max(0.0, initial_deposit + net_pnl)
-    adj_pf = max(0.1, base_pf * 0.94)
-    adj_wr = max(0.05, base_wr * 0.98)
-    max_dd = m.get("max_drawdown_pct", 0.08) * 1.08
-    recovery = (net_pnl / (initial_deposit * max_dd)) if max_dd > 0 else 2.5
-
-    if is_real_mt5:
-        mt5_status = "COMPLETED (MT5_TERMINAL)"
-        mt5_build = f"MT5_BUILD_{getattr(bridge, '_terminal_build', 'REAL')}"
-        notes = "Executed on live MetaTrader 5 Strategy Tester terminal."
-    else:
-        mt5_status = "COMPLETED (SIMULATOR_TESTED)"
-        mt5_build = "SIMULATOR_V4"
-        notes = "MetaTrader 5 terminal not connected on host (Linux environment). Tested via High-Fidelity Research Simulator with exact MT5 spreads, slippage, and commissions."
-
-    rec = {
-        "strategy_id": sid,
-        "run_id": strat.get("run_id") or "USER_RESEARCH",
-        "config": payload,
-        "symbol": symbol,
-        "timeframe": timeframe,
-        "start_date": start_date,
-        "end_date": end_date,
-        "initial_capital": initial_deposit,
-        "final_capital": round(final_cap, 2),
-        "net_profit": round(net_pnl, 2),
-        "gross_profit": round(max(0.0, net_pnl * 1.4), 2),
-        "gross_loss": round(max(0.0, net_pnl * 0.4), 2),
-        "profit_factor": round(adj_pf, 3),
-        "win_rate": round(adj_wr, 4),
-        "trade_count": base_trades,
-        "max_drawdown_pct": round(max_dd, 4),
-        "relative_drawdown_pct": round(max_dd * 1.05, 4),
-        "recovery_factor": round(recovery, 2),
-        "sharpe": round(m.get("sharpe", 1.5) * 0.92, 3),
-        "avg_trade": round(net_pnl / max(1, base_trades), 2),
-        "largest_win": round(m.get("largest_win", 450.0), 2),
-        "largest_loss": round(m.get("largest_loss", -180.0), 2),
-        "consecutive_wins": int(m.get("consecutive_wins", 5)),
-        "consecutive_losses": int(m.get("consecutive_losses", 3)),
-        "mt5_build": mt5_build,
-        "status": mt5_status,
-        "notes": notes,
-    }
-    bt_id = db.record_mt5_backtest(rec)
-    rec["id"] = bt_id
-
-    # Pipeline state advance
-    curr_stage = db.get_pipeline_stage(sid)
-    if curr_stage in ("GENERATED", "SCREENED", "VALIDATED", "QUALIFIED", "SHORTLISTED"):
-        db.set_pipeline_stage(sid, "MT5_BACKTESTED", "Completed MT5 Strategy Tester backtest")
-
-    return {"ok": True, "mt5_backtest": rec}
-
-
 # ---------------- V4: Live Testing & Schedule Controls ----------------
 @router.get("/live-test/status")
 def live_test_status() -> Dict:
@@ -4687,56 +4338,6 @@ def _iso_ts(ts: Any) -> Optional[str]:
 
 
 # ---------------- V4: MT5 Demo Trading ----------------
-@router.get("/mt5-demo/status")
-def mt5_demo_status() -> Dict:
-    from ..mt5.monitor import get_connection_monitor
-    db = get_db()
-    bridge = get_bridge()
-    mon = get_connection_monitor().status_details()
-    configs = db.q("SELECT * FROM mt5_demo_configs WHERE enabled=1")
-    # §16 — every enabled node carries its stored schedule and the evaluator's
-    # verdict for right now, so the page can show exactly why a node is running
-    # or blocked (the same evaluator Live Testing enforces).
-    from ..mt5.demo_schedule import status_rows as _demo_schedule_rows
-    try:
-        sched_rows = _demo_schedule_rows(db)
-    except Exception:
-        sched_rows = {}
-    for c in configs or []:
-        sr = sched_rows.get(int(c.get("strategy_id") or 0)) or {}
-        c["schedule"] = sr.get("schedule")
-        c["schedule_configured"] = sr.get("configured")
-        c["schedule_description"] = sr.get("description")
-        c["schedule_allowed"] = sr.get("allowed")
-        c["schedule_reason"] = sr.get("reason")
-    trades = db.get_mt5_demo_trades()
-    open_trades = [t for t in trades if t.get("status") == "OPEN"]
-    today_pnl = sum(t.get("pnl", 0.0) for t in trades if t.get("open_ts", 0) >= time.time() - 86400)
-    total_pnl = sum(t.get("pnl", 0.0) for t in trades)
-
-    is_connected = getattr(bridge, "_connected", False)
-    return {
-        "status": "DEMO_ACCOUNT_READY",
-        "demo_banner": "DEMO ACCOUNT ONLY — NO REAL MONEY AT RISK",
-        "bridge_type": "MT5_REAL" if (bridge.available() and not bridge.is_simulated) else "SIMULATOR_BRIDGE",
-        "is_connected": is_connected,
-        "account_id": getattr(bridge, "account_id", "DEMO-100294") or "DEMO-100294",
-        "broker": getattr(bridge, "broker_name", "MetaQuotes-Demo") or "MetaQuotes-Demo",
-        "server": getattr(bridge, "server_name", "MetaQuotes-Demo") or "MetaQuotes-Demo",
-        "balance": 10000.0 + total_pnl,
-        "equity": 10000.0 + total_pnl,
-        "free_margin": (10000.0 + total_pnl) * 0.95,
-        "active_strategies_count": len(configs),
-        "open_positions_count": len(open_trades),
-        "today_pnl": round(today_pnl, 2),
-        "total_pnl": round(total_pnl, 2),
-        "active_strategies": [c["strategy_id"] for c in configs],
-        "active_configs": [{k: v for k, v in c.items()} for c in (configs or [])],
-        "schedule_authority": ("app.live_testing.schedule — the same evaluator the Live Testing "
-                               "engine enforces; empty groups mean no restriction"),
-    }
-
-
 @router.post("/mt5-demo/strategies/{sid}/toggle")
 def toggle_mt5_demo(sid: int, payload: Dict = Body(default_factory=dict)) -> Dict:
     confirmed = bool(payload.get("confirmed_demo_only"))
@@ -4779,128 +4380,6 @@ def toggle_mt5_demo(sid: int, payload: Dict = Body(default_factory=dict)) -> Dic
             "schedule_reason": (gate or {}).get("reason"),
             "note": ("the schedule is enforced by app.live_testing.schedule (the same evaluator "
                      "Live Testing uses)")}
-
-
-@router.post("/mt5-demo/start-all")
-def mt5_demo_start_all(payload: Dict = Body(...)) -> Dict:
-    confirmed = bool(payload.get("confirmed_demo_only"))
-    if not confirmed:
-        raise HTTPException(400, "Explicit confirmation required: 'confirmed_demo_only' must be true.")
-    db = get_db()
-    qualified = db.get_qualified_strategies()
-    count = 0
-    blocked: List[Dict] = []
-    for s in qualified:
-        sid = s["id"]
-        cfg = db.get_mt5_demo_config(sid) or {
-            "strategy_id": sid,
-            "magic_number": 100000 + sid,
-            "max_positions": 1,
-            "lot_size": 0.05,
-            "risk_pct": 0.5,
-        }
-        cfg["enabled"] = True
-        cfg["confirmed_demo_only"] = True
-        cfg["status"] = "RUNNING"
-        from ..mt5.demo_schedule import gate as _schedule_gate
-        try:
-            g = _schedule_gate(sid, db=db)
-        except Exception as e:
-            g = {"allowed": False,
-                 "reason": f"the demo schedule could not be evaluated ({type(e).__name__}) — "
-                           "refusing to run until it is readable"}
-        blocked_reason = None
-        if not g.get("allowed"):
-            cfg["status"] = "SCHEDULE_BLOCKED"
-            blocked_reason = g.get("reason")
-        db.set_mt5_demo_config(sid, cfg)
-        db.set_pipeline_stage(sid, "MT5_DEMO", "Batch activated on MT5 Demo")
-        count += 1
-        if blocked_reason:
-            blocked.append({"strategy_id": sid, "reason": blocked_reason})
-    return {"ok": True, "activated_count": count,
-            "schedule_blocked": blocked, "schedule_blocked_count": len(blocked),
-            "note": "a schedule-blocked node is enabled but will not act outside its schedule"}
-
-
-@router.post("/mt5-demo/start-shortlist")
-def mt5_demo_start_shortlist(payload: Dict = Body(...)) -> Dict:
-    confirmed = bool(payload.get("confirmed_demo_only"))
-    if not confirmed:
-        raise HTTPException(400, "Explicit confirmation required: 'confirmed_demo_only' must be true.")
-    db = get_db()
-    sids = db.get_shortlist()
-    count = 0
-    blocked: List[Dict] = []
-    for sid in sids:
-        cfg = db.get_mt5_demo_config(sid) or {
-            "strategy_id": sid,
-            "magic_number": 100000 + sid,
-            "max_positions": 1,
-            "lot_size": 0.05,
-            "risk_pct": 0.5,
-        }
-        cfg["enabled"] = True
-        cfg["confirmed_demo_only"] = True
-        cfg["status"] = "RUNNING"
-        from ..mt5.demo_schedule import gate as _schedule_gate
-        try:
-            g = _schedule_gate(sid, db=db)
-        except Exception as e:
-            g = {"allowed": False,
-                 "reason": f"the demo schedule could not be evaluated ({type(e).__name__}) — "
-                           "refusing to run until it is readable"}
-        blocked_reason = None
-        if not g.get("allowed"):
-            cfg["status"] = "SCHEDULE_BLOCKED"
-            blocked_reason = g.get("reason")
-        db.set_mt5_demo_config(sid, cfg)
-        db.set_pipeline_stage(sid, "MT5_DEMO", "Shortlist activated on MT5 Demo")
-        count += 1
-        if blocked_reason:
-            blocked.append({"strategy_id": sid, "reason": blocked_reason})
-    return {"ok": True, "activated_count": count, "shortlist_size": len(sids),
-            "schedule_blocked": blocked, "schedule_blocked_count": len(blocked),
-            "note": "a schedule-blocked node is enabled but will not act outside its schedule"}
-
-
-@router.get("/mt5-demo/schedule/{sid}")
-def mt5_demo_get_schedule(sid: int) -> Dict:
-    """§16 — a demo node's stored schedule + its evaluation right now (read-only)."""
-    from ..mt5.demo_schedule import get_schedule
-    return get_schedule(sid)
-
-
-@router.post("/mt5-demo/schedule/{sid}")
-def mt5_demo_save_schedule(sid: int, payload: Dict = Body(default_factory=dict)) -> Dict:
-    """§16 — save a demo node's schedule (same validator the Live Testing engine uses)."""
-    from ..mt5.demo_schedule import save_schedule
-    out = save_schedule(sid, payload)
-    if not out.get("ok"):
-        raise HTTPException(400, detail={"error": out.get("error"), "errors": out.get("errors"),
-                                         "options": out.get("options")})
-    return out
-
-
-@router.delete("/mt5-demo/schedule/{sid}")
-def mt5_demo_clear_schedule(sid: int) -> Dict:
-    from ..mt5.demo_schedule import clear_schedule
-    return clear_schedule(sid)
-
-
-@router.post("/mt5-demo/stop-all")
-def mt5_demo_stop_all() -> Dict:
-    db = get_db()
-    db.x("UPDATE mt5_demo_configs SET enabled=0, status='STOPPED'")
-    return {"ok": True, "message": "All MT5 demo trading stopped"}
-
-
-@router.post("/mt5-demo/pause-all")
-def mt5_demo_pause_all() -> Dict:
-    db = get_db()
-    db.x("UPDATE mt5_demo_configs SET status='PAUSED' WHERE enabled=1")
-    return {"ok": True, "message": "All MT5 demo trading paused"}
-
 
 
 # ---------------- V4.2: controlled MT5 DEMO order execution ----------------

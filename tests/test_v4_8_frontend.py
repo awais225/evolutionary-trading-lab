@@ -39,10 +39,6 @@ V48_FILES = [
     "pages/NodeEconomics.jsx",
     "pages/StrategyLab.jsx",
     "pages/LiveTesting.jsx",
-    "pages/Mt5DemoTrading.jsx",
-    "pages/Mt5Backtest.jsx",
-    "pages/FinalTesting.jsx",
-    "pages/PaperTrading.jsx",
     "pages/MarketData.jsx",
     "pages/Population.jsx",
     "pages/Activity.jsx",
@@ -66,18 +62,22 @@ def test_quick_navigation_targets_are_real_tab_keys():
     """Node Economics' quick nav must point at tab keys that actually exist."""
     app = (SRC / "App.jsx").read_text(encoding="utf-8", errors="replace")
     keys = set(re.findall(r'\["([a-z0-9_]+)", "\d+",', app))
-    assert len(keys) >= 18, keys
-    for target in ("mt5_backtest", "live_test", "matrix", "economics", "lab", "population",
-                   "final_testing", "mt5_demo"):
+    assert len(keys) >= 14, keys
+    for target in ("live_test", "economics", "lab", "population"):
         assert target in keys, f"{target} is not a real tab key"
+    # V8 — the purged modules are not tab keys and no quick nav may target them
+    for gone in ("mt5_backtest", "matrix", "final_testing", "mt5_demo", "paper"):
+        assert gone not in keys, f"{gone} must not remain a tab key"
+    econ = _read("pages/NodeEconomics.jsx")
+    for gone in ('quickNav("mt5_backtest")', 'quickNav("matrix")', 'quickNav("mt5_demo")'):
+        assert gone not in econ, f"NodeEconomics still quick-navs to {gone}"
 
 
 def test_node_economics_carries_the_selected_node_across_pages():
     econ = _read("pages/NodeEconomics.jsx")
     assert "useLab" in econ
-    assert 'quickNav("mt5_backtest"' in econ or "quickNav('mt5_backtest'" in econ
     assert 'quickNav("live_test"' in econ or "quickNav('live_test'" in econ
-    assert 'quickNav("matrix"' in econ or "quickNav('matrix'" in econ
+    assert 'quickNav("lab"' in econ or "quickNav('lab'" in econ
     # the node travels with the navigation (second argument = strategy id)
     assert re.search(r"navigateTab\(\s*\w+\s*,\s*", econ), "the quick nav must pass the node id"
 
@@ -92,23 +92,6 @@ def test_live_testing_mounts_the_v48_panels_and_starts_idle():
     assert "liveTestingActivate(" not in page.split("const handleStartAll")[0]
 
 
-def test_mt5_backtest_states_that_the_real_terminal_is_unavailable():
-    page = _read("pages/Mt5Backtest.jsx")
-    assert "REAL MT5 TRADING UNAVAILABLE" in page
-    assert "SIMULATOR MODE ACTIVE" in page
-    assert "SimulatorBanner" in page
-
-
-def test_demo_page_states_demo_only_and_removed_fake_account_fallbacks():
-    page = _read("pages/Mt5DemoTrading.jsx")
-    assert "DemoAccountSafety" in page
-    assert "DEMO ACCOUNT ONLY" in page
-    # the old hard-coded demo account/balance fallbacks must be gone
-    for fake in ("DEMO-100294", "MetaQuotes-Demo"):
-        assert fake not in page, f"fabricated account default still present: {fake}"
-    assert "demoStatus?.balance || 10000" not in page
-
-
 def test_manual_order_panel_states_amount_is_risk_not_margin():
     panel = _read("components/LiveTestingPanels.jsx")
     assert "money at risk" in panel
@@ -121,8 +104,8 @@ def test_manual_order_panel_states_amount_is_risk_not_margin():
 
 def test_every_v48_page_handles_loading_empty_error_and_unavailable():
     """Each page touched by V4.8 must show loading, error and empty states."""
-    for rel in ("pages/NodeEconomics.jsx", "pages/StrategyLab.jsx", "pages/Mt5Backtest.jsx",
-                "pages/LiveTesting.jsx", "pages/Mt5DemoTrading.jsx", "pages/FinalTesting.jsx",
+    for rel in ("pages/NodeEconomics.jsx", "pages/StrategyLab.jsx",
+                "pages/LiveTesting.jsx",
                 "pages/Population.jsx", "pages/MarketData.jsx"):
         text = _read(rel)
         has_states = ("StateBlock" in text or "Spinner" in text or "loading" in text.lower())
@@ -176,20 +159,6 @@ def test_destructive_actions_ask_for_confirmation():
     assert "ConfirmModal" in _read("components/LiveTestingPanels.jsx")
     settings = _read("pages/Settings.jsx")
     assert "clearModal" in settings and "CLEAR ALL DATA" in settings
-
-
-def test_readable_dead_reasons_are_rendered():
-    page = _read("pages/FinalTesting.jsx")
-    assert "dead_reason" in page
-    assert "reason not recorded by the engine" in page
-    assert "colSpan={17}" in page                       # the extra reason column exists
-    # V5.2.3 §10 — the operator asked for ONE scrollable table instead of pages:
-    # the whole matching set is fetched (limit 0) and rendered in .table-scroll,
-    # and the paging controls are gone.
-    assert "total_matching" in page
-    assert "pageOffset" not in page and "pageLimit" not in page
-    assert "table-scroll" in page
-    assert "limit: 0," in page                          # all matching nodes
 
 
 def test_market_data_distinguishes_row_from_physical_file():
@@ -261,7 +230,10 @@ def test_v47_render_smoke_still_passes():
     import re as _re
     m = _re.search(r"(\d+)/(\d+) renders OK", out)
     assert m and m.group(1) == m.group(2), out[-2000:]
-    assert int(m.group(1)) >= 39, out[-2000:]
+    # V8 purged five page modules from the smoke registry; the floor tracks the
+    # RETAINED page set and the all-renders-OK assert above still guarantees
+    # full coverage of every registered page.
+    assert int(m.group(1)) >= 35, out[-2000:]
 
 
 # --------------------------------------------------------------------------- #
@@ -333,3 +305,17 @@ def test_resume_option_is_blocked_without_an_active_population():
     assert "no active USER_RESEARCH population to resume" in src
     assert "optionBlocked" in src and "Not available" in src
     assert "addValid && !noPopulation" in src
+
+
+# ===========================================================================
+# V8 — the five dashboard modules were purged; nothing may resurrect them
+# ===========================================================================
+def test_removed_modules_have_no_page_files_or_navigation():
+    app = _read("App.jsx")
+    for rel in ("pages/FinalTesting.jsx", "pages/BacktestMatrix.jsx",
+                "pages/Mt5Backtest.jsx", "pages/Mt5DemoTrading.jsx",
+                "pages/PaperTrading.jsx", "components/DemoOrderPanel.jsx"):
+        assert not (SRC / rel).exists(), f"{rel} must be removed"
+    for name in ("FinalTesting", "BacktestMatrix", "Mt5Backtest",
+                 "Mt5DemoTrading", "PaperTrading", "DemoOrderPanel"):
+        assert name not in app, f"{name} still referenced by App.jsx"
