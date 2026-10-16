@@ -215,3 +215,17 @@ def test_latest_fetch_adapts_to_2683_successful_native_cap(history_store,monkeyp
             return rows[:2683] if which=='first' else rows[-2683:]
     out=L._sync_pair(Capped(),'M1',start+6001*60)
     assert out['after']==6001 and out['added']==6000 and len(out['chunks'])>=3 and out['status']=='COMPLETE'
+
+
+def test_cancel_and_failed_latest_ranges_preserve_baseline(history_store):
+    import threading
+    M,db=history_store
+    from app.data import history as H,history_latest as L
+    H.root().mkdir();(H.root()/'manifest.json').write_text(json.dumps({'symbol':'XAUUSD','timeframes':['M1']}))
+    start=1700000000.;store=M.get_master('XAUUSD','M1',H.PROFILE);store.append(bars([start]));fp=store.fingerprint
+    class Unavailable:
+        def copy_rates_range(self,*args):raise OSError('unavailable fake terminal')
+    event=threading.Event();event.set();out=L._sync_pair(Unavailable(),'M1',start+600*60,cancel_event=event)
+    assert out['status']=='CANCELLED' and out['after']==1 and out['fingerprint']==fp
+    out=L._sync_pair(Unavailable(),'M1',start+600*60,cancel_event=threading.Event())
+    assert out['status']=='PARTIAL' and out['after']==1 and out['fingerprint']==fp and out['errors']

@@ -94,3 +94,18 @@ def test_registry_ready_is_durable_metadata_only_after_first_reconciliation(tmp_
     assert R.ensure_ready(db)['mode']=='reconciled_from_actual_history'
     assert R.ensure_ready(Database(str(tmp_path/'registry.db')))['mode']=='persisted_registry'
     assert len(calls)==1 and engine._restored
+
+
+def test_assignment_cache_tracks_replaced_database_connection(tmp_path):
+    from app.db.database import Database
+    from app.deeptest.filter_scenarios import save,assign,assignment
+    a=Database(str(tmp_path/'before.db'));b=Database(str(tmp_path/'after.db'))
+    for db in (a,b):db.insert_strategy({'hash':'existing-node','symbol':'XAUUSD','timeframe':'M1','genome':{},'status':'SURVIVED'})
+    class ReopenedDatabase:
+        active=a
+        @property
+        def conn(self):return self.active.conn
+        def __getattr__(self,name):return getattr(self.active,name)
+    db=ReopenedDatabase();sc=save(db,{'name':'Scoped original gate','scope':'GLOBAL','rules':{'exclude_days':['mon']}});assign(db,1,sc['id']);assert assignment(db,1)
+    db.active=b
+    assert assignment(db,1) is None # never leak an old node's gate into a replacement DB

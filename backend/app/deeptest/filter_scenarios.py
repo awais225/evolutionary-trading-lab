@@ -3,15 +3,16 @@ Assignment adds an entry gate only; original schedules/risk/arming stay untouche
 """
 import json,time,uuid,weakref,threading
 _LOCK=threading.RLock()
-_READY=weakref.WeakSet()
+_READY=weakref.WeakKeyDictionary()
 _ASSIGNMENTS=weakref.WeakKeyDictionary()
 from .filter_rules import normalize
 
 def schema(db):
-    if db in _READY:return
+    if _READY.get(db)==id(db.conn):return
+    _ASSIGNMENTS.pop(db,None)
     db.x('CREATE TABLE IF NOT EXISTS filter_scenarios (id TEXT PRIMARY KEY,name TEXT NOT NULL,scope TEXT NOT NULL,node_id INTEGER,rules TEXT NOT NULL,provenance TEXT,created_at REAL NOT NULL)')
     db.x('CREATE TABLE IF NOT EXISTS filter_scenario_assignments (node_id INTEGER NOT NULL,target TEXT NOT NULL,scenario_id TEXT NOT NULL,assigned_at REAL NOT NULL,PRIMARY KEY(node_id,target))')
-    _READY.add(db)
+    _READY[db]=id(db.conn)
 
 def listing(db,node_id=None):
     schema(db)

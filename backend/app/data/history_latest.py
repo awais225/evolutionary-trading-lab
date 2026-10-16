@@ -97,7 +97,7 @@ def _sync_pair(bridge,tf,now,progress=lambda **kw:None,cancel_event=None):
                 result['rejected']+=check.rows_quarantined
                 if len(clean):
                     clean=get_data_engine()._normalize(clean)
-                    out=store.append(clean,{'source_type':'MT5','source':'MT5','allow_corrections':True,'range':[cursor,hi],'timestamp_convention':'native MT5 UTC epoch'})
+                    out=store.append(clean,{**({k:bridge.profile().get(k) for k in ('source','broker','server')} if hasattr(bridge,'profile') else {}),'source_type':'MT5','source':'MT5','allow_corrections':True,'range':[cursor,hi],'timestamp_convention':'native MT5 UTC epoch'})
                     result['added']+=out.get('accepted',0)
                     result['updated']+=out.get('updated',0)
                     result['identical']+=out.get('duplicates_identical',0)
@@ -119,7 +119,7 @@ def _run(selected):
         from ..mt5 import get_bridge
         bridge=get_bridge()
         if not H.accepts_bridge(bridge):raise RuntimeError('confirmed IC Markets MT5 bridge unavailable or broker identity unknown; simulator/other broker cannot update this baseline')
-        _set(status='FETCHING',operation='incremental closed-bar history with two-bar correction overlap')
+        _set(bridge_profile={k:bridge.profile().get(k) for k in ('source','broker','server')},status='FETCHING',operation='incremental closed-bar history with two-bar correction overlap')
         results=[];now=time.time()
         for i,tf in enumerate(selected):
             if _CANCEL.is_set():break
