@@ -140,7 +140,8 @@ def test_06_the_index_and_the_population_authority_agree(db, monkeypatch):
     _node(db, 13, status="STRATEGY_FAILED", data_source="LEGACY_TEST")
     monkeypatch.setattr(routes, "get_db", lambda: db, raising=False)
 
-    index = routes.nodes_index(filter="qualified", limit=10)
+    index = routes.nodes_index(filter="gate_passed", limit=10)
+    assert routes.nodes_index(filter="qualified")["total"] == 0, "VALID is not QUALIFIED+PAPER"
     state = P.population_state(db=db)["state"]
     assert index["total"] == 2
     assert state["QUALIFIED"] == 2 == index["counts"]["qualified"]
@@ -148,7 +149,7 @@ def test_06_the_index_and_the_population_authority_agree(db, monkeypatch):
     assert list(state.keys()) == POP_NAMES
     assert index["counts"]["excluded"] == 1, "the legacy row is excluded, not counted as a node"
     # the labels the page shows for the filters come from the server, not from a recount
-    assert index["filter_totals"]["qualified"] == 2
+    assert index["filter_totals"]["gate_passed"] == 2
 
 
 def test_07_an_empty_population_is_reported_as_empty_not_invented(db, monkeypatch):
@@ -156,7 +157,8 @@ def test_07_an_empty_population_is_reported_as_empty_not_invented(db, monkeypatc
     from app.research import populations as P
     _node(db, 21, status="STRATEGY_FAILED")
     monkeypatch.setattr(routes, "get_db", lambda: db, raising=False)
-    index = routes.nodes_index(filter="qualified", limit=10)
+    index = routes.nodes_index(filter="gate_passed", limit=10)
+    assert routes.nodes_index(filter="qualified")["total"] == 0, "VALID is not QUALIFIED+PAPER"
     state = P.population_state(db=db)["state"]
     assert index["total"] == 0 and index["nodes"] == []
     # the numbers that explain WHY are available to the page in the same payload

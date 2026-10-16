@@ -156,7 +156,7 @@ export const api = {
   inventorySnapshot: (fresh = false) => req(`/api/inventory/snapshot${fresh ? "?fresh=1" : ""}`),
   // V6.8 §3 — THE node-data authority every tab reads (counts/identity/
   // rankings/generation metrics, one revision per response).
-  nodeData: () => req("/api/node-data"),
+  nodeData: () => req("/api/node-data?summary=true"),
   setTarget: (target) => req("/api/lab/target", { method: "POST", body: { target } }),
   getTarget: () => req("/api/lab/target"),
   labRuns: () => req("/api/lab/runs"),
@@ -202,6 +202,7 @@ export const api = {
   // Research Filtering & Shortlist
   researchShortlist: (params = {}) => req(`/api/research/shortlist?${qs(params)}`),
   researchFilter: (body) => req("/api/research/filter", { method: "POST", body }),
+  setCandidateStar: (sid, starred) => req(`/api/research/shortlist/${sid}`, { method: "PUT", body: { starred } }),
   savedShortlist: () => req("/api/research/shortlist/saved"),
   toggleShortlist: (sid, notes = "") => req("/api/research/shortlist/toggle", { method: "POST", body: { strategy_id: sid, notes } }),
   clearShortlist: () => req("/api/research/shortlist/clear", { method: "POST" }),

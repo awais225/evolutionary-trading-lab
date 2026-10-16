@@ -100,8 +100,8 @@ def test_01_the_default_filter_is_qualified_and_never_the_failed_bulk(client):
     assert d["ok"] is True
     assert d["filter"] == "qualified", "the index default must be Qualified/Alive/Eligible"
     buckets = {r["bucket"] for r in d["nodes"]}
-    assert buckets <= {"qualified"}, f"the default view leaked {buckets - {'qualified'}}"
-    assert d["total"] == d["counts"].get("qualified", 0)
+    assert all(r["qualification"] in ("QUALIFIED", "PAPER") for r in d["nodes"])
+    assert d["total"] == d["filter_totals"]["qualified"]
 
     failed = client.get("/api/nodes?filter=failed&limit=200").json()
     assert failed["filter"] == "failed"
@@ -114,8 +114,8 @@ def test_01_the_default_filter_is_qualified_and_never_the_failed_bulk(client):
     # later-stage study — or a run of these very research-run tests, which
     # rewrite the shared population's statuses — can hold more qualified nodes
     # than failed ones.)
-    assert all(r["bucket"] == "qualified" for r in d["nodes"])
-    assert d["total"] == d["counts"].get("qualified", 0)
+    assert all(r["qualification"] in ("QUALIFIED", "PAPER") for r in d["nodes"])
+    assert d["total"] == d["filter_totals"]["qualified"]
     assert failed["total"] == failed["counts"].get("failed", 0)
 
 

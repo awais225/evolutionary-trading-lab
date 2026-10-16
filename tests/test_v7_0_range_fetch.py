@@ -258,7 +258,10 @@ class TestRangeFetch:
         as the fetch job reaches a terminal state — without a page reload."""
         text = (REPO / "frontend/src/pages/DeepBacktest.jsx").read_text(encoding="utf-8")
         assert "if (fetchFinished)" in text
-        assert "await loadNodes();" in text and "await loadCoverage();" in text
+        assert "await loadNodes();" in text
+        # V9.1 reacts to the actual newly loaded rows and selected duration,
+        # not an old empty-node closure. Mounted interaction tests also verify it.
+        assert "useEffect(() => { loadCoverage(nodes); }, [loadCoverage]);" in text
 
     def test_fetch_route_passes_the_requested_period(self, monkeypatch):
         import app.api.routes as R

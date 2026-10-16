@@ -79,11 +79,23 @@ export default function App() {
     try {
       const res = await api.toggleShortlist(sid, notes);
       setShortlist(res.shortlist || []);
+      window.dispatchEvent(new window.CustomEvent("candidate-star-changed", { detail: { strategy_id: Number(sid), starred: !!res.shortlisted } }));
       return res;
     } catch (err) {
       console.error("Toggle shortlist error:", err);
       throw err;
     }
+  }, []);
+
+  useEffect(() => {
+    const changed = (e) => setShortlist((old) => {
+      const saved = new Set(old);
+      if (e.detail.starred) saved.add(e.detail.strategy_id);
+      else saved.delete(e.detail.strategy_id);
+      return [...saved];
+    });
+    window.addEventListener("candidate-star-changed", changed);
+    return () => window.removeEventListener("candidate-star-changed", changed);
   }, []);
 
   const navigateTab = useCallback((targetPage, strategyId = null) => {

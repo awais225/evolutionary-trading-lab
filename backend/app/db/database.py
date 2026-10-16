@@ -354,6 +354,20 @@ def _safe_genome(raw: Any) -> Any:
         return None
 
 
+# Additive cache revision only: never changes strategies/backtest records.
+SCHEMA += """
+CREATE TABLE IF NOT EXISTS node_registry_revision (id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL);
+INSERT OR IGNORE INTO node_registry_revision VALUES (1,0);
+"""
+for _table in ("strategies", "backtests", "datasets"):
+    for _event in ("INSERT", "UPDATE", "DELETE"):
+        SCHEMA += f"""
+CREATE TRIGGER IF NOT EXISTS registry_{_table}_{_event.lower()}
+AFTER {_event} ON {_table}
+BEGIN UPDATE node_registry_revision SET revision=revision+1 WHERE id=1; END;
+"""
+
+
 class Database:
     def __init__(self, path: str):
         self.path = path
@@ -579,13 +593,7 @@ class Database:
                 log.warning("strategy #%s has an unusable genome payload (%s); "
                             "served with genome_valid=false", sid, type(row.get("genome")).__name__)
                 row["genome"] = row["genome"] if row["genome"] is not None else {}
-            if row.get("research_node_num") is None:
-                rid = row.get("run_id")
-                if rid:
-                    rel = self.one("SELECT COUNT(*) c FROM strategies WHERE run_id=? AND id<=?", (rid, sid))["c"]
-                else:
-                    rel = self.one("SELECT COUNT(*) c FROM strategies WHERE data_source=? AND id<=?", (row.get("data_source", "LEGACY_TEST"), sid))["c"]
-                row["research_node_num"] = rel
+            # Canonical projection: missing persisted alias stays missing.
         return row
 
     def get_qualified_strategies(self, data_source: Optional[str] = None, run_id: Optional[str] = None,
@@ -1067,6 +1075,11 @@ class Database:
         row = self.one("SELECT * FROM live_test_configs WHERE strategy_id=?", (strategy_id,))
         if not row:
             return None
+        return self.decode_live_test_config(row)
+
+    @staticmethod
+    def decode_live_test_config(row: Dict[str, Any]) -> Dict[str, Any]:
+        """Decode persisted config identically for single and bulk registry reads."""
         import json
         return {
             "strategy_id": row["strategy_id"],

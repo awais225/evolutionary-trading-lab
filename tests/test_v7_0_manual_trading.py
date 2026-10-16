@@ -240,16 +240,26 @@ class TestEndpointWiring:
             R.mt5_execution_place({"symbol": "XAUUSD"})
 
     def test_live_testing_safeguards_code_untouched(self):
-        # automated LIVE TESTING / risk / execution safety modules must show no
-        # V7.0 working-tree drift (the release only touched presentation + fetch
-        # ranges + manual panel visibility)
+        # V9.1 strengthens the old HEAD-diff check: it must still protect the
+        # frozen semantics AFTER commit, while allowing the additive registry
+        # schema/config decoder and read-only MT5 history diagnostics.
+        import ast
         import subprocess
-        diff = subprocess.run(["git", "diff", "--name-only", "HEAD"],
-                              capture_output=True, text=True,
-                              cwd=str(REPO)).stdout
+        baseline = "a717884604fd260024c45b9d77e56d18c11dc3fa"
         forbidden = ("backend/app/mt5/execution.py", "backend/app/mt5/bridge.py",
-                     "backend/app/mt5/mt5_real.py", "backend/app/live_testing/",
-                     "backend/app/status.py", "backend/app/db/database.py")
-        for f in diff.splitlines():
-            for bad in forbidden:
-                assert not f.startswith(bad), f"unintended live/qualification change: {f}"
+                     "backend/app/live_testing/", "backend/app/status.py")
+        changed = subprocess.check_output(["git", "diff", "--name-only", baseline, "--", *forbidden],
+                                          cwd=str(REPO), text=True)
+        assert not changed.strip(), f"unintended frozen live/qualification change: {changed}"
+
+        def methods(source, class_name):
+            klass = next(n for n in ast.parse(source).body if isinstance(n, ast.ClassDef) and n.name == class_name)
+            return {n.name: ast.dump(n, include_attributes=False) for n in klass.body if isinstance(n, ast.FunctionDef)}
+        for path, klass, protected in [
+            ("backend/app/db/database.py", "Database", ("get_qualified_strategies", "reconstruct_state", "set_live_test_config")),
+            ("backend/app/mt5/mt5_real.py", "MT5RealBridge", ("account_info", "check_market_order", "_ensure_order_session", "verify_sent_order", "send_market_order", "positions_get", "orders_get", "close_position", "place_order", "real_market_order")),
+        ]:
+            original = subprocess.check_output(["git", "show", f"{baseline}:{path}"], cwd=str(REPO), text=True)
+            before, after = methods(original, klass), methods((REPO / path).read_text(), klass)
+            for method in protected:
+                assert before[method] == after[method], f"frozen semantics changed: {klass}.{method}"

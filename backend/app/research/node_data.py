@@ -84,7 +84,7 @@ def node_data_snapshot(db=None, limit_top: int = 10, use_cache: bool = True) -> 
         # token — two different databases with identical shapes can never share
         # a snapshot (mixed-snapshot guard).
         try:
-            db_key = str(getattr(db, "path", None) or getattr(db, "_path", None) or id(db))
+            db_key = (str(getattr(db, "path", None) or getattr(db, "_path", None)), id(db), limit_top)
         except Exception:
             db_key = str(id(db))
         if use_cache and not isinstance(db, str):
@@ -230,7 +230,7 @@ def _node_data_snapshot_uncached(db, limit_top: int = 10) -> Dict[str, Any]:
             token_after = token_before
         return {
             "schema_version": 1,
-            "revision": f"{rev_base}:{content_fp[:12]}",
+            "revision": f"{rev_base}:{token}:{content_fp[:12]}",
             "state_token": token,
             "mixed_snapshot": bool(token_before and token_after and token_before != token_after),
             "computed_at": datetime.now(timezone.utc).isoformat(),

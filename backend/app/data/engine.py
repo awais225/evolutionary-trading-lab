@@ -103,6 +103,10 @@ class DataEngine:
         Reads last stored timestamp, requests ONLY missing ranges, deduplicates
         by timestamp, discards identical duplicates, quarantines conflicts.
         """
+        symbol, timeframe = str(symbol).upper(), str(timeframe).upper()
+        if timeframe not in TF_MINUTES:
+            return {"symbol": symbol, "timeframe": timeframe, "status": "invalid_range",
+                    "error": "unsupported candle timeframe", "new_bars": 0, "total_bars": 0}
         cfg = get_config()
         bridge = get_bridge()
         profile = bridge.profile()
@@ -131,9 +135,7 @@ class DataEngine:
                     # V7.0 §2.5 — a discovered dataset only closes the request
                     # when it covers the requested goal; otherwise fall through
                     # and fetch the genuinely missing portions.
-                    if request_start is not None and not (
-                            mstore.first_ts is not None
-                            and float(mstore.first_ts) <= float(request_start) + step_s * 2):
+                    if request_start is not None:
                         raise RuntimeError("discovered dataset does not cover the requested range")
                     did = self._materialize_dataset_view(mstore)
                     return {
@@ -168,7 +170,7 @@ class DataEngine:
 
         # Check if data can be reused without network request
         if not is_initial and not force_full and (now - last_stored) < step_s \
-                and (request_start is None or store_covers_goal):
+                and request_start is None:
             reuse_msg = f"ACTION: REUSING EXISTING DATA for {symbol} {timeframe} ({mstore.rows:,} bars up to date)"
             log.info(reuse_msg)
             activity.info("DATA", reuse_msg)
@@ -183,22 +185,24 @@ class DataEngine:
         # callers dedupe on the keyed lock and reuse the finished store.
         lock_key = _sync_key(symbol, timeframe, mstore.profile_key)
         lock = _sync_lock(lock_key)
-        if not lock.acquire(timeout=0.01):
-            # Another sync for this pair is already in flight — wait for it and
-            # return its outcome as reuse instead of firing duplicate requests.
-            activity.info("DATA", f"Sync for {symbol} {timeframe} already in flight — reusing it",
-                          operation_id=f"sync_{symbol.lower()}_{timeframe.lower()}")
+        # Serialize writes per store, then evaluate THIS caller's goal again.
+        # A shorter in-flight request cannot satisfy a different/longer range.
+        waited = not lock.acquire(blocking=False)
+        if waited:
             lock.acquire()
-            try:
-                did = self._materialize_dataset_view(mstore)
-                return {
-                    "symbol": symbol, "timeframe": timeframe,
-                    "fetch_mode": "reuse_concurrent_sync",
-                    "new_bars": 0, "total_bars": mstore.rows, "version": mstore.version,
-                    "dataset_id": did, "action": "REUSING CONCURRENT SYNC",
-                }
-            finally:
-                lock.release()
+            mstore = master.get_master(symbol, timeframe, profile)
+            if request_start is None:
+                try:
+                    did = self._materialize_dataset_view(mstore)
+                    return {"symbol": symbol, "timeframe": timeframe,
+                            "fetch_mode": "reuse_concurrent_sync", "new_bars": 0,
+                            "total_bars": mstore.rows, "version": mstore.version,
+                            "dataset_id": did, "action": "REUSING CONCURRENT SYNC"}
+                finally:
+                    lock.release()
+            # Explicit callers re-evaluate their OWN goal against the union.
+            force_full = False
+        mstore = master.get_master(symbol, timeframe, profile)
         cancel_ev = threading.Event()
         with _SYNC_GUARD:
             _SYNC_CANCELS[lock_key] = cancel_ev
@@ -270,6 +274,22 @@ class DataEngine:
                 log.info("ACTION: RANGE FETCH for %s %s: %d missing interval(s) of the requested range",
                          symbol, timeframe, len(fetch_intervals))
 
+        from .history_range import coverage as range_coverage, missing_intervals
+        cached_coverage = range_coverage(mstore, goal_start, goal_end, step_s)
+        if request_start is not None and not force_full:
+            fetch_intervals = missing_intervals(cached_coverage, goal_start, goal_end, step_s)
+        if not fetch_intervals:
+            did = self._materialize_dataset_view(mstore)
+            job.complete({"dataset_id": did, "total_bars": mstore.rows})
+            rep = {**cached_coverage, "requested_start": goal_start, "requested_end": goal_end,
+                   "chunks": 0, "chunk_results": [], "bars_received": 0,
+                   "persisted_rows": mstore.rows, "cache_source": "persisted_master",
+                   "persisted_first_ts": mstore.first_ts, "persisted_last_ts": mstore.last_ts}
+            return {"symbol": symbol, "timeframe": timeframe, "fetch_mode": "requested_range" if request_start is not None else "reuse_existing",
+                    "new_bars": 0, "total_bars": mstore.rows, "dataset_id": did,
+                    "status": cached_coverage["status"].lower(), "sync_status": cached_coverage["status"],
+                    "fetch": rep, "partial_reason": cached_coverage["uncovered"][0]["reason"] if cached_coverage["uncovered"] else None}
+
         n_bars_needed = max(10, int((goal_end - goal_start) // step_s) + 5)
         job.add_task("fetch", "request_bars", "Request bars from bridge", total_units=n_bars_needed, unit_name="bars")
 
@@ -308,6 +328,9 @@ class DataEngine:
         received_first_ts = None
         received_last_ts = None
         chunks_walked = 0
+        chunk_results = []
+        scheduled = set(fetch_intervals)
+        MAX_CHUNKS = 512
         for (int_start, int_end) in fetch_intervals:
             cursor = float(int_start)
             consecutive_empty = 0
@@ -315,7 +338,7 @@ class DataEngine:
                 if cancel_ev.is_set():
                     cancelled = True
                     break
-                if time.time() - t_fetch0 > MAX_FETCH_SECONDS:
+                if time.time() - t_fetch0 > MAX_FETCH_SECONDS or chunks_walked >= MAX_CHUNKS:
                     timed_out = True
                     break
                 chunk_end = min(cursor + chunk_span, float(int_end))
@@ -324,6 +347,9 @@ class DataEngine:
                 for attempt in range(3):            # bounded retries per chunk
                     try:
                         chunk = bridge.copy_rates_range(symbol, timeframe, cursor, chunk_end)
+                        terminal = getattr(bridge, "last_history_result", {}) or {}
+                        if terminal.get("status") == "error":
+                            raise RuntimeError(str(terminal.get("error") or "terminal history error"))
                         break
                     except Exception as e:
                         fetch_errors.append(f"{type(e).__name__}: {e}"[:160])
@@ -331,21 +357,46 @@ class DataEngine:
                             chunk = None
                         else:
                             time.sleep(min(2.0 * (attempt + 1), 5.0))
-                if chunk:
-                    collected.extend(chunk)
-                    consecutive_empty = 0
-                    b_first = float(getattr(chunk[0], "ts", None)
-                                    or chunk[0].to_dict().get("ts"))
-                    b_last = float(getattr(chunk[-1], "ts", None)
-                                   or chunk[-1].to_dict().get("ts"))
+                raw_chunk = list(chunk or [])
+                accepted_chunk, out_of_range = [], 0
+                for bar in raw_chunk:
+                    ts = float(bar.ts)
+                    if cursor <= ts <= chunk_end and goal_start <= ts <= goal_end:
+                        accepted_chunk.append(bar)
+                    else:
+                        out_of_range += 1
+                chunk_results.append({"start": cursor, "end": chunk_end,
+                    "raw_bars": len(raw_chunk), "accepted_bars": len(accepted_chunk),
+                    "unique_bars": len({float(b.ts) for b in accepted_chunk}),
+                    "out_of_range_bars": out_of_range, "attempts": attempt + 1,
+                    "error": fetch_errors[-1] if chunk is None and fetch_errors else None,
+                    "status": "received" if accepted_chunk else "error" if chunk is None else "empty",
+                    "first_ts": min((b.ts for b in accepted_chunk), default=None),
+                    "last_ts": max((b.ts for b in accepted_chunk), default=None)})
+                collected.extend(accepted_chunk)
+                if accepted_chunk:
+                    b_first = min(float(b.ts) for b in accepted_chunk)
+                    b_last = max(float(b.ts) for b in accepted_chunk)
                     received_first_ts = b_first if received_first_ts is None else min(received_first_ts, b_first)
                     received_last_ts = b_last if received_last_ts is None else max(received_last_ts, b_last)
-                else:
-                    consecutive_empty += 1
-                    # a long run of empty chunks with nothing fetched at all
-                    # means the bridge cannot serve this range — terminal.
-                    if consecutive_empty >= 5 and not collected:
-                        break
+                # A terminal may return a capped suffix/prefix for a large range.
+                # Walk the unreturned portions too, rather than mistaking a
+                # successful-but-truncated response for full chunk coverage.
+                # Empty subranges terminate locally; global deadline/chunk cap
+                # bounds this adaptive walk. Internal <=96h closures stay warnings.
+                if accepted_chunk:
+                    ts = sorted({float(b.ts) for b in accepted_chunk})
+                    pending = []
+                    if ts[0] > cursor + 2 * step_s:
+                        pending.append((cursor, ts[0] - step_s))
+                    if ts[-1] < chunk_end - 2 * step_s:
+                        pending.append((ts[-1] + step_s, chunk_end))
+                    pending.extend((a + step_s, b - step_s) for a,b in zip(ts,ts[1:]) if b-a > 96*3600)
+                    for a,b in pending:
+                        if b > a and (a,b) not in scheduled:
+                            scheduled.add((a,b))
+                            fetch_intervals.append((a,b))
+                # Empty early history is not proof later chunks are unavailable.
                 done_frac = min(1.0, (cursor - goal_start) / max(1.0, goal_end - goal_start))
                 pct = 35.0 + 25.0 * done_frac
                 activity.running("DATA",
@@ -368,7 +419,7 @@ class DataEngine:
         # Bounded legacy fallback: only when the range API produced NOTHING at
         # all, and never more than 20k recent bars (the old unbounded
         # copy_rates(n_bars_needed) call was the stall the user saw).
-        if not bars and not cancelled and not timed_out:
+        if request_start is None and not bars and not cancelled and not timed_out:
             n_recent = min(n_bars_needed, 20000)
             activity.info("DATA", f"No range bars returned for {symbol} {timeframe}, requesting recent {n_recent} bars",
                           operation_id=op_id, progress=45.0)
@@ -419,6 +470,8 @@ class DataEngine:
             "bars_received": len(unique_ts) if unique_ts else len(bars),
             "bars_collected_raw": len(bars),
             "chunks": int(chunks_walked),
+            "chunk_results": chunk_results,
+            "cache_source": "bridge_range + persisted_master",
             "intervals": [{"start": float(a), "end": float(b)} for (a, b) in fetch_intervals],
             "uncovered": uncovered,
             "errors": fetch_errors[-5:],
@@ -435,14 +488,16 @@ class DataEngine:
             }
 
         if bars is None or len(bars) == 0:
-            msg = f"No bars returned for {symbol} {timeframe} from {bridge.source}"
+            msg = f"No in-range bars returned for {symbol} {timeframe} from {bridge.source}"
             activity.warning("DATA", msg, operation_id=op_id)
             job.fail(msg)
-            return {
-                "symbol": symbol, "timeframe": timeframe, "fetch_mode": fetch_mode,
-                "new_bars": 0, "total_bars": mstore.rows, "version": mstore.version,
-                "status": "no_data_from_bridge", "fetch": fetch_report,
-            }
+            fetch_report.update(cached_coverage)
+            fetch_report.update({"persisted_rows": mstore.rows,
+                                 "partial_reason": "bridge error" if fetch_errors else "empty/unavailable requested range"})
+            return {"symbol": symbol, "timeframe": timeframe, "fetch_mode": fetch_mode,
+                    "new_bars": 0, "total_bars": mstore.rows, "version": mstore.version,
+                    "status": "no_data_from_bridge", "sync_status": "PARTIAL", "fetch": fetch_report,
+                    "partial_reason": fetch_report["partial_reason"]}
 
         job.update_task_progress("fetch", "request_bars", len(bars), max(len(bars), n_bars_needed))
         job.complete_stage("fetch")
@@ -453,7 +508,7 @@ class DataEngine:
         activity.running("DATA", f"Validating timestamps & data integrity for {symbol} {timeframe}",
                          operation_id=op_id, progress=75.0)
 
-        df_raw = pd.DataFrame([b.to_dict() for b in bars])
+        df_raw = pd.DataFrame([b.to_dict() for b in bars]).sort_values("ts", kind="stable").reset_index(drop=True)
 
         # Filter simulator weekend bars if needed
         if bridge.source == "SIMULATOR":
@@ -527,27 +582,11 @@ class DataEngine:
         # terminal label: COMPLETE only when the PERSISTED bars cover the goal
         # window; otherwise PARTIAL with the uncovered portion named, so the UI
         # never presents short data as full.
-        end_margin = step_s * 10
-        covers_end = (received_last_ts is not None
-                      and received_last_ts >= goal_end - end_margin)
-        covers_start = (received_first_ts is not None
-                        and received_first_ts <= goal_start + step_s * max(5, CHUNK_BARS // 4))
-        if timed_out:
-            sync_status = "PARTIAL"
-            partial_reason = "fetch deadline reached — remaining range not downloaded"
-        elif covers_end and covers_start:
-            sync_status = "COMPLETE"
-            partial_reason = None
-        else:
-            sync_status = "PARTIAL"
-            partial_reason = ("terminal history is partially available for the requested range"
-                              if bars else "range unavailable")
-            if request_start is not None and not covers_start:
-                partial_reason = ("terminal history starts later than the requested range"
-                                  + (f" (first bar {datetime.fromtimestamp(received_first_ts, tz=timezone.utc).strftime('%Y-%m-%d')})"
-                                     if received_first_ts else ""))
-            elif request_start is not None and not covers_end:
-                partial_reason = "terminal history ends before the requested range"
+        persisted = range_coverage(mstore, goal_start, goal_end, step_s)
+        fetch_report.update(persisted)
+        sync_status = "PARTIAL" if timed_out else persisted["status"]
+        partial_reason = ("fetch deadline or bounded chunk limit reached — remaining range not downloaded" if timed_out
+                          else persisted["uncovered"][0]["reason"] if persisted["uncovered"] else None)
         fetch_report.update({
             "status": sync_status, "partial_reason": partial_reason,
             "persisted_first_ts": mstore.first_ts,

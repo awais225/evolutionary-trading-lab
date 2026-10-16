@@ -330,7 +330,11 @@ def test_24_the_two_endpoints_agree_on_qualified(client):
     a = client.get("/api/nodes/populations").json()["counts"]
     b = client.get("/api/nodes", params={"filter": "qualified", "limit": 1000}).json()
     total = b.get("total", len(b.get("nodes") or []))
-    assert total == a["qualified"], (total, a["qualified"])
+    # V9.1 keeps bucket inventory explicitly separate from research qualification.
+    expected = client.get("/api/node-data").json()["node_data"]["counts"]["qualified"]
+    assert total == expected
+    gate = client.get("/api/nodes?filter=gate_passed&limit=1").json()
+    assert gate["total"] == a["qualified"]
 
 
 def test_25_populations_are_read_only(client):

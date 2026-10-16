@@ -1,0 +1,82 @@
+{
+  "nodes_all_100": [
+    {
+      "seconds": 3.580568330999995,
+      "sql_statements": 36,
+      "json_bytes": 420992,
+      "rows": 100,
+      "total": 10000
+    },
+    {
+      "seconds": 1.0982455630000914,
+      "sql_statements": 36,
+      "json_bytes": 420992,
+      "rows": 100,
+      "total": 10000
+    }
+  ],
+  "nodes_qualified_all": [
+    {
+      "seconds": 0.4844814499997483,
+      "sql_statements": 35,
+      "json_bytes": 281653,
+      "rows": 70,
+      "total": 70
+    },
+    {
+      "seconds": 0.37093255299987504,
+      "sql_statements": 35,
+      "json_bytes": 281653,
+      "rows": 70,
+      "total": 70
+    }
+  ],
+  "authority": [
+    {
+      "seconds": 0.3562869390002561,
+      "sql_statements": 23,
+      "json_bytes": 2511610,
+      "rows": 0,
+      "total": null
+    },
+    {
+      "seconds": 9.385500015923753e-05,
+      "sql_statements": 1,
+      "json_bytes": 2511626,
+      "rows": 0,
+      "total": null
+    }
+  ],
+  "nodes_all_100_compact": [
+    {
+      "seconds": 1.0259761340003024,
+      "sql_statements": 35,
+      "json_bytes": 329294,
+      "rows": 100,
+      "total": 10000
+    },
+    {
+      "seconds": 1.1656502759997238,
+      "sql_statements": 35,
+      "json_bytes": 329294,
+      "rows": 100,
+      "total": 10000
+    }
+  ],
+  "authority_summary": [
+    {
+      "seconds": 0.0001981089999389951,
+      "sql_statements": 6,
+      "json_bytes": 26457,
+      "rows": 0,
+      "total": null
+    },
+    {
+      "seconds": 9.387199997945572e-05,
+      "sql_statements": 6,
+      "json_bytes": 26457,
+      "rows": 0,
+      "total": null
+    }
+  ]
+}

@@ -537,11 +537,12 @@ def _gen_metrics_from(met: dict) -> dict:
     ``backtests.metrics`` JSON). Absent values stay absent; a real zero is a
     real zero. These numbers are NEVER taken from current MT5 candle coverage
     (a generation record can exist while no cached M1 bars exist)."""
+    from .registry import numeric
     def g(*keys):
         for k in keys:
             v = met.get(k)
-            if isinstance(v, (int, float)) and not isinstance(v, bool):
-                return float(v)
+            if numeric(v) is not None:
+                return numeric(v)
         return None
     # NOTE on units (V6.7 §4.2): the historical generation records store
     # total_return_pct / max_drawdown_pct / win_rate as FRACTIONS despite the
@@ -553,6 +554,8 @@ def _gen_metrics_from(met: dict) -> dict:
         "profit_factor": g("profit_factor"),
         "max_drawdown_pct": g("max_drawdown_pct"),
         "win_rate_pct": g("win_rate_pct", "win_rate"),
+        "win_rate": g("win_rate", "win_rate_pct"),
+        "avg_trade": g("avg_trade"),
         "trades": g("trades", "total_closed_trades", "total_trades"),
         "sharpe": g("sharpe", "sharpe_ratio"),
         "sortino": g("sortino", "sortino_ratio"),
@@ -561,25 +564,38 @@ def _gen_metrics_from(met: dict) -> dict:
     }
 
 
+_GENERATION_CACHE = __import__("weakref").WeakKeyDictionary()
+
+
 def _best_generation_record(db) -> dict:
-    """One scan of ``backtests``: per strategy the record nodes_index shows as
-    its generation performance (detail preferred over screen, newest wins)."""
-    out: dict = {}
-    try:
-        recs = db.q("""SELECT id, strategy_id, stage, metrics FROM backtests
-                       WHERE stage IN ('detail','screen') ORDER BY id""") or []
-    except Exception:
-        return out
+    """Saved generation summary only: detail > screen, newest within stage.
+
+    SQLite extracts scalars from persisted JSON; trade/equity arrays stay in
+    storage until detail/Inspect requests them. Revision triggers include SQL
+    updates without timestamp changes. Candidate bookmarks do not invalidate it.
+    """
+    token = db_state_token(db)
+    hit = _GENERATION_CACHE.get(db)
+    if hit and hit[0] == token and token != "v1:unknown":
+        return hit[1]
+    keys = ("total_return_pct", "total_return", "return_pct", "profit_factor",
+            "max_drawdown_pct", "win_rate", "win_rate_pct", "trades",
+            "total_closed_trades", "total_trades", "net_profit", "sharpe",
+            "sharpe_ratio", "sortino", "sortino_ratio", "expectancy", "avg_trade",
+            "avg_hold_bars", "avg_hold", "window", "dataset_id", "stage")
+    fields = ",".join("'%s',json_extract(metrics,'$.%s')" % (k, k) for k in keys)
+    recs = db.q("""SELECT id, strategy_id, stage,
+        CASE WHEN json_valid(metrics) THEN json_object(""" + fields + """) ELSE '{}' END metrics
+        FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY strategy_id
+             ORDER BY CASE stage WHEN 'detail' THEN 0 ELSE 1 END, id DESC) chosen
+             FROM backtests WHERE stage IN ('detail','screen')) WHERE chosen=1""") or []
+    out = {}
     for r in recs:
-        sid = r.get("strategy_id")
-        if sid is None:
-            continue
-        stage = (r.get("stage") or "")
-        rank = 0 if stage == "detail" else 1
-        prev = out.get(sid)
-        if prev is None or (rank, int(r.get("id") or 0)) < (prev[0], prev[1]):
-            out[sid] = (rank, int(r.get("id") or 0), _metrics_from_json(r.get("metrics")))
-    return {sid: v[2] for sid, v in out.items()}
+        m = _metrics_from_json(r.get("metrics"))
+        m["_record_id"], m["_stage"] = r["id"], r["stage"]
+        out[r["strategy_id"]] = m
+    _GENERATION_CACHE[db] = (token, out)
+    return out
 
 
 def _top_list(scored_rows: list, key: str, *, desc: bool, limit: int) -> list:
@@ -615,12 +631,8 @@ def db_state_token(db) -> str:
     (restoration imports, run workflow, tests) invalidates the cache instead of
     presenting stale counts as current."""
     try:
-        row = db.one("""SELECT COUNT(*) c, COALESCE(MAX(id),0) mx,
-                               COALESCE(MAX(updated_at),0) mu,
-                               COALESCE(MAX(created_at),0) mc FROM strategies""") or {}
-        ds = db.one("SELECT COUNT(*) c FROM datasets") or {}
-        return "v1:%s:%s:%s:%s:%s" % (row.get("c"), row.get("mx"), row.get("mu"),
-                                      row.get("mc"), ds.get("c"))
+        row = db.one("SELECT revision FROM node_registry_revision WHERE id=1") or {}
+        return "registry:%s" % row.get("revision", "unknown")
     except Exception:
         return "v1:unknown"
 

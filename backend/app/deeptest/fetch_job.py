@@ -21,13 +21,22 @@ class _FetchJob:
     def __init__(self, symbol: str, timeframe: str, period: Optional[Dict[str, Any]]):
         self.symbol = symbol
         self.timeframe = timeframe
-        self.period = period
+        self.request_period = period
+        from .periods import resolve_period, explicit_period
+        if period and period.get("start_ts") is not None:
+            self.period = explicit_period(float(period["start_ts"]), float(period["end_ts"]))
+            if self.period["end_ts"] <= self.period["start_ts"]:
+                raise ValueError("range start must precede end")
+        elif period and period.get("duration_key"):
+            self.period = resolve_period(str(period["duration_key"]))
+        else:
+            self.period = period
         self.cancel = threading.Event()
         self.lock = threading.Lock()
         self.state: Dict[str, Any] = {
             "status": "QUEUED", "stage": "QUEUED",
             "symbol": symbol, "timeframe": timeframe,
-            "period": period,
+            "period": self.period,
             "started_at": time.time(), "finished_at": None,
             "progress_pct": 0.0,
             "operation": "waiting for the fetch worker",
@@ -55,6 +64,8 @@ def start_fetch(symbol: str, timeframe: str,
     with _JOBS_LOCK:
         job = _JOBS.get(key)
         if job and job.state["status"] not in ("DONE", "FAILED", "CANCELLED"):
+            if (job.request_period or {}) != (period or {}):
+                return {"ok": False, "error": "different history range already fetching for this pair; wait or cancel before retrying", "job": job.state}
             return {"ok": True, "joined_existing": True, "job": job.state}
         job = _FetchJob(str(symbol).upper(), str(timeframe).upper(), period)
         _JOBS[key] = job
@@ -138,6 +149,11 @@ def _run(job: _FetchJob) -> None:
         cov = pair_coverage(job.symbol, job.timeframe)
         # V6.7 §5.5 — terminal label reflects the REAL outcome: COMPLETE only
         # when the received range covers the request; a short range is PARTIAL.
+        if (result or {}).get("status") in ("no_data_from_bridge", "invalid_range"):
+            job.set(status="FAILED", stage="FAILED", finished_at=time.time(),
+                    error=(result or {}).get("partial_reason") or (result or {}).get("error") or "no history returned",
+                    result={"sync": result, "coverage": cov, "requested_vs_actual": (result or {}).get("fetch")})
+            return
         stage = "PARTIAL" if sync_status == "PARTIAL" else "COMPLETE"
         note = (result or {}).get("partial_reason") or "history up to date"
         job.set(status="DONE", stage=stage, finished_at=time.time(),

@@ -159,7 +159,8 @@ class TestCanonicalCounts:
             c = TestClient(app)
             ni = c.get("/api/nodes?filter=all&limit=0").json()
             ft = ni["filter_totals"]
-            gate_passed = ft["qualified"]
+            gate_passed = ft["gate_passed"]
+            assert ft["qualified"] == 5, "V9.1 table default is frozen QUALIFIED+PAPER"
             nd = c.get("/api/node-data").json()["node_data"]
             # gate-passed = the frozen VALID tier: every stored status v5_status maps
             # to VALID (SURVIVED/QUALIFIED/PAPER/SHORTLISTED/MT5_BACKTESTED/

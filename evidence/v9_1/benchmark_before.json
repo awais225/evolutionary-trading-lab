@@ -1,0 +1,50 @@
+{
+  "nodes_all_100": [
+    {
+      "seconds": 5.131578200000149,
+      "sql_statements": 50032,
+      "json_bytes": 391677,
+      "rows": 100,
+      "total": 10000
+    },
+    {
+      "seconds": 2.5898211230000925,
+      "sql_statements": 50033,
+      "json_bytes": 391677,
+      "rows": 100,
+      "total": 10000
+    }
+  ],
+  "nodes_qualified_all": [
+    {
+      "seconds": 2.5940111830000205,
+      "sql_statements": 50032,
+      "json_bytes": 348895,
+      "rows": 92,
+      "total": 92
+    },
+    {
+      "seconds": 2.8820323089998965,
+      "sql_statements": 50032,
+      "json_bytes": 348895,
+      "rows": 92,
+      "total": 92
+    }
+  ],
+  "authority": [
+    {
+      "seconds": 1.8062309560000358,
+      "sql_statements": 26,
+      "json_bytes": 2509675,
+      "rows": 0,
+      "total": null
+    },
+    {
+      "seconds": 0.004907669000203896,
+      "sql_statements": 2,
+      "json_bytes": 2509691,
+      "rows": 0,
+      "total": null
+    }
+  ]
+}

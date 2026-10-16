@@ -305,7 +305,7 @@ def lab_recheck() -> Dict:
 
 
 @router.get("/node-data")
-def node_data_get() -> Dict[str, Any]:
+def node_data_get(summary: bool = False) -> Dict[str, Any]:
     """V6.8 §3 — THE authoritative node-data projection (see
     ``app.research.node_data``): stored records + established qualification
     formulas + established generation metrics, one revision per response.
@@ -319,6 +319,8 @@ def node_data_get() -> Dict[str, Any]:
             get_db().set_meta("node_data_revision", nd.get("revision"))
         except Exception:
             pass
+        if summary:
+            nd = {k: v for k, v in nd.items() if k != "identity"}
         return {"ok": True, "node_data": nd}
     except Exception as exc:
         raise HTTPException(500, f"node data snapshot failed: {type(exc).__name__}: {exc}")
@@ -1202,8 +1204,8 @@ def _filter_persisted_strategies(
                        "dataset_end": r.get("ds_end_ts"),
                        "bars": r.get("ds_bars"),
                        "window": _win},
-            "research_node_num": r.get("research_node_num") or r["id"],
-            "run_id": r.get("run_id") or "RUN-HISTORICAL-PRESERVED",
+            "research_node_num": r.get("research_node_num"),
+            "run_id": r.get("run_id"),
             "data_source": r.get("data_source") or "USER_RESEARCH",
             "symbol": r["symbol"],
             "timeframe": r["timeframe"],
@@ -1324,6 +1326,26 @@ def get_saved_shortlist() -> Dict:
     db = get_db()
     sids = db.get_shortlist()
     return {"shortlist": sids}
+
+
+@router.put("/research/shortlist/{strategy_id}")
+def set_shortlist_item(strategy_id: int, payload: Dict = Body(...)) -> Dict:
+    """Desired-state, retry-safe canonical candidate bookmark. Never starts a worker."""
+    db = get_db()
+    if not db.one("SELECT id FROM strategies WHERE id=?", (strategy_id,)):
+        raise HTTPException(404, "canonical strategy_id not found")
+    desired = payload.get("starred")
+    if not isinstance(desired, bool):
+        raise HTTPException(422, "starred must be a boolean desired state")
+    db.get_shortlist()  # existing additive table initialization
+    if desired:
+        # INSERT OR IGNORE preserves notes/created_at on a retry.
+        db.x("INSERT OR IGNORE INTO research_shortlist(strategy_id,created_at,notes) VALUES (?,?,?)",
+             (strategy_id, time.time(), str(payload.get("notes") or "")))
+    else:
+        db.remove_from_shortlist(strategy_id)
+    return {"ok": True, "strategy_id": strategy_id, "starred": desired,
+            "shortlisted": desired}
 
 
 @router.post("/research/shortlist/toggle")
@@ -1653,7 +1675,7 @@ def paper_candidates(limit: int = 100) -> Dict[str, Any]:
                 pass
         candidates.append({
             "id": r["id"],
-            "run_id": r.get("run_id") or "RUN-HISTORICAL-PRESERVED",
+            "run_id": r.get("run_id"),
             "symbol": r["symbol"],
             "timeframe": r["timeframe"],
             "status": r["status"],
@@ -5334,7 +5356,13 @@ def deeptest_fetch(payload: Dict[str, Any] = Body(...)):
     if (payload or {}).get("range_start") is not None:
         period["start_ts"] = payload.get("range_start")
         period["end_ts"] = payload.get("range_end")
-    return start_fetch(symbol, timeframe, period=period or None)
+    try:
+        from ..deeptest.coverage import tf_seconds
+        if tf_seconds(timeframe) is None:
+            raise ValueError("unsupported candle timeframe")
+        return start_fetch(symbol, timeframe, period=period or None)
+    except (ValueError, TypeError, KeyError) as exc:
+        raise HTTPException(422, str(exc))
 
 
 @router.get("/deeptest/fetch/{symbol}/{timeframe}")
@@ -5785,6 +5813,7 @@ def nodes_index(
     sort_desc: bool = False,
     limit: int = 100,
     offset: int = 0,
+    compact: bool = False,
 ) -> Dict[str, Any]:
     """§6/§7/§8/§25 — the qualified-node index.
 
@@ -5799,12 +5828,15 @@ def nodes_index(
     """
     from ..status import NODE_FILTERS, node_bucket, node_matches_filter
     from ..live_testing.results import per_node_live_stats
+    from ..live_testing.eligibility import tradeability as _tradeability
     from ..live_testing.risk import (risk_limits, resolve_per_node_limit, resolve_risk_pct)
 
+    NODE_FILTERS = (*NODE_FILTERS, "gate_passed")
     wanted = str(filter or "qualified").strip().lower()
     if wanted not in NODE_FILTERS:
         return {"ok": False, "error": f"unknown filter {filter!r}",
-                "filters": list(NODE_FILTERS), "nodes": [], "total": 0}
+                "filters": list(NODE_FILTERS),
+        "scope": "complete stored history; qualified = stored QUALIFIED + PAPER", "nodes": [], "total": 0}
 
     db = get_db()
     limits = risk_limits()
@@ -5856,9 +5888,7 @@ def nodes_index(
     }
 
     # ---- rows ---------------------------------------------------------------- #
-    q_cols = """id, status, symbol, timeframe, generation, fitness, run_id,
-                  research_node_num, data_source, failure_reason, survival_reason,
-                  creation_reason, parent_id, mutation_type, created_at"""
+    q_cols = "*"
     # V6.4 — ONE response describes ONE universe: the rows this endpoint lists
     # and the counts it publishes are the SAME set (the whole index: every
     # non-legacy row, plus the legacy rows that make up the "excluded" bucket),
@@ -5878,10 +5908,7 @@ def nodes_index(
         base_rows = db.q(f"""SELECT {q_cols} FROM strategies
                              WHERE COALESCE(data_source,'USER_RESEARCH') <> 'LEGACY_TEST'
                              ORDER BY id""") or []
-    legacy_rows = db.q("""SELECT id, status, symbol, timeframe, generation, fitness, run_id,
-                                research_node_num, data_source, failure_reason, survival_reason,
-                                creation_reason, parent_id, mutation_type, created_at
-                         FROM strategies WHERE data_source='LEGACY_TEST'""") or []
+    legacy_rows = db.q("SELECT * FROM strategies WHERE data_source='LEGACY_TEST'") or []
     strategies = list(base_rows)
     # V6.8 §3.3 — an identity search spans the COMPLETE stored research
     # history: a node can never disappear from a tab because one endpoint
@@ -5890,9 +5917,22 @@ def nodes_index(
     # labels/buckets; the bucket filter semantics themselves are unchanged.
     _search_spans_history = bool((search or "").strip()) and wanted not in (
         "all", "excluded", "blocked", "failed", "unknown")
-    if wanted in ("all", "excluded", "blocked", "failed", "unknown") or (search or "").strip():
+    if starred_only or wanted in ("qualified", "all", "excluded", "blocked", "failed", "unknown") or (search or "").strip():
         strategies = strategies + list(legacy_rows)
 
+    if run_id:
+        strategies = [r for r in strategies if r.get("run_id") == run_id]
+    # Bulk saved-record projection; no get_strategy alias fallback and no N+1.
+    from ..research.populations import _best_generation_record
+    gen_records = _best_generation_record(db)
+    config_records = {r["strategy_id"]: r for r in db.q("SELECT * FROM live_test_configs")}
+    validation_records = {}
+    for r in db.q("SELECT strategy_id, robustness_score, passed FROM validations ORDER BY id"):
+        validation_records.setdefault(r["strategy_id"], r)
+    dataset_records = {}
+    for r in db.q("SELECT * FROM datasets ORDER BY created_at DESC"):
+        dataset_records.setdefault((str(r.get("symbol") or "").upper(),
+                                    str(r.get("timeframe") or "").upper()), r)
     try:
         enrolled = {int(n["id"]): n for n in _live_engine().eligible_nodes()}
     except Exception:
@@ -5954,31 +5994,24 @@ def nodes_index(
             bucket = {"bucket": "unknown", "label": "Unknown", "reason": str(e)[:200],
                       "v5_status": None}
         b = bucket["bucket"]
-        cfg = db.one("SELECT * FROM live_test_configs WHERE strategy_id=?", (sid,)) or {}
-        strat = db.get_strategy(sid) or st
+        # Filter before decoding/configuring rows, but after independent bucket counts.
+        if not search_clean and not starred_only:
+            if wanted == "qualified":
+                if st.get("status") not in ("QUALIFIED", "PAPER"):
+                    continue
+            elif not node_matches_filter(b, "qualified" if wanted == "gate_passed" else wanted):
+                continue
+        if starred_only and sid not in shortlist:
+            continue
+        cfg = config_records.get(sid) or {}
+        strat = st
         genome = _genome_of(strat)
         override = cfg.get("risk_pct")
         eff = resolve_risk_pct(global_pct, override)
-        bt = db.one("""SELECT metrics FROM backtests
-                       WHERE strategy_id=? AND stage IN ('detail','screen')
-                       ORDER BY CASE stage WHEN 'detail' THEN 0 ELSE 1 END, id DESC LIMIT 1""",
-                    (sid,))
-        m = {}
-        if bt and bt.get("metrics"):
-            try:
-                m = json.loads(bt["metrics"])
-            except Exception:
-                m = {}
-        val = db.one("SELECT robustness_score, passed FROM validations WHERE strategy_id=? LIMIT 1",
-                     (sid,)) or {}
-        # §7/§8 — the real coverage of the data the research backtest ran on:
-        # symbol + timeframe + the dataset's own recorded range and bar count.
-        ds_row = db.one("""SELECT id, symbol, timeframe, start_ts, end_ts, bars, source,
-                                  dataset_version, fingerprint
-                           FROM datasets
-                           WHERE UPPER(symbol)=UPPER(?) AND UPPER(timeframe)=UPPER(?)
-                           ORDER BY created_at DESC LIMIT 1""",
-                        (str(strat.get("symbol") or ""), str(strat.get("timeframe") or ""))) or {}
+        m = gen_records.get(sid) or {}
+        val = validation_records.get(sid) or {}
+        ds_row = dataset_records.get((str(strat.get("symbol") or "").upper(),
+                                      str(strat.get("timeframe") or "").upper())) or {}
         cov = {
             "dataset_id": ds_row.get("id"),
             "source": ds_row.get("source"),
@@ -5999,22 +6032,13 @@ def nodes_index(
         }
         from ..live_testing.schedule import describe as _describe_schedule
         from ..live_testing.schedule import normalize_config as _norm_cfg
-        sched_norm = _norm_cfg(db.get_live_test_config(sid) or cfg) if (cfg or {}) else {}
+        sched_norm = _norm_cfg(db.decode_live_test_config(cfg) if cfg else {}) if (cfg or {}) else {}
         sched_desc = _describe_schedule(sched_norm) if sched_norm else None
         ls = live.get(sid, {})
-        num = strat.get("research_node_num") or st.get("research_node_num")
+        num = strat.get("research_node_num")
         # V6.6 §12 — the shared statistics projection for this row
-        _gen_metrics = {
-            "return_pct": m.get("total_return_pct"),
-            "profit_factor": m.get("profit_factor"),
-            "max_drawdown_pct": m.get("max_drawdown_pct"),
-            "win_rate": m.get("win_rate"),
-            "trades": m.get("trades"),
-            "net_profit": m.get("net_profit"),
-            "expectancy": m.get("expectancy"),
-            "avg_trade": m.get("avg_trade"),
-            "sharpe": m.get("sharpe"),
-        }
+        from ..research.populations import _gen_metrics_from
+        _gen_metrics = _gen_metrics_from(m)
         try:
             from ..stats.deeptest_projection import effective_for as _dt_effective
             _proj = _dt_effective(_dt_index, sid, generation_metrics=_gen_metrics)
@@ -6033,6 +6057,7 @@ def nodes_index(
             # research number 6658), so a bare number is never used as identity.
             "node_id": sid,                       # canonical id (database primary key)
             "strategy_id": sid,
+            "data_source": strat.get("data_source"),
             "research_node_num": num,             # study-local display number (§25)
             "node_label": f"Node #{sid}",
             "research_label": (f"research #{num}" if num is not None else None),
@@ -6042,9 +6067,9 @@ def nodes_index(
                 "research_node_num": num,
                 "research_label": (f"research #{num}" if num is not None else None),
                 "generation": strat.get("generation") if strat.get("generation") is not None else st.get("generation"),
-                "experiment": cur_run,
+                "experiment": strat.get("run_id"),
             },
-            "experiment": cur_run,
+            "experiment": strat.get("run_id"),
             "run_id": strat.get("run_id") or st.get("run_id"),
             "generation": strat.get("generation") if strat.get("generation") is not None else st.get("generation"),
             "parent_id": strat.get("parent_id"),
@@ -6081,6 +6106,7 @@ def nodes_index(
             "metrics_source": _proj["metrics_source"],
             "metrics_source_label": _proj["metrics_source_label"],
             "generation_metrics": _proj["generation_metrics"],
+            "generation_record": {"backtest_id": m.get("_record_id"), "stage": m.get("_stage"), "source": "saved generation backtest"},
             "deeptest": _proj["deeptest"],
             "robustness": {"score": val.get("robustness_score"), "passed": val.get("passed")},
             "backtest_coverage": cov,
@@ -6107,7 +6133,8 @@ def nodes_index(
             "position": ls.get("open_position"),
             "position_open": bool(ls.get("open_position")),
             "starred": sid in shortlist,
-            "eligibility_note": excluded_notes.get(sid),
+            "eligibility_note": excluded_notes.get(sid) or _tradeability(strat, genome).get("reason"),
+            "live_eligibility": _tradeability(strat, genome),
             # ---- V6.5.1 §2-§6 — the unified Nodes table controls ----------
             # The lifecycle/limits/offsets/risk-mode fields MUST live on THIS
             # endpoint (the one the Live Testing Nodes table consumes): V6.5
@@ -6133,7 +6160,7 @@ def nodes_index(
         if search_clean:
             if not _hit(_row):
                 rows.pop()
-        elif not node_matches_filter(b, wanted):
+        elif not starred_only and not (st.get("status") in ("QUALIFIED", "PAPER") if wanted == "qualified" else node_matches_filter(b, "qualified" if wanted == "gate_passed" else wanted)):
             rows.pop()
     if symbol:
         rows = [r for r in rows if str(r.get("symbol") or "").upper() == symbol.upper()]
@@ -6186,7 +6213,7 @@ def nodes_index(
                 v = g.get(fname)
                 if v is None and gname == "backtest_coverage":
                     v = (g.get("research_backtest") or {}).get("bars_window")
-                return v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+                return v
             return None
         if sort_key_name in r:
             return r.get(sort_key_name)
@@ -6197,22 +6224,9 @@ def nodes_index(
                 return g.get(sort_key_name)
         return None
 
-    def _key(r):
-        v = _sort_value(r)
-        return v if isinstance(v, (int, float)) else str(v)
-
-    # Nodes with no recorded value for the requested key are listed AFTER the ones
-    # that have one — in both directions. Folding "missing" into the comparison
-    # tuple inverted the order for descending sorts (the default for metrics), so
-    # sorting by return showed ten thousand value-less nodes first and looked as if
-    # the sort had not happened at all.
-    _present = [r for r in rows if _sort_value(r) is not None]
-    _missing = [r for r in rows if _sort_value(r) is None]
-    try:
-        _present.sort(key=_key, reverse=bool(sort_desc))
-    except TypeError:                      # mixed str/number payloads: compare as text
-        _present.sort(key=lambda r: str(_sort_value(r)), reverse=bool(sort_desc))
-    rows = _present + _missing
+    from ..research.registry import sort_nodes
+    rows = sort_nodes(rows, _sort_value, descending=bool(sort_desc),
+                      text=(sort_key_name in ("node_label", "symbol", "timeframe", "bucket")))
     total = len(rows)
     # V5.2.3 §10 — ONE scrollable table, no pagination: ``limit=0`` (or negative)
     # means "every matching node". A finite limit is still honoured for other
@@ -6266,10 +6280,15 @@ def nodes_index(
                  "reduce the count if the operator set it, and the reason is reported here"),
     })
 
+    if compact:
+        for row in page:
+            row.pop("signal_logic", None)
+            row.pop("backtest_coverage", None)
     return {
         "ok": True,
         "filter": wanted,
         "filters": list(NODE_FILTERS),
+        "scope": "complete stored history; qualified = stored QUALIFIED + PAPER",
         "sort_by": sort_by,
         "sort_key": sort_key_name,
         "counts": counts,
@@ -6277,7 +6296,8 @@ def nodes_index(
         # the count each *filter* would show, so the filter dropdown can label
         # itself with a real number instead of leaving the composite filters blank
         "filter_totals": {
-            "qualified": counts.get("qualified", 0),
+            "gate_passed": counts.get("qualified", 0),
+            "qualified": sum(r.get("status") in ("QUALIFIED", "PAPER") for r in list(base_rows) + list(legacy_rows)),
             "alive": counts.get("qualified", 0) + counts.get("alive", 0),
             "eligible": counts.get("qualified", 0) + counts.get("alive", 0),
             "all": sum(counts.values()),

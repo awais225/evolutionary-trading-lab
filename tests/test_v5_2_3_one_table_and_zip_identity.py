@@ -90,14 +90,14 @@ def db(tmp_path):
 def test_01_the_node_index_returns_every_row_when_limit_is_zero(db, monkeypatch):
     import app.api.routes as routes
     monkeypatch.setattr(routes, "get_db", lambda: db, raising=False)
-    out = routes.nodes_index(filter="qualified", limit=0)
+    out = routes.nodes_index(filter="gate_passed", limit=0)
     assert out["all_rows"] is True
     assert out["truncated"] is False
     assert out["limit"] == 0
     assert out["returned"] == out["total"] == 7
     assert len(out["nodes"]) == 7, "every matching node is in the payload"
 
-    paged = routes.nodes_index(filter="qualified", limit=5)
+    paged = routes.nodes_index(filter="gate_passed", limit=5)
     assert paged["returned"] == 5 and paged["all_rows"] is False
     assert paged["truncated"] is True, "a page must never look like the population"
     assert paged["total"] == 7

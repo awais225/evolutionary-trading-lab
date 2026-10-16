@@ -22,6 +22,7 @@
  * then re-reads the index, so the row state after the click is the backend's
  * state, never an optimistic guess.
  */
+import NodeTable, { CandidateStar, NodeIdentity, GenerationCells, compareNodes } from "./NodeTable.jsx";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { api, fmt } from "../api.js";
 import { Badge, Card, useInterval } from "./ui.jsx";
@@ -32,8 +33,9 @@ import { ScheduleDialog } from "./LiveTestingPanels.jsx";
  * "qualified" is the default: qualified / alive / eligible, by construction of
  * the backend classifier (a node is only ever in one bucket). */
 const FILTERS = [
-  { value: "qualified", label: "Qualified / Alive / Eligible" },
+  { value: "qualified", label: "Qualified research (QUALIFIED + PAPER)" },
   { value: "all", label: "All" },
+  { value: "gate_passed", label: "Gate-passed / VALID tier" },
   { value: "alive", label: "Alive (incl. qualified)" },
   { value: "eligible", label: "Eligible (incl. qualified)" },
   { value: "failed", label: "Failed" },
@@ -381,6 +383,15 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
   // action error the operator has not acknowledged.
   useInterval(() => load({ silent: true }), 8000);
 
+  useEffect(() => {
+    const changed = (e) => {
+      setRows((old) => old.map((r) => r.node_id === e.detail.strategy_id ? { ...r, starred: e.detail.starred } : r)
+        .filter((r) => !starredOnly || r.starred));
+    };
+    window.addEventListener("candidate-star-changed", changed);
+    return () => window.removeEventListener("candidate-star-changed", changed);
+  }, [starredOnly]);
+
   // §7 — the population authority is fetched whenever the table is empty (or the
   // index failed), so the explanation always carries real backend numbers.
   useEffect(() => {
@@ -591,7 +602,7 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
       {msg && <div className="kit-ok" style={{ marginBottom: 6 }}>{msg}</div>}
 
       <div className="table-scroll">
-        <table className="table compact">
+<NodeTable rows={rows} className="table compact" resetKey={`${filter}|${search}|${sortBy}|${sortDesc}|${starredOnly}`}>{(visibleRows) => (<>
           <thead>
             <tr>
               <th>★</th>
@@ -614,10 +625,16 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
               <th>Schedule</th>
               <th title="V6.5.1 §2 — the backend's lifecycle state for this node">Lifecycle</th>
               <th>Action</th>
+              <th>{sortBtn("generation_return", "Gen Return")}</th>
+              <th>{sortBtn("generation_net_profit", "Gen Net")}</th>
+              <th>{sortBtn("generation_pf", "Gen PF")}</th>
+              <th>{sortBtn("generation_dd", "Gen DD")}</th>
+              <th>{sortBtn("generation_win_rate", "Gen WR")}</th>
+              <th>{sortBtn("generation_trades", "Gen Trades")}</th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => {
+            {visibleRows.map((r) => {
               const m = objOrNull(r.metrics) || {};
               const rob = objOrNull(r.robustness) || {};
               const live = objOrNull(r.live) || {};
@@ -632,22 +649,17 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
                 <React.Fragment key={r.node_id}>
                   <tr>
                     <td>
-                      <button className="btn ghost" style={{ padding: 0, lineHeight: 1 }}
-                              title={r.starred ? "On the shortlist" : "Add to shortlist"}
-                              onClick={() => onToggleStar && onToggleStar(r.node_id)}>
-                        {r.starred ? "★" : "☆"}
-                      </button>
+                      <CandidateStar row={r} />
                     </td>
                     <td className="mono">
-                      <a href="#" title={`canonical node id ${r.node_id}${rlabel ? ` (${rlabel} — study-local display number)` : ""}`}
-                         onClick={(e) => {
-                           e.preventDefault();
-                           if (onOpenNode) onOpenNode(r.node_id);
-                           setDetail(detail === r.node_id ? null : r.node_id);
-                         }}>{label}{rlabel ? <span className="muted" style={{ fontSize: 10 }}> · {rlabel}</span> : null}</a>
+                      <NodeIdentity row={r} onInspect={() => {
+                        if (onOpenNode) onOpenNode(r.node_id);
+                        setDetail(detail === r.node_id ? null : r.node_id);
+                      }} />
                     </td>
-                    <td>
+                    <td title={r.eligibility_note || ""}>
                       <Badge tone={BUCKET_TONE[bucket] || "mute"}>{txt(r.bucket_label, bucket)}</Badge>
+                      {r.eligibility_note && <div className="muted" style={{ fontSize: 10 }}>{r.eligibility_note}</div>}
                     </td>
                     <td className="mono">{txt(r.generation, NA_TEXT)}</td>
                     <td className="mono">{txt(r.symbol, NA_TEXT)}</td>
@@ -711,10 +723,11 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
                                        busy={busyId === r.node_id}
                                        onAct={(a) => act(r, a)} />
                     </td>
+                    <GenerationCells row={r} />
                   </tr>
                   {detail === r.node_id && (
                     <tr>
-                      <td colSpan={20} style={{ background: "rgba(255,255,255,0.02)" }}>
+                      <td colSpan={26} style={{ background: "rgba(255,255,255,0.02)" }}>
                         {/* §9 — the node's actual research record. Nothing here is
                             recalculated in the browser: it is the row the API served. */}
                         <div className="kit-grid" style={{ fontSize: 11.5 }}>
@@ -780,7 +793,7 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
             })}
             {rows.length === 0 && !loading && (
               <tr>
-                <td colSpan={20}>
+                <td colSpan={26}>
                   {/* §7 — an explicit, truthful empty state: the authoritative
                       population numbers, the eligibility reason and the next step.
                       Never a blank table, never an invented node. */}
@@ -831,7 +844,7 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
               </tr>
             )}
           </tbody>
-        </table>
+        </>)}</NodeTable>
       </div>
 
       {/* V5.2.3 §10 — no pager: the table above holds every matching node and

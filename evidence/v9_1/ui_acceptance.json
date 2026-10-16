@@ -1,0 +1,19 @@
+{
+  "v47_render": "35/35",
+  "v48_retained": "54/54",
+  "v651_controls": "16/16",
+  "v91_workflow": "6/6",
+  "synthetic_render_fixture": {
+    "before": {
+      "ms": 282.15531499999975,
+      "rows": 1000,
+      "cells": 8000
+    },
+    "after": {
+      "ms": 40.48768800000016,
+      "rows": 100,
+      "cells": 800
+    },
+    "environment": "jsdom; synthetic 1000 rows x8cells; includes20ms flush; not Edge/browser paint"
+  }
+}

@@ -1589,10 +1589,10 @@ export async function runSmoke() {
       if (!text.includes("(global)")) throw new Error("the table must show whether risk is global or a node override");
       // the default filter is Qualified/Alive/Eligible — a FAILED node must not be in it
       const filterSel = Array.from(container.querySelectorAll("select"))
-        .find((x) => Array.from(x.options).some((o) => /Qualified \/ Alive/.test(o.textContent || "")));
-      if (!filterSel) throw new Error("no node filter control with the Qualified/Alive/Eligible default");
+        .find((x) => Array.from(x.options).some((o) => /Qualified research/.test(o.textContent || "")));
+      if (!filterSel) throw new Error("no node filter control with the QUALIFIED+PAPER research default");
       if (filterSel.value !== "qualified") throw new Error(`the default filter is ${filterSel.value}, not qualified`);
-      const qualOpt = Array.from(filterSel.options).find((o) => /Qualified \/ Alive/.test(o.textContent || ""));
+      const qualOpt = Array.from(filterSel.options).find((o) => /Qualified research/.test(o.textContent || ""));
       if (!/\(2\)/.test(qualOpt.textContent || "")) {
         throw new Error(`the filter options must be labelled with the real counts ("${qualOpt.textContent}")`);
       }

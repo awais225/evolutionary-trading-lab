@@ -1,0 +1,38 @@
+{
+  "counts": {
+    "qualified": 99,
+    "alive": 6000,
+    "dead": 4768,
+    "backtesting": 0,
+    "validating": 0,
+    "total": 10809,
+    "scope": "complete stored research history (all runs incl. preserved)",
+    "formula": "qualified = stored status QUALIFIED + PAPER (db.get_qualified_strategies / reconstruct_state semantics)"
+  },
+  "top_return": {
+    "canonical_node_id": 718,
+    "research_node_num": null,
+    "node_label": "Node #718",
+    "research_label": "",
+    "bucket": "qualified",
+    "v5_status": "VALID",
+    "stored_status": "SURVIVED",
+    "metric": "return_pct",
+    "value": 1.481,
+    "generation_metrics": {
+      "return_pct": 1.481,
+      "net_profit": 14809.59,
+      "profit_factor": 2.545,
+      "max_drawdown_pct": 0.0405,
+      "win_rate_pct": 0.7724,
+      "win_rate": 0.7724,
+      "avg_trade": 16.364,
+      "trades": 905.0,
+      "sharpe": 35.181,
+      "sortino": 41.467,
+      "expectancy": 0.001636,
+      "avg_hold": 12.9
+    }
+  },
+  "restored_nodes": 10809
+}

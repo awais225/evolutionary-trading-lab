@@ -1,3 +1,4 @@
+import NodeTable, { CandidateStar, NodeIdentity, GenerationCells } from "../components/NodeTable.jsx";
 import React, { useEffect, useState, useMemo, useRef } from "react";
 import { api, fmt } from "../api.js";
 import { useLab } from "../App.jsx";
@@ -9,12 +10,25 @@ import NodePopulationStrip from "../components/NodePopulationStrip.jsx";
 export default function Overview() {
   const { status, events, connected, refreshStatus, openStrategy } = useLab();
   const [top, setTop] = useState([]);
+  const [topFilter, setTopFilter] = useState("qualified");
+  const topRequest = useRef(0);
+  const topQuery = useRef(null);
   const [resources, setResources] = useState(null);
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState("");
   const [newRunOpen, setNewRunOpen] = useState(false);   // V4.1 START NEW RESEARCH RUN dialog
   const [sortCol, setSortCol] = useState("fitness");
   const [sortDir, setSortDir] = useState("desc");
+  topQuery.current = async () => {
+    const seq = ++topRequest.current;
+    const aliases = { id: "node_id", pf: "generation_pf", dd: "generation_dd", return_pct: "generation_return", trades: "generation_trades", win_rate: "generation_win_rate", net_profit: "generation_net_profit" };
+    const res = await api.nodes({ filter: topFilter === "starred" ? "all" : topFilter,
+      starred_only: topFilter === "starred", limit: 15, compact: true,
+      sort_by: aliases[sortCol] || sortCol, sort_desc: sortDir === "desc" });
+    if (seq === topRequest.current) setTop(res.nodes || []);
+    return res;
+  };
+  useEffect(() => { topQuery.current().catch((e) => setErr(e.message)); }, [sortCol, sortDir, topFilter]);
 
   // V2.1 Total Node Target & Recheck State
   const [targetInput, setTargetInput] = useState("");
@@ -187,8 +201,8 @@ export default function Overview() {
       // node-data authority counts (include_legacy follows the established
       // V4.5 /research/* pattern); server-side full-dataset sort, never a
       // limited slice re-ranked locally.
-      api.population({ limit: 15, sort: sortCol || "fitness", sort_desc: sortDir === "desc" ? "true" : "false", include_legacy: true })
-        .then((r) => setTop(r.strategies || []))
+      topQuery.current()
+        .then(() => {})
         .catch((e) => setErr(e.message));
     };
     const fetchRes = () => {
@@ -210,7 +224,7 @@ export default function Overview() {
       }).catch(() => {});
     };
 
-    fetchTop();
+    // Top view loads through its sort/filter effect; periodic refresh below uses latest query.
     fetchRes();
     fetchInventory();
     fetchJobs();
@@ -227,8 +241,8 @@ export default function Overview() {
       inFlightOverview = true;
       try {
         await Promise.all([
-          api.population({ limit: 15, sort: sortCol || "fitness", sort_desc: sortDir === "desc" ? "true" : "false", include_legacy: true })
-            .then((r) => setTop(r.strategies || [])).catch(() => {}),
+          topQuery.current()
+            .then(() => {}).catch(() => {}),
           api.resources().then(setResources).catch(() => {}),
           api.dataInventory().then(setInventory).catch(() => {}),
           api.jobs().then(setJobsData).catch(() => {}),
@@ -428,8 +442,8 @@ export default function Overview() {
   // dataset server-side (missing metrics last, canonical-id tie-break); this
   // handler only changes the query and re-fetches, never re-ranks a slice.
   const refetchTop = () => {
-    api.population({ limit: 15, sort: sortCol || "fitness", sort_desc: sortDir === "desc" ? "true" : "false", include_legacy: true })
-      .then((r) => setTop(r.strategies || []))
+    topQuery.current()
+      .then(() => {})
       .catch((e) => setErr(e.message));
   };
   const handleSort = (col) => {
@@ -439,7 +453,7 @@ export default function Overview() {
       setSortCol(col);
       setSortDir("desc");
     }
-    setTimeout(refetchTop, 0);
+    // The sort/filter effect sends exactly one current-state request.
   };
 
   const sortedTop = useMemo(() => top.slice(0, 15), [top]);
@@ -1204,15 +1218,19 @@ export default function Overview() {
       <div className="grid cols-2" style={{ gridTemplateColumns: "2fr 1.2fr", marginBottom: 14 }}>
         <div className="panel">
           <div className="flex justify-between items-center">
-            <h3>Top strategies (sortable, click column header)</h3>
+            <h3>Top strategies — saved registry view (top 15)</h3>
+            <select aria-label="Top strategies scope" value={topFilter} onChange={(e) => setTopFilter(e.target.value)}>
+              <option value="qualified">Qualified research (QUALIFIED + PAPER)</option>
+              <option value="all">All stored history</option><option value="starred">Starred candidates</option>
+            </select>
             <div className="muted" style={{ fontSize: "11px", marginTop: -6, marginBottom: 8 }}>
-              ranking over the complete stored research history (preserved runs included) —
+              ranking within the selected canonical registry scope (preserved runs included) —
               the same records the node-data authority counts
             </div>
             <span className="muted" style={{ fontSize: "0.8rem" }}>Sorted by: <b>{sortCol}</b> ({sortDir})</span>
           </div>
           <div className="scroll-y" style={{ maxHeight: 330 }}>
-            <table className="tbl">
+            <NodeTable rows={sortedTop} resetKey={`${sortCol}|${sortDir}|${topFilter}`}>{(visibleRows) => (<>
               <thead>
                 <tr>
                   <th onClick={() => handleSort("id")} style={{ cursor: "pointer" }}>node (canonical · research){sortArrow("id")}</th>
@@ -1220,36 +1238,33 @@ export default function Overview() {
                   <th onClick={() => handleSort("generation")} style={{ cursor: "pointer" }}>gen{sortArrow("generation")}</th>
                   <th>tf</th>
                   <th onClick={() => handleSort("fitness")} style={{ cursor: "pointer" }}>fitness{sortArrow("fitness")}</th>
-                  <th onClick={() => handleSort("pf")} style={{ cursor: "pointer" }} title="Profit factor = gross profit ÷ gross loss (a RATIO: 2.91, never a percentage)">PF (ratio){sortArrow("pf")}</th>
-                  <th onClick={() => handleSort("return_pct")} style={{ cursor: "pointer" }} title="Total return on initial capital (percentage: 6.71%)">return %{sortArrow("return_pct")}</th>
-                  <th onClick={() => handleSort("dd")} style={{ cursor: "pointer" }}>DD{sortArrow("dd")}</th>
-                  <th onClick={() => handleSort("trades")} style={{ cursor: "pointer" }}>trades{sortArrow("trades")}</th>
+                  <th onClick={() => handleSort("return_pct")}>Gen Return{sortArrow("return_pct")}</th>
+                  <th onClick={() => handleSort("net_profit")}>Gen Net{sortArrow("net_profit")}</th>
+                  <th onClick={() => handleSort("pf")}>Gen PF{sortArrow("pf")}</th>
+                  <th onClick={() => handleSort("dd")}>Gen DD{sortArrow("dd")}</th>
+                  <th onClick={() => handleSort("win_rate")}>Gen WR{sortArrow("win_rate")}</th>
+                  <th onClick={() => handleSort("trades")}>Gen Trades{sortArrow("trades")}</th>
                   <th>qualification / survival evidence</th>
                 </tr>
               </thead>
               <tbody>
-                {sortedTop.map((s) => (
-                  <tr key={s.id} onClick={() => openStrategy(s.id)}>
-                    <td className="mono">Node #{s.id}
-                      {s.research_node_num ? <span className="muted" style={{ fontSize: 10 }} title="study-local display number"> · research #{s.research_node_num}</span> : null}
-                    </td>
-                    <td><Pill status={s.status} /></td>
+                {visibleRows.map((s) => (
+                  <tr key={s.node_id} onClick={() => openStrategy(s.node_id)}>
+                    <td><CandidateStar row={s} /><NodeIdentity row={s} onInspect={(e) => openStrategy(s.node_id)} /></td>
+                    <td><Pill status={s.qualification} /></td>
                     <td>{s.generation}</td>
                     <td>{s.timeframe}</td>
                     <td className="mono font-bold">{fmt.num(s.fitness, 3)}</td>
-                    <td className="mono">{fmt.num(s.pf, 2)}</td>
-                    <td><SignedNum v={s.return_pct} pct /></td>
-                    <td className="mono">{fmt.pct(s.dd)}</td>
-                    <td>{s.trades ?? "–"}</td>
+                    <GenerationCells row={s} />
                     <td className="muted" style={{ fontSize: 10.5, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                        title={s.survival_reason || s.creation_reason || ""}>
-                      {s.survival_reason || s.creation_reason || "–"}
+                        title={s.survival_evidence || ""}>
+                      {s.survival_evidence || "–"}
                     </td>
                   </tr>
                 ))}
-                {!sortedTop.length && <tr><td colSpan={10} className="muted">no tested strategies yet — press START</td></tr>}
+                {!sortedTop.length && <tr><td colSpan={12} className="muted">no tested strategies yet — press START</td></tr>}
               </tbody>
-            </table>
+            </>)}</NodeTable>
           </div>
         </div>
         <div className="panel">

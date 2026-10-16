@@ -629,7 +629,10 @@ class MT5RealBridge(MarketBridge):
 
     def copy_rates_range(self, symbol: str, timeframe: str,
                          start_ts: float, end_ts: float) -> List[Bar]:
+        self.last_history_result = {"status": "fetching", "symbol": symbol,
+                                    "timeframe": timeframe, "start_ts": start_ts, "end_ts": end_ts}
         if not self._connected or not MT5_PACKAGE_AVAILABLE:
+            self.last_history_result.update(status="error", error="MT5 history bridge not connected")
             return []
         t0 = time.time()
         try:
@@ -638,6 +641,7 @@ class MT5RealBridge(MarketBridge):
             e = datetime.fromtimestamp(end_ts, tz=timezone.utc)
             rows = mt5.copy_rates_range(symbol, _tf_const(timeframe), s, e)
         except Exception as ex:
+            self.last_history_result.update(status="error", error=f"{type(ex).__name__}: {ex}")
             log.warning("copy_rates_range failed for %s %s: %s", symbol, timeframe, ex)
             return []
 
@@ -647,9 +651,14 @@ class MT5RealBridge(MarketBridge):
                  symbol, timeframe, type(rows).__name__, n_rows, is_empty)
 
         if is_empty:
+            if rows is None:
+                self.last_history_result.update(status="error", error=f"MT5 copy_rates_range returned None: {mt5.last_error()}")
+            else:
+                self.last_history_result.update(status="empty", bars=0)
             return []
 
         bars = self._rows_to_bars(rows)
+        self.last_history_result.update(status="received", bars=len(bars))
         if len(bars) > 0:
             self.last_request_ts = time.time()
             self.last_request_ms = (time.time() - t0) * 1000.0

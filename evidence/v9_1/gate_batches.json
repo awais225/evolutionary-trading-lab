@@ -1,0 +1,151 @@
+[
+  {
+    "batch": 1,
+    "files": [
+      "tests/test_dashboard_diagnostic.py",
+      "tests/test_frontend_serving.py",
+      "tests/test_v4_1_research_run_workflow.py",
+      "tests/test_v4_2_mt5_execution.py",
+      "tests/test_v4_3_live_testing.py",
+      "tests/test_v4_4_stats.py",
+      "tests/test_v4_5_strategy_lab.py"
+    ],
+    "exit": 0,
+    "seconds": 17.70683304799968,
+    "tail": "167 passed, 2 warnings in 17.05s"
+  },
+  {
+    "batch": 2,
+    "files": [
+      "tests/test_v4_6_mt5_historical.py",
+      "tests/test_v4_7_audit_remediation.py",
+      "tests/test_v4_7_frontend.py",
+      "tests/test_v4_7_reliability.py",
+      "tests/test_v4_8_dashboard.py",
+      "tests/test_v4_8_frontend.py",
+      "tests/test_v5_1a_coverage_and_balances.py"
+    ],
+    "exit": 0,
+    "seconds": 37.37984763199984,
+    "tail": "140 passed, 1 skipped, 1 warning in 36.65s"
+  },
+  {
+    "batch": 3,
+    "files": [
+      "tests/test_v5_1a_fresh_run_isolation.py",
+      "tests/test_v5_1a_launcher_identity.py",
+      "tests/test_v5_1a_live_index_and_risk.py",
+      "tests/test_v5_1a_live_test_order_path.py",
+      "tests/test_v5_1a_manual_calculator_flow.py",
+      "tests/test_v5_1a_mt5_account_selector.py",
+      "tests/test_v5_1a_mt5_order_diagnostics.py"
+    ],
+    "exit": 0,
+    "seconds": 46.44273930599957,
+    "tail": "92 passed, 1 warning in 45.75s"
+  },
+  {
+    "batch": 4,
+    "files": [
+      "tests/test_v5_1a_mt5_runtime_report.py",
+      "tests/test_v5_1a_next_ui_contract.py",
+      "tests/test_v5_1a_node_populations.py",
+      "tests/test_v5_1a_qualified_nodes.py",
+      "tests/test_v5_1a_regime_filtering.py",
+      "tests/test_v5_1a_ui_theme_and_regime_control.py",
+      "tests/test_v5_1a_windows_mt5_diagnostic.py"
+    ],
+    "exit": 0,
+    "seconds": 30.396919244999935,
+    "tail": "165 passed, 1 warning in 29.59s"
+  },
+  {
+    "batch": 5,
+    "files": [
+      "tests/test_v5_2_1_gate_identity_and_live_population.py",
+      "tests/test_v5_2_2_live_eligibility_semantics.py",
+      "tests/test_v5_2_3_one_table_and_zip_identity.py",
+      "tests/test_v5_2_deep_testing_data.py",
+      "tests/test_v5_2_mt5_order_semantics.py",
+      "tests/test_v5_3_demo_execution_forensics.py",
+      "tests/test_v5_3_manual_order_capability.py"
+    ],
+    "exit": 0,
+    "seconds": 25.165612236000015,
+    "tail": "132 passed, 1 warning in 24.34s"
+  },
+  {
+    "batch": 6,
+    "files": [
+      "tests/test_v5_3_study_reset_identity.py",
+      "tests/test_v5_live_testing.py",
+      "tests/test_v5_manual_order.py",
+      "tests/test_v5_pipeline_smoke.py",
+      "tests/test_v5_power_shutdown.py",
+      "tests/test_v5_realistic_backtest.py",
+      "tests/test_v5_status_and_diagnostics.py"
+    ],
+    "exit": 0,
+    "seconds": 41.643170435999764,
+    "tail": "117 passed, 1 warning in 40.63s"
+  },
+  {
+    "batch": 7,
+    "files": [
+      "tests/test_v6_4_live_lifecycle.py",
+      "tests/test_v6_4_metrics_contract.py",
+      "tests/test_v6_4_node_identity.py",
+      "tests/test_v6_4_pip_conversion.py",
+      "tests/test_v6_4_positions_close.py",
+      "tests/test_v6_4_result_normalization.py",
+      "tests/test_v6_4_schedule_defaults.py"
+    ],
+    "exit": 0,
+    "seconds": 2.357662866999817,
+    "tail": "85 passed, 1 warning in 1.67s"
+  },
+  {
+    "batch": 8,
+    "files": [
+      "tests/test_v6_5_1_account_panel.py",
+      "tests/test_v6_5_1_frontend_ui.py",
+      "tests/test_v6_5_1_lifecycle.py",
+      "tests/test_v6_5_1_nodes_config_api.py",
+      "tests/test_v6_5_1_risk_modes.py",
+      "tests/test_v6_5_limits_api.py",
+      "tests/test_v6_5_offsets.py"
+    ],
+    "exit": 0,
+    "seconds": 44.283314130000235,
+    "tail": "60 passed, 1 warning in 43.52s"
+  },
+  {
+    "batch": 9,
+    "files": [
+      "tests/test_v6_5_statistics.py",
+      "tests/test_v6_5_trade_ledger.py",
+      "tests/test_v6_5_trade_limits.py",
+      "tests/test_v6_6_deeptest.py",
+      "tests/test_v6_7_deeptest_workflow.py",
+      "tests/test_v6_8_authority_and_workflow.py",
+      "tests/test_v6_9_canonical_data.py"
+    ],
+    "exit": 0,
+    "seconds": 32.86039419200006,
+    "tail": "156 passed, 1 warning in 32.02s"
+  },
+  {
+    "batch": 10,
+    "files": [
+      "tests/test_v6_live_testing_workers.py",
+      "tests/test_v6_mt5_bridge_contract.py",
+      "tests/test_v7_0_manual_trading.py",
+      "tests/test_v7_0_range_fetch.py",
+      "tests/test_v8_purge.py",
+      "tests/test_v9_1_registry_and_history.py"
+    ],
+    "exit": 0,
+    "seconds": 28.531635129999813,
+    "tail": "86 passed, 1 warning in 27.78s"
+  }
+]

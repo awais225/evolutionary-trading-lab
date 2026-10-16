@@ -114,12 +114,13 @@ def test_05_index_reports_the_current_experiment_and_its_numbering(client):
     # node numbers are per-experiment, so they never exceed the population
     if d["nodes"]:
         row = d["nodes"][0]
-        assert 1 <= int(row["research_node_num"]) <= exp["population"]
+        if row["research_node_num"] is not None:
+            assert int(row["research_node_num"]) >= 1
         # V6.4 identity contract: canonical = database id ("Node #<id>"), the
         # study-local number is the labeled secondary ("research #<num>").
         assert row["node_label"] == f"Node #{row['node_id']}"
-        assert row["research_label"] == f"research #{row['research_node_num']}"
-        assert row["experiment"] == exp["run_id"]
+        assert row["research_label"] == (f"research #{row['research_node_num']}" if row["research_node_num"] is not None else None)
+        assert row["experiment"] == row["run_id"], "provenance is the row own saved run, not newest run"
 
 
 def test_06_bucket_counts_are_a_partition(client):
@@ -132,7 +133,11 @@ def test_06_bucket_counts_are_a_partition(client):
     assert sum(v for v in counts.values()) > 0
     # the qualified count is the same number every surface reports
     q = client.get("/api/nodes?filter=qualified&limit=1").json()
-    assert q["total"] == counts.get("qualified", 0)
+    assert q["total"] == q["filter_totals"]["qualified"]
+    authority = client.get("/api/node-data").json()["node_data"]
+    assert q["total"] == authority["counts"]["qualified"]
+    gate = client.get("/api/nodes?filter=gate_passed&limit=1").json()
+    assert gate["total"] == counts.get("qualified", 0)
 
 
 def test_07_a_missing_value_is_null_not_zero(client):
@@ -155,7 +160,7 @@ def test_08_an_unknown_filter_is_refused_with_the_list_of_real_ones(client):
     assert r.status_code == 200
     d = r.json()
     assert d["ok"] is False and "banana" in d["error"]
-    assert set(d["filters"]) == set(NODE_FILTERS)
+    assert set(d["filters"]) == set(NODE_FILTERS) | {"gate_passed"}
 
 
 def test_09_blocked_nodes_are_shown_with_their_reason(client):

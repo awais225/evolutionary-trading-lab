@@ -18,6 +18,7 @@
 //     COVERAGE always marked), statistics priority, inspect/compare/prefer;
 //   * statistics priority (shared projection): preferred DeepTest → latest
 //     valid DeepTest → generation → N/A.
+import NodeTable, { CandidateStar, NodeIdentity, GenerationCells, compareNodes } from "../components/NodeTable.jsx";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, fmt } from "../api";
 import { Badge, StateBlock } from "../components/ui";
@@ -36,8 +37,9 @@ export const NODE_FILTERS = [
   // V6.9 §2.3 — the filter KEYS and row sets are the frozen node_bucket
   // semantics (unchanged); the LABELS name the concept truthfully so a filter
   // row count can never be read as the qualified research-node statistic.
-  { key: "qualified", label: "Qualified tier",
-    hint: "gate-passed / VALID tier (stored status SURVIVED or QUALIFIED) — a FILTER row count, not the qualified research-node statistic" },
+  { key: "qualified", label: "Qualified research (QUALIFIED + PAPER)",
+    hint: "complete stored history; frozen stored QUALIFIED + PAPER definition" },
+  { key: "gate_passed", label: "Gate-passed / VALID tier", hint: "broader classifier inventory, not qualified research" },
   { key: "alive", label: "Alive",
     hint: "qualified tier + still in research (not a dead end) — filter row count" },
   { key: "failed", label: "Dead", hint: "judged and did not make it — filter row count" },
@@ -102,19 +104,22 @@ export default function DeepBacktest() {
   const [authority, setAuthority] = useState(null);
 
   // ---- data loading --------------------------------------------------------
+  const nodeSeq = useRef(0);
   const loadNodes = useCallback(async () => {
+    const seq = ++nodeSeq.current;
     setLoading(true);
     setError(null);
     try {
       const res = await api.nodes({ filter, search, limit: 0, offset: 0, sort_by: "node_id" });
+      if (seq !== nodeSeq.current) return;
       setNodes(arr(res.nodes));
       setCounts(res.filter_totals || res.counts || null);
       setExperiment(res.experiment || null);
       setNodesMeta({ revision: res.data_revision, search_scope: res.search_scope });
     } catch (e) {
-      setError(e);
+      if (seq === nodeSeq.current) setError(e);
     } finally {
-      setLoading(false);
+      if (seq === nodeSeq.current) setLoading(false);
     }
   }, [filter, search]);
 
@@ -161,12 +166,16 @@ export default function DeepBacktest() {
   }, []);
 
   useEffect(() => {
-    loadNodes().then(() => loadCoverage());
+    loadNodes();
     loadDt();
     loadSettings();
     loadAuthority();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadNodes, loadDt, loadSettings]);
+
+  // Recount persisted range bars after actual nodes arrive AND duration changes.
+  // The old loadNodes().then(oldClosure) saw the previous empty node list.
+  useEffect(() => { loadCoverage(nodes); }, [loadCoverage]);
 
   // light polling while any job is active (fetch or run)
   useEffect(() => {
@@ -193,7 +202,6 @@ export default function DeepBacktest() {
         // without a page reload; sort state is preserved because it is state.
         if (fetchFinished) {
           await loadNodes();
-          await loadCoverage();
         }
         if (Object.keys(runBusy).length) {
           await loadDt();
@@ -250,6 +258,7 @@ export default function DeepBacktest() {
       // V7.0 §2 — the selected duration defines the requested range; it is
       // transmitted explicitly and the backend fetches exactly that window.
       const res = await api.deeptestFetch({ symbol, timeframe, duration_key: periodKey });
+      if (res.ok === false) throw new Error(res.error || "history fetch refused");
       if (res.job) setFetchStates((m) => ({ ...m, [key]: res.job }));
     } catch (e) {
       setFetchStates((m) => ({ ...m, [key]: { status: "FAILED", operation: e.message || String(e) } }));
@@ -392,22 +401,9 @@ export default function DeepBacktest() {
         default: return n.node_id;
       }
     };
-    rows.sort((a, b) => {
-      const av = val(a); const bv = val(b);
-      if (av == null && bv == null) return a.node_id - b.node_id;
-      if (av == null) return 1;
-      if (bv == null) return -1;
-      if (typeof av === "string" || typeof bv === "string") {
-        const cmp = String(av).localeCompare(String(bv));
-        if (cmp !== 0) return sortDir > 0 ? cmp : -cmp;
-      } else {
-        if (av < bv) return -sortDir;
-        if (av > bv) return sortDir;
-      }
-      return a.node_id - b.node_id;   // stable canonical-id tie-break
-    });
+    rows.sort((a, b) => compareNodes(a, b, val, sortDir, ["symbol", "timeframe", "status"].includes(sortKey)));
     return rows;
-  }, [nodes, sortKey, sortDir, dtByNode]);
+  }, [nodes, sortKey, sortDir, dtByNode, covOf, barsInRangeOf]);
 
   // V6.7 §8 — DEEPTESTED NODES rows: generation metrics joined from the same
   // canonical inventory, DeepTest metrics from the preferred scenario; sortable
@@ -448,15 +444,7 @@ export default function DeepBacktest() {
         default: return d.node_id;
       }
     };
-    rows.sort((a, b) => {
-      const av = val(a); const bv = val(b);
-      if (av == null && bv == null) return a.node_id - b.node_id;
-      if (av == null) return 1;
-      if (bv == null) return -1;
-      if (av < bv) return -dtSortDir;
-      if (av > bv) return dtSortDir;
-      return a.node_id - b.node_id;
-    });
+    rows.sort((a, b) => compareNodes(a, b, val, dtSortDir));
     return rows;
   }, [dtNodes, genById, dtSearch, dtSortKey, dtSortDir]);
   const setDtSort = (k) => {
@@ -589,10 +577,10 @@ export default function DeepBacktest() {
         <StateBlock loading={loading} error={error} onRetry={loadNodes}
                     empty={!loading && !error && !nodes.length} emptyText="no nodes match this filter" />
         <div className="table-scroll" style={{ marginTop: 6 }}>
-          <table style={{ width: "100%", fontSize: 10.8 }} className="tbl mono">
+<NodeTable rows={sorted} style={{ width: "100%", fontSize: 10.8 }} resetKey={`${filter}|${search}|${sortKey}|${sortDir}`}>{(visibleRows) => (<>
             <thead>
               <tr>
-                <th></th>
+                <th>select / star</th>
                 {sortTh("node_id", "node id (canonical · research)", "canonical database id; the study-local number is labelled 'research #'")}
                 {sortTh("status", "status", "stored classification (bucket)")}
                 {sortTh("generation", "gen", "generation number")}
@@ -622,24 +610,17 @@ export default function DeepBacktest() {
               </tr>
             </thead>
             <tbody>
-              {sorted.map((n) => {
+              {visibleRows.map((n) => {
                 const d = dtByNode[n.node_id] || null;
                 const pref = d?.preferred || null;
                 const c = cfgOf(n.node_id);
                 const busy = runBusy[n.node_id];
                 return (
                   <tr key={n.node_id}>
-                    <td><input type="checkbox" checked={!!selected[n.node_id]}
+                    <td><CandidateStar row={n} /><input type="checkbox" checked={!!selected[n.node_id]}
                                onChange={(e) => setSelected((m) => ({ ...m, [n.node_id]: e.target.checked }))} /></td>
                     <td>
-                      <button className="btn" style={{ fontSize: 10.5 }} onClick={() => setDrawerId(n.node_id)}>
-                        {n.node_label || `Node #${n.node_id}`}
-                      </button>
-                      {n.research_node_num != null && (
-                        <div className="muted" style={{ fontSize: 9.5 }} title="study-local display number (explicit second namespace)">
-                          · research #{n.research_node_num}
-                        </div>
-                      )}
+                      <NodeIdentity row={n} onInspect={() => setDrawerId(n.node_id)} />
                     </td>
                     <td title={txt(n.bucket_reason)}>{txt(n.bucket_label || n.bucket)}</td>
                     <td>{n.generation ?? "—"}</td>
@@ -650,14 +631,7 @@ export default function DeepBacktest() {
                     <td>{txt(n.timeframe)}</td>
                     {/* V6.7 §4.2 — generation metrics come from the stored generation
                         record ONLY; real zeros show as 0, missing stays N/A. */}
-                    <td className="mono">{fmtPct(n.generation_metrics?.return_pct)}</td>
-                    <td className="mono">{n.generation_metrics?.net_profit == null
-                      ? <span className="muted">N/A</span>
-                      : <span className={n.generation_metrics.net_profit >= 0 ? "pos" : "neg"}>{fmtMoney(n.generation_metrics.net_profit)}</span>}</td>
-                    <td className="mono">{fmtNum(n.generation_metrics?.profit_factor, 3)}</td>
-                    <td className="mono neg">{fmtPct(n.generation_metrics?.max_drawdown_pct)}</td>
-                    <td className="mono">{fmtPct(n.generation_metrics?.win_rate)}</td>
-                    <td className="mono">{n.generation_metrics?.trades ?? "N/A"}</td>
+                    <GenerationCells row={n} />
                     <td className="mono">{fmtNum(n.fitness, 4)}</td>
                     <td className="mono">{pref ? fmtPct(pref.analytics?.summary?.net_return_pct) : <span className="muted">NOT DEEPTESTED</span>}</td>
                     <td className="mono">{pref ? fmtNum(pref.analytics?.summary?.profit_factor, 3) : "—"}</td>
@@ -758,7 +732,7 @@ export default function DeepBacktest() {
                 );
               })}
             </tbody>
-          </table>
+          </>)}</NodeTable>
         </div>
         <div style={{ fontSize: 10.5, opacity: 0.75, marginTop: 6 }}>
           statistics priority: <b>preferred DeepTest → latest valid DeepTest → generation → N/A</b>.
