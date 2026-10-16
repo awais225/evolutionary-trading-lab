@@ -614,6 +614,13 @@ class DataEngine:
         }
 
     def _materialize_dataset_view(self, mstore: master.MasterStore) -> str:
+        if mstore.profile.get('source')=='USER_HISTORY':
+            with master._store_lock(mstore.raw_dir):
+                mstore._meta=mstore._load_meta()
+                return self._materialize_dataset_view_locked(mstore)
+        return self._materialize_dataset_view_locked(mstore)
+
+    def _materialize_dataset_view_locked(self,mstore):
         """Create/update a view dataset in `datasets` table pointing to the master store."""
         if mstore.rows == 0:
             return ""
@@ -623,7 +630,7 @@ class DataEngine:
                                      mstore.profile_key, mstore.version)
         db = get_db()
         existing = db.one("SELECT id, bars FROM datasets WHERE id=?", (did,))
-        if existing:
+        if existing and (mstore.profile.get('source')!='USER_HISTORY' or storage.dataset_path(cfg.data.cache_dir,did).exists()):
             return did
 
         # Write dataset snapshot to cache_dir so existing fast paths / worker pools

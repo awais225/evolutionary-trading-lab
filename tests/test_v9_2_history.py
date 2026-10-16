@@ -229,3 +229,36 @@ def test_cancel_and_failed_latest_ranges_preserve_baseline(history_store):
     assert out['status']=='CANCELLED' and out['after']==1 and out['fingerprint']==fp
     out=L._sync_pair(Unavailable(),'M1',start+600*60,cancel_event=threading.Event())
     assert out['status']=='PARTIAL' and out['after']==1 and out['fingerprint']==fp and out['errors']
+
+
+def test_active_writer_blocks_other_process_recovery(history_store,tmp_path):
+    import subprocess,sys
+    M,db=history_store;profile={'source':'USER_HISTORY','broker':'ICMARKETS','server':'CANONICAL'};store=M.MasterStore('XAUUSD','M1',profile);store.append(bars([1700000000.]))
+    code="""import sys,json
+from pathlib import Path
+sys.path.insert(0,'backend')
+from app.data import master as M
+root=Path(sys.argv[1]);M.P.symbol_dirs=lambda s:{k:root/s/k for k in ('raw','quarantine','metadata')}
+print('ready',flush=True)
+s=M.MasterStore('XAUUSD','M1',json.loads(sys.argv[2]));print(s.rows,flush=True)
+"""
+    with M._store_lock(store.raw_dir):
+        child=subprocess.Popen([sys.executable,'-c',code,str(tmp_path),json.dumps(profile)],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+        assert child.stdout.readline().strip()=='ready'
+        with pytest.raises(subprocess.TimeoutExpired):child.wait(timeout=.2)
+    out,err=child.communicate(timeout=15)
+    assert child.returncode==0 and out.strip()=='1',err
+
+
+def test_canonical_snapshot_refresh_is_locked_versioned_and_rebuildable(history_store,tmp_path,monkeypatch):
+    from types import SimpleNamespace
+    M,db=history_store
+    from app.data import history as H,engine as E,storage
+    H.root().mkdir();(H.root()/'manifest.json').write_text(json.dumps({'symbol':'XAUUSD','timeframes':['M1']}))
+    monkeypatch.setattr(E,'get_db',lambda:db);monkeypatch.setattr(E,'get_config',lambda:SimpleNamespace(data=SimpleNamespace(cache_dir=str(tmp_path/'cache'))))
+    old=M.get_master('XAUUSD','M1',H.PROFILE);old.append(bars([1700000000.]));de=E.DataEngine();v1=de._materialize_dataset_view(old)
+    M.get_master('XAUUSD','M1',H.PROFILE).append(bars([1700000060.]))
+    v2=de._materialize_dataset_view(old) # deliberately stale store object
+    assert v2!=v1 and len(E.DataEngine().get_frame(v1))==1 and len(E.DataEngine().get_frame(v2))==2
+    storage.dataset_path(str(tmp_path/'cache'),v2).unlink()
+    assert de._materialize_dataset_view(old)==v2 and len(E.DataEngine().get_frame(v2))==2

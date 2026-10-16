@@ -35,6 +35,7 @@ import logging
 import os
 import threading
 import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -52,6 +53,61 @@ log = logging.getLogger("data.master")
 
 _WRITER_GUARD = threading.Lock()
 _WRITERS = {}
+_TX_LOCAL = threading.local()
+_OPEN_LOCK_FILES = set()
+
+
+def _after_fork():
+    # A forked worker must neither inherit a dead thread's RLock nor keep a
+    # dead parent's flock descriptor alive. close() does not explicitly unlock
+    # the live parent's shared open-file description.
+    global _WRITER_GUARD, _WRITERS, _TX_LOCAL, _OPEN_LOCK_FILES
+    for handle in tuple(_OPEN_LOCK_FILES):handle.close()
+    _WRITER_GUARD=threading.Lock();_WRITERS={};_TX_LOCAL=threading.local();_OPEN_LOCK_FILES=set()
+
+
+if hasattr(os,'register_at_fork'):os.register_at_fork(after_in_child=_after_fork)
+
+
+@contextmanager
+def _store_lock(directory):
+    """Reentrant thread + cross-process lock, including crash recovery/reads.
+    Uses standard-library Windows byte locks or POSIX flock; no broker calls.
+    """
+    directory=Path(directory);directory.mkdir(parents=True,exist_ok=True)
+    key=str(directory.resolve())
+    with _WRITER_GUARD:lock=_WRITERS.setdefault(key,threading.RLock())
+    with lock:
+        active=getattr(_TX_LOCAL,'active',None)
+        if active is None:active=set();_TX_LOCAL.active=active
+        if key in active:
+            yield
+            return
+        handle=(directory/'.history-write.lock').open('a+b');locked=False
+        _OPEN_LOCK_FILES.add(handle)
+        try:
+            if handle.seek(0,2)==0:handle.write(b'0');handle.flush()
+            handle.seek(0)
+            if os.name=='nt':
+                import msvcrt
+                deadline=time.monotonic()+60
+                while True:
+                    try:msvcrt.locking(handle.fileno(),msvcrt.LK_NBLCK,1);break
+                    except OSError:
+                        if time.monotonic()>=deadline:raise TimeoutError('history store is busy in another process')
+                        time.sleep(.02)
+            else:
+                import fcntl
+                fcntl.flock(handle.fileno(),fcntl.LOCK_EX)
+            locked=True;active.add(key)
+            yield
+        finally:
+            if locked:
+                active.discard(key);handle.seek(0)
+                if os.name=='nt':msvcrt.locking(handle.fileno(),msvcrt.LK_UNLCK,1)
+                else:fcntl.flock(handle.fileno(),fcntl.LOCK_UN)
+            _OPEN_LOCK_FILES.discard(handle);handle.close()
+
 
 TF_SECONDS = integrity.TF_SECONDS
 
@@ -83,18 +139,17 @@ class MasterStore:
         self.meta_path: Path = dirs["metadata"] / f"{timeframe}__{safe}.json"
         self.raw_dir.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
-        self._recover_interrupted_write()
-        self._meta: Dict = self._load_meta()
+        with _store_lock(self.raw_dir):
+            self._recover_interrupted_write()
+            self._meta: Dict = self._load_meta()
 
     def _recover_interrupted_write(self):
         """Roll back a writer interrupted before its durable commit marker.
-        Native single-instance app + per-path writer lock serialize recovery.
+        The store file lock serializes recovery with active worker processes.
         """
         import base64, shutil
         journal=self.raw_dir/'.history-transaction.json'
-        with _WRITER_GUARD:
-            lock=_WRITERS.setdefault(str(self.meta_path.resolve()),threading.RLock())
-        with lock:
+        with _store_lock(self.raw_dir):
             if not journal.exists():return
             saved=json.loads(journal.read_text());backup=Path(saved['backup'])
             if not backup.is_dir():raise RuntimeError('interrupted history transaction backup is missing; refusing unsafe recovery')
@@ -230,9 +285,7 @@ class MasterStore:
         return out
 
     def read_range(self,start_ts=None,end_ts=None,columns=None):
-        with _WRITER_GUARD:
-            lock=_WRITERS.setdefault(str(self.meta_path.resolve()),threading.RLock())
-        with lock:
+        with _store_lock(self.raw_dir):
             self._meta=self._load_meta()
             return self._read_range_impl(start_ts,end_ts,columns)
 
@@ -288,9 +341,7 @@ class MasterStore:
         Only touched months are backed up, not the complete historical baseline.
         """
         import copy,tempfile,shutil,base64
-        with _WRITER_GUARD:
-            lock=_WRITERS.setdefault(str(self.meta_path.resolve()),threading.RLock())
-        with lock:
+        with _store_lock(self.raw_dir):
             self._recover_interrupted_write()
             self._meta=self._load_meta();old=copy.deepcopy(self._meta)
             if df_new is None or df_new.empty:

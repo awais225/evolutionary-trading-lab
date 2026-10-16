@@ -15,3 +15,4 @@ LOGS/*
 DATA/HISTORICAL/latest_fetch.json
 .history-transaction.*
 history-txn-*/
+DATA/**/.history-write.lock
