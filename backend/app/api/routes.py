@@ -5451,15 +5451,22 @@ def deeptest_csv_commit(payload: Dict[str, Any] = Body(...)):
                                       f"timeframe mismatch)"}
     if box['report'].get('needs_timezone_confirmation'):
         return {'ok':False,'needs_timezone_confirmation':True,'error':'confirm the source timezone and validate again; commit never reinterprets an old token'}
+    from ..data.history import archive_source
+    try:
+        artifact=archive_source(box['raw'],box['filename'],box['report'],{'status':'PREPARED','data_committed':False})
+    except Exception as exc:
+        return {'ok':False,'data_committed':False,'error':'original-file archive failed ('+type(exc).__name__+'); no candle merge was attempted'}
     res = commit_import(box["report"], symbol=box["symbol"], timeframe=box["timeframe"],
                         timezone_confirmed=(payload or {}).get("timezone_confirmed"))
+    res['original_artifact']=artifact
     if res.get("ok"):
-        from ..data.history import archive_source
-        res['original_artifact'] = archive_source(box['raw'],box['filename'],box['report'],res)
-        _DT_CSV_VALIDATED.pop(token, None)
-        # §9 re-ask: after the import the coverage question is answered again
-        res["next_step"] = ("re-run the coverage preflight — if history is still incomplete "
-                            "the confirmation popup reappears")
+        try:archive_source(box['raw'],box['filename'],box['report'],res)
+        except Exception as exc:
+            res.update(ok=False,data_committed=True,error='bars are durably committed and original bytes archived, but the final provenance receipt failed ('+type(exc).__name__+'); retry safely to finish the receipt')
+        else:
+            _DT_CSV_VALIDATED.pop(token, None)
+            res["next_step"] = ("re-run the coverage preflight — if history is still incomplete "
+                                "the confirmation popup reappears")
     return res
 
 

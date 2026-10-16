@@ -96,18 +96,21 @@ def import_baselines(directory, source_timezone, confirmed=False):
 
 
 def archive_source(raw,filename,report,result):
-    """Keep exact committed upload bytes and provenance outside ephemeral tokens."""
-    digest=hashlib.sha256(raw).hexdigest()
-    name=Path(filename or 'uploaded.csv').name
+    """Archive exact bytes BEFORE merging; atomic, separately truthful receipt."""
+    from .master import _store_lock
+    digest=hashlib.sha256(raw).hexdigest();name=Path(filename or 'uploaded.csv').name
     directory=root()/'imports'/digest;directory.mkdir(parents=True,exist_ok=True)
-    p=directory/name
-    if p.exists() and p.read_bytes()!=raw:raise RuntimeError('immutable original collision')
-    if not p.exists():p.write_bytes(raw)
-    meta={k:v for k,v in report.items() if k!='frame'}
-    meta['commit_result']=result;meta['original_sha256']=digest
-    (directory/'provenance.json').write_text(json.dumps(meta,indent=2,default=str))
-    return str(p.relative_to(P.DATA_ROOT))
-
+    with _store_lock(directory):
+        p=directory/name;receipt=directory/'provenance.json'
+        if p.exists() and p.read_bytes()!=raw:raise RuntimeError('immutable original collision')
+        if not p.exists():
+            tmp=p.with_suffix(p.suffix+'.tmp');tmp.write_bytes(raw);tmp.replace(p)
+        artifact=str(p.relative_to(P.DATA_ROOT))
+        if result.get('status')=='PREPARED' and receipt.exists():return artifact
+        meta={k:v for k,v in report.items() if k!='frame'}
+        meta['commit_result']=result;meta['original_sha256']=digest
+        tmp=receipt.with_suffix('.tmp');tmp.write_text(json.dumps(meta,indent=2,default=str));tmp.replace(receipt)
+        return artifact
 
 
 def accepts_bridge(bridge):

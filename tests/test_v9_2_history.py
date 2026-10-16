@@ -262,3 +262,37 @@ def test_canonical_snapshot_refresh_is_locked_versioned_and_rebuildable(history_
     assert v2!=v1 and len(E.DataEngine().get_frame(v1))==1 and len(E.DataEngine().get_frame(v2))==2
     storage.dataset_path(str(tmp_path/'cache'),v2).unlink()
     assert de._materialize_dataset_view(old)==v2 and len(E.DataEngine().get_frame(v2))==2
+
+
+def test_original_archive_failure_prevents_any_candle_merge(monkeypatch):
+    from app.api import routes as R
+    from app.data import history as H
+    from app.deeptest import csv_import as C
+    calls=[];monkeypatch.setattr(H,'archive_source',lambda *a:(_ for _ in ()).throw(OSError('full disk')));monkeypatch.setattr(C,'commit_import',lambda *a,**k:calls.append(1))
+    monkeypatch.setitem(R._DT_CSV_VALIDATED,'archive-failure',{'raw':b'exact bytes','filename':'actual.csv','symbol':'XAUUSD','timeframe':'M1','report':{'ok':True}})
+    out=R.deeptest_csv_commit({'validation_token':'archive-failure'})
+    assert not out['ok'] and not out['data_committed'] and not calls
+
+
+def test_post_commit_receipt_failure_is_explicit_partial_not_false_success(history_store,monkeypatch):
+    from app.api import routes as R
+    from app.data import history as H
+    from app.deeptest import csv_import as C
+    M,db=history_store;calls=[]
+    def archive(*a):
+        calls.append(1)
+        if len(calls)==2:raise OSError('full receipt disk')
+        return 'HISTORICAL/imports/exact-original.csv'
+    monkeypatch.setattr(H,'archive_source',archive);monkeypatch.setattr(C,'commit_import',lambda *a,**k:{'ok':True,'merge':{'accepted':12}})
+    monkeypatch.setitem(R._DT_CSV_VALIDATED,'receipt-failure',{'raw':b'exact bytes','filename':'actual.csv','symbol':'XAUUSD','timeframe':'M1','report':{'ok':True}})
+    out=R.deeptest_csv_commit({'validation_token':'receipt-failure'})
+    assert not out['ok'] and out['data_committed'] and out['merge']['accepted']==12 and 'durably committed' in out['error']
+    assert 'receipt-failure' in R._DT_CSV_VALIDATED
+
+
+def test_source_receipt_failure_reports_already_persisted_bars(history_store,monkeypatch):
+    from app.deeptest import csv_import as C,store as S
+    M,db=history_store
+    monkeypatch.setattr(S,'insert_candle_source',lambda *a:(_ for _ in ()).throw(OSError('receipt unavailable')))
+    out=C.commit_import({'ok':True,'frame':bars([1700000000.]),'timezone_source':'explicit UTC'},symbol='XAUUSD',timeframe='M1')
+    assert not out['ok'] and out['data_committed'] and out['available_unique_bars']==1 and out['merge']['accepted']==1

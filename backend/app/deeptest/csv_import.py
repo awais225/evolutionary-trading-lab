@@ -469,32 +469,37 @@ def commit_import(report: Dict[str, Any], *, symbol: str, timeframe: str,
     before=mstore.rows
     result = mstore.append(df, source_info=source_info)
 
-    # provenance row
-    from . import store as S
-    from ..db.database import get_db
-    db = get_db()
-    S.ensure_schema(db)
-    S.insert_candle_source(db, {
-        "symbol": str(symbol).upper(), "timeframe": str(timeframe).upper(),
-        "source_type": "CSV_IMPORT",
-        "filename": report.get("filename"), "file_sha256": report.get("file_sha256"),
-        "timezone": report.get("timezone_source"),
-        "confirmation": timezone_confirmed,
-        "rows_read": report.get("rows_read"), "rows_valid": report.get("rows_valid"),
-        "rows_rejected": report.get("rows_rejected"), "rows_duplicate": report.get("rows_duplicate"),
-        "earliest_ts": report.get("earliest_ts"), "latest_ts": report.get("latest_ts"),
-        "fingerprint": mstore.fingerprint,
-        "user_mapping": {"mapping": report.get("mapping"),
-                         "timestamp_mode": report.get("timestamp_mode"),
-                         "timezone_confirmed": timezone_confirmed},
-        "notes": (f"merge accepted={result.get('accepted')} "
-                  f"identical_dupes={result.get('duplicates_identical')} "
-                  f"conflicts_stored_wins={result.get('conflicts')}"),
-    })
+    receipt_error=None;coverage_after=None
+    try:
+        # provenance row
+        from . import store as S
+        from ..db.database import get_db
+        db = get_db()
+        S.ensure_schema(db)
+        S.insert_candle_source(db, {
+            "symbol": str(symbol).upper(), "timeframe": str(timeframe).upper(),
+            "source_type": "CSV_IMPORT",
+            "filename": report.get("filename"), "file_sha256": report.get("file_sha256"),
+            "timezone": report.get("timezone_source"),
+            "confirmation": timezone_confirmed,
+            "rows_read": report.get("rows_read"), "rows_valid": report.get("rows_valid"),
+            "rows_rejected": report.get("rows_rejected"), "rows_duplicate": report.get("rows_duplicate"),
+            "earliest_ts": report.get("earliest_ts"), "latest_ts": report.get("latest_ts"),
+            "fingerprint": mstore.fingerprint,
+            "user_mapping": {"mapping": report.get("mapping"),
+                             "timestamp_mode": report.get("timestamp_mode"),
+                             "timezone_confirmed": timezone_confirmed},
+            "notes": (f"merge accepted={result.get('accepted')} "
+                      f"identical_dupes={result.get('duplicates_identical')} "
+                      f"conflicts_stored_wins={result.get('conflicts')}"),
+        })
 
-    from .coverage import pair_coverage
+        from .coverage import pair_coverage
+        coverage_after=pair_coverage(symbol,timeframe)
+    except Exception as exc:
+        receipt_error='bars are durably committed, but source/coverage receipt failed ('+type(exc).__name__+'); retry safely to complete provenance'
     return {
-        "ok": True,
+        "ok": receipt_error is None,"data_committed":True,"error":receipt_error,
         "merge": result,
         "existing_before":before,"target_profile":mstore.profile_key,
         "symbol": symbol, "timeframe": timeframe,
@@ -502,5 +507,5 @@ def commit_import(report: Dict[str, Any], *, symbol: str, timeframe: str,
         "rows_rejected": report.get("rows_rejected"), "timezone": source_info["timezone"],
         "policy": ("stored data wins over conflicting imported candles; identical "
                    "duplicates are skipped; every conflict is recorded"),
-        "coverage_after": pair_coverage(symbol, timeframe),
+        "coverage_after": coverage_after,
     }
