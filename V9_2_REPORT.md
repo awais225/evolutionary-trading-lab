@@ -1,6 +1,8 @@
 # V9.2 final implementation and verification report
 
-**Local release gates passed. GitHub branch publication/fresh-clone check is the remaining release step.**
+**Published to GitHub main; final gates and targeted fresh-clone data verification passed.**
+
+Implementation/report publication verified at `4c75059198ab0a1fa51cadf21d29c35eb8ebb125`. The follow-up publication-evidence commit changes documentation/JSON evidence only; its final main head is reported in the delivery message.
 
 Reviewed executable source commit: `9718d79f941daca9d9f9a6351cb8833b75a06bf0`. Final documentation/evidence commits do not change executable code. The published main head is verified separately after pushing; no force push is used.
 
@@ -68,8 +70,15 @@ The pristine original DB backup remains139,132,928 bytes, SHA-256 `c159b0718c43b
 
 Frozen signal logic, qualification/survival thresholds, original fitness, order/account/risk execution methods, Manual Trading Panel and existing V7 bridge contracts remain regression-protected. V8-removed tabs were not reintroduced. No real MT5 order was submitted. Stars/scenario assignment/filter saves/fetch clicks do not enable or start Live/generation workers.
 
-Independent authenticated download from GitHub LFS verified **377/377 objects,46,370,888 bytes**, including all7 original CSVs and370 monthly parquets. Branch/fresh-clone verification is pending this report's initial publication; final outcome will be appended after a normal main push. Ongoing fetches stay local until an explicit reviewed manual Git commit/push.
+Independent authenticated download from GitHub LFS verified **377/377 objects,46,370,888 bytes**, including all7 original CSVs and370 monthly parquets. Normal main push succeeded, and a new GitHub clone at `4c75059198ab0a1fa51cadf21d29c35eb8ebb125` used native `git-lfs pull` for the targeted baseline. All377 payload SHA-256 hashes and all7 operational counts matched. A cold3-day M1 query returned4,131 bars in 38.55ms without parsing CSVs. This is a targeted baseline/source sparse-checkout verification, not a claim that the entire older historical-project LFS corpus was newly downloaded or Windows app startup was run. Ongoing fetches stay local until an explicit reviewed manual Git commit/push.
 
 **Not verified:** real IC Markets terminal retrieval/chart-limit behavior, Windows PowerShell/batch launch execution, native Windows locking, Edge visual/performance behavior or live trade execution. Broker historical gaps/timezones are distinguished from user confirmation in the timezone audit. Native MT5 calls cannot be forcibly interrupted. File-lock/journal recovery is tested for process interruption and failure, not a formal fully-fsynced power-loss or cross-SQLite/filesystem ACID guarantee. Post-commit receipt failure returns an explicit partial state and safe retry instructions.
 
 Supporting audits: `V9_2_DATA_IMPORT_AND_TIMEZONE_AUDIT.md`, `V9_2_MT5_HISTORY_AND_GITHUB_DATA_AUDIT.md`, `V9_2_QUALIFIED_NODE_AND_IDENTITY_AUDIT.md`, `V9_2_INSPECT_SCENARIO_AND_GENERATION_REPORT.md`. Machine-readable scoped evidence: `docs/V9_2_VERIFICATION.json`.
+
+
+## Publication verification
+
+The completed final gate is the only final pytest total reported. Superseded incomplete development runs and unsuccessful sparse-clone initialization attempts are excluded. The successful fresh-clone proof used a normal shallow Git clone, an explicit sparse source/baseline checkout, and native git-lfs retrieval; it did not use local original CSVs/parquets as substitute download objects. Independent prior LFS batch downloads and the separate native clone both verified377 objects. No automatic fetch-to-Git synchronization was introduced.
+
+Final publication uses reviewed normal fast-forward pushes only. Source/build hashes and data contents are unchanged by this publication-evidence update. The final remote main head is compared to local HEAD before delivery; reports, normalized metadata and exact original data pointers are part of main.

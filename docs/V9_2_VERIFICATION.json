@@ -924,6 +924,29 @@
     "original_csvs": 7
   },
   "publication": {
-    "status": "branch push/fresh-clone check pending"
+    "status": "main implementation published; follow-up evidence-only push to be verified before final response",
+    "verified_implementation_head": "4c75059198ab0a1fa51cadf21d29c35eb8ebb125",
+    "fresh_clone": {
+      "counts": {
+        "M1": 100057,
+        "M5": 100012,
+        "M15": 100856,
+        "M30": 71441,
+        "H1": 35738,
+        "H4": 9349,
+        "D1": 1560
+      },
+      "m1_three_day_query_bars": 4131,
+      "m1_three_day_query_seconds": 0.03855282200038346,
+      "parsed_csv_on_startup": false,
+      "scope": "targeted fresh sparse Git clone and native git-lfs pull; not a full historical-project LFS download/startup",
+      "head": "4c75059198ab0a1fa51cadf21d29c35eb8ebb125",
+      "lfs_objects_sha256_verified": 377,
+      "original_csvs": 7,
+      "normalized_monthly_parquets": 370,
+      "verified_at_utc": "2026-10-16T14:08:00Z"
+    },
+    "push_method": "normal fast-forward, no force",
+    "executables_and_data_unchanged_by_followup_evidence_commit": true
   }
 }
