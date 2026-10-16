@@ -89,3 +89,7 @@ Release-index metadata records the functional source commit after that reviewed 
 3. `V9_3_DATA_IMPORT_AND_BAR_COUNT_AUDIT.md`
 4. `V9_3_INSPECT_UI_AND_LIVE_PANEL_REPORT.md`
 5. This `V9_3_REPORT.md`
+
+## Verified publication evidence
+
+Functional implementation commit: `b4155e0f61e8edcf25b93ed5392c30940fe49c41` (`V9.3: unify historical statistics, persistent schedules and safe selected testing`). A normal `git push origin main` succeeded from836df1ad to this commit; an authenticated `git ls-remote origin refs/heads/main` independently returned exactly that full SHA. The final V9.3 fingerprint entry is recorded against this functional commit. A following metadata/report-only commit updates that entry and this evidence, without changing either functional source hash or any DATA; its final remote SHA is independently verified and returned in the delivery message. The working tree is checked clean after publication.
