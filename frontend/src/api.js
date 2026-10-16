@@ -435,6 +435,15 @@ export const api = {
     req(`/api/deeptest/run/${encodeURIComponent(runId)}/filtered`, { method: "POST", body }),
   // CSV import sends the file as a RAW body (query carries metadata) — no
   // multipart dependency; relative urls and qs() like everything else.
+  generationWindow: (include=false) => req(`/api/generation-window?include_results=${include}`),
+  generationWindowSave: (body) => req('/api/generation-window',{method:'POST',body}),
+  filterScenarios: (nodeId) => req(`/api/filter-scenarios?node_id=${nodeId}`),
+  filterScenarioSave: (body) => req('/api/filter-scenarios',{method:'POST',body}),
+  filterScenarioAssignment: (nodeId,target) => req(`/api/filter-scenarios/assignment/${nodeId}?target=${target}`),
+  filterScenarioAssign: (nodeId,body) => req(`/api/filter-scenarios/assignment/${nodeId}`,{method:'POST',body}),
+  historyLatest: () => req("/api/history/latest"),
+  historyLatestStart: (timeframes) => req("/api/history/latest", {method:"POST", body:{timeframes}}),
+  historyLatestCancel: () => req("/api/history/latest/cancel", {method:"POST", body:{}}),
   deeptestCsvValidate: (file, body = {}) => {
     const query = qs({
       symbol: body.symbol || "",
@@ -442,6 +451,7 @@ export const api = {
       filename: file?.name || "",
       timezone_offset_hours: body.timezone_offset_hours,
       timestamp_mode: body.timestamp_mode,
+      source_timezone: body.source_timezone,
     });
     return file.arrayBuffer().then((buf) =>
       fetch(`/api/deeptest/csv/validate?${query}`, {

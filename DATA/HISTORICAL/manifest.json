@@ -1,0 +1,3324 @@
+{
+  "schema_version": 1,
+  "symbol": "XAUUSD",
+  "timeframes": [
+    "M1",
+    "M5",
+    "M15",
+    "M30",
+    "H1",
+    "H4",
+    "D1"
+  ],
+  "source_timezone": "ICMARKETS_NY_CLOSE",
+  "timezone_confirmed": true,
+  "confirmation": "user selected IC Markets server-time convention in V9.2 task",
+  "conflict_policy": "CSV preserves incumbent+records conflicts; trusted MT5 updates corrected closed bars with audit records",
+  "imports": [
+    {
+      "ok": true,
+      "needs_timezone_confirmation": false,
+      "timeframe_mismatch": null,
+      "error": null,
+      "filename": "XAUUSD_M1.csv",
+      "file_sha256": "840eeb06b0669a65251179702e2d8eafc848804d4e1f63245b2be59a8bcd73cb",
+      "symbol": "XAUUSD",
+      "timeframe": "M1",
+      "rows_read": 100057,
+      "rows_valid": 100057,
+      "rows_rejected": 0,
+      "rows_duplicate": 0,
+      "rejects_sample": [],
+      "rejects_truncated": false,
+      "earliest_ts": 1783449660.0,
+      "latest_ts": 1792153860.0,
+      "earliest": "2026-07-07T18:41:00Z",
+      "latest": "2026-10-16T12:31:00Z",
+      "actual_coverage_days": 100.74,
+      "actual_coverage_label": "3.3 months",
+      "ordered": true,
+      "gap_count": 75,
+      "missing_bars_total": 45014,
+      "missing_periods": [
+        {
+          "after": "2026-07-07T20:58:00Z",
+          "before": "2026-07-07T22:00:00Z",
+          "after_ts": 1783457880.0,
+          "before_ts": 1783461600.0,
+          "missing_bars": 61
+        },
+        {
+          "after": "2026-07-08T20:58:00Z",
+          "before": "2026-07-08T22:00:00Z",
+          "after_ts": 1783544280.0,
+          "before_ts": 1783548000.0,
+          "missing_bars": 61
+        },
+        {
+          "after": "2026-07-09T20:58:00Z",
+          "before": "2026-07-09T22:00:00Z",
+          "after_ts": 1783630680.0,
+          "before_ts": 1783634400.0,
+          "missing_bars": 61
+        },
+        {
+          "after": "2026-07-10T20:56:00Z",
+          "before": "2026-07-12T22:00:00Z",
+          "after_ts": 1783716960.0,
+          "before_ts": 1783893600.0,
+          "missing_bars": 2943
+        },
+        {
+          "after": "2026-07-13T20:58:00Z",
+          "before": "2026-07-13T22:00:00Z",
+          "after_ts": 1783976280.0,
+          "before_ts": 1783980000.0,
+          "missing_bars": 61
+        },
+        {
+          "after": "2026-07-14T20:58:00Z",
+          "before": "2026-07-14T22:00:00Z",
+          "after_ts": 1784062680.0,
+          "before_ts": 1784066400.0,
+          "missing_bars": 61
+        },
+        {
+          "after": "2026-07-15T20:58:00Z",
+          "before": "2026-07-15T22:00:00Z",
+          "after_ts": 1784149080.0,
+          "before_ts": 1784152800.0,
+          "missing_bars": 61
+        },
+        {
+          "after": "2026-07-16T20:58:00Z",
+          "before": "2026-07-16T22:00:00Z",
+          "after_ts": 1784235480.0,
+          "before_ts": 1784239200.0,
+          "missing_bars": 61
+        },
+        {
+          "after": "2026-07-17T15:23:00Z",
+          "before": "2026-07-17T15:25:00Z",
+          "after_ts": 1784301780.0,
+          "before_ts": 1784301900.0,
+          "missing_bars": 1
+        },
+        {
+          "after": "2026-07-17T20:56:00Z",
+          "before": "2026-07-19T22:00:00Z",
+          "after_ts": 1784321760.0,
+          "before_ts": 1784498400.0,
+          "missing_bars": 2943
+        },
+        {
+          "after": "2026-07-20T20:58:00Z",
+          "before": "2026-07-20T22:00:00Z",
+          "after_ts": 1784581080.0,
+          "before_ts": 1784584800.0,
+          "missing_bars": 61
+        },
+        {
+          "after": "2026-07-21T20:58:00Z",
+          "before": "2026-07-21T22:00:00Z",
+          "after_ts": 1784667480.0,
+          "before_ts": 1784671200.0,
+          "missing_bars": 61
+        },
+        {
+          "after": "2026-07-22T20:58:00Z",
+          "before": "2026-07-22T22:00:00Z",
+          "after_ts": 1784753880.0,
+          "before_ts": 1784757600.0,
+          "missing_bars": 61
+        },
+        {
+          "after": "2026-07-23T20:58:00Z",
+          "before": "2026-07-23T22:00:00Z",
+          "after_ts": 1784840280.0,
+          "before_ts": 1784844000.0,
+          "missing_bars": 61
+        },
+        {
+          "after": "2026-07-24T05:13:00Z",
+          "before": "2026-07-24T05:15:00Z",
+          "after_ts": 1784869980.0,
+          "before_ts": 1784870100.0,
+          "missing_bars": 1
+        },
+        {
+          "after": "2026-07-24T20:56:00Z",
+          "before": "2026-07-26T22:00:00Z",
+          "after_ts": 1784926560.0,
+          "before_ts": 1785103200.0,
+          "missing_bars": 2943
+        },
+        {
+          "after": "2026-07-27T20:58:00Z",
+          "before": "2026-07-27T22:00:00Z",
+          "after_ts": 1785185880.0,
+          "before_ts": 1785189600.0,
+          "missing_bars": 61
+        },
+        {
+          "after": "2026-07-28T20:58:00Z",
+          "before": "2026-07-28T22:00:00Z",
+          "after_ts": 1785272280.0,
+          "before_ts": 1785276000.0,
+          "missing_bars": 61
+        },
+        {
+          "after": "2026-07-29T20:58:00Z",
+          "before": "2026-07-29T22:00:00Z",
+          "after_ts": 1785358680.0,
+          "before_ts": 1785362400.0,
+          "missing_bars": 61
+        },
+        {
+          "after": "2026-07-30T20:58:00Z",
+          "before": "2026-07-30T22:00:00Z",
+          "after_ts": 1785445080.0,
+          "before_ts": 1785448800.0,
+          "missing_bars": 61
+        },
+        {
+          "after": "2026-07-31T20:56:00Z",
+          "before": "2026-08-02T22:00:00Z",
+          "after_ts": 1785531360.0,
+          "before_ts": 1785708000.0,
+          "missing_bars": 2943
+        },
+        {
+          "after": "2026-08-03T20:58:00Z",
+          "before": "2026-08-03T22:00:00Z",
+          "after_ts": 1785790680.0,
+          "before_ts": 1785794400.0,
+          "missing_bars": 61
+        },
+        {
+          "after": "2026-08-04T20:58:00Z",
+          "before": "2026-08-04T22:00:00Z",
+          "after_ts": 1785877080.0,
+          "before_ts": 1785880800.0,
+          "missing_bars": 61
+        },
+        {
+          "after": "2026-08-05T20:58:00Z",
+          "before": "2026-08-05T22:00:00Z",
+          "after_ts": 1785963480.0,
+          "before_ts": 1785967200.0,
+          "missing_bars": 61
+        },
+        {
+          "after": "2026-08-06T20:58:00Z",
+          "before": "2026-08-06T22:00:00Z",
+          "after_ts": 1786049880.0,
+          "before_ts": 1786053600.0,
+          "missing_bars": 61
+        }
+      ],
+      "duplicate_timestamps": 0,
+      "overlap_with_store": {
+        "existing_bars": 0,
+        "overlap_bars": 0,
+        "conflicts_possible": false
+      },
+      "timezone_source": "explicit source timezone: ICMARKETS_NY_CLOSE",
+      "timestamp_mode": "mt5_or_iso",
+      "mapping": {
+        "open": "<OPEN>",
+        "high": "<HIGH>",
+        "low": "<LOW>",
+        "close": "<CLOSE>",
+        "tick_volume": "<TICKVOL>",
+        "volume": "<VOL>",
+        "spread": "<SPREAD>"
+      },
+      "warnings": [],
+      "frame_truncated": false,
+      "preview_truncated": true,
+      "source_first": "2026.07.07 21:41:00",
+      "source_last": "2026.10.16 15:31:00",
+      "source_timezone": "ICMARKETS_NY_CLOSE",
+      "interval_distribution": {
+        "60": 99981,
+        "3720": 34,
+        "3840": 24,
+        "176640": 8,
+        "176760": 6,
+        "120": 2,
+        "12780": 1
+      },
+      "note": "coverage above is what the FILE's rows actually cover \u2014 never the filename or a claimed period",
+      "imported_at": 1792155631.5930278,
+      "duration_seconds": 1.4803939590000255,
+      "result": {
+        "ok": true,
+        "merge": {
+          "accepted": 100057,
+          "duplicates_identical": 0,
+          "conflicts": 0,
+          "out_of_range": 0,
+          "version": 1
+        },
+        "symbol": "XAUUSD",
+        "timeframe": "M1",
+        "available_unique_bars": 100057,
+        "first_ts": 1783449660.0,
+        "last_ts": 1792153860.0,
+        "rows_rejected": 0,
+        "timezone": "ICMARKETS_NY_CLOSE (explicit user confirmation)",
+        "policy": "stored data wins over conflicting imported candles; identical duplicates are skipped; every conflict is recorded",
+        "coverage_after": {
+          "symbol": "XAUUSD",
+          "timeframe": "M1",
+          "bars": 100057,
+          "first_ts": 1783449660.0,
+          "last_ts": 1792153860.0,
+          "first": "2026-07-07T18:41:00Z",
+          "last": "2026-10-16T12:31:00Z",
+          "coverage_label": "3.3 months (101 days)",
+          "coverage_days": 100.74,
+          "source": null,
+          "broker": null,
+          "server": null,
+          "fingerprint": "d42e0fcc9e009c565a38406d3f2862db",
+          "version": 1,
+          "last_fetch": null,
+          "fetch_status": null,
+          "quality": {
+            "bars": 100057,
+            "monotonic_increasing": true,
+            "duplicate_timestamps": 0,
+            "gaps": 75,
+            "missing_bars_total": 45014
+          },
+          "missing_periods": [
+            {
+              "after": "2026-07-07T20:58:00Z",
+              "before": "2026-07-07T22:00:00Z",
+              "after_ts": 1783457880.0,
+              "before_ts": 1783461600.0,
+              "missing_bars": 61
+            },
+            {
+              "after": "2026-07-08T20:58:00Z",
+              "before": "2026-07-08T22:00:00Z",
+              "after_ts": 1783544280.0,
+              "before_ts": 1783548000.0,
+              "missing_bars": 61
+            },
+            {
+              "after": "2026-07-09T20:58:00Z",
+              "before": "2026-07-09T22:00:00Z",
+              "after_ts": 1783630680.0,
+              "before_ts": 1783634400.0,
+              "missing_bars": 61
+            },
+            {
+              "after": "2026-07-10T20:56:00Z",
+              "before": "2026-07-12T22:00:00Z",
+              "after_ts": 1783716960.0,
+              "before_ts": 1783893600.0,
+              "missing_bars": 2943
+            },
+            {
+              "after": "2026-07-13T20:58:00Z",
+              "before": "2026-07-13T22:00:00Z",
+              "after_ts": 1783976280.0,
+              "before_ts": 1783980000.0,
+              "missing_bars": 61
+            },
+            {
+              "after": "2026-07-14T20:58:00Z",
+              "before": "2026-07-14T22:00:00Z",
+              "after_ts": 1784062680.0,
+              "before_ts": 1784066400.0,
+              "missing_bars": 61
+            },
+            {
+              "after": "2026-07-15T20:58:00Z",
+              "before": "2026-07-15T22:00:00Z",
+              "after_ts": 1784149080.0,
+              "before_ts": 1784152800.0,
+              "missing_bars": 61
+            },
+            {
+              "after": "2026-07-16T20:58:00Z",
+              "before": "2026-07-16T22:00:00Z",
+              "after_ts": 1784235480.0,
+              "before_ts": 1784239200.0,
+              "missing_bars": 61
+            },
+            {
+              "after": "2026-07-17T15:23:00Z",
+              "before": "2026-07-17T15:25:00Z",
+              "after_ts": 1784301780.0,
+              "before_ts": 1784301900.0,
+              "missing_bars": 1
+            },
+            {
+              "after": "2026-07-17T20:56:00Z",
+              "before": "2026-07-19T22:00:00Z",
+              "after_ts": 1784321760.0,
+              "before_ts": 1784498400.0,
+              "missing_bars": 2943
+            },
+            {
+              "after": "2026-07-20T20:58:00Z",
+              "before": "2026-07-20T22:00:00Z",
+              "after_ts": 1784581080.0,
+              "before_ts": 1784584800.0,
+              "missing_bars": 61
+            },
+            {
+              "after": "2026-07-21T20:58:00Z",
+              "before": "2026-07-21T22:00:00Z",
+              "after_ts": 1784667480.0,
+              "before_ts": 1784671200.0,
+              "missing_bars": 61
+            },
+            {
+              "after": "2026-07-22T20:58:00Z",
+              "before": "2026-07-22T22:00:00Z",
+              "after_ts": 1784753880.0,
+              "before_ts": 1784757600.0,
+              "missing_bars": 61
+            },
+            {
+              "after": "2026-07-23T20:58:00Z",
+              "before": "2026-07-23T22:00:00Z",
+              "after_ts": 1784840280.0,
+              "before_ts": 1784844000.0,
+              "missing_bars": 61
+            },
+            {
+              "after": "2026-07-24T05:13:00Z",
+              "before": "2026-07-24T05:15:00Z",
+              "after_ts": 1784869980.0,
+              "before_ts": 1784870100.0,
+              "missing_bars": 1
+            },
+            {
+              "after": "2026-07-24T20:56:00Z",
+              "before": "2026-07-26T22:00:00Z",
+              "after_ts": 1784926560.0,
+              "before_ts": 1785103200.0,
+              "missing_bars": 2943
+            },
+            {
+              "after": "2026-07-27T20:58:00Z",
+              "before": "2026-07-27T22:00:00Z",
+              "after_ts": 1785185880.0,
+              "before_ts": 1785189600.0,
+              "missing_bars": 61
+            },
+            {
+              "after": "2026-07-28T20:58:00Z",
+              "before": "2026-07-28T22:00:00Z",
+              "after_ts": 1785272280.0,
+              "before_ts": 1785276000.0,
+              "missing_bars": 61
+            },
+            {
+              "after": "2026-07-29T20:58:00Z",
+              "before": "2026-07-29T22:00:00Z",
+              "after_ts": 1785358680.0,
+              "before_ts": 1785362400.0,
+              "missing_bars": 61
+            },
+            {
+              "after": "2026-07-30T20:58:00Z",
+              "before": "2026-07-30T22:00:00Z",
+              "after_ts": 1785445080.0,
+              "before_ts": 1785448800.0,
+              "missing_bars": 61
+            },
+            {
+              "after": "2026-07-31T20:56:00Z",
+              "before": "2026-08-02T22:00:00Z",
+              "after_ts": 1785531360.0,
+              "before_ts": 1785708000.0,
+              "missing_bars": 2943
+            },
+            {
+              "after": "2026-08-03T20:58:00Z",
+              "before": "2026-08-03T22:00:00Z",
+              "after_ts": 1785790680.0,
+              "before_ts": 1785794400.0,
+              "missing_bars": 61
+            },
+            {
+              "after": "2026-08-04T20:58:00Z",
+              "before": "2026-08-04T22:00:00Z",
+              "after_ts": 1785877080.0,
+              "before_ts": 1785880800.0,
+              "missing_bars": 61
+            },
+            {
+              "after": "2026-08-05T20:58:00Z",
+              "before": "2026-08-05T22:00:00Z",
+              "after_ts": 1785963480.0,
+              "before_ts": 1785967200.0,
+              "missing_bars": 61
+            },
+            {
+              "after": "2026-08-06T20:58:00Z",
+              "before": "2026-08-06T22:00:00Z",
+              "after_ts": 1786049880.0,
+              "before_ts": 1786053600.0,
+              "missing_bars": 61
+            }
+          ],
+          "bars_in_range": null,
+          "range_start": null,
+          "range_end": null,
+          "warnings": [
+            "75 internal gap(s), 45014 missing bar(s) \u2014 listed for inspection; week-end/session closures are normal stored data"
+          ],
+          "error": null,
+          "cache_key": "XAUUSD|M1",
+          "checked_at": 1792155631.5184402,
+          "missing_periods_truncated": true
+        }
+      },
+      "persistent_readback_bars": 100057,
+      "original_sha256": "840eeb06b0669a65251179702e2d8eafc848804d4e1f63245b2be59a8bcd73cb"
+    },
+    {
+      "ok": true,
+      "needs_timezone_confirmation": false,
+      "timeframe_mismatch": null,
+      "error": null,
+      "filename": "XAUUSD_M5.csv",
+      "file_sha256": "7bdfeddbb119f9c0f910e1436e7c14beec8390a8379291b4a5f065ce410c1896",
+      "symbol": "XAUUSD",
+      "timeframe": "M5",
+      "rows_read": 100012,
+      "rows_valid": 100012,
+      "rows_rejected": 0,
+      "rows_duplicate": 0,
+      "rejects_sample": [],
+      "rejects_truncated": false,
+      "earliest_ts": 1747812900.0,
+      "latest_ts": 1792153800.0,
+      "earliest": "2025-05-21T07:35:00Z",
+      "latest": "2026-10-16T12:30:00Z",
+      "actual_coverage_days": 513.2,
+      "actual_coverage_label": "1.41 years",
+      "ordered": true,
+      "gap_count": 372,
+      "missing_bars_total": 47792,
+      "missing_periods": [
+        {
+          "after": "2025-05-21T20:55:00Z",
+          "before": "2025-05-21T22:00:00Z",
+          "after_ts": 1747860900.0,
+          "before_ts": 1747864800.0,
+          "missing_bars": 12
+        },
+        {
+          "after": "2025-05-22T20:55:00Z",
+          "before": "2025-05-22T22:00:00Z",
+          "after_ts": 1747947300.0,
+          "before_ts": 1747951200.0,
+          "missing_bars": 12
+        },
+        {
+          "after": "2025-05-23T20:55:00Z",
+          "before": "2025-05-25T22:00:00Z",
+          "after_ts": 1748033700.0,
+          "before_ts": 1748210400.0,
+          "missing_bars": 588
+        },
+        {
+          "after": "2025-05-26T18:25:00Z",
+          "before": "2025-05-26T22:00:00Z",
+          "after_ts": 1748283900.0,
+          "before_ts": 1748296800.0,
+          "missing_bars": 42
+        },
+        {
+          "after": "2025-05-27T20:55:00Z",
+          "before": "2025-05-27T22:00:00Z",
+          "after_ts": 1748379300.0,
+          "before_ts": 1748383200.0,
+          "missing_bars": 12
+        },
+        {
+          "after": "2025-05-28T20:55:00Z",
+          "before": "2025-05-28T22:00:00Z",
+          "after_ts": 1748465700.0,
+          "before_ts": 1748469600.0,
+          "missing_bars": 12
+        },
+        {
+          "after": "2025-05-29T20:55:00Z",
+          "before": "2025-05-29T22:00:00Z",
+          "after_ts": 1748552100.0,
+          "before_ts": 1748556000.0,
+          "missing_bars": 12
+        },
+        {
+          "after": "2025-05-30T20:55:00Z",
+          "before": "2025-06-01T22:00:00Z",
+          "after_ts": 1748638500.0,
+          "before_ts": 1748815200.0,
+          "missing_bars": 588
+        },
+        {
+          "after": "2025-06-02T20:55:00Z",
+          "before": "2025-06-02T22:00:00Z",
+          "after_ts": 1748897700.0,
+          "before_ts": 1748901600.0,
+          "missing_bars": 12
+        },
+        {
+          "after": "2025-06-03T20:55:00Z",
+          "before": "2025-06-03T22:00:00Z",
+          "after_ts": 1748984100.0,
+          "before_ts": 1748988000.0,
+          "missing_bars": 12
+        },
+        {
+          "after": "2025-06-04T20:55:00Z",
+          "before": "2025-06-04T22:00:00Z",
+          "after_ts": 1749070500.0,
+          "before_ts": 1749074400.0,
+          "missing_bars": 12
+        },
+        {
+          "after": "2025-06-05T20:55:00Z",
+          "before": "2025-06-05T22:00:00Z",
+          "after_ts": 1749156900.0,
+          "before_ts": 1749160800.0,
+          "missing_bars": 12
+        },
+        {
+          "after": "2025-06-06T20:55:00Z",
+          "before": "2025-06-08T22:00:00Z",
+          "after_ts": 1749243300.0,
+          "before_ts": 1749420000.0,
+          "missing_bars": 588
+        },
+        {
+          "after": "2025-06-09T20:55:00Z",
+          "before": "2025-06-09T22:00:00Z",
+          "after_ts": 1749502500.0,
+          "before_ts": 1749506400.0,
+          "missing_bars": 12
+        },
+        {
+          "after": "2025-06-10T20:55:00Z",
+          "before": "2025-06-10T22:00:00Z",
+          "after_ts": 1749588900.0,
+          "before_ts": 1749592800.0,
+          "missing_bars": 12
+        },
+        {
+          "after": "2025-06-11T20:55:00Z",
+          "before": "2025-06-11T22:00:00Z",
+          "after_ts": 1749675300.0,
+          "before_ts": 1749679200.0,
+          "missing_bars": 12
+        },
+        {
+          "after": "2025-06-12T20:55:00Z",
+          "before": "2025-06-12T22:00:00Z",
+          "after_ts": 1749761700.0,
+          "before_ts": 1749765600.0,
+          "missing_bars": 12
+        },
+        {
+          "after": "2025-06-13T20:55:00Z",
+          "before": "2025-06-15T22:00:00Z",
+          "after_ts": 1749848100.0,
+          "before_ts": 1750024800.0,
+          "missing_bars": 588
+        },
+        {
+          "after": "2025-06-16T20:55:00Z",
+          "before": "2025-06-16T22:00:00Z",
+          "after_ts": 1750107300.0,
+          "before_ts": 1750111200.0,
+          "missing_bars": 12
+        },
+        {
+          "after": "2025-06-17T20:55:00Z",
+          "before": "2025-06-17T22:00:00Z",
+          "after_ts": 1750193700.0,
+          "before_ts": 1750197600.0,
+          "missing_bars": 12
+        },
+        {
+          "after": "2025-06-18T20:55:00Z",
+          "before": "2025-06-18T22:00:00Z",
+          "after_ts": 1750280100.0,
+          "before_ts": 1750284000.0,
+          "missing_bars": 12
+        },
+        {
+          "after": "2025-06-19T18:25:00Z",
+          "before": "2025-06-19T22:00:00Z",
+          "after_ts": 1750357500.0,
+          "before_ts": 1750370400.0,
+          "missing_bars": 42
+        },
+        {
+          "after": "2025-06-20T20:55:00Z",
+          "before": "2025-06-22T22:00:00Z",
+          "after_ts": 1750452900.0,
+          "before_ts": 1750629600.0,
+          "missing_bars": 588
+        },
+        {
+          "after": "2025-06-23T20:55:00Z",
+          "before": "2025-06-23T22:00:00Z",
+          "after_ts": 1750712100.0,
+          "before_ts": 1750716000.0,
+          "missing_bars": 12
+        },
+        {
+          "after": "2025-06-24T20:55:00Z",
+          "before": "2025-06-24T22:00:00Z",
+          "after_ts": 1750798500.0,
+          "before_ts": 1750802400.0,
+          "missing_bars": 12
+        }
+      ],
+      "duplicate_timestamps": 0,
+      "overlap_with_store": {
+        "existing_bars": 0,
+        "overlap_bars": 0,
+        "conflicts_possible": false
+      },
+      "timezone_source": "explicit source timezone: ICMARKETS_NY_CLOSE",
+      "timestamp_mode": "mt5_or_iso",
+      "mapping": {
+        "open": "<OPEN>",
+        "high": "<HIGH>",
+        "low": "<LOW>",
+        "close": "<CLOSE>",
+        "tick_volume": "<TICKVOL>",
+        "volume": "<VOL>",
+        "spread": "<SPREAD>"
+      },
+      "warnings": [],
+      "frame_truncated": false,
+      "preview_truncated": true,
+      "source_first": "2025.05.21 10:35:00",
+      "source_last": "2026.10.16 15:30:00",
+      "source_timezone": "ICMARKETS_NY_CLOSE",
+      "interval_distribution": {
+        "300": 99639,
+        "3900": 280,
+        "176700": 66,
+        "12900": 8,
+        "191100": 3,
+        "1500": 2,
+        "600": 2,
+        "900": 2,
+        "180300": 1,
+        "184800": 1,
+        "102000": 1,
+        "90300": 1
+      },
+      "note": "coverage above is what the FILE's rows actually cover \u2014 never the filename or a claimed period",
+      "imported_at": 1792155633.2415583,
+      "duration_seconds": 1.6411834689999978,
+      "result": {
+        "ok": true,
+        "merge": {
+          "accepted": 100012,
+          "duplicates_identical": 0,
+          "conflicts": 0,
+          "out_of_range": 0,
+          "version": 1
+        },
+        "symbol": "XAUUSD",
+        "timeframe": "M5",
+        "available_unique_bars": 100012,
+        "first_ts": 1747812900.0,
+        "last_ts": 1792153800.0,
+        "rows_rejected": 0,
+        "timezone": "ICMARKETS_NY_CLOSE (explicit user confirmation)",
+        "policy": "stored data wins over conflicting imported candles; identical duplicates are skipped; every conflict is recorded",
+        "coverage_after": {
+          "symbol": "XAUUSD",
+          "timeframe": "M5",
+          "bars": 100012,
+          "first_ts": 1747812900.0,
+          "last_ts": 1792153800.0,
+          "first": "2025-05-21T07:35:00Z",
+          "last": "2026-10-16T12:30:00Z",
+          "coverage_label": "1.41 years (513 days)",
+          "coverage_days": 513.2,
+          "source": null,
+          "broker": null,
+          "server": null,
+          "fingerprint": "d6ff7ffd80fef2c59aa428562dcfbe07",
+          "version": 1,
+          "last_fetch": null,
+          "fetch_status": null,
+          "quality": {
+            "bars": 100012,
+            "monotonic_increasing": true,
+            "duplicate_timestamps": 0,
+            "gaps": 372,
+            "missing_bars_total": 47792
+          },
+          "missing_periods": [
+            {
+              "after": "2025-05-21T20:55:00Z",
+              "before": "2025-05-21T22:00:00Z",
+              "after_ts": 1747860900.0,
+              "before_ts": 1747864800.0,
+              "missing_bars": 12
+            },
+            {
+              "after": "2025-05-22T20:55:00Z",
+              "before": "2025-05-22T22:00:00Z",
+              "after_ts": 1747947300.0,
+              "before_ts": 1747951200.0,
+              "missing_bars": 12
+            },
+            {
+              "after": "2025-05-23T20:55:00Z",
+              "before": "2025-05-25T22:00:00Z",
+              "after_ts": 1748033700.0,
+              "before_ts": 1748210400.0,
+              "missing_bars": 588
+            },
+            {
+              "after": "2025-05-26T18:25:00Z",
+              "before": "2025-05-26T22:00:00Z",
+              "after_ts": 1748283900.0,
+              "before_ts": 1748296800.0,
+              "missing_bars": 42
+            },
+            {
+              "after": "2025-05-27T20:55:00Z",
+              "before": "2025-05-27T22:00:00Z",
+              "after_ts": 1748379300.0,
+              "before_ts": 1748383200.0,
+              "missing_bars": 12
+            },
+            {
+              "after": "2025-05-28T20:55:00Z",
+              "before": "2025-05-28T22:00:00Z",
+              "after_ts": 1748465700.0,
+              "before_ts": 1748469600.0,
+              "missing_bars": 12
+            },
+            {
+              "after": "2025-05-29T20:55:00Z",
+              "before": "2025-05-29T22:00:00Z",
+              "after_ts": 1748552100.0,
+              "before_ts": 1748556000.0,
+              "missing_bars": 12
+            },
+            {
+              "after": "2025-05-30T20:55:00Z",
+              "before": "2025-06-01T22:00:00Z",
+              "after_ts": 1748638500.0,
+              "before_ts": 1748815200.0,
+              "missing_bars": 588
+            },
+            {
+              "after": "2025-06-02T20:55:00Z",
+              "before": "2025-06-02T22:00:00Z",
+              "after_ts": 1748897700.0,
+              "before_ts": 1748901600.0,
+              "missing_bars": 12
+            },
+            {
+              "after": "2025-06-03T20:55:00Z",
+              "before": "2025-06-03T22:00:00Z",
+              "after_ts": 1748984100.0,
+              "before_ts": 1748988000.0,
+              "missing_bars": 12
+            },
+            {
+              "after": "2025-06-04T20:55:00Z",
+              "before": "2025-06-04T22:00:00Z",
+              "after_ts": 1749070500.0,
+              "before_ts": 1749074400.0,
+              "missing_bars": 12
+            },
+            {
+              "after": "2025-06-05T20:55:00Z",
+              "before": "2025-06-05T22:00:00Z",
+              "after_ts": 1749156900.0,
+              "before_ts": 1749160800.0,
+              "missing_bars": 12
+            },
+            {
+              "after": "2025-06-06T20:55:00Z",
+              "before": "2025-06-08T22:00:00Z",
+              "after_ts": 1749243300.0,
+              "before_ts": 1749420000.0,
+              "missing_bars": 588
+            },
+            {
+              "after": "2025-06-09T20:55:00Z",
+              "before": "2025-06-09T22:00:00Z",
+              "after_ts": 1749502500.0,
+              "before_ts": 1749506400.0,
+              "missing_bars": 12
+            },
+            {
+              "after": "2025-06-10T20:55:00Z",
+              "before": "2025-06-10T22:00:00Z",
+              "after_ts": 1749588900.0,
+              "before_ts": 1749592800.0,
+              "missing_bars": 12
+            },
+            {
+              "after": "2025-06-11T20:55:00Z",
+              "before": "2025-06-11T22:00:00Z",
+              "after_ts": 1749675300.0,
+              "before_ts": 1749679200.0,
+              "missing_bars": 12
+            },
+            {
+              "after": "2025-06-12T20:55:00Z",
+              "before": "2025-06-12T22:00:00Z",
+              "after_ts": 1749761700.0,
+              "before_ts": 1749765600.0,
+              "missing_bars": 12
+            },
+            {
+              "after": "2025-06-13T20:55:00Z",
+              "before": "2025-06-15T22:00:00Z",
+              "after_ts": 1749848100.0,
+              "before_ts": 1750024800.0,
+              "missing_bars": 588
+            },
+            {
+              "after": "2025-06-16T20:55:00Z",
+              "before": "2025-06-16T22:00:00Z",
+              "after_ts": 1750107300.0,
+              "before_ts": 1750111200.0,
+              "missing_bars": 12
+            },
+            {
+              "after": "2025-06-17T20:55:00Z",
+              "before": "2025-06-17T22:00:00Z",
+              "after_ts": 1750193700.0,
+              "before_ts": 1750197600.0,
+              "missing_bars": 12
+            },
+            {
+              "after": "2025-06-18T20:55:00Z",
+              "before": "2025-06-18T22:00:00Z",
+              "after_ts": 1750280100.0,
+              "before_ts": 1750284000.0,
+              "missing_bars": 12
+            },
+            {
+              "after": "2025-06-19T18:25:00Z",
+              "before": "2025-06-19T22:00:00Z",
+              "after_ts": 1750357500.0,
+              "before_ts": 1750370400.0,
+              "missing_bars": 42
+            },
+            {
+              "after": "2025-06-20T20:55:00Z",
+              "before": "2025-06-22T22:00:00Z",
+              "after_ts": 1750452900.0,
+              "before_ts": 1750629600.0,
+              "missing_bars": 588
+            },
+            {
+              "after": "2025-06-23T20:55:00Z",
+              "before": "2025-06-23T22:00:00Z",
+              "after_ts": 1750712100.0,
+              "before_ts": 1750716000.0,
+              "missing_bars": 12
+            },
+            {
+              "after": "2025-06-24T20:55:00Z",
+              "before": "2025-06-24T22:00:00Z",
+              "after_ts": 1750798500.0,
+              "before_ts": 1750802400.0,
+              "missing_bars": 12
+            }
+          ],
+          "bars_in_range": null,
+          "range_start": null,
+          "range_end": null,
+          "warnings": [
+            "372 internal gap(s), 47792 missing bar(s) \u2014 listed for inspection; week-end/session closures are normal stored data"
+          ],
+          "error": null,
+          "cache_key": "XAUUSD|M5",
+          "checked_at": 1792155633.1441028,
+          "missing_periods_truncated": true
+        }
+      },
+      "persistent_readback_bars": 100012,
+      "original_sha256": "7bdfeddbb119f9c0f910e1436e7c14beec8390a8379291b4a5f065ce410c1896"
+    },
+    {
+      "ok": true,
+      "needs_timezone_confirmation": false,
+      "timeframe_mismatch": null,
+      "error": null,
+      "filename": "XAUUSD_M15.csv",
+      "file_sha256": "aef59992b465d45ac7adc068ceace2ed5c58cf66ceb7d379e41e2b98a70def87",
+      "symbol": "XAUUSD",
+      "timeframe": "M15",
+      "rows_read": 100856,
+      "rows_valid": 100856,
+      "rows_rejected": 0,
+      "rows_duplicate": 0,
+      "rejects_sample": [],
+      "rejects_truncated": false,
+      "earliest_ts": 1657663200.0,
+      "latest_ts": 1792147500.0,
+      "earliest": "2022-07-12T22:00:00Z",
+      "latest": "2026-10-16T10:45:00Z",
+      "actual_coverage_days": 1556.53,
+      "actual_coverage_label": "4.26 years",
+      "ordered": true,
+      "gap_count": 1106,
+      "missing_bars_total": 48572,
+      "missing_periods": [
+        {
+          "after": "2022-07-13T20:45:00Z",
+          "before": "2022-07-13T22:00:00Z",
+          "after_ts": 1657745100.0,
+          "before_ts": 1657749600.0,
+          "missing_bars": 4
+        },
+        {
+          "after": "2022-07-14T20:45:00Z",
+          "before": "2022-07-14T22:00:00Z",
+          "after_ts": 1657831500.0,
+          "before_ts": 1657836000.0,
+          "missing_bars": 4
+        },
+        {
+          "after": "2022-07-15T20:45:00Z",
+          "before": "2022-07-17T22:00:00Z",
+          "after_ts": 1657917900.0,
+          "before_ts": 1658095200.0,
+          "missing_bars": 196
+        },
+        {
+          "after": "2022-07-18T20:45:00Z",
+          "before": "2022-07-18T22:00:00Z",
+          "after_ts": 1658177100.0,
+          "before_ts": 1658181600.0,
+          "missing_bars": 4
+        },
+        {
+          "after": "2022-07-19T20:45:00Z",
+          "before": "2022-07-19T22:00:00Z",
+          "after_ts": 1658263500.0,
+          "before_ts": 1658268000.0,
+          "missing_bars": 4
+        },
+        {
+          "after": "2022-07-20T20:45:00Z",
+          "before": "2022-07-20T22:00:00Z",
+          "after_ts": 1658349900.0,
+          "before_ts": 1658354400.0,
+          "missing_bars": 4
+        },
+        {
+          "after": "2022-07-21T20:45:00Z",
+          "before": "2022-07-21T22:00:00Z",
+          "after_ts": 1658436300.0,
+          "before_ts": 1658440800.0,
+          "missing_bars": 4
+        },
+        {
+          "after": "2022-07-22T20:45:00Z",
+          "before": "2022-07-24T22:00:00Z",
+          "after_ts": 1658522700.0,
+          "before_ts": 1658700000.0,
+          "missing_bars": 196
+        },
+        {
+          "after": "2022-07-25T20:45:00Z",
+          "before": "2022-07-25T22:00:00Z",
+          "after_ts": 1658781900.0,
+          "before_ts": 1658786400.0,
+          "missing_bars": 4
+        },
+        {
+          "after": "2022-07-26T20:45:00Z",
+          "before": "2022-07-26T22:00:00Z",
+          "after_ts": 1658868300.0,
+          "before_ts": 1658872800.0,
+          "missing_bars": 4
+        },
+        {
+          "after": "2022-07-27T20:45:00Z",
+          "before": "2022-07-27T22:00:00Z",
+          "after_ts": 1658954700.0,
+          "before_ts": 1658959200.0,
+          "missing_bars": 4
+        },
+        {
+          "after": "2022-07-28T20:45:00Z",
+          "before": "2022-07-28T22:00:00Z",
+          "after_ts": 1659041100.0,
+          "before_ts": 1659045600.0,
+          "missing_bars": 4
+        },
+        {
+          "after": "2022-07-29T20:45:00Z",
+          "before": "2022-07-31T22:00:00Z",
+          "after_ts": 1659127500.0,
+          "before_ts": 1659304800.0,
+          "missing_bars": 196
+        },
+        {
+          "after": "2022-08-01T20:45:00Z",
+          "before": "2022-08-01T22:00:00Z",
+          "after_ts": 1659386700.0,
+          "before_ts": 1659391200.0,
+          "missing_bars": 4
+        },
+        {
+          "after": "2022-08-02T20:45:00Z",
+          "before": "2022-08-02T22:00:00Z",
+          "after_ts": 1659473100.0,
+          "before_ts": 1659477600.0,
+          "missing_bars": 4
+        },
+        {
+          "after": "2022-08-03T20:45:00Z",
+          "before": "2022-08-03T22:00:00Z",
+          "after_ts": 1659559500.0,
+          "before_ts": 1659564000.0,
+          "missing_bars": 4
+        },
+        {
+          "after": "2022-08-04T20:45:00Z",
+          "before": "2022-08-04T22:00:00Z",
+          "after_ts": 1659645900.0,
+          "before_ts": 1659650400.0,
+          "missing_bars": 4
+        },
+        {
+          "after": "2022-08-05T20:45:00Z",
+          "before": "2022-08-07T22:00:00Z",
+          "after_ts": 1659732300.0,
+          "before_ts": 1659909600.0,
+          "missing_bars": 196
+        },
+        {
+          "after": "2022-08-08T20:45:00Z",
+          "before": "2022-08-08T22:00:00Z",
+          "after_ts": 1659991500.0,
+          "before_ts": 1659996000.0,
+          "missing_bars": 4
+        },
+        {
+          "after": "2022-08-09T20:45:00Z",
+          "before": "2022-08-09T22:00:00Z",
+          "after_ts": 1660077900.0,
+          "before_ts": 1660082400.0,
+          "missing_bars": 4
+        },
+        {
+          "after": "2022-08-10T20:45:00Z",
+          "before": "2022-08-10T22:00:00Z",
+          "after_ts": 1660164300.0,
+          "before_ts": 1660168800.0,
+          "missing_bars": 4
+        },
+        {
+          "after": "2022-08-11T20:45:00Z",
+          "before": "2022-08-11T22:00:00Z",
+          "after_ts": 1660250700.0,
+          "before_ts": 1660255200.0,
+          "missing_bars": 4
+        },
+        {
+          "after": "2022-08-12T20:45:00Z",
+          "before": "2022-08-14T22:00:00Z",
+          "after_ts": 1660337100.0,
+          "before_ts": 1660514400.0,
+          "missing_bars": 196
+        },
+        {
+          "after": "2022-08-15T20:45:00Z",
+          "before": "2022-08-15T22:00:00Z",
+          "after_ts": 1660596300.0,
+          "before_ts": 1660600800.0,
+          "missing_bars": 4
+        },
+        {
+          "after": "2022-08-16T20:45:00Z",
+          "before": "2022-08-16T22:00:00Z",
+          "after_ts": 1660682700.0,
+          "before_ts": 1660687200.0,
+          "missing_bars": 4
+        }
+      ],
+      "duplicate_timestamps": 0,
+      "overlap_with_store": {
+        "existing_bars": 0,
+        "overlap_bars": 0,
+        "conflicts_possible": false
+      },
+      "timezone_source": "explicit source timezone: ICMARKETS_NY_CLOSE",
+      "timestamp_mode": "mt5_or_iso",
+      "mapping": {
+        "open": "<OPEN>",
+        "high": "<HIGH>",
+        "low": "<LOW>",
+        "close": "<CLOSE>",
+        "tick_volume": "<TICKVOL>",
+        "volume": "<VOL>",
+        "spread": "<SPREAD>"
+      },
+      "warnings": [],
+      "frame_truncated": false,
+      "preview_truncated": true,
+      "source_first": "2022.07.13 01:00:00",
+      "source_last": "2026.10.16 13:45:00",
+      "source_timezone": "ICMARKETS_NY_CLOSE",
+      "interval_distribution": {
+        "900": 99749,
+        "4500": 848,
+        "177300": 198,
+        "13500": 23,
+        "263700": 8,
+        "180900": 4,
+        "173700": 4,
+        "12600": 3,
+        "1800": 3,
+        "191700": 3,
+        "189000": 2,
+        "185400": 2
+      },
+      "note": "coverage above is what the FILE's rows actually cover \u2014 never the filename or a claimed period",
+      "imported_at": 1792155634.755311,
+      "duration_seconds": 1.5080090490000657,
+      "result": {
+        "ok": true,
+        "merge": {
+          "accepted": 100856,
+          "duplicates_identical": 0,
+          "conflicts": 0,
+          "out_of_range": 0,
+          "version": 1
+        },
+        "symbol": "XAUUSD",
+        "timeframe": "M15",
+        "available_unique_bars": 100856,
+        "first_ts": 1657663200.0,
+        "last_ts": 1792147500.0,
+        "rows_rejected": 0,
+        "timezone": "ICMARKETS_NY_CLOSE (explicit user confirmation)",
+        "policy": "stored data wins over conflicting imported candles; identical duplicates are skipped; every conflict is recorded",
+        "coverage_after": {
+          "symbol": "XAUUSD",
+          "timeframe": "M15",
+          "bars": 100856,
+          "first_ts": 1657663200.0,
+          "last_ts": 1792147500.0,
+          "first": "2022-07-12T22:00:00Z",
+          "last": "2026-10-16T10:45:00Z",
+          "coverage_label": "4.26 years (1557 days)",
+          "coverage_days": 1556.53,
+          "source": null,
+          "broker": null,
+          "server": null,
+          "fingerprint": "98d1f1445c2906e1fdbda773d74fa8fa",
+          "version": 1,
+          "last_fetch": null,
+          "fetch_status": "stored dataset materialised",
+          "quality": {
+            "bars": 100856,
+            "monotonic_increasing": true,
+            "duplicate_timestamps": 0,
+            "gaps": 1106,
+            "missing_bars_total": 48572
+          },
+          "missing_periods": [
+            {
+              "after": "2022-07-13T20:45:00Z",
+              "before": "2022-07-13T22:00:00Z",
+              "after_ts": 1657745100.0,
+              "before_ts": 1657749600.0,
+              "missing_bars": 4
+            },
+            {
+              "after": "2022-07-14T20:45:00Z",
+              "before": "2022-07-14T22:00:00Z",
+              "after_ts": 1657831500.0,
+              "before_ts": 1657836000.0,
+              "missing_bars": 4
+            },
+            {
+              "after": "2022-07-15T20:45:00Z",
+              "before": "2022-07-17T22:00:00Z",
+              "after_ts": 1657917900.0,
+              "before_ts": 1658095200.0,
+              "missing_bars": 196
+            },
+            {
+              "after": "2022-07-18T20:45:00Z",
+              "before": "2022-07-18T22:00:00Z",
+              "after_ts": 1658177100.0,
+              "before_ts": 1658181600.0,
+              "missing_bars": 4
+            },
+            {
+              "after": "2022-07-19T20:45:00Z",
+              "before": "2022-07-19T22:00:00Z",
+              "after_ts": 1658263500.0,
+              "before_ts": 1658268000.0,
+              "missing_bars": 4
+            },
+            {
+              "after": "2022-07-20T20:45:00Z",
+              "before": "2022-07-20T22:00:00Z",
+              "after_ts": 1658349900.0,
+              "before_ts": 1658354400.0,
+              "missing_bars": 4
+            },
+            {
+              "after": "2022-07-21T20:45:00Z",
+              "before": "2022-07-21T22:00:00Z",
+              "after_ts": 1658436300.0,
+              "before_ts": 1658440800.0,
+              "missing_bars": 4
+            },
+            {
+              "after": "2022-07-22T20:45:00Z",
+              "before": "2022-07-24T22:00:00Z",
+              "after_ts": 1658522700.0,
+              "before_ts": 1658700000.0,
+              "missing_bars": 196
+            },
+            {
+              "after": "2022-07-25T20:45:00Z",
+              "before": "2022-07-25T22:00:00Z",
+              "after_ts": 1658781900.0,
+              "before_ts": 1658786400.0,
+              "missing_bars": 4
+            },
+            {
+              "after": "2022-07-26T20:45:00Z",
+              "before": "2022-07-26T22:00:00Z",
+              "after_ts": 1658868300.0,
+              "before_ts": 1658872800.0,
+              "missing_bars": 4
+            },
+            {
+              "after": "2022-07-27T20:45:00Z",
+              "before": "2022-07-27T22:00:00Z",
+              "after_ts": 1658954700.0,
+              "before_ts": 1658959200.0,
+              "missing_bars": 4
+            },
+            {
+              "after": "2022-07-28T20:45:00Z",
+              "before": "2022-07-28T22:00:00Z",
+              "after_ts": 1659041100.0,
+              "before_ts": 1659045600.0,
+              "missing_bars": 4
+            },
+            {
+              "after": "2022-07-29T20:45:00Z",
+              "before": "2022-07-31T22:00:00Z",
+              "after_ts": 1659127500.0,
+              "before_ts": 1659304800.0,
+              "missing_bars": 196
+            },
+            {
+              "after": "2022-08-01T20:45:00Z",
+              "before": "2022-08-01T22:00:00Z",
+              "after_ts": 1659386700.0,
+              "before_ts": 1659391200.0,
+              "missing_bars": 4
+            },
+            {
+              "after": "2022-08-02T20:45:00Z",
+              "before": "2022-08-02T22:00:00Z",
+              "after_ts": 1659473100.0,
+              "before_ts": 1659477600.0,
+              "missing_bars": 4
+            },
+            {
+              "after": "2022-08-03T20:45:00Z",
+              "before": "2022-08-03T22:00:00Z",
+              "after_ts": 1659559500.0,
+              "before_ts": 1659564000.0,
+              "missing_bars": 4
+            },
+            {
+              "after": "2022-08-04T20:45:00Z",
+              "before": "2022-08-04T22:00:00Z",
+              "after_ts": 1659645900.0,
+              "before_ts": 1659650400.0,
+              "missing_bars": 4
+            },
+            {
+              "after": "2022-08-05T20:45:00Z",
+              "before": "2022-08-07T22:00:00Z",
+              "after_ts": 1659732300.0,
+              "before_ts": 1659909600.0,
+              "missing_bars": 196
+            },
+            {
+              "after": "2022-08-08T20:45:00Z",
+              "before": "2022-08-08T22:00:00Z",
+              "after_ts": 1659991500.0,
+              "before_ts": 1659996000.0,
+              "missing_bars": 4
+            },
+            {
+              "after": "2022-08-09T20:45:00Z",
+              "before": "2022-08-09T22:00:00Z",
+              "after_ts": 1660077900.0,
+              "before_ts": 1660082400.0,
+              "missing_bars": 4
+            },
+            {
+              "after": "2022-08-10T20:45:00Z",
+              "before": "2022-08-10T22:00:00Z",
+              "after_ts": 1660164300.0,
+              "before_ts": 1660168800.0,
+              "missing_bars": 4
+            },
+            {
+              "after": "2022-08-11T20:45:00Z",
+              "before": "2022-08-11T22:00:00Z",
+              "after_ts": 1660250700.0,
+              "before_ts": 1660255200.0,
+              "missing_bars": 4
+            },
+            {
+              "after": "2022-08-12T20:45:00Z",
+              "before": "2022-08-14T22:00:00Z",
+              "after_ts": 1660337100.0,
+              "before_ts": 1660514400.0,
+              "missing_bars": 196
+            },
+            {
+              "after": "2022-08-15T20:45:00Z",
+              "before": "2022-08-15T22:00:00Z",
+              "after_ts": 1660596300.0,
+              "before_ts": 1660600800.0,
+              "missing_bars": 4
+            },
+            {
+              "after": "2022-08-16T20:45:00Z",
+              "before": "2022-08-16T22:00:00Z",
+              "after_ts": 1660682700.0,
+              "before_ts": 1660687200.0,
+              "missing_bars": 4
+            }
+          ],
+          "bars_in_range": null,
+          "range_start": null,
+          "range_end": null,
+          "warnings": [
+            "1106 internal gap(s), 48572 missing bar(s) \u2014 listed for inspection; week-end/session closures are normal stored data"
+          ],
+          "error": null,
+          "cache_key": "XAUUSD|M15",
+          "checked_at": 1792155634.5228095,
+          "missing_periods_truncated": true,
+          "dataset_id": "XAUUSD_M15"
+        }
+      },
+      "persistent_readback_bars": 100856,
+      "original_sha256": "aef59992b465d45ac7adc068ceace2ed5c58cf66ceb7d379e41e2b98a70def87"
+    },
+    {
+      "ok": true,
+      "needs_timezone_confirmation": false,
+      "timeframe_mismatch": null,
+      "error": null,
+      "filename": "XAUUSD_M30.csv",
+      "file_sha256": "f3293d536a6ffd79c7298412e746e0f792e473f7539013a27bfbef21c128985f",
+      "symbol": "XAUUSD",
+      "timeframe": "M30",
+      "rows_read": 71441,
+      "rows_valid": 71441,
+      "rows_rejected": 0,
+      "rows_duplicate": 0,
+      "rejects_sample": [],
+      "rejects_truncated": false,
+      "earliest_ts": 1601503200.0,
+      "latest_ts": 1792153800.0,
+      "earliest": "2020-09-30T22:00:00Z",
+      "latest": "2026-10-16T12:30:00Z",
+      "actual_coverage_days": 2206.6,
+      "actual_coverage_label": "6.04 years",
+      "ordered": true,
+      "gap_count": 1563,
+      "missing_bars_total": 34477,
+      "missing_periods": [
+        {
+          "after": "2020-10-01T20:30:00Z",
+          "before": "2020-10-01T22:00:00Z",
+          "after_ts": 1601584200.0,
+          "before_ts": 1601589600.0,
+          "missing_bars": 2
+        },
+        {
+          "after": "2020-10-02T20:30:00Z",
+          "before": "2020-10-04T22:00:00Z",
+          "after_ts": 1601670600.0,
+          "before_ts": 1601848800.0,
+          "missing_bars": 98
+        },
+        {
+          "after": "2020-10-05T20:30:00Z",
+          "before": "2020-10-05T22:00:00Z",
+          "after_ts": 1601929800.0,
+          "before_ts": 1601935200.0,
+          "missing_bars": 2
+        },
+        {
+          "after": "2020-10-06T20:30:00Z",
+          "before": "2020-10-06T22:00:00Z",
+          "after_ts": 1602016200.0,
+          "before_ts": 1602021600.0,
+          "missing_bars": 2
+        },
+        {
+          "after": "2020-10-07T20:30:00Z",
+          "before": "2020-10-07T22:00:00Z",
+          "after_ts": 1602102600.0,
+          "before_ts": 1602108000.0,
+          "missing_bars": 2
+        },
+        {
+          "after": "2020-10-08T20:30:00Z",
+          "before": "2020-10-08T22:00:00Z",
+          "after_ts": 1602189000.0,
+          "before_ts": 1602194400.0,
+          "missing_bars": 2
+        },
+        {
+          "after": "2020-10-09T20:30:00Z",
+          "before": "2020-10-11T22:00:00Z",
+          "after_ts": 1602275400.0,
+          "before_ts": 1602453600.0,
+          "missing_bars": 98
+        },
+        {
+          "after": "2020-10-12T20:30:00Z",
+          "before": "2020-10-12T22:00:00Z",
+          "after_ts": 1602534600.0,
+          "before_ts": 1602540000.0,
+          "missing_bars": 2
+        },
+        {
+          "after": "2020-10-13T20:30:00Z",
+          "before": "2020-10-13T22:00:00Z",
+          "after_ts": 1602621000.0,
+          "before_ts": 1602626400.0,
+          "missing_bars": 2
+        },
+        {
+          "after": "2020-10-14T20:30:00Z",
+          "before": "2020-10-14T22:00:00Z",
+          "after_ts": 1602707400.0,
+          "before_ts": 1602712800.0,
+          "missing_bars": 2
+        },
+        {
+          "after": "2020-10-15T20:30:00Z",
+          "before": "2020-10-15T22:00:00Z",
+          "after_ts": 1602793800.0,
+          "before_ts": 1602799200.0,
+          "missing_bars": 2
+        },
+        {
+          "after": "2020-10-16T20:30:00Z",
+          "before": "2020-10-18T22:00:00Z",
+          "after_ts": 1602880200.0,
+          "before_ts": 1603058400.0,
+          "missing_bars": 98
+        },
+        {
+          "after": "2020-10-19T20:30:00Z",
+          "before": "2020-10-19T22:00:00Z",
+          "after_ts": 1603139400.0,
+          "before_ts": 1603144800.0,
+          "missing_bars": 2
+        },
+        {
+          "after": "2020-10-20T20:30:00Z",
+          "before": "2020-10-20T22:00:00Z",
+          "after_ts": 1603225800.0,
+          "before_ts": 1603231200.0,
+          "missing_bars": 2
+        },
+        {
+          "after": "2020-10-21T20:30:00Z",
+          "before": "2020-10-21T22:00:00Z",
+          "after_ts": 1603312200.0,
+          "before_ts": 1603317600.0,
+          "missing_bars": 2
+        },
+        {
+          "after": "2020-10-22T20:30:00Z",
+          "before": "2020-10-22T22:00:00Z",
+          "after_ts": 1603398600.0,
+          "before_ts": 1603404000.0,
+          "missing_bars": 2
+        },
+        {
+          "after": "2020-10-23T20:30:00Z",
+          "before": "2020-10-25T22:00:00Z",
+          "after_ts": 1603485000.0,
+          "before_ts": 1603663200.0,
+          "missing_bars": 98
+        },
+        {
+          "after": "2020-10-26T20:30:00Z",
+          "before": "2020-10-26T22:00:00Z",
+          "after_ts": 1603744200.0,
+          "before_ts": 1603749600.0,
+          "missing_bars": 2
+        },
+        {
+          "after": "2020-10-27T20:30:00Z",
+          "before": "2020-10-27T22:00:00Z",
+          "after_ts": 1603830600.0,
+          "before_ts": 1603836000.0,
+          "missing_bars": 2
+        },
+        {
+          "after": "2020-10-28T20:30:00Z",
+          "before": "2020-10-28T22:00:00Z",
+          "after_ts": 1603917000.0,
+          "before_ts": 1603922400.0,
+          "missing_bars": 2
+        },
+        {
+          "after": "2020-10-29T20:30:00Z",
+          "before": "2020-10-29T22:00:00Z",
+          "after_ts": 1604003400.0,
+          "before_ts": 1604008800.0,
+          "missing_bars": 2
+        },
+        {
+          "after": "2020-10-30T20:30:00Z",
+          "before": "2020-11-01T23:00:00Z",
+          "after_ts": 1604089800.0,
+          "before_ts": 1604271600.0,
+          "missing_bars": 100
+        },
+        {
+          "after": "2020-11-02T21:30:00Z",
+          "before": "2020-11-02T23:00:00Z",
+          "after_ts": 1604352600.0,
+          "before_ts": 1604358000.0,
+          "missing_bars": 2
+        },
+        {
+          "after": "2020-11-03T21:30:00Z",
+          "before": "2020-11-03T23:00:00Z",
+          "after_ts": 1604439000.0,
+          "before_ts": 1604444400.0,
+          "missing_bars": 2
+        },
+        {
+          "after": "2020-11-04T21:30:00Z",
+          "before": "2020-11-04T23:00:00Z",
+          "after_ts": 1604525400.0,
+          "before_ts": 1604530800.0,
+          "missing_bars": 2
+        }
+      ],
+      "duplicate_timestamps": 0,
+      "overlap_with_store": {
+        "existing_bars": 0,
+        "overlap_bars": 0,
+        "conflicts_possible": false
+      },
+      "timezone_source": "explicit source timezone: ICMARKETS_NY_CLOSE",
+      "timestamp_mode": "mt5_or_iso",
+      "mapping": {
+        "open": "<OPEN>",
+        "high": "<HIGH>",
+        "low": "<LOW>",
+        "close": "<CLOSE>",
+        "tick_volume": "<TICKVOL>",
+        "volume": "<VOL>",
+        "spread": "<SPREAD>"
+      },
+      "warnings": [],
+      "frame_truncated": false,
+      "preview_truncated": true,
+      "source_first": "2020.10.01 01:00:00",
+      "source_last": "2026.10.16 15:30:00",
+      "source_timezone": "ICMARKETS_NY_CLOSE",
+      "interval_distribution": {
+        "1800": 69877,
+        "5400": 1203,
+        "178200": 280,
+        "14400": 27,
+        "264600": 11,
+        "181800": 6,
+        "174600": 6,
+        "19800": 5,
+        "189000": 5,
+        "12600": 4,
+        "192600": 3,
+        "275400": 2
+      },
+      "note": "coverage above is what the FILE's rows actually cover \u2014 never the filename or a claimed period",
+      "imported_at": 1792155636.1890304,
+      "duration_seconds": 1.4277431309999429,
+      "result": {
+        "ok": true,
+        "merge": {
+          "accepted": 71441,
+          "duplicates_identical": 0,
+          "conflicts": 0,
+          "out_of_range": 0,
+          "version": 1
+        },
+        "symbol": "XAUUSD",
+        "timeframe": "M30",
+        "available_unique_bars": 71441,
+        "first_ts": 1601503200.0,
+        "last_ts": 1792153800.0,
+        "rows_rejected": 0,
+        "timezone": "ICMARKETS_NY_CLOSE (explicit user confirmation)",
+        "policy": "stored data wins over conflicting imported candles; identical duplicates are skipped; every conflict is recorded",
+        "coverage_after": {
+          "symbol": "XAUUSD",
+          "timeframe": "M30",
+          "bars": 71441,
+          "first_ts": 1601503200.0,
+          "last_ts": 1792153800.0,
+          "first": "2020-09-30T22:00:00Z",
+          "last": "2026-10-16T12:30:00Z",
+          "coverage_label": "6.04 years (2207 days)",
+          "coverage_days": 2206.6,
+          "source": null,
+          "broker": null,
+          "server": null,
+          "fingerprint": "111b3638c2153fe9810c7810caf2f7a9",
+          "version": 1,
+          "last_fetch": null,
+          "fetch_status": null,
+          "quality": {
+            "bars": 71441,
+            "monotonic_increasing": true,
+            "duplicate_timestamps": 0,
+            "gaps": 1563,
+            "missing_bars_total": 34477
+          },
+          "missing_periods": [
+            {
+              "after": "2020-10-01T20:30:00Z",
+              "before": "2020-10-01T22:00:00Z",
+              "after_ts": 1601584200.0,
+              "before_ts": 1601589600.0,
+              "missing_bars": 2
+            },
+            {
+              "after": "2020-10-02T20:30:00Z",
+              "before": "2020-10-04T22:00:00Z",
+              "after_ts": 1601670600.0,
+              "before_ts": 1601848800.0,
+              "missing_bars": 98
+            },
+            {
+              "after": "2020-10-05T20:30:00Z",
+              "before": "2020-10-05T22:00:00Z",
+              "after_ts": 1601929800.0,
+              "before_ts": 1601935200.0,
+              "missing_bars": 2
+            },
+            {
+              "after": "2020-10-06T20:30:00Z",
+              "before": "2020-10-06T22:00:00Z",
+              "after_ts": 1602016200.0,
+              "before_ts": 1602021600.0,
+              "missing_bars": 2
+            },
+            {
+              "after": "2020-10-07T20:30:00Z",
+              "before": "2020-10-07T22:00:00Z",
+              "after_ts": 1602102600.0,
+              "before_ts": 1602108000.0,
+              "missing_bars": 2
+            },
+            {
+              "after": "2020-10-08T20:30:00Z",
+              "before": "2020-10-08T22:00:00Z",
+              "after_ts": 1602189000.0,
+              "before_ts": 1602194400.0,
+              "missing_bars": 2
+            },
+            {
+              "after": "2020-10-09T20:30:00Z",
+              "before": "2020-10-11T22:00:00Z",
+              "after_ts": 1602275400.0,
+              "before_ts": 1602453600.0,
+              "missing_bars": 98
+            },
+            {
+              "after": "2020-10-12T20:30:00Z",
+              "before": "2020-10-12T22:00:00Z",
+              "after_ts": 1602534600.0,
+              "before_ts": 1602540000.0,
+              "missing_bars": 2
+            },
+            {
+              "after": "2020-10-13T20:30:00Z",
+              "before": "2020-10-13T22:00:00Z",
+              "after_ts": 1602621000.0,
+              "before_ts": 1602626400.0,
+              "missing_bars": 2
+            },
+            {
+              "after": "2020-10-14T20:30:00Z",
+              "before": "2020-10-14T22:00:00Z",
+              "after_ts": 1602707400.0,
+              "before_ts": 1602712800.0,
+              "missing_bars": 2
+            },
+            {
+              "after": "2020-10-15T20:30:00Z",
+              "before": "2020-10-15T22:00:00Z",
+              "after_ts": 1602793800.0,
+              "before_ts": 1602799200.0,
+              "missing_bars": 2
+            },
+            {
+              "after": "2020-10-16T20:30:00Z",
+              "before": "2020-10-18T22:00:00Z",
+              "after_ts": 1602880200.0,
+              "before_ts": 1603058400.0,
+              "missing_bars": 98
+            },
+            {
+              "after": "2020-10-19T20:30:00Z",
+              "before": "2020-10-19T22:00:00Z",
+              "after_ts": 1603139400.0,
+              "before_ts": 1603144800.0,
+              "missing_bars": 2
+            },
+            {
+              "after": "2020-10-20T20:30:00Z",
+              "before": "2020-10-20T22:00:00Z",
+              "after_ts": 1603225800.0,
+              "before_ts": 1603231200.0,
+              "missing_bars": 2
+            },
+            {
+              "after": "2020-10-21T20:30:00Z",
+              "before": "2020-10-21T22:00:00Z",
+              "after_ts": 1603312200.0,
+              "before_ts": 1603317600.0,
+              "missing_bars": 2
+            },
+            {
+              "after": "2020-10-22T20:30:00Z",
+              "before": "2020-10-22T22:00:00Z",
+              "after_ts": 1603398600.0,
+              "before_ts": 1603404000.0,
+              "missing_bars": 2
+            },
+            {
+              "after": "2020-10-23T20:30:00Z",
+              "before": "2020-10-25T22:00:00Z",
+              "after_ts": 1603485000.0,
+              "before_ts": 1603663200.0,
+              "missing_bars": 98
+            },
+            {
+              "after": "2020-10-26T20:30:00Z",
+              "before": "2020-10-26T22:00:00Z",
+              "after_ts": 1603744200.0,
+              "before_ts": 1603749600.0,
+              "missing_bars": 2
+            },
+            {
+              "after": "2020-10-27T20:30:00Z",
+              "before": "2020-10-27T22:00:00Z",
+              "after_ts": 1603830600.0,
+              "before_ts": 1603836000.0,
+              "missing_bars": 2
+            },
+            {
+              "after": "2020-10-28T20:30:00Z",
+              "before": "2020-10-28T22:00:00Z",
+              "after_ts": 1603917000.0,
+              "before_ts": 1603922400.0,
+              "missing_bars": 2
+            },
+            {
+              "after": "2020-10-29T20:30:00Z",
+              "before": "2020-10-29T22:00:00Z",
+              "after_ts": 1604003400.0,
+              "before_ts": 1604008800.0,
+              "missing_bars": 2
+            },
+            {
+              "after": "2020-10-30T20:30:00Z",
+              "before": "2020-11-01T23:00:00Z",
+              "after_ts": 1604089800.0,
+              "before_ts": 1604271600.0,
+              "missing_bars": 100
+            },
+            {
+              "after": "2020-11-02T21:30:00Z",
+              "before": "2020-11-02T23:00:00Z",
+              "after_ts": 1604352600.0,
+              "before_ts": 1604358000.0,
+              "missing_bars": 2
+            },
+            {
+              "after": "2020-11-03T21:30:00Z",
+              "before": "2020-11-03T23:00:00Z",
+              "after_ts": 1604439000.0,
+              "before_ts": 1604444400.0,
+              "missing_bars": 2
+            },
+            {
+              "after": "2020-11-04T21:30:00Z",
+              "before": "2020-11-04T23:00:00Z",
+              "after_ts": 1604525400.0,
+              "before_ts": 1604530800.0,
+              "missing_bars": 2
+            }
+          ],
+          "bars_in_range": null,
+          "range_start": null,
+          "range_end": null,
+          "warnings": [
+            "1563 internal gap(s), 34477 missing bar(s) \u2014 listed for inspection; week-end/session closures are normal stored data"
+          ],
+          "error": null,
+          "cache_key": "XAUUSD|M30",
+          "checked_at": 1792155635.84572,
+          "missing_periods_truncated": true
+        }
+      },
+      "persistent_readback_bars": 71441,
+      "original_sha256": "f3293d536a6ffd79c7298412e746e0f792e473f7539013a27bfbef21c128985f"
+    },
+    {
+      "ok": true,
+      "needs_timezone_confirmation": false,
+      "timeframe_mismatch": null,
+      "error": null,
+      "filename": "XAUUSD_H1.csv",
+      "file_sha256": "c6403ee874ea3e6a2953edc250d4ccd8075400cc4211c58de0afe202bda04445",
+      "symbol": "XAUUSD",
+      "timeframe": "H1",
+      "rows_read": 35738,
+      "rows_valid": 35738,
+      "rows_rejected": 0,
+      "rows_duplicate": 0,
+      "rejects_sample": [],
+      "rejects_truncated": false,
+      "earliest_ts": 1601503200.0,
+      "latest_ts": 1792152000.0,
+      "earliest": "2020-09-30T22:00:00Z",
+      "latest": "2026-10-16T12:00:00Z",
+      "actual_coverage_days": 2206.58,
+      "actual_coverage_label": "6.04 years",
+      "ordered": true,
+      "gap_count": 1561,
+      "missing_bars_total": 17221,
+      "missing_periods": [
+        {
+          "after": "2020-10-01T20:00:00Z",
+          "before": "2020-10-01T22:00:00Z",
+          "after_ts": 1601582400.0,
+          "before_ts": 1601589600.0,
+          "missing_bars": 1
+        },
+        {
+          "after": "2020-10-02T20:00:00Z",
+          "before": "2020-10-04T22:00:00Z",
+          "after_ts": 1601668800.0,
+          "before_ts": 1601848800.0,
+          "missing_bars": 49
+        },
+        {
+          "after": "2020-10-05T20:00:00Z",
+          "before": "2020-10-05T22:00:00Z",
+          "after_ts": 1601928000.0,
+          "before_ts": 1601935200.0,
+          "missing_bars": 1
+        },
+        {
+          "after": "2020-10-06T20:00:00Z",
+          "before": "2020-10-06T22:00:00Z",
+          "after_ts": 1602014400.0,
+          "before_ts": 1602021600.0,
+          "missing_bars": 1
+        },
+        {
+          "after": "2020-10-07T20:00:00Z",
+          "before": "2020-10-07T22:00:00Z",
+          "after_ts": 1602100800.0,
+          "before_ts": 1602108000.0,
+          "missing_bars": 1
+        },
+        {
+          "after": "2020-10-08T20:00:00Z",
+          "before": "2020-10-08T22:00:00Z",
+          "after_ts": 1602187200.0,
+          "before_ts": 1602194400.0,
+          "missing_bars": 1
+        },
+        {
+          "after": "2020-10-09T20:00:00Z",
+          "before": "2020-10-11T22:00:00Z",
+          "after_ts": 1602273600.0,
+          "before_ts": 1602453600.0,
+          "missing_bars": 49
+        },
+        {
+          "after": "2020-10-12T20:00:00Z",
+          "before": "2020-10-12T22:00:00Z",
+          "after_ts": 1602532800.0,
+          "before_ts": 1602540000.0,
+          "missing_bars": 1
+        },
+        {
+          "after": "2020-10-13T20:00:00Z",
+          "before": "2020-10-13T22:00:00Z",
+          "after_ts": 1602619200.0,
+          "before_ts": 1602626400.0,
+          "missing_bars": 1
+        },
+        {
+          "after": "2020-10-14T20:00:00Z",
+          "before": "2020-10-14T22:00:00Z",
+          "after_ts": 1602705600.0,
+          "before_ts": 1602712800.0,
+          "missing_bars": 1
+        },
+        {
+          "after": "2020-10-15T20:00:00Z",
+          "before": "2020-10-15T22:00:00Z",
+          "after_ts": 1602792000.0,
+          "before_ts": 1602799200.0,
+          "missing_bars": 1
+        },
+        {
+          "after": "2020-10-16T20:00:00Z",
+          "before": "2020-10-18T22:00:00Z",
+          "after_ts": 1602878400.0,
+          "before_ts": 1603058400.0,
+          "missing_bars": 49
+        },
+        {
+          "after": "2020-10-19T20:00:00Z",
+          "before": "2020-10-19T22:00:00Z",
+          "after_ts": 1603137600.0,
+          "before_ts": 1603144800.0,
+          "missing_bars": 1
+        },
+        {
+          "after": "2020-10-20T20:00:00Z",
+          "before": "2020-10-20T22:00:00Z",
+          "after_ts": 1603224000.0,
+          "before_ts": 1603231200.0,
+          "missing_bars": 1
+        },
+        {
+          "after": "2020-10-21T20:00:00Z",
+          "before": "2020-10-21T22:00:00Z",
+          "after_ts": 1603310400.0,
+          "before_ts": 1603317600.0,
+          "missing_bars": 1
+        },
+        {
+          "after": "2020-10-22T20:00:00Z",
+          "before": "2020-10-22T22:00:00Z",
+          "after_ts": 1603396800.0,
+          "before_ts": 1603404000.0,
+          "missing_bars": 1
+        },
+        {
+          "after": "2020-10-23T20:00:00Z",
+          "before": "2020-10-25T22:00:00Z",
+          "after_ts": 1603483200.0,
+          "before_ts": 1603663200.0,
+          "missing_bars": 49
+        },
+        {
+          "after": "2020-10-26T20:00:00Z",
+          "before": "2020-10-26T22:00:00Z",
+          "after_ts": 1603742400.0,
+          "before_ts": 1603749600.0,
+          "missing_bars": 1
+        },
+        {
+          "after": "2020-10-27T20:00:00Z",
+          "before": "2020-10-27T22:00:00Z",
+          "after_ts": 1603828800.0,
+          "before_ts": 1603836000.0,
+          "missing_bars": 1
+        },
+        {
+          "after": "2020-10-28T20:00:00Z",
+          "before": "2020-10-28T22:00:00Z",
+          "after_ts": 1603915200.0,
+          "before_ts": 1603922400.0,
+          "missing_bars": 1
+        },
+        {
+          "after": "2020-10-29T20:00:00Z",
+          "before": "2020-10-29T22:00:00Z",
+          "after_ts": 1604001600.0,
+          "before_ts": 1604008800.0,
+          "missing_bars": 1
+        },
+        {
+          "after": "2020-10-30T20:00:00Z",
+          "before": "2020-11-01T23:00:00Z",
+          "after_ts": 1604088000.0,
+          "before_ts": 1604271600.0,
+          "missing_bars": 50
+        },
+        {
+          "after": "2020-11-02T21:00:00Z",
+          "before": "2020-11-02T23:00:00Z",
+          "after_ts": 1604350800.0,
+          "before_ts": 1604358000.0,
+          "missing_bars": 1
+        },
+        {
+          "after": "2020-11-03T21:00:00Z",
+          "before": "2020-11-03T23:00:00Z",
+          "after_ts": 1604437200.0,
+          "before_ts": 1604444400.0,
+          "missing_bars": 1
+        },
+        {
+          "after": "2020-11-04T21:00:00Z",
+          "before": "2020-11-04T23:00:00Z",
+          "after_ts": 1604523600.0,
+          "before_ts": 1604530800.0,
+          "missing_bars": 1
+        }
+      ],
+      "duplicate_timestamps": 0,
+      "overlap_with_store": {
+        "existing_bars": 0,
+        "overlap_bars": 0,
+        "conflicts_possible": false
+      },
+      "timezone_source": "explicit source timezone: ICMARKETS_NY_CLOSE",
+      "timestamp_mode": "mt5_or_iso",
+      "mapping": {
+        "open": "<OPEN>",
+        "high": "<HIGH>",
+        "low": "<LOW>",
+        "close": "<CLOSE>",
+        "tick_volume": "<TICKVOL>",
+        "volume": "<VOL>",
+        "spread": "<SPREAD>"
+      },
+      "warnings": [],
+      "frame_truncated": false,
+      "preview_truncated": true,
+      "source_first": "2020.10.01 01:00:00",
+      "source_last": "2026.10.16 15:00:00",
+      "source_timezone": "ICMARKETS_NY_CLOSE",
+      "interval_distribution": {
+        "3600": 34176,
+        "7200": 1204,
+        "180000": 280,
+        "14400": 31,
+        "266400": 11,
+        "183600": 6,
+        "21600": 6,
+        "176400": 6,
+        "190800": 5,
+        "194400": 3,
+        "277200": 2,
+        "187200": 2
+      },
+      "note": "coverage above is what the FILE's rows actually cover \u2014 never the filename or a claimed period",
+      "imported_at": 1792155637.0666325,
+      "duration_seconds": 0.8728057949999766,
+      "result": {
+        "ok": true,
+        "merge": {
+          "accepted": 35738,
+          "duplicates_identical": 0,
+          "conflicts": 0,
+          "out_of_range": 0,
+          "version": 1
+        },
+        "symbol": "XAUUSD",
+        "timeframe": "H1",
+        "available_unique_bars": 35738,
+        "first_ts": 1601503200.0,
+        "last_ts": 1792152000.0,
+        "rows_rejected": 0,
+        "timezone": "ICMARKETS_NY_CLOSE (explicit user confirmation)",
+        "policy": "stored data wins over conflicting imported candles; identical duplicates are skipped; every conflict is recorded",
+        "coverage_after": {
+          "symbol": "XAUUSD",
+          "timeframe": "H1",
+          "bars": 35738,
+          "first_ts": 1601503200.0,
+          "last_ts": 1792152000.0,
+          "first": "2020-09-30T22:00:00Z",
+          "last": "2026-10-16T12:00:00Z",
+          "coverage_label": "6.04 years (2207 days)",
+          "coverage_days": 2206.58,
+          "source": null,
+          "broker": null,
+          "server": null,
+          "fingerprint": "7f939043b7f202161ca4a27035636b92",
+          "version": 1,
+          "last_fetch": null,
+          "fetch_status": null,
+          "quality": {
+            "bars": 35738,
+            "monotonic_increasing": true,
+            "duplicate_timestamps": 0,
+            "gaps": 1561,
+            "missing_bars_total": 17221
+          },
+          "missing_periods": [
+            {
+              "after": "2020-10-01T20:00:00Z",
+              "before": "2020-10-01T22:00:00Z",
+              "after_ts": 1601582400.0,
+              "before_ts": 1601589600.0,
+              "missing_bars": 1
+            },
+            {
+              "after": "2020-10-02T20:00:00Z",
+              "before": "2020-10-04T22:00:00Z",
+              "after_ts": 1601668800.0,
+              "before_ts": 1601848800.0,
+              "missing_bars": 49
+            },
+            {
+              "after": "2020-10-05T20:00:00Z",
+              "before": "2020-10-05T22:00:00Z",
+              "after_ts": 1601928000.0,
+              "before_ts": 1601935200.0,
+              "missing_bars": 1
+            },
+            {
+              "after": "2020-10-06T20:00:00Z",
+              "before": "2020-10-06T22:00:00Z",
+              "after_ts": 1602014400.0,
+              "before_ts": 1602021600.0,
+              "missing_bars": 1
+            },
+            {
+              "after": "2020-10-07T20:00:00Z",
+              "before": "2020-10-07T22:00:00Z",
+              "after_ts": 1602100800.0,
+              "before_ts": 1602108000.0,
+              "missing_bars": 1
+            },
+            {
+              "after": "2020-10-08T20:00:00Z",
+              "before": "2020-10-08T22:00:00Z",
+              "after_ts": 1602187200.0,
+              "before_ts": 1602194400.0,
+              "missing_bars": 1
+            },
+            {
+              "after": "2020-10-09T20:00:00Z",
+              "before": "2020-10-11T22:00:00Z",
+              "after_ts": 1602273600.0,
+              "before_ts": 1602453600.0,
+              "missing_bars": 49
+            },
+            {
+              "after": "2020-10-12T20:00:00Z",
+              "before": "2020-10-12T22:00:00Z",
+              "after_ts": 1602532800.0,
+              "before_ts": 1602540000.0,
+              "missing_bars": 1
+            },
+            {
+              "after": "2020-10-13T20:00:00Z",
+              "before": "2020-10-13T22:00:00Z",
+              "after_ts": 1602619200.0,
+              "before_ts": 1602626400.0,
+              "missing_bars": 1
+            },
+            {
+              "after": "2020-10-14T20:00:00Z",
+              "before": "2020-10-14T22:00:00Z",
+              "after_ts": 1602705600.0,
+              "before_ts": 1602712800.0,
+              "missing_bars": 1
+            },
+            {
+              "after": "2020-10-15T20:00:00Z",
+              "before": "2020-10-15T22:00:00Z",
+              "after_ts": 1602792000.0,
+              "before_ts": 1602799200.0,
+              "missing_bars": 1
+            },
+            {
+              "after": "2020-10-16T20:00:00Z",
+              "before": "2020-10-18T22:00:00Z",
+              "after_ts": 1602878400.0,
+              "before_ts": 1603058400.0,
+              "missing_bars": 49
+            },
+            {
+              "after": "2020-10-19T20:00:00Z",
+              "before": "2020-10-19T22:00:00Z",
+              "after_ts": 1603137600.0,
+              "before_ts": 1603144800.0,
+              "missing_bars": 1
+            },
+            {
+              "after": "2020-10-20T20:00:00Z",
+              "before": "2020-10-20T22:00:00Z",
+              "after_ts": 1603224000.0,
+              "before_ts": 1603231200.0,
+              "missing_bars": 1
+            },
+            {
+              "after": "2020-10-21T20:00:00Z",
+              "before": "2020-10-21T22:00:00Z",
+              "after_ts": 1603310400.0,
+              "before_ts": 1603317600.0,
+              "missing_bars": 1
+            },
+            {
+              "after": "2020-10-22T20:00:00Z",
+              "before": "2020-10-22T22:00:00Z",
+              "after_ts": 1603396800.0,
+              "before_ts": 1603404000.0,
+              "missing_bars": 1
+            },
+            {
+              "after": "2020-10-23T20:00:00Z",
+              "before": "2020-10-25T22:00:00Z",
+              "after_ts": 1603483200.0,
+              "before_ts": 1603663200.0,
+              "missing_bars": 49
+            },
+            {
+              "after": "2020-10-26T20:00:00Z",
+              "before": "2020-10-26T22:00:00Z",
+              "after_ts": 1603742400.0,
+              "before_ts": 1603749600.0,
+              "missing_bars": 1
+            },
+            {
+              "after": "2020-10-27T20:00:00Z",
+              "before": "2020-10-27T22:00:00Z",
+              "after_ts": 1603828800.0,
+              "before_ts": 1603836000.0,
+              "missing_bars": 1
+            },
+            {
+              "after": "2020-10-28T20:00:00Z",
+              "before": "2020-10-28T22:00:00Z",
+              "after_ts": 1603915200.0,
+              "before_ts": 1603922400.0,
+              "missing_bars": 1
+            },
+            {
+              "after": "2020-10-29T20:00:00Z",
+              "before": "2020-10-29T22:00:00Z",
+              "after_ts": 1604001600.0,
+              "before_ts": 1604008800.0,
+              "missing_bars": 1
+            },
+            {
+              "after": "2020-10-30T20:00:00Z",
+              "before": "2020-11-01T23:00:00Z",
+              "after_ts": 1604088000.0,
+              "before_ts": 1604271600.0,
+              "missing_bars": 50
+            },
+            {
+              "after": "2020-11-02T21:00:00Z",
+              "before": "2020-11-02T23:00:00Z",
+              "after_ts": 1604350800.0,
+              "before_ts": 1604358000.0,
+              "missing_bars": 1
+            },
+            {
+              "after": "2020-11-03T21:00:00Z",
+              "before": "2020-11-03T23:00:00Z",
+              "after_ts": 1604437200.0,
+              "before_ts": 1604444400.0,
+              "missing_bars": 1
+            },
+            {
+              "after": "2020-11-04T21:00:00Z",
+              "before": "2020-11-04T23:00:00Z",
+              "after_ts": 1604523600.0,
+              "before_ts": 1604530800.0,
+              "missing_bars": 1
+            }
+          ],
+          "bars_in_range": null,
+          "range_start": null,
+          "range_end": null,
+          "warnings": [
+            "1561 internal gap(s), 17221 missing bar(s) \u2014 listed for inspection; week-end/session closures are normal stored data"
+          ],
+          "error": null,
+          "cache_key": "XAUUSD|H1",
+          "checked_at": 1792155636.7647824,
+          "missing_periods_truncated": true
+        }
+      },
+      "persistent_readback_bars": 35738,
+      "original_sha256": "c6403ee874ea3e6a2953edc250d4ccd8075400cc4211c58de0afe202bda04445"
+    },
+    {
+      "ok": true,
+      "needs_timezone_confirmation": false,
+      "timeframe_mismatch": null,
+      "error": null,
+      "filename": "XAUUSD_H4.csv",
+      "file_sha256": "a1b2f93cd30ac42de422783c6660d6ca84ba49e247d4e8d38cfd7d08dc59c338",
+      "symbol": "XAUUSD",
+      "timeframe": "H4",
+      "rows_read": 9349,
+      "rows_valid": 9349,
+      "rows_rejected": 0,
+      "rows_duplicate": 0,
+      "rejects_sample": [],
+      "rejects_truncated": false,
+      "earliest_ts": 1601499600.0,
+      "latest_ts": 1792141200.0,
+      "earliest": "2020-09-30T21:00:00Z",
+      "latest": "2026-10-16T09:00:00Z",
+      "actual_coverage_days": 2206.5,
+      "actual_coverage_label": "6.04 years",
+      "ordered": true,
+      "gap_count": 325,
+      "missing_bars_total": 3891,
+      "missing_periods": [
+        {
+          "after": "2020-10-02T17:00:00Z",
+          "before": "2020-10-04T21:00:00Z",
+          "after_ts": 1601658000.0,
+          "before_ts": 1601845200.0,
+          "missing_bars": 12
+        },
+        {
+          "after": "2020-10-09T17:00:00Z",
+          "before": "2020-10-11T21:00:00Z",
+          "after_ts": 1602262800.0,
+          "before_ts": 1602450000.0,
+          "missing_bars": 12
+        },
+        {
+          "after": "2020-10-16T17:00:00Z",
+          "before": "2020-10-18T21:00:00Z",
+          "after_ts": 1602867600.0,
+          "before_ts": 1603054800.0,
+          "missing_bars": 12
+        },
+        {
+          "after": "2020-10-23T17:00:00Z",
+          "before": "2020-10-25T21:00:00Z",
+          "after_ts": 1603472400.0,
+          "before_ts": 1603659600.0,
+          "missing_bars": 12
+        },
+        {
+          "after": "2020-10-30T17:00:00Z",
+          "before": "2020-11-01T22:00:00Z",
+          "after_ts": 1604077200.0,
+          "before_ts": 1604268000.0,
+          "missing_bars": 12
+        },
+        {
+          "after": "2020-11-06T18:00:00Z",
+          "before": "2020-11-08T22:00:00Z",
+          "after_ts": 1604685600.0,
+          "before_ts": 1604872800.0,
+          "missing_bars": 12
+        },
+        {
+          "after": "2020-11-13T18:00:00Z",
+          "before": "2020-11-15T22:00:00Z",
+          "after_ts": 1605290400.0,
+          "before_ts": 1605477600.0,
+          "missing_bars": 12
+        },
+        {
+          "after": "2020-11-20T18:00:00Z",
+          "before": "2020-11-22T22:00:00Z",
+          "after_ts": 1605895200.0,
+          "before_ts": 1606082400.0,
+          "missing_bars": 12
+        },
+        {
+          "after": "2020-11-26T14:00:00Z",
+          "before": "2020-11-26T22:00:00Z",
+          "after_ts": 1606399200.0,
+          "before_ts": 1606428000.0,
+          "missing_bars": 1
+        },
+        {
+          "after": "2020-11-27T18:00:00Z",
+          "before": "2020-11-29T22:00:00Z",
+          "after_ts": 1606500000.0,
+          "before_ts": 1606687200.0,
+          "missing_bars": 12
+        },
+        {
+          "after": "2020-12-04T18:00:00Z",
+          "before": "2020-12-06T22:00:00Z",
+          "after_ts": 1607104800.0,
+          "before_ts": 1607292000.0,
+          "missing_bars": 12
+        },
+        {
+          "after": "2020-12-11T18:00:00Z",
+          "before": "2020-12-13T22:00:00Z",
+          "after_ts": 1607709600.0,
+          "before_ts": 1607896800.0,
+          "missing_bars": 12
+        },
+        {
+          "after": "2020-12-18T18:00:00Z",
+          "before": "2020-12-20T22:00:00Z",
+          "after_ts": 1608314400.0,
+          "before_ts": 1608501600.0,
+          "missing_bars": 12
+        },
+        {
+          "after": "2020-12-24T18:00:00Z",
+          "before": "2020-12-27T22:00:00Z",
+          "after_ts": 1608832800.0,
+          "before_ts": 1609106400.0,
+          "missing_bars": 18
+        },
+        {
+          "after": "2020-12-31T18:00:00Z",
+          "before": "2021-01-03T22:00:00Z",
+          "after_ts": 1609437600.0,
+          "before_ts": 1609711200.0,
+          "missing_bars": 18
+        },
+        {
+          "after": "2021-01-08T18:00:00Z",
+          "before": "2021-01-10T22:00:00Z",
+          "after_ts": 1610128800.0,
+          "before_ts": 1610316000.0,
+          "missing_bars": 12
+        },
+        {
+          "after": "2021-01-15T18:00:00Z",
+          "before": "2021-01-17T22:00:00Z",
+          "after_ts": 1610733600.0,
+          "before_ts": 1610920800.0,
+          "missing_bars": 12
+        },
+        {
+          "after": "2021-01-22T18:00:00Z",
+          "before": "2021-01-24T22:00:00Z",
+          "after_ts": 1611338400.0,
+          "before_ts": 1611525600.0,
+          "missing_bars": 12
+        },
+        {
+          "after": "2021-01-29T18:00:00Z",
+          "before": "2021-01-31T22:00:00Z",
+          "after_ts": 1611943200.0,
+          "before_ts": 1612130400.0,
+          "missing_bars": 12
+        },
+        {
+          "after": "2021-02-05T18:00:00Z",
+          "before": "2021-02-07T22:00:00Z",
+          "after_ts": 1612548000.0,
+          "before_ts": 1612735200.0,
+          "missing_bars": 12
+        },
+        {
+          "after": "2021-02-12T18:00:00Z",
+          "before": "2021-02-14T22:00:00Z",
+          "after_ts": 1613152800.0,
+          "before_ts": 1613340000.0,
+          "missing_bars": 12
+        },
+        {
+          "after": "2021-02-15T14:00:00Z",
+          "before": "2021-02-15T22:00:00Z",
+          "after_ts": 1613397600.0,
+          "before_ts": 1613426400.0,
+          "missing_bars": 1
+        },
+        {
+          "after": "2021-02-19T18:00:00Z",
+          "before": "2021-02-21T22:00:00Z",
+          "after_ts": 1613757600.0,
+          "before_ts": 1613944800.0,
+          "missing_bars": 12
+        },
+        {
+          "after": "2021-02-26T18:00:00Z",
+          "before": "2021-02-28T22:00:00Z",
+          "after_ts": 1614362400.0,
+          "before_ts": 1614549600.0,
+          "missing_bars": 12
+        },
+        {
+          "after": "2021-03-05T18:00:00Z",
+          "before": "2021-03-07T22:00:00Z",
+          "after_ts": 1614967200.0,
+          "before_ts": 1615154400.0,
+          "missing_bars": 12
+        }
+      ],
+      "duplicate_timestamps": 0,
+      "overlap_with_store": {
+        "existing_bars": 0,
+        "overlap_bars": 0,
+        "conflicts_possible": false
+      },
+      "timezone_source": "explicit source timezone: ICMARKETS_NY_CLOSE",
+      "timestamp_mode": "mt5_or_iso",
+      "mapping": {
+        "open": "<OPEN>",
+        "high": "<HIGH>",
+        "low": "<LOW>",
+        "close": "<CLOSE>",
+        "tick_volume": "<TICKVOL>",
+        "volume": "<VOL>",
+        "spread": "<SPREAD>"
+      },
+      "warnings": [],
+      "frame_truncated": false,
+      "preview_truncated": false,
+      "source_first": "2020.10.01 00:00:00",
+      "source_last": "2026.10.16 12:00:00",
+      "source_timezone": "ICMARKETS_NY_CLOSE",
+      "interval_distribution": {
+        "14400": 9023,
+        "187200": 287,
+        "273600": 13,
+        "190800": 6,
+        "28800": 6,
+        "183600": 6,
+        "100800": 4,
+        "201600": 3
+      },
+      "note": "coverage above is what the FILE's rows actually cover \u2014 never the filename or a claimed period",
+      "imported_at": 1792155637.6962938,
+      "duration_seconds": 0.6257876430000806,
+      "result": {
+        "ok": true,
+        "merge": {
+          "accepted": 9349,
+          "duplicates_identical": 0,
+          "conflicts": 0,
+          "out_of_range": 0,
+          "version": 1
+        },
+        "symbol": "XAUUSD",
+        "timeframe": "H4",
+        "available_unique_bars": 9349,
+        "first_ts": 1601499600.0,
+        "last_ts": 1792141200.0,
+        "rows_rejected": 0,
+        "timezone": "ICMARKETS_NY_CLOSE (explicit user confirmation)",
+        "policy": "stored data wins over conflicting imported candles; identical duplicates are skipped; every conflict is recorded",
+        "coverage_after": {
+          "symbol": "XAUUSD",
+          "timeframe": "H4",
+          "bars": 9349,
+          "first_ts": 1601499600.0,
+          "last_ts": 1792141200.0,
+          "first": "2020-09-30T21:00:00Z",
+          "last": "2026-10-16T09:00:00Z",
+          "coverage_label": "6.04 years (2206 days)",
+          "coverage_days": 2206.5,
+          "source": null,
+          "broker": null,
+          "server": null,
+          "fingerprint": "84771bb1629d02d703bbb4d28b61011e",
+          "version": 1,
+          "last_fetch": null,
+          "fetch_status": null,
+          "quality": {
+            "bars": 9349,
+            "monotonic_increasing": true,
+            "duplicate_timestamps": 0,
+            "gaps": 325,
+            "missing_bars_total": 3891
+          },
+          "missing_periods": [
+            {
+              "after": "2020-10-02T17:00:00Z",
+              "before": "2020-10-04T21:00:00Z",
+              "after_ts": 1601658000.0,
+              "before_ts": 1601845200.0,
+              "missing_bars": 12
+            },
+            {
+              "after": "2020-10-09T17:00:00Z",
+              "before": "2020-10-11T21:00:00Z",
+              "after_ts": 1602262800.0,
+              "before_ts": 1602450000.0,
+              "missing_bars": 12
+            },
+            {
+              "after": "2020-10-16T17:00:00Z",
+              "before": "2020-10-18T21:00:00Z",
+              "after_ts": 1602867600.0,
+              "before_ts": 1603054800.0,
+              "missing_bars": 12
+            },
+            {
+              "after": "2020-10-23T17:00:00Z",
+              "before": "2020-10-25T21:00:00Z",
+              "after_ts": 1603472400.0,
+              "before_ts": 1603659600.0,
+              "missing_bars": 12
+            },
+            {
+              "after": "2020-10-30T17:00:00Z",
+              "before": "2020-11-01T22:00:00Z",
+              "after_ts": 1604077200.0,
+              "before_ts": 1604268000.0,
+              "missing_bars": 12
+            },
+            {
+              "after": "2020-11-06T18:00:00Z",
+              "before": "2020-11-08T22:00:00Z",
+              "after_ts": 1604685600.0,
+              "before_ts": 1604872800.0,
+              "missing_bars": 12
+            },
+            {
+              "after": "2020-11-13T18:00:00Z",
+              "before": "2020-11-15T22:00:00Z",
+              "after_ts": 1605290400.0,
+              "before_ts": 1605477600.0,
+              "missing_bars": 12
+            },
+            {
+              "after": "2020-11-20T18:00:00Z",
+              "before": "2020-11-22T22:00:00Z",
+              "after_ts": 1605895200.0,
+              "before_ts": 1606082400.0,
+              "missing_bars": 12
+            },
+            {
+              "after": "2020-11-26T14:00:00Z",
+              "before": "2020-11-26T22:00:00Z",
+              "after_ts": 1606399200.0,
+              "before_ts": 1606428000.0,
+              "missing_bars": 1
+            },
+            {
+              "after": "2020-11-27T18:00:00Z",
+              "before": "2020-11-29T22:00:00Z",
+              "after_ts": 1606500000.0,
+              "before_ts": 1606687200.0,
+              "missing_bars": 12
+            },
+            {
+              "after": "2020-12-04T18:00:00Z",
+              "before": "2020-12-06T22:00:00Z",
+              "after_ts": 1607104800.0,
+              "before_ts": 1607292000.0,
+              "missing_bars": 12
+            },
+            {
+              "after": "2020-12-11T18:00:00Z",
+              "before": "2020-12-13T22:00:00Z",
+              "after_ts": 1607709600.0,
+              "before_ts": 1607896800.0,
+              "missing_bars": 12
+            },
+            {
+              "after": "2020-12-18T18:00:00Z",
+              "before": "2020-12-20T22:00:00Z",
+              "after_ts": 1608314400.0,
+              "before_ts": 1608501600.0,
+              "missing_bars": 12
+            },
+            {
+              "after": "2020-12-24T18:00:00Z",
+              "before": "2020-12-27T22:00:00Z",
+              "after_ts": 1608832800.0,
+              "before_ts": 1609106400.0,
+              "missing_bars": 18
+            },
+            {
+              "after": "2020-12-31T18:00:00Z",
+              "before": "2021-01-03T22:00:00Z",
+              "after_ts": 1609437600.0,
+              "before_ts": 1609711200.0,
+              "missing_bars": 18
+            },
+            {
+              "after": "2021-01-08T18:00:00Z",
+              "before": "2021-01-10T22:00:00Z",
+              "after_ts": 1610128800.0,
+              "before_ts": 1610316000.0,
+              "missing_bars": 12
+            },
+            {
+              "after": "2021-01-15T18:00:00Z",
+              "before": "2021-01-17T22:00:00Z",
+              "after_ts": 1610733600.0,
+              "before_ts": 1610920800.0,
+              "missing_bars": 12
+            },
+            {
+              "after": "2021-01-22T18:00:00Z",
+              "before": "2021-01-24T22:00:00Z",
+              "after_ts": 1611338400.0,
+              "before_ts": 1611525600.0,
+              "missing_bars": 12
+            },
+            {
+              "after": "2021-01-29T18:00:00Z",
+              "before": "2021-01-31T22:00:00Z",
+              "after_ts": 1611943200.0,
+              "before_ts": 1612130400.0,
+              "missing_bars": 12
+            },
+            {
+              "after": "2021-02-05T18:00:00Z",
+              "before": "2021-02-07T22:00:00Z",
+              "after_ts": 1612548000.0,
+              "before_ts": 1612735200.0,
+              "missing_bars": 12
+            },
+            {
+              "after": "2021-02-12T18:00:00Z",
+              "before": "2021-02-14T22:00:00Z",
+              "after_ts": 1613152800.0,
+              "before_ts": 1613340000.0,
+              "missing_bars": 12
+            },
+            {
+              "after": "2021-02-15T14:00:00Z",
+              "before": "2021-02-15T22:00:00Z",
+              "after_ts": 1613397600.0,
+              "before_ts": 1613426400.0,
+              "missing_bars": 1
+            },
+            {
+              "after": "2021-02-19T18:00:00Z",
+              "before": "2021-02-21T22:00:00Z",
+              "after_ts": 1613757600.0,
+              "before_ts": 1613944800.0,
+              "missing_bars": 12
+            },
+            {
+              "after": "2021-02-26T18:00:00Z",
+              "before": "2021-02-28T22:00:00Z",
+              "after_ts": 1614362400.0,
+              "before_ts": 1614549600.0,
+              "missing_bars": 12
+            },
+            {
+              "after": "2021-03-05T18:00:00Z",
+              "before": "2021-03-07T22:00:00Z",
+              "after_ts": 1614967200.0,
+              "before_ts": 1615154400.0,
+              "missing_bars": 12
+            }
+          ],
+          "bars_in_range": null,
+          "range_start": null,
+          "range_end": null,
+          "warnings": [
+            "325 internal gap(s), 3891 missing bar(s) \u2014 listed for inspection; week-end/session closures are normal stored data"
+          ],
+          "error": null,
+          "cache_key": "XAUUSD|H4",
+          "checked_at": 1792155637.4103508,
+          "missing_periods_truncated": true
+        }
+      },
+      "persistent_readback_bars": 9349,
+      "original_sha256": "a1b2f93cd30ac42de422783c6660d6ca84ba49e247d4e8d38cfd7d08dc59c338"
+    },
+    {
+      "ok": true,
+      "needs_timezone_confirmation": false,
+      "timeframe_mismatch": null,
+      "error": null,
+      "filename": "XAUUSD_Daily.csv",
+      "file_sha256": "2cfc0fcf53c17c4892bc03fab87701aa6597bc9c1374678cf3501d3966cdb314",
+      "symbol": "XAUUSD",
+      "timeframe": "D1",
+      "rows_read": 1560,
+      "rows_valid": 1560,
+      "rows_rejected": 0,
+      "rows_duplicate": 0,
+      "rejects_sample": [],
+      "rejects_truncated": false,
+      "earliest_ts": 1601499600.0,
+      "latest_ts": 1792098000.0,
+      "earliest": "2020-09-30T21:00:00Z",
+      "latest": "2026-10-15T21:00:00Z",
+      "actual_coverage_days": 2206.0,
+      "actual_coverage_label": "6.04 years",
+      "ordered": true,
+      "gap_count": 319,
+      "missing_bars_total": 647,
+      "missing_periods": [
+        {
+          "after": "2020-10-01T21:00:00Z",
+          "before": "2020-10-04T21:00:00Z",
+          "after_ts": 1601586000.0,
+          "before_ts": 1601845200.0,
+          "missing_bars": 2
+        },
+        {
+          "after": "2020-10-08T21:00:00Z",
+          "before": "2020-10-11T21:00:00Z",
+          "after_ts": 1602190800.0,
+          "before_ts": 1602450000.0,
+          "missing_bars": 2
+        },
+        {
+          "after": "2020-10-15T21:00:00Z",
+          "before": "2020-10-18T21:00:00Z",
+          "after_ts": 1602795600.0,
+          "before_ts": 1603054800.0,
+          "missing_bars": 2
+        },
+        {
+          "after": "2020-10-22T21:00:00Z",
+          "before": "2020-10-25T21:00:00Z",
+          "after_ts": 1603400400.0,
+          "before_ts": 1603659600.0,
+          "missing_bars": 2
+        },
+        {
+          "after": "2020-10-29T21:00:00Z",
+          "before": "2020-11-01T22:00:00Z",
+          "after_ts": 1604005200.0,
+          "before_ts": 1604268000.0,
+          "missing_bars": 2
+        },
+        {
+          "after": "2020-11-05T22:00:00Z",
+          "before": "2020-11-08T22:00:00Z",
+          "after_ts": 1604613600.0,
+          "before_ts": 1604872800.0,
+          "missing_bars": 2
+        },
+        {
+          "after": "2020-11-12T22:00:00Z",
+          "before": "2020-11-15T22:00:00Z",
+          "after_ts": 1605218400.0,
+          "before_ts": 1605477600.0,
+          "missing_bars": 2
+        },
+        {
+          "after": "2020-11-19T22:00:00Z",
+          "before": "2020-11-22T22:00:00Z",
+          "after_ts": 1605823200.0,
+          "before_ts": 1606082400.0,
+          "missing_bars": 2
+        },
+        {
+          "after": "2020-11-26T22:00:00Z",
+          "before": "2020-11-29T22:00:00Z",
+          "after_ts": 1606428000.0,
+          "before_ts": 1606687200.0,
+          "missing_bars": 2
+        },
+        {
+          "after": "2020-12-03T22:00:00Z",
+          "before": "2020-12-06T22:00:00Z",
+          "after_ts": 1607032800.0,
+          "before_ts": 1607292000.0,
+          "missing_bars": 2
+        },
+        {
+          "after": "2020-12-10T22:00:00Z",
+          "before": "2020-12-13T22:00:00Z",
+          "after_ts": 1607637600.0,
+          "before_ts": 1607896800.0,
+          "missing_bars": 2
+        },
+        {
+          "after": "2020-12-17T22:00:00Z",
+          "before": "2020-12-20T22:00:00Z",
+          "after_ts": 1608242400.0,
+          "before_ts": 1608501600.0,
+          "missing_bars": 2
+        },
+        {
+          "after": "2020-12-23T22:00:00Z",
+          "before": "2020-12-27T22:00:00Z",
+          "after_ts": 1608760800.0,
+          "before_ts": 1609106400.0,
+          "missing_bars": 3
+        },
+        {
+          "after": "2020-12-30T22:00:00Z",
+          "before": "2021-01-03T22:00:00Z",
+          "after_ts": 1609365600.0,
+          "before_ts": 1609711200.0,
+          "missing_bars": 3
+        },
+        {
+          "after": "2021-01-07T22:00:00Z",
+          "before": "2021-01-10T22:00:00Z",
+          "after_ts": 1610056800.0,
+          "before_ts": 1610316000.0,
+          "missing_bars": 2
+        },
+        {
+          "after": "2021-01-14T22:00:00Z",
+          "before": "2021-01-17T22:00:00Z",
+          "after_ts": 1610661600.0,
+          "before_ts": 1610920800.0,
+          "missing_bars": 2
+        },
+        {
+          "after": "2021-01-21T22:00:00Z",
+          "before": "2021-01-24T22:00:00Z",
+          "after_ts": 1611266400.0,
+          "before_ts": 1611525600.0,
+          "missing_bars": 2
+        },
+        {
+          "after": "2021-01-28T22:00:00Z",
+          "before": "2021-01-31T22:00:00Z",
+          "after_ts": 1611871200.0,
+          "before_ts": 1612130400.0,
+          "missing_bars": 2
+        },
+        {
+          "after": "2021-02-04T22:00:00Z",
+          "before": "2021-02-07T22:00:00Z",
+          "after_ts": 1612476000.0,
+          "before_ts": 1612735200.0,
+          "missing_bars": 2
+        },
+        {
+          "after": "2021-02-11T22:00:00Z",
+          "before": "2021-02-14T22:00:00Z",
+          "after_ts": 1613080800.0,
+          "before_ts": 1613340000.0,
+          "missing_bars": 2
+        },
+        {
+          "after": "2021-02-18T22:00:00Z",
+          "before": "2021-02-21T22:00:00Z",
+          "after_ts": 1613685600.0,
+          "before_ts": 1613944800.0,
+          "missing_bars": 2
+        },
+        {
+          "after": "2021-02-25T22:00:00Z",
+          "before": "2021-02-28T22:00:00Z",
+          "after_ts": 1614290400.0,
+          "before_ts": 1614549600.0,
+          "missing_bars": 2
+        },
+        {
+          "after": "2021-03-04T22:00:00Z",
+          "before": "2021-03-07T22:00:00Z",
+          "after_ts": 1614895200.0,
+          "before_ts": 1615154400.0,
+          "missing_bars": 2
+        },
+        {
+          "after": "2021-03-11T22:00:00Z",
+          "before": "2021-03-14T21:00:00Z",
+          "after_ts": 1615500000.0,
+          "before_ts": 1615755600.0,
+          "missing_bars": 2
+        },
+        {
+          "after": "2021-03-18T21:00:00Z",
+          "before": "2021-03-21T21:00:00Z",
+          "after_ts": 1616101200.0,
+          "before_ts": 1616360400.0,
+          "missing_bars": 2
+        }
+      ],
+      "duplicate_timestamps": 0,
+      "overlap_with_store": {
+        "existing_bars": 0,
+        "overlap_bars": 0,
+        "conflicts_possible": false
+      },
+      "timezone_source": "explicit source timezone: ICMARKETS_NY_CLOSE",
+      "timestamp_mode": "mt5_or_iso",
+      "mapping": {
+        "open": "<OPEN>",
+        "high": "<HIGH>",
+        "low": "<LOW>",
+        "close": "<CLOSE>",
+        "tick_volume": "<TICKVOL>",
+        "volume": "<VOL>",
+        "spread": "<SPREAD>"
+      },
+      "warnings": [],
+      "frame_truncated": false,
+      "preview_truncated": false,
+      "source_first": "2020.10.01",
+      "source_last": "2026.10.16",
+      "source_timezone": "ICMARKETS_NY_CLOSE",
+      "interval_distribution": {
+        "86400": 1240,
+        "259200": 290,
+        "345600": 13,
+        "262800": 6,
+        "255600": 6,
+        "172800": 4
+      },
+      "note": "coverage above is what the FILE's rows actually cover \u2014 never the filename or a claimed period",
+      "imported_at": 1792155638.228434,
+      "duration_seconds": 0.5305007609999848,
+      "result": {
+        "ok": true,
+        "merge": {
+          "accepted": 1560,
+          "duplicates_identical": 0,
+          "conflicts": 0,
+          "out_of_range": 0,
+          "version": 1
+        },
+        "symbol": "XAUUSD",
+        "timeframe": "D1",
+        "available_unique_bars": 1560,
+        "first_ts": 1601499600.0,
+        "last_ts": 1792098000.0,
+        "rows_rejected": 0,
+        "timezone": "ICMARKETS_NY_CLOSE (explicit user confirmation)",
+        "policy": "stored data wins over conflicting imported candles; identical duplicates are skipped; every conflict is recorded",
+        "coverage_after": {
+          "symbol": "XAUUSD",
+          "timeframe": "D1",
+          "bars": 1560,
+          "first_ts": 1601499600.0,
+          "last_ts": 1792098000.0,
+          "first": "2020-09-30T21:00:00Z",
+          "last": "2026-10-15T21:00:00Z",
+          "coverage_label": "6.04 years (2206 days)",
+          "coverage_days": 2206.0,
+          "source": null,
+          "broker": null,
+          "server": null,
+          "fingerprint": "29b5232e2818b57c6de7f0e41852549f",
+          "version": 1,
+          "last_fetch": null,
+          "fetch_status": null,
+          "quality": {
+            "bars": 1560,
+            "monotonic_increasing": true,
+            "duplicate_timestamps": 0,
+            "gaps": 319,
+            "missing_bars_total": 647
+          },
+          "missing_periods": [
+            {
+              "after": "2020-10-01T21:00:00Z",
+              "before": "2020-10-04T21:00:00Z",
+              "after_ts": 1601586000.0,
+              "before_ts": 1601845200.0,
+              "missing_bars": 2
+            },
+            {
+              "after": "2020-10-08T21:00:00Z",
+              "before": "2020-10-11T21:00:00Z",
+              "after_ts": 1602190800.0,
+              "before_ts": 1602450000.0,
+              "missing_bars": 2
+            },
+            {
+              "after": "2020-10-15T21:00:00Z",
+              "before": "2020-10-18T21:00:00Z",
+              "after_ts": 1602795600.0,
+              "before_ts": 1603054800.0,
+              "missing_bars": 2
+            },
+            {
+              "after": "2020-10-22T21:00:00Z",
+              "before": "2020-10-25T21:00:00Z",
+              "after_ts": 1603400400.0,
+              "before_ts": 1603659600.0,
+              "missing_bars": 2
+            },
+            {
+              "after": "2020-10-29T21:00:00Z",
+              "before": "2020-11-01T22:00:00Z",
+              "after_ts": 1604005200.0,
+              "before_ts": 1604268000.0,
+              "missing_bars": 2
+            },
+            {
+              "after": "2020-11-05T22:00:00Z",
+              "before": "2020-11-08T22:00:00Z",
+              "after_ts": 1604613600.0,
+              "before_ts": 1604872800.0,
+              "missing_bars": 2
+            },
+            {
+              "after": "2020-11-12T22:00:00Z",
+              "before": "2020-11-15T22:00:00Z",
+              "after_ts": 1605218400.0,
+              "before_ts": 1605477600.0,
+              "missing_bars": 2
+            },
+            {
+              "after": "2020-11-19T22:00:00Z",
+              "before": "2020-11-22T22:00:00Z",
+              "after_ts": 1605823200.0,
+              "before_ts": 1606082400.0,
+              "missing_bars": 2
+            },
+            {
+              "after": "2020-11-26T22:00:00Z",
+              "before": "2020-11-29T22:00:00Z",
+              "after_ts": 1606428000.0,
+              "before_ts": 1606687200.0,
+              "missing_bars": 2
+            },
+            {
+              "after": "2020-12-03T22:00:00Z",
+              "before": "2020-12-06T22:00:00Z",
+              "after_ts": 1607032800.0,
+              "before_ts": 1607292000.0,
+              "missing_bars": 2
+            },
+            {
+              "after": "2020-12-10T22:00:00Z",
+              "before": "2020-12-13T22:00:00Z",
+              "after_ts": 1607637600.0,
+              "before_ts": 1607896800.0,
+              "missing_bars": 2
+            },
+            {
+              "after": "2020-12-17T22:00:00Z",
+              "before": "2020-12-20T22:00:00Z",
+              "after_ts": 1608242400.0,
+              "before_ts": 1608501600.0,
+              "missing_bars": 2
+            },
+            {
+              "after": "2020-12-23T22:00:00Z",
+              "before": "2020-12-27T22:00:00Z",
+              "after_ts": 1608760800.0,
+              "before_ts": 1609106400.0,
+              "missing_bars": 3
+            },
+            {
+              "after": "2020-12-30T22:00:00Z",
+              "before": "2021-01-03T22:00:00Z",
+              "after_ts": 1609365600.0,
+              "before_ts": 1609711200.0,
+              "missing_bars": 3
+            },
+            {
+              "after": "2021-01-07T22:00:00Z",
+              "before": "2021-01-10T22:00:00Z",
+              "after_ts": 1610056800.0,
+              "before_ts": 1610316000.0,
+              "missing_bars": 2
+            },
+            {
+              "after": "2021-01-14T22:00:00Z",
+              "before": "2021-01-17T22:00:00Z",
+              "after_ts": 1610661600.0,
+              "before_ts": 1610920800.0,
+              "missing_bars": 2
+            },
+            {
+              "after": "2021-01-21T22:00:00Z",
+              "before": "2021-01-24T22:00:00Z",
+              "after_ts": 1611266400.0,
+              "before_ts": 1611525600.0,
+              "missing_bars": 2
+            },
+            {
+              "after": "2021-01-28T22:00:00Z",
+              "before": "2021-01-31T22:00:00Z",
+              "after_ts": 1611871200.0,
+              "before_ts": 1612130400.0,
+              "missing_bars": 2
+            },
+            {
+              "after": "2021-02-04T22:00:00Z",
+              "before": "2021-02-07T22:00:00Z",
+              "after_ts": 1612476000.0,
+              "before_ts": 1612735200.0,
+              "missing_bars": 2
+            },
+            {
+              "after": "2021-02-11T22:00:00Z",
+              "before": "2021-02-14T22:00:00Z",
+              "after_ts": 1613080800.0,
+              "before_ts": 1613340000.0,
+              "missing_bars": 2
+            },
+            {
+              "after": "2021-02-18T22:00:00Z",
+              "before": "2021-02-21T22:00:00Z",
+              "after_ts": 1613685600.0,
+              "before_ts": 1613944800.0,
+              "missing_bars": 2
+            },
+            {
+              "after": "2021-02-25T22:00:00Z",
+              "before": "2021-02-28T22:00:00Z",
+              "after_ts": 1614290400.0,
+              "before_ts": 1614549600.0,
+              "missing_bars": 2
+            },
+            {
+              "after": "2021-03-04T22:00:00Z",
+              "before": "2021-03-07T22:00:00Z",
+              "after_ts": 1614895200.0,
+              "before_ts": 1615154400.0,
+              "missing_bars": 2
+            },
+            {
+              "after": "2021-03-11T22:00:00Z",
+              "before": "2021-03-14T21:00:00Z",
+              "after_ts": 1615500000.0,
+              "before_ts": 1615755600.0,
+              "missing_bars": 2
+            },
+            {
+              "after": "2021-03-18T21:00:00Z",
+              "before": "2021-03-21T21:00:00Z",
+              "after_ts": 1616101200.0,
+              "before_ts": 1616360400.0,
+              "missing_bars": 2
+            }
+          ],
+          "bars_in_range": null,
+          "range_start": null,
+          "range_end": null,
+          "warnings": [
+            "319 internal gap(s), 647 missing bar(s) \u2014 listed for inspection; week-end/session closures are normal stored data"
+          ],
+          "error": null,
+          "cache_key": "XAUUSD|D1",
+          "checked_at": 1792155637.9065416,
+          "missing_periods_truncated": true
+        }
+      },
+      "persistent_readback_bars": 1560,
+      "original_sha256": "2cfc0fcf53c17c4892bc03fab87701aa6597bc9c1374678cf3501d3966cdb314"
+    }
+  ],
+  "status": "READY"
+}

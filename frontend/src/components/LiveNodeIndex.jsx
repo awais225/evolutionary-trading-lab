@@ -1,3 +1,4 @@
+import {useStoredState} from "../lib/storedState.js";
 /* V5.1a §8 §9 §10 — the Live Testing node table (V6.5.1: the unified control surface).
  *
  * One table, fed by the authoritative qualified-node index (`GET /api/nodes`)
@@ -207,7 +208,9 @@ function RiskCell({ row, onSaved }) {
  * only replaced by the backend's saved result.
  * ------------------------------------------------------------------ */
 function NumCell({ row, field, label, min, max, step = 1, width = 58, title, format, allowNull = true, onSaved }) {
-  const raw = row[field];
+  const offset = field === "sl_offset_pips" || field === "tp_offset_pips";
+  const signKey = field.replace("_pips","_sign");
+  const raw = offset && row[field] != null ? Math.abs(Number(row[field])) : row[field];
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(raw === null || raw === undefined ? "" : String(raw));
   const [saving, setSaving] = useState(false);
@@ -229,7 +232,7 @@ function NumCell({ row, field, label, min, max, step = 1, width = 58, title, for
     }
     setSaving(true); setErr(null);
     try {
-      const res = await api.liveTestingNodeConfig(row.node_id, { [field]: v });
+      const res = await api.liveTestingNodeConfig(row.node_id, { [field]: v, ...(offset ? {[signKey]:v < 0 ? (field.startsWith("sl") ? "-ve" : "+ve") : row[signKey] || (field.startsWith("sl") ? "+ve" : "-ve")} : {}) });
       setEditing(false);
       if (onSaved) onSaved(res);
     } catch (e) {
@@ -322,12 +325,12 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
   const [err, setErr] = useState(null);
   const [msg, setMsg] = useState(null);
 
-  const [filter, setFilter] = useState("qualified");
-  const [search, setSearch] = useState("");
-  const [timeframe, setTimeframe] = useState("");
-  const [starredOnly, setStarredOnly] = useState(false);
-  const [sortBy, setSortBy] = useState("fitness");
-  const [sortDesc, setSortDesc] = useState(true);
+  const [filter, setFilter] = useStoredState("live.filter", "qualified");
+  const [search, setSearch] = useStoredState("live.search", "");
+  const [timeframe, setTimeframe] = useStoredState("live.timeframe", "");
+  const [starredOnly, setStarredOnly] = useStoredState("live.starredOnly", false);
+  const [sortBy, setSortBy] = useStoredState("live.sortBy", "fitness");
+  const [sortDesc, setSortDesc] = useStoredState("live.sortDesc", true);
   /* V5.2.3 §10 — the operator asked for ONE table, not pages: every matching
    * node is fetched (limit=0 = all rows) and rendered in one scrollable table. */
   const [allRows, setAllRows] = useState(0);
@@ -602,7 +605,7 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
       {msg && <div className="kit-ok" style={{ marginBottom: 6 }}>{msg}</div>}
 
       <div className="table-scroll">
-<NodeTable rows={rows} className="table compact" resetKey={`${filter}|${search}|${sortBy}|${sortDesc}|${starredOnly}`}>{(visibleRows) => (<>
+<NodeTable tableKey="live" rows={rows} className="table compact" resetKey={`${filter}|${search}|${sortBy}|${sortDesc}|${starredOnly}`}>{(visibleRows) => (<>
           <thead>
             <tr>
               <th>★</th>
@@ -687,19 +690,27 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
                                onSaved={onCellSaved} />
                     </td>
                     <td>
+                      <select aria-label={`SL offset direction for node ${r.node_id}`} value={r.sl_offset_sign || '+ve'}
+                        onChange={async e=>{try{const res=await api.liveTestingNodeConfig(r.node_id,{sl_offset_sign:e.target.value});onCellSaved(res);}catch(ex){setErr(ex.message);}}}>
+                        <option value="+ve">+ve farther</option><option value="-ve">-ve closer</option>
+                      </select>
                       <NumCell row={r} field="sl_offset_pips" label="SL offset"
                                min={-100000} max={100000} step={0.1} width={52}
-                               title="experimental SL offset, pips (0 = strategy's own level; + = farther from entry)"
+                               title="SL offset magnitude in pips; sign independently selects farther (+ve) or closer (-ve). Zero preserves strategy level."
                                allowNull
-                               format={(v) => (v === null || v === undefined ? "0" : String(v))}
+                               format={(v) => (v === null || v === undefined ? "0" : String(Math.abs(Number(v))))}
                                onSaved={onCellSaved} />
                     </td>
                     <td>
+                      <select aria-label={`TP offset direction for node ${r.node_id}`} value={r.tp_offset_sign || '-ve'}
+                        onChange={async e=>{try{const res=await api.liveTestingNodeConfig(r.node_id,{tp_offset_sign:e.target.value});onCellSaved(res);}catch(ex){setErr(ex.message);}}}>
+                        <option value="+ve">+ve farther</option><option value="-ve">-ve closer</option>
+                      </select>
                       <NumCell row={r} field="tp_offset_pips" label="TP offset"
                                min={-100000} max={100000} step={0.1} width={52}
-                               title="experimental TP offset, pips (0 = strategy's own level; + = closer to entry)"
+                               title="TP offset magnitude in pips; sign independently selects farther (+ve) or closer (-ve). Zero preserves strategy level."
                                allowNull
-                               format={(v) => (v === null || v === undefined ? "0" : String(v))}
+                               format={(v) => (v === null || v === undefined ? "0" : String(Math.abs(Number(v))))}
                                onSaved={onCellSaved} />
                     </td>
                     <td style={{ fontSize: 11 }}>

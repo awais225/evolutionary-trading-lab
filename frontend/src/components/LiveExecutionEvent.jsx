@@ -21,10 +21,10 @@ const ORDER_STAGES = ["ORDER SENT", "BROKER RESPONSE", "POSITION VERIFIED",
 
 const TONE = {
   POSITION_OPEN: "var(--green)",
-  PENDING_ORDER: "var(--green)",
+  PENDING_ORDER: "var(--muted)",
   EXECUTED_UNCONFIRMED: "var(--amber)",
   UNKNOWN: "var(--red)",
-  REJECTED: "var(--red)",
+  REJECTED: "var(--amber)",
   BLOCKED: "var(--amber)",
   CLOSED_MISSING: "var(--muted)",
 };
@@ -43,7 +43,7 @@ function KV({ k, v, tone, mono = true }) {
 export default function LiveExecutionEvent({ engine, trades }) {
   const events = arr(engine?.recent_events);
   const latest = useMemo(() => {
-    for (let i = events.length - 1; i >= 0; i -= 1) {
+    for (let i = 0; i < events.length; i += 1) {
       const ev = objOrNull(events[i]);
       if (ev && ORDER_STAGES.includes(String(ev.stage || "").toUpperCase())) return ev;
     }
@@ -72,7 +72,7 @@ export default function LiveExecutionEvent({ engine, trades }) {
         <>
           <div className="kit-strip" style={{ border: "none", padding: 0, flexWrap: "wrap" }}>
             <KV k="Stage" v={latest.stage} />
-            <KV k="Status" v={latest.status || d.status} tone={TONE[status]} />
+            <KV k="Status" v={latest.status || d.status} tone={status === "POSITION_OPEN" && latest.stage !== "POSITION VERIFIED" ? "var(--muted)" : TONE[status]} />
             <KV k="Node" v={latest.node_id != null ? `Node_${latest.node_id}` : null} />
             <KV k="Symbol / side" v={`${txt(latest.symbol, "—")} ${txt(latest.side, "")}`.trim()} />
             <KV k="Time" v={latest.ts_iso || (latest.ts ? new Date(latest.ts * 1000).toISOString() : null)} />

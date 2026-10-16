@@ -23,9 +23,19 @@ def bt_worker(payload: Dict[str, Any]) -> Dict[str, Any]:
             from ..backtest.engine import BacktestRequest, run_backtest
         except (ImportError, ValueError):
             from app.backtest.engine import BacktestRequest, run_backtest
+        payload=dict(payload)
+        window_context=payload.pop("_generation_window",None)
         req = BacktestRequest(**payload)
         res = run_backtest(req)
+        extra={}
+        if window_context:
+            try:
+                from ..research.generation_window import run
+                extra['generation_window']=run(req.genome,window_context)
+            except Exception as exc:
+                extra['generation_window']={**window_context,'status':'FAILED','reason':type(exc).__name__,'metrics':None}
         return {
+            **extra,
             "ok": res.ok,
             "error": res.error,
             "metrics": res.metrics,

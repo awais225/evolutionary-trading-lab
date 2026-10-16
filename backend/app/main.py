@@ -165,6 +165,12 @@ async def startup() -> None:
     #    startup path as before.
     db = get_db()
 
+    # V9.2: establish canonical population BEFORE any usable dashboard count.
+    from .research.startup_registry import ensure_ready
+    app.state.registry_startup = ensure_ready(db)
+    from .data.history import inventory as history_inventory
+    app.state.history_inventory = history_inventory()  # metadata only; never reparses originals
+
     # 5. MT5 detection: cheap and safety relevant (bridge honesty), stays here.
     from .activity import activity
     st = bridge_status()
@@ -185,7 +191,9 @@ async def startup() -> None:
 
     def _data_restoration() -> dict:
         from .data.restoration import get_restoration_engine
-        get_restoration_engine().restore_all(emit_logs=True)
+        engine = get_restoration_engine()
+        if not engine._restored:
+            engine.restore_all(emit_logs=True)
         return {"ok": True}
 
     def _reconcile() -> dict:

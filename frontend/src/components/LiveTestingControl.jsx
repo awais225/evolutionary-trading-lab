@@ -29,10 +29,10 @@ const STAGE_STYLE = (stage, status) => {
   const s = String(stage || "").toUpperCase();
   const st = String(status || "").toUpperCase();
   if (st.includes("BLOCK") || s.includes("BLOCK")) return "text-amber-300 border-amber-500/40 bg-amber-950/40";
-  if (st.includes("REJECT")) return "text-rose-300 border-rose-500/40 bg-rose-950/40";
+  if (st.includes("REJECT")) return "text-amber-300 border-amber-500/40 bg-amber-950/40";
   if (st.includes("UNKNOWN")) return "text-fuchsia-300 border-fuchsia-500/40 bg-fuchsia-950/40";
   if (st.includes("LIMIT")) return "text-orange-300 border-orange-500/40 bg-orange-950/40";
-  if (s.includes("POSITION VERIFIED") || st.includes("POSITION_OPEN")) return "text-emerald-300 border-emerald-500/40 bg-emerald-950/40";
+  if (s.includes("POSITION VERIFIED") && st === "POSITION_OPEN") return "text-emerald-300 border-emerald-500/40 bg-emerald-950/40";
   if (s.includes("BROKER")) return "text-cyan-300 border-cyan-500/40 bg-cyan-950/40";
   return "text-slate-300 border-slate-700 bg-slate-900/60";
 };
@@ -365,6 +365,8 @@ export default function LiveTestingControl() {
               <div key={e.id ?? `${e.ts}-${e.stage}`} className={`px-2 py-1 rounded border text-[11px] font-mono ${STAGE_STYLE(e.stage, e.status)}`}>
                 <span className="text-slate-500">{e.ts_iso ? new Date(e.ts_iso).toLocaleTimeString() : fmt.ts(e.ts)}</span>
                 <span className="mx-1.5 font-bold">{e.stage}</span>
+                <span>Canonical node {e.node_id ?? "unknown"} · Event ID {e.id ?? "unknown"}</span>
+                <div>Order ticket {e.detail?.order_ticket ?? "not assigned"} · Deal ticket {e.detail?.deal_ticket ?? "not assigned"} · Position ticket {e.detail?.position_ticket ?? "not verified"}</div>
                 {e.status && <span className="text-slate-400">[{e.status}]</span>}
                 <div className="text-slate-200 whitespace-normal break-words">{e.message}</div>
               </div>

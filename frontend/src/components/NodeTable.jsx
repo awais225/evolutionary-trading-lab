@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from "react";
+import {useStoredState} from "../lib/storedState.js";
+import React, { useEffect, useState, useRef } from "react";
 import { api } from "../api.js";
 
 export function numeric(value) {
@@ -17,9 +18,10 @@ export function compareNodes(a, b, value, direction = 1, text = false) {
 /** One table implementation. The whole filtered registry is sorted before the
  * bounded render page is selected. Tabs inject their existing columns/actions;
  * paging never changes selection or launches work. No polling here. */
-export default function NodeTable({ rows = [], children, className = "tbl mono", style, pageSize = 100, resetKey = "" }) {
-  const [page, setPage] = useState(0);
-  useEffect(() => setPage(0), [resetKey]);
+export default function NodeTable({ rows = [], children, className = "tbl mono", style, pageSize = 100, resetKey = "", tableKey = "nodes" }) {
+  const [page, setPage] = useStoredState("page."+tableKey, 0);
+  const oldReset=useRef(resetKey);
+  useEffect(() => {if(oldReset.current!==resetKey){setPage(0);oldReset.current=resetKey;}}, [resetKey]);
   const last = Math.max(0, Math.ceil(rows.length / pageSize) - 1);
   const current = Math.min(page, last);
   const visible = rows.slice(current * pageSize, (current + 1) * pageSize);

@@ -1,3 +1,5 @@
+import {useStoredState} from "../lib/storedState.js";
+import HistoryLatest from "../components/HistoryLatest.jsx";
 // V6.6 — DEEP TESTING tab: a persistent, MT5-terminal-style workspace.
 //
 // Redesigned under the V6.6 directive (Deep Testing only — every other tab,
@@ -62,16 +64,16 @@ export default function DeepBacktest() {
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [settingsSaved, setSettingsSaved] = useState(null);
   const [settingsErr, setSettingsErr] = useState(null);
-  const [periodKey, setPeriodKey] = useState("3M");
-  const [filter, setFilter] = useState("qualified");
-  const [search, setSearch] = useState("");
+  const [periodKey, setPeriodKey] = useStoredState("deep.periodKey", "3M");
+  const [filter, setFilter] = useStoredState("deep.filter", "qualified");
+  const [search, setSearch] = useStoredState("deep.search", "");
   const [nodes, setNodes] = useState([]);
   const [counts, setCounts] = useState(null);
   const [experiment, setExperiment] = useState(null);
   const [dtNodes, setDtNodes] = useState([]);       // DEEPTESTED NODES summaries
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [selected, setSelected] = useState({});      // node_id -> true
+  const [selected, setSelected] = useStoredState("deep.selected", {});      // node_id -> true
   const [rowCfg, setRowCfg] = useState({});          // node_id -> per-node experimental settings
   const [fetchStates, setFetchStates] = useState({}); // "SYM|TF" -> job state
   const [runBusy, setRunBusy] = useState({});        // node_id -> "queued"|"running"|error text
@@ -79,18 +81,18 @@ export default function DeepBacktest() {
   const [drawerId, setDrawerId] = useState(null);
   const [csvFor, setCsvFor] = useState(null);        // {symbol, timeframe}
   const [confirmState, setConfirmState] = useState(null); // §9 popup
-  const [sortKey, setSortKey] = useState("node_id");
-  const [sortDir, setSortDir] = useState(1);
+  const [sortKey, setSortKey] = useStoredState("deep.sortKey", "node_id");
+  const [sortDir, setSortDir] = useStoredState("deep.sortDir", 1);
   // V6.7 §7.2 — the SCENARIO popup (scheduling/configuration; DeepTesting-only
   // storage through the shared presentation component — live settings frozen).
   const [scenarioFor, setScenarioFor] = useState(null);
   // V6.7 §8 — DEEPTESTED NODES table search + sort
-  const [dtSearch, setDtSearch] = useState("");
-  const [dtSortKey, setDtSortKey] = useState("node_id");
-  const [dtSortDir, setDtSortDir] = useState(1);
+  const [dtSearch, setDtSearch] = useStoredState("deep.dtSearch", "");
+  const [dtSortKey, setDtSortKey] = useStoredState("deep.dtSortKey", "node_id");
+  const [dtSortDir, setDtSortDir] = useStoredState("deep.dtSortDir", 1);
   // V6.8 §5 — every saved scenario individually addressable (Inspect S1/S2/…,
   // Compare S1/S2) — nothing is hidden behind the preferred scenario.
-  const [expandedDt, setExpandedDt] = useState({});
+  const [expandedDt, setExpandedDt] = useStoredState("deep.expandedDt", {});
   const [cmpSel, setCmpSel] = useState({});          // node_id -> [run_id, run_id]
   const [inspectRun, setInspectRun] = useState(null);
   const [inspectCompare, setInspectCompare] = useState(null);
@@ -477,6 +479,7 @@ export default function DeepBacktest() {
 
   return (
     <div data-testid="deeptest-workspace" style={{ padding: 12, fontSize: 12 }}>
+      <HistoryLatest />
       <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
         <h2 style={{ margin: 0 }}>Deep Testing</h2>
         <span className="muted">
@@ -577,7 +580,7 @@ export default function DeepBacktest() {
         <StateBlock loading={loading} error={error} onRetry={loadNodes}
                     empty={!loading && !error && !nodes.length} emptyText="no nodes match this filter" />
         <div className="table-scroll" style={{ marginTop: 6 }}>
-<NodeTable rows={sorted} style={{ width: "100%", fontSize: 10.8 }} resetKey={`${filter}|${search}|${sortKey}|${sortDir}`}>{(visibleRows) => (<>
+<NodeTable tableKey="deep" rows={sorted} style={{ width: "100%", fontSize: 10.8 }} resetKey={`${filter}|${search}|${sortKey}|${sortDir}`}>{(visibleRows) => (<>
             <thead>
               <tr>
                 <th>select / star</th>
@@ -982,7 +985,7 @@ export default function DeepBacktest() {
       {/* V6.7 §7.2 — the SCENARIO popup: the shared scheduling presentation,
           DeepTesting-only persistence (never the live settings). */}
       {scenarioFor != null && (
-        <ScheduleDialog
+        <ScheduleDialog scenarioTarget="deep"
           nodeId={scenarioFor.node_id}
           subtitle={`DeepTesting scenario configuration for Node #${scenarioFor.node_id} — saved separately from live scheduling/risk settings`}
           loadFn={(id) => api.deeptestNodeConfig(id)}

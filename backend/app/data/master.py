@@ -50,6 +50,9 @@ from .storage import COLUMNS
 
 log = logging.getLogger("data.master")
 
+_WRITER_GUARD = threading.Lock()
+_WRITERS = {}
+
 TF_SECONDS = integrity.TF_SECONDS
 
 
@@ -80,7 +83,33 @@ class MasterStore:
         self.meta_path: Path = dirs["metadata"] / f"{timeframe}__{safe}.json"
         self.raw_dir.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
+        self._recover_interrupted_write()
         self._meta: Dict = self._load_meta()
+
+    def _recover_interrupted_write(self):
+        """Roll back a writer interrupted before its durable commit marker.
+        Native single-instance app + per-path writer lock serialize recovery.
+        """
+        import base64, shutil
+        journal=self.raw_dir/'.history-transaction.json'
+        with _WRITER_GUARD:
+            lock=_WRITERS.setdefault(str(self.meta_path.resolve()),threading.RLock())
+        with lock:
+            if not journal.exists():return
+            saved=json.loads(journal.read_text());backup=Path(saved['backup'])
+            if not backup.is_dir():raise RuntimeError('interrupted history transaction backup is missing; refusing unsafe recovery')
+            # Journal is local state, but never follow a path outside this store.
+            if not backup.resolve().is_relative_to(self.raw_dir.resolve()) or not backup.name.startswith('history-txn-'):
+                raise ValueError('invalid historical-write recovery path')
+            for name in saved['months']:
+                if len(name)!=6 or not name.isdigit():raise ValueError('invalid recovery partition')
+                p=self.raw_dir/(name+'.parquet');old=backup/p.name
+                if old.exists():shutil.copy2(old,p)
+                elif p.exists():p.unlink()
+            self.meta_path.write_bytes(base64.b64decode(saved['metadata']))
+            journal.unlink();shutil.rmtree(backup,ignore_errors=True)
+            try:self._update_registry(json.loads(self.meta_path.read_text()))
+            except Exception:log.warning('Recovered history partitions; registry refresh deferred')
 
     # ---------- metadata ----------
     def _load_meta(self) -> Dict:
@@ -200,7 +229,14 @@ class MasterStore:
             out.append(self.raw_dir / f"{n}.parquet")
         return out
 
-    def read_range(self, start_ts: Optional[float] = None,
+    def read_range(self,start_ts=None,end_ts=None,columns=None):
+        with _WRITER_GUARD:
+            lock=_WRITERS.setdefault(str(self.meta_path.resolve()),threading.RLock())
+        with lock:
+            self._meta=self._load_meta()
+            return self._read_range_impl(start_ts,end_ts,columns)
+
+    def _read_range_impl(self, start_ts: Optional[float] = None,
                    end_ts: Optional[float] = None,
                    columns: Optional[List[str]] = None) -> pd.DataFrame:
         files = self.partitions_for(start_ts, end_ts)
@@ -210,7 +246,7 @@ class MasterStore:
         frames = []
         for f in files:
             try:
-                df = pd.read_parquet(f)
+                df = pd.read_parquet(f,columns=columns)
             except Exception as e:
                 log.error("partition unreadable %s: %s", f, e)
                 continue
@@ -221,6 +257,7 @@ class MasterStore:
         for c in cols:
             if c not in out.columns:
                 out[c] = np.nan
+        if columns is None and "volume" in out.columns: cols = list(cols)+["volume"]
         out = out[cols]
         if start_ts is not None:
             out = out[out["ts"] >= start_ts]
@@ -247,6 +284,42 @@ class MasterStore:
         os.replace(tmp, self.raw_dir / f"{name}.parquet")   # safe write (spec §12)
 
     def append(self, df_new: pd.DataFrame, source_info: Optional[Dict] = None) -> Dict:
+        """Keyed writer transaction; recovery journal survives a process crash.
+        Only touched months are backed up, not the complete historical baseline.
+        """
+        import copy,tempfile,shutil,base64
+        with _WRITER_GUARD:
+            lock=_WRITERS.setdefault(str(self.meta_path.resolve()),threading.RLock())
+        with lock:
+            self._recover_interrupted_write()
+            self._meta=self._load_meta();old=copy.deepcopy(self._meta)
+            if df_new is None or df_new.empty:
+                return {"accepted":0,"updated":0,"duplicates_identical":0,"conflicts":0}
+            names={month_key(t) for t in df_new['ts'].dropna()}
+            saved=Path(tempfile.mkdtemp(prefix='history-txn-',dir=str(self.raw_dir)))
+            journal=self.raw_dir/'.history-transaction.json'
+            try:
+                for name in names:
+                    p=self.raw_dir/(name+'.parquet')
+                    if p.exists():shutil.copy2(p,saved/p.name)
+                metadata=self.meta_path.read_bytes()
+                stage=journal.with_suffix('.tmp')
+                with stage.open('w') as handle:
+                    json.dump({'backup':str(saved),'months':sorted(names),'metadata':base64.b64encode(metadata).decode()},handle)
+                    handle.flush();os.fsync(handle.fileno())
+                os.replace(stage,journal)
+                result=self._append_impl(df_new,source_info)
+                journal.unlink() # durable transaction commit marker
+                return result
+            except Exception:
+                if journal.exists():self._recover_interrupted_write()
+                self._meta=old
+                raise
+            finally:
+                # Keep recovery material if even rollback failed (e.g. disk I/O).
+                if not journal.exists():shutil.rmtree(saved,ignore_errors=True)
+
+    def _append_impl(self, df_new: pd.DataFrame, source_info: Optional[Dict] = None) -> Dict:
         """Dedupe + conflict-detect + append accepted rows. Returns a report."""
         report = {"accepted": 0, "duplicates_identical": 0, "conflicts": 0,
                   "out_of_range": 0, "version": self.version}
@@ -271,7 +344,7 @@ class MasterStore:
                         if old is None:
                             continue
                         same = all(abs(float(old[c]) - float(r[c])) < 1e-9
-                                   for c in ("open", "high", "low", "close")
+                                   for c in ("open", "high", "low", "close", "tick_volume", "volume", "spread")
                                    if pd.notna(old.get(c)) and pd.notna(r.get(c)))
                         if same:
                             identical += 1
@@ -282,12 +355,9 @@ class MasterStore:
                     if conflicts:
                         self._record_conflicts(conflicts, source_info or {})
                     df_new = df_new[~dup_mask].reset_index(drop=True)
-            if df_new.empty:
-                return report
-
-            # drop anything not extending the timeline (defensive)
-            if self.last_ts is not None:
-                df_new = df_new[df_new["ts"] > self.last_ts - 1e-9]
+                    if conflicts and (source_info or {}).get("allow_corrections"):
+                        df_new = pd.concat([df_new, pd.DataFrame([{**dict(old),**{k:v for k,v in dict(new).items() if pd.notna(v)}} for new,old in conflicts])], ignore_index=True)
+                        report["updated"] = len(conflicts)
             if df_new.empty:
                 return report
 
@@ -300,7 +370,7 @@ class MasterStore:
                 if pf.exists():
                     old = pd.read_parquet(pf)
                     merged = pd.concat([old, group], ignore_index=True)
-                    merged = merged.drop_duplicates(subset=["ts"], keep="first")
+                    merged = merged.drop_duplicates(subset=["ts"], keep="last" if (source_info or {}).get("allow_corrections") else "first")
                     touched[mk] = merged.sort_values("ts").reset_index(drop=True)
                 else:
                     touched[mk] = group.sort_values("ts").reset_index(drop=True)
@@ -327,6 +397,7 @@ class MasterStore:
             if report["accepted"] > 0 or report["conflicts"]:
                 self._meta["version"] = int(self._meta.get("version", 0)) + 1
             self._meta["conflicts"] = int(self._meta.get("conflicts", 0)) + report["conflicts"]
+            self._meta["updated_at"] = time.time()
             self._meta["schema_version"] = DATA_SCHEMA_VERSION
             self._meta["fingerprint"] = self._fingerprint(self._meta)
             self._save_meta(self._meta)
@@ -338,17 +409,17 @@ class MasterStore:
         db = get_db()
         now = time.time()
         rows = []
-        for new_r, old_r in conflicts[:500]:
+        for new_r, old_r in conflicts:
             rows.append((float(new_r["ts"]), now, self.symbol, self.timeframe,
                          self.profile_key,
                          json.dumps({c: (None if pd.isna(old_r.get(c)) else float(old_r[c]))
-                                     for c in ("open", "high", "low", "close")}),
+                                     for c in ("open", "high", "low", "close", "tick_volume", "volume", "spread")}),
                          json.dumps({c: (None if pd.isna(new_r.get(c)) else float(new_r[c]))
-                                     for c in ("open", "high", "low", "close")}),
+                                     for c in ("open", "high", "low", "close", "tick_volume", "volume", "spread")}),
                          source_info.get("source", self.profile.get("source", "")),
                          source_info.get("broker", self.profile.get("broker", "")),
                          source_info.get("server", self.profile.get("server", "")),
-                         "kept_old"))
+                         "trusted_mt5_correction" if source_info.get("allow_corrections") else "kept_old"))
         db.xm("""INSERT INTO data_conflicts
                  (ts,detected_at,symbol,timeframe,profile,old_values,new_values,
                   source,broker,server,resolution) VALUES (?,?,?,?,?,?,?,?,?,?,?)""", rows)
@@ -358,4 +429,5 @@ class MasterStore:
 
 
 def get_master(symbol: str, timeframe: str, profile: Dict[str, str]) -> MasterStore:
-    return MasterStore(symbol, timeframe, profile)
+    from .history import canonical_profile
+    return MasterStore(symbol, timeframe, canonical_profile(symbol, timeframe) or profile)

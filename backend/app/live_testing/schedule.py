@@ -274,6 +274,7 @@ def normalize_config(config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         enabled_explicit = True
 
     return {
+        "filter_rules": cfg.get("filter_rules"),
         "enabled": enabled,
         "enabled_explicit": enabled_explicit,
         "days": days,
@@ -453,6 +454,11 @@ def evaluate(schedule: Dict[str, Any], *, now: Optional[float] = None,
         if not ok and block_reason is None:
             block_reason = f"{name}: {detail}"
 
+    if s.get('filter_rules'):
+        from ..deeptest.filter_rules import normalize,reason
+        why=reason({'entry_ts':ts},normalize(s['filter_rules']))
+        rule('filter_scenario',why is None,why or 'saved entry rules allow this UTC timestamp')
+
     # 0. the explicit switch
     if s["enabled_explicit"]:
         rule("enabled", s["enabled"],
@@ -589,6 +595,10 @@ def bar_mask(schedule: Optional[Dict[str, Any]], *, ts, dow, session=None,
     dow = np.asarray(dow).astype(np.int64)
     mask = np.ones(ts.shape, dtype=bool)
 
+    if s.get('filter_rules'):
+        from ..deeptest.filter_rules import normalize,allows
+        rules=normalize(s['filter_rules'])
+        mask &= np.fromiter((allows(t,rules) for t in ts),dtype=bool,count=len(ts))
     if s["enabled_explicit"] and not s["enabled"]:
         return np.zeros(ts.shape, dtype=bool)
 

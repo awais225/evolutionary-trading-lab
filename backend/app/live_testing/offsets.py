@@ -18,6 +18,8 @@ other than the resulting levels, or order construction.
 """
 from __future__ import annotations
 
+import math
+
 from typing import Any, Dict, Optional, Tuple
 
 from ..backtest.symbol_specs import (
@@ -28,7 +30,7 @@ from ..backtest.symbol_specs import (
 def apply_offsets(*, side: str, entry: float,
                   sl: Optional[float], tp: Optional[float],
                   sl_offset_pips: Any = 0.0, tp_offset_pips: Any = 0.0,
-                  specs: Any, stops_level_points: Any = None,
+                  specs: Any, sl_offset_sign: Optional[str] = None, tp_offset_sign: Optional[str] = None, stops_level_points: Any = None,
                   freeze_level_points: Any = None) -> Dict[str, Any]:
     """Return ``{"ok": True, "sl": .., "tp": .., "meta": {...}}`` or
     ``{"ok": False, "code": .., "reason": .., "meta": {...}}``."""
@@ -39,7 +41,16 @@ def apply_offsets(*, side: str, entry: float,
     except (TypeError, ValueError):
         return {"ok": False, "code": "OFFSET_INVALID",
                 "reason": "SL/TP offset values must be numeric (pips)", "meta": {}}
+    if not math.isfinite(sl_off) or not math.isfinite(tp_off):
+        return {"ok":False,"code":"OFFSET_INVALID","reason":"offsets must be finite", "meta":{}}
+    if sl_offset_sign not in (None,'+ve','-ve') or tp_offset_sign not in (None,'+ve','-ve'):
+        return {"ok":False,"code":"OFFSET_INVALID","reason":"offset sign must be +ve or -ve", "meta":{}}
+    # V9.2 signs express distance from entry: +ve farther, -ve closer.
+    # No sign arguments = legacy signed-number semantics, for old callers.
+    if sl_offset_sign is not None: sl_off=abs(sl_off)*(1 if sl_offset_sign=='+ve' else -1)
+    if tp_offset_sign is not None: tp_off=abs(tp_off)*(-1 if tp_offset_sign=='+ve' else 1)
     meta: Dict[str, Any] = {
+        "sl_offset_sign": sl_offset_sign, "tp_offset_sign": tp_offset_sign,
         "sl_offset_pips": sl_off, "tp_offset_pips": tp_off,
         "sl_default": sl, "tp_default": tp,
         "sl_effective": sl, "tp_effective": tp,

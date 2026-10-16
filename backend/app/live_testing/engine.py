@@ -116,7 +116,7 @@ def _human_stage_message(stage: str, ev: Dict[str, Any]) -> str:
     sym = ev.get("symbol") or "?"
     side = (ev.get("side") or "").upper()
     d = ev.get("detail") or {}
-    head = f"#{node} {sym} {side}".strip()
+    head = f"Node {node if node is not None else 'unknown'} {sym} {side}".strip()
     if stage == STAGE_SIGNAL:
         return (f"{head} - signal detected on closed bar {d.get('bar_time', 'n/a')} "
                 f"(tf {d.get('timeframe', '?')}, source {d.get('source', '?')})")
@@ -144,8 +144,8 @@ def _human_stage_message(stage: str, ev: Dict[str, Any]) -> str:
                 + (f" retcode {d.get('retcode')}" if d.get("retcode") is not None else "")
                 + f" ({d.get('message', '')})")
     if stage == STAGE_POSITION:
-        tid = d.get("position_ticket") or d.get("order_ticket") or d.get("deal_ticket") or d.get("ticket")
-        return (f"{head} - position verified at broker: {d.get('status')} ticket {tid}")
+        return (f"{head} - position verification: {d.get('status')}; "
+                f"position ticket {d.get('position_ticket') or 'unknown'}, order ticket {d.get('order_ticket') or 'unknown'}, deal ticket {d.get('deal_ticket') or 'unknown'}")
     if stage == STAGE_BLOCKED:
         return f"{head} - BLOCKED at {d.get('blocked_stage', '?')}: {d.get('reason', '')}"
     if stage == STAGE_REJECTED:
@@ -655,6 +655,9 @@ class LiveTestingEngine:
             pass
         if timeframe is None:
             timeframe = (node.get("genome") or {}).get("timeframe")
+        from ..deeptest.filter_scenarios import assignment
+        assigned = assignment(db,sid,'live') if sid is not None else None
+        if assigned: cfg={**cfg,'filter_rules':assigned['rules']}
         state = _eval(cfg, now=now, spread_points=spread_points,
                       trades_today=trades_today, open_positions=open_positions,
                       last_entry_ts=last_entry_ts, regime=regime, timeframe=timeframe)
@@ -1155,6 +1158,7 @@ class LiveTestingEngine:
                 res_off = apply_offsets(
                     side=side, entry=entry, sl=sl_price, tp=tp_price,
                     sl_offset_pips=_sl_off, tp_offset_pips=_tp_off, specs=specs,
+                    sl_offset_sign=node["config"].get("sl_offset_sign"),tp_offset_sign=node["config"].get("tp_offset_sign"),
                     stops_level_points=(getattr(_si_chk, "trade_stops_level", None)
                                         if _si_chk is not None else None),
                     freeze_level_points=(getattr(_si_chk, "trade_freeze_level", None)
@@ -1547,17 +1551,17 @@ class LiveTestingEngine:
                 "strategy_identity": node["config"].get("run_id"),
                 "signal_id": (explain or {}).get("signal_id"),
                 "signal_ts": signal_ts, "submit_ts": now_ts, "response_ts": now_ts,
-                "fill_ts": (now_ts if res.get("ok") else None),
+                "fill_ts": (now_ts if row_status == TRADE_POSITION and execution.get("exec_price") is not None else None),
                 "order_type": "MARKET",
                 "fill_status": row_status,
                 "symbol": payload["symbol"],
                 "timeframe": genome.get("timeframe", "M15"), "side": payload["side"],
                 "entry_price": payload.get("price"),
-                "exec_price": execution.get("exec_price") or payload.get("price"),
+                "exec_price": execution.get("exec_price"),
                 "sl": payload.get("sl"), "tp": payload.get("tp"),
                 "sl_requested": off.get("sl_default"), "tp_requested": off.get("tp_default"),
-                "sl_confirmed": execution.get("sl_broker") or payload.get("sl"),
-                "tp_confirmed": execution.get("tp_broker") or payload.get("tp"),
+                "sl_confirmed": execution.get("sl_broker"),
+                "tp_confirmed": execution.get("tp_broker"),
                 "sl_default": off.get("sl_default"), "tp_default": off.get("tp_default"),
                 "sl_offset_pips": off.get("sl_offset_pips") or 0.0,
                 "tp_offset_pips": off.get("tp_offset_pips") or 0.0,
@@ -1567,8 +1571,8 @@ class LiveTestingEngine:
                 "entry_reason": entry_reason,
                 "account_login": broker.get("account_login"),
                 "account_server": broker.get("account_server"),
-                "volume_filled": execution.get("volume") or order.get("volume"),
-                "volume_current": execution.get("volume") or order.get("volume"),
+                "volume_filled": (execution.get("volume") if row_status == TRADE_POSITION else None),
+                "volume_current": (execution.get("volume") if row_status == TRADE_POSITION else None),
                 "lots": payload["volume"],
                 "open_ts": now_ts, "session": None, "status": row_status,
                 "run_id": node["config"].get("run_id"), "risk_pct": trace.get("risk_pct"),

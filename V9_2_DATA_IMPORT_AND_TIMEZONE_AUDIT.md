@@ -1,0 +1,15 @@
+# V9.2 DATA and timezone audit
+
+Initial verified remote/main642cd3b1b24737ff223b6d201da61a573e894165. Local snapshot at V6.6 was preserved (patch/stash; matching untracked V9.1 files backed up), then fast-forwarded without reset/clean. Original LFS database SHA256 c159b0718c43b43f97609881bd3be196dad76274029949a9fb4c4e710f106a12 verified; initial DATA preserved separately.
+
+## Confirmed import failure, traced before edits
+`validate_frame` truncates its retained `frame` to20,000 rows; commit uses this truncated preview, not the retained raw bytes. Worse, `MasterStore.append` discards every unseen timestamp older than its current last_ts, so a100,856-row historical CSV overlapping a recent2,698-bar cache can accept zero rows. It nevertheless returns normally; frontend says Imported. Separate bridge-profile paths can subsequently hide imported bars when switching SIMULATOR/MT5. These are code-proven causes consistent with the operator report, not a claimed reproduction against their unavailable Windows cache.
+
+Fix must commit the full validated frame, allow head/internal inserts, verify persisted readback/counts and use an explicitly configured canonical store for these attached pairs independent of active bridge. Transaction failure must not produce a success response. Existing old profile histories are preserved, never silently reinterpreted/merged.
+
+## Actual inputs and timezone evidence
+All7 files are tab-separated MT5 headered exports. Counts: M1 100057; M5 100012; M15 100856; M30 71441; H1 35738; H4 9349; D1 1560. Dominant spacing matches their intended timeframes. Coverage differs: M1 July2026 onward, M5 May2025 onward, M15 July2022 onward, M30/H1/H4/D1 October2020 onward. Intraday daily bounds generally01:00–23:xx; weekday-only source dates and daily/weekend closures support but do NOT prove server time. H4/D1 timestamps label broker bars, not necessarily the instant of the first trade in the bucket.
+
+Official sources: https://www.icmarkets.com/global/en/help-resources/help-centre documents GMT+2/GMT+3 chart/server time aligned to New York close. https://www.icmarkets.bs/en/help-resources/help-centre additionally documents US second-Sunday-March/first-Sunday-November seasonal convention and XAUUSD01:02–23:57 server hours. Current published hours are not proof of every historical session; observed01:00 starts and occasional21:xx closes show historical/missing-bar uncertainty. Europe/Athens is NOT substituted for the US-transition server rule.
+
+The user explicitly selected **Confirm IC Markets server time for all7 files** in this task. Operational UTC = source wall clock minus2h in US standard time or3h in US daylight time, using historical America/New_York DST rules, not one fixed offset. Originals remain byte-identical. This is explicit user confirmation of a convention supported by general broker documentation, not account-specific conclusive timezone verification. Fixed UTC, UTC+5/Pakistan and computer-local interpretations are not silently applied.

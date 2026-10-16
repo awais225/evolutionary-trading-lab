@@ -1,3 +1,6 @@
+import GenerationWindow from "../components/GenerationWindow.jsx";
+import {useStoredState} from "../lib/storedState.js";
+import HistoryLatest from "../components/HistoryLatest.jsx";
 import NodeTable, { CandidateStar, NodeIdentity, GenerationCells } from "../components/NodeTable.jsx";
 import React, { useEffect, useState, useMemo, useRef } from "react";
 import { api, fmt } from "../api.js";
@@ -10,15 +13,15 @@ import NodePopulationStrip from "../components/NodePopulationStrip.jsx";
 export default function Overview() {
   const { status, events, connected, refreshStatus, openStrategy } = useLab();
   const [top, setTop] = useState([]);
-  const [topFilter, setTopFilter] = useState("qualified");
+  const [topFilter, setTopFilter] = useStoredState("overview.topFilter", "qualified");
   const topRequest = useRef(0);
   const topQuery = useRef(null);
   const [resources, setResources] = useState(null);
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState("");
   const [newRunOpen, setNewRunOpen] = useState(false);   // V4.1 START NEW RESEARCH RUN dialog
-  const [sortCol, setSortCol] = useState("fitness");
-  const [sortDir, setSortDir] = useState("desc");
+  const [sortCol, setSortCol] = useStoredState("overview.sortCol", "fitness");
+  const [sortDir, setSortDir] = useStoredState("overview.sortDir", "desc");
   topQuery.current = async () => {
     const seq = ++topRequest.current;
     const aliases = { id: "node_id", pf: "generation_pf", dd: "generation_dd", return_pct: "generation_return", trades: "generation_trades", win_rate: "generation_win_rate", net_profit: "generation_net_profit" };
@@ -489,6 +492,8 @@ export default function Overview() {
 
   return (
     <div>
+      <HistoryLatest />
+      <GenerationWindow />
       {newRunOpen && (
         <NewResearchRunModal
           onClose={() => setNewRunOpen(false)}
@@ -1230,7 +1235,7 @@ export default function Overview() {
             <span className="muted" style={{ fontSize: "0.8rem" }}>Sorted by: <b>{sortCol}</b> ({sortDir})</span>
           </div>
           <div className="scroll-y" style={{ maxHeight: 330 }}>
-            <NodeTable rows={sortedTop} resetKey={`${sortCol}|${sortDir}|${topFilter}`}>{(visibleRows) => (<>
+            <NodeTable tableKey="overview" rows={sortedTop} resetKey={`${sortCol}|${sortDir}|${topFilter}`}>{(visibleRows) => (<>
               <thead>
                 <tr>
                   <th onClick={() => handleSort("id")} style={{ cursor: "pointer" }}>node (canonical · research){sortArrow("id")}</th>

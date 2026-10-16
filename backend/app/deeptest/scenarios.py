@@ -282,6 +282,9 @@ def start_run(db: Any, payload: Dict[str, Any]) -> Dict[str, Any]:
     node_cfg = S.get_node_config(db, node_id)
     if node_cfg:
         settings = {**settings, "node_config": node_cfg}
+    from .filter_scenarios import assignment
+    assigned=assignment(db,node_id,'deep')
+    if assigned: settings={**settings,'filter_scenario_snapshot':assigned}
     cov = pf.get("coverage") or {}
     signature = effective_signature(
         node_id=node_id, genome_hash=ghash, config_hash=cfg_hash,
@@ -383,11 +386,8 @@ def _execute(run_id: str) -> None:
         frame = engine.get_frame(dataset_id)
         req_start, req_end = float(sc["requested_start"]), float(sc["requested_end"])
         ts = frame["ts"].to_numpy()
-        lo = int((ts >= req_start).argmax()) if len(ts) else 0
-        hi = len(ts)
-        mask = ts < req_end
-        if mask.any():
-            hi = int(mask.sum())
+        lo = int(__import__("numpy").searchsorted(ts,req_start,side="left")) if len(ts) else 0
+        hi = int(__import__("numpy").searchsorted(ts,req_end,side="left")) if len(ts) else 0
         if hi - lo < 2:
             S.update_scenario(db, run_id, status="FAILED", finished_at=time.time(),
                               error="fewer than 2 validated bars in the requested range — "
@@ -509,7 +509,7 @@ def _run_strategy(db: Any, node: Dict[str, Any], dataset_id: str,
         slippage_mult=1.0,
         commission_mult=1.0,
         max_trades=max_trades,
-        schedule=node.get("schedule"),
+        schedule={**(node.get("schedule") or {}), **({'filter_rules':settings['filter_scenario_snapshot']['rules']} if settings.get('filter_scenario_snapshot') else {})} or None,
         conditions=node.get("conditions"),
         initial_balance=float(settings["total_capital"]),
         risk_per_trade_pct=(risk_pct if risk_mode == "PERCENT" else None),

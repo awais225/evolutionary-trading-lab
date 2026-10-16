@@ -10,6 +10,8 @@ export default function DeepCsvImportDialog({ open, symbol, timeframe, onClose, 
   const [report, setReport] = useState(null);
   const [token, setToken] = useState(null);
   const [tz, setTz] = useState("");
+  const [zone, setZone] = useState("ICMARKETS_NY_CLOSE");
+  const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [done, setDone] = useState(null);
@@ -22,7 +24,8 @@ export default function DeepCsvImportDialog({ open, symbol, timeframe, onClose, 
     try {
       const res = await api.deeptestCsvValidate(file, {
         symbol, timeframe,
-        timezone_offset_hours: tz.trim() ? Number(tz.trim()) : null,
+        timezone_offset_hours: zone === "fixed" && tz.trim() ? Number(tz.trim()) : null,
+        source_timezone: zone === "fixed" ? null : zone,
       });
       setReport(res.report || null);
       setToken(res.validation_token || null);
@@ -42,7 +45,7 @@ export default function DeepCsvImportDialog({ open, symbol, timeframe, onClose, 
     try {
       const res = await api.deeptestCsvCommit({
         validation_token: token,
-        timezone_confirmed: tz.trim() ? `UTC${Number(tz.trim()) >= 0 ? "+" : ""}${Number(tz.trim())} (user confirmed)` : "UTC (user confirmed)",
+        timezone_confirmed: zone !== "fixed" ? `${zone} (user confirmed)` : tz.trim() ? `UTC${Number(tz.trim()) >= 0 ? "+" : ""}${Number(tz.trim())} (user confirmed)` : "UTC (user confirmed)",
       });
       if (!res.ok) {
         setError(res.error || "import refused");
@@ -72,15 +75,23 @@ export default function DeepCsvImportDialog({ open, symbol, timeframe, onClose, 
         <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 10, flexWrap: "wrap" }}>
           <input type="file" accept=".csv,text/csv"
                  onChange={(e) => { setFile(e.target.files?.[0] || null); setReport(null); setToken(null); }} />
-          <label style={{ fontSize: 11 }}>Timezone offset (hours):</label>
-          <input style={{ width: 70 }} value={tz} placeholder="e.g. 0 or 5"
-                 onChange={(e) => setTz(e.target.value)} />
-          <button disabled={busy || !file} onClick={validate}>{busy ? "Working…" : "Validate file"}</button>
+          <label style={{ fontSize: 11 }}>Source timezone:</label>
+          <select aria-label="Source timezone" value={zone} onChange={e=>{setZone(e.target.value);setToken(null);setReport(null);setConfirmed(false);}}>
+            <option value="ICMARKETS_NY_CLOSE">IC Markets server UTC+2/+3 — US DST</option>
+            <option value="UTC">UTC</option><option value="fixed">Confirmed fixed UTC offset</option>
+            <option value="Asia/Karachi">Asia/Karachi</option><option value="America/New_York">America/New_York</option>
+            <option value="Europe/London">Europe/London</option>
+          </select>
+          <label><input type="checkbox" checked={confirmed} onChange={e=>{setConfirmed(e.target.checked);if(!e.target.checked)setToken(null);}}/> I confirm the source clock</label>
+          <label style={{display:zone === "fixed" ? "inline" : "none"}}>Fixed offset (hours):</label>
+          <input style={{ width: 70, display:zone === "fixed" ? "inline" : "none" }} value={tz} placeholder="e.g. 0 or 5"
+                 onChange={(e) => {setTz(e.target.value);setToken(null);setReport(null);}} />
+          <button disabled={busy || !file || !confirmed || (zone === "fixed" && (!tz.trim() || !Number.isFinite(Number(tz)) || Math.abs(Number(tz))>14))} onClick={validate}>{busy ? "Working…" : "Validate file"}</button>
         </div>
         {error && <div className="kit-inline-err" style={{ marginTop: 8 }}>{error}</div>}
         {done && (
           <div style={{ marginTop: 8, fontSize: 12 }}>
-            <b>Imported.</b> merge: accepted {done.merge?.accepted ?? 0}, identical duplicates skipped{" "}
+            <b>Persisted {done.available_unique_bars} unique bars ({done.symbol}/{done.timeframe}).</b> merge: accepted {done.merge?.accepted ?? 0}, identical duplicates skipped{" "}
             {done.merge?.duplicates_identical ?? 0}, conflicting rows kept stored value{" "}
             {done.merge?.conflicts ?? 0}.
             {" "}Re-run the coverage check — if history is still incomplete the confirmation will reappear.
@@ -88,6 +99,7 @@ export default function DeepCsvImportDialog({ open, symbol, timeframe, onClose, 
         )}
         {r.filename !== undefined && (
           <div style={{ marginTop: 10, fontSize: 11.5 }}>
+            <div>Source wall time: {r.source_first} → {r.source_last}. Normalized UTC: {r.earliest} → {r.latest}.</div>
             <div className="kit-strip" style={{ border: "none", padding: 0, flexWrap: "wrap" }}>
               <div className="item"><span className="k">File</span><span className="v mono">{r.filename}</span></div>
               <div className="item"><span className="k">SHA-256</span>
@@ -124,10 +136,10 @@ export default function DeepCsvImportDialog({ open, symbol, timeframe, onClose, 
         <div style={{ display: "flex", gap: 8, marginTop: 12, justifyContent: "flex-end" }}>
           <button onClick={onClose}>Close</button>
           <button disabled={busy || !token || !r.filename
-                           || (r.needs_timezone_confirmation && !tz.trim())
+                           || !confirmed || r.needs_timezone_confirmation
                            || r.rows_valid === 0}
                   onClick={commit}>
-            Import into cache
+            Import into persistent history
           </button>
         </div>
       </div>

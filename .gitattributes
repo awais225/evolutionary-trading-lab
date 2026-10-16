@@ -10,3 +10,6 @@
 *.bat text eol=crlf
 *.cmd text eol=crlf
 *.ps1 text eol=crlf
+
+# V9.2 exact original history uploads; never newline-normalize broker exports.
+DATA/HISTORICAL/**/*.csv filter=lfs diff=lfs merge=lfs -text

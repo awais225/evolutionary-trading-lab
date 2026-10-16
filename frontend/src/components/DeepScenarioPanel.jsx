@@ -1,3 +1,4 @@
+import InspectCalendar from "./InspectCalendar.jsx";
 // V6.6 §11–13 — scenario inspector: all of a node's DeepTest scenarios,
 // preferred-scenario selection (explicit, never silently replaced), side-by-side
 // comparison that names config/coverage differences, full analytics, and the
@@ -41,7 +42,7 @@ const SUMMARY_ROWS = [
 ];
 
 const DAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
-const SESSION_KEYS = ["asia", "london", "newyork", "off"];
+const SESSION_KEYS = ["asia", "london", "newyork", "off", "asia_london_overlap", "london_newyork_overlap"];
 
 // §6.2 — OR-style independent exclusion dimensions over the SAVED trades:
 // a trade is excluded when its entry day-of-week is excluded OR its entry
@@ -91,15 +92,15 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
   };
   const exclDays = flt.days;
   const exclSessions = flt.sessions;
-  const filtersActive = flt.days.length > 0 || flt.sessions.length > 0;
+  const filtersActive = flt.days.length > 0 || flt.sessions.length > 0 || Object.values(flt.by_day||{}).some(v=>v.length);
 
-  const loadFiltered = useCallback(async (runId, days, sessions) => {
+  const loadFiltered = useCallback(async (runId, days, sessions, byDay={}) => {
     if (!runId) return;
     const seq = ++filtSeq.current;
     setFiltBusy(true);
     try {
       const res = await api.deeptestFilteredStats(runId, {
-        exclude_days: days, exclude_sessions: sessions,
+        schema_version:1, exclude_days: days, exclude_sessions: sessions, exclude_by_day:byDay,
       });
       // §6.4 — an older async response can never overwrite the current results
       if (seq === filtSeq.current) setFilt(res);
@@ -132,7 +133,7 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
   }, [selected]);
 
   useEffect(() => {
-    if (selected) loadFiltered(selected, flt.days, flt.sessions);
+    if (selected) loadFiltered(selected, flt.days, flt.sessions,flt.by_day||{});
   }, [selected, flt, loadFiltered]);
 
   useEffect(() => {
@@ -183,7 +184,7 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
 
   const tradeRows = (trades?.trades || []).filter((t) => {
     // §6.2 — exclusion semantics: keep only trades matching NO active exclusion
-    if (!isKeptTrade(t, flt.days, flt.sessions)) return false;
+    if (filt?.kept_trade_numbers ? !filt.kept_trade_numbers.includes(t.trade_no) : !isKeptTrade(t, flt.days, flt.sessions)) return false;
     if (!search.trim()) return true;
     const q = search.trim().toLowerCase();
     return JSON.stringify(t).toLowerCase().includes(q);
@@ -441,6 +442,7 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
                             textDecoration: exclDays.includes(d) ? "line-through" : "none" }}>
                       <input type="checkbox" checked={exclDays.includes(d)}
                              onChange={(e) => setFlt({
+                               ...flt,
                                days: e.target.checked ? [...exclDays, d] : exclDays.filter((x) => x !== d),
                                sessions: exclSessions,
                              })} /> {d}
@@ -456,6 +458,7 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
                             textDecoration: exclSessions.includes(sx) ? "line-through" : "none" }}>
                       <input type="checkbox" checked={exclSessions.includes(sx)}
                              onChange={(e) => setFlt({
+                               ...flt,
                                days: exclDays,
                                sessions: e.target.checked ? [...exclSessions, sx] : exclSessions.filter((x) => x !== sx),
                              })} /> {sx}
@@ -468,6 +471,7 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
                   Reset filters
                 </button>
               </div>
+              <InspectCalendar calendar={filt?.calendar} nodeId={nodeId} runId={selected} byDay={flt.by_day||{}} onByDay={by_day=>setFlt({...flt,by_day})}/>
               {!!filt && (
                 <div style={{ fontSize: 11, marginTop: 6 }}>
                   <div className="mono" style={{ opacity: 0.85 }}>

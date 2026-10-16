@@ -10,3 +10,8 @@ config/lab_config.yaml.bak
 .pytest_cache/
 *.parquet
 LOGS/*
+
+# Local async history status and interrupted-write recovery are runtime only.
+DATA/HISTORICAL/latest_fetch.json
+.history-transaction.*
+history-txn-*/

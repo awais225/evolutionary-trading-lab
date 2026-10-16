@@ -1533,7 +1533,11 @@ class Lab:
                 activity.info("BACKTEST", f"Reusing screen experiment #{r['id']} (fingerprint matches)")
                 continue
 
-            payloads.append(_bt_payload(genome, dsid, "screen", window=w))
+            from ..research import generation_window as GW
+            try: gw_context=GW.prepare(genome,GW.settings(self.db))
+            except Exception as exc:
+                gw_context={'namespace':'generation_window','status':'FAILED','cache_key':f'prepare-failed:{r["id"]}', 'metrics':None,'reason':type(exc).__name__}
+            payloads.append({**_bt_payload(genome, dsid, "screen", window=w), **({'_generation_window':gw_context} if gw_context else {})})
             valid.append((r, genome, ds_info, fp))
 
         if not payloads:
@@ -1581,6 +1585,10 @@ class Lab:
             died, reasons = death_check(m, genome, stage="screen")
             verdict = "FAILED" if died else "SURVIVED"
 
+            if res.get('generation_window'):
+                from ..research.generation_window import persist
+                try: persist(self.db,r['id'],res['generation_window'])
+                except Exception as exc:log.warning('Separate generation-window persistence failed: %s',type(exc).__name__)
             # Insert backtest record with fingerprint & versions (spec §9, §41)
             self.db.x("""INSERT INTO backtests
                          (strategy_id,stage,dataset_id,window,metrics,fitness,verdict,created_at,

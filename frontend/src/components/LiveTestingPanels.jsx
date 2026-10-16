@@ -1,3 +1,4 @@
+import {ScenarioAssignment} from "./FilterScenarios.jsx";
 /* V4.8 — Live Testing panels (§7).
  *
  * Four self-contained blocks used by the Live Testing page:
@@ -1029,7 +1030,7 @@ export function LiveMarketHeader({ symbol, nodeId, onSymbolChange, onNodeChange,
 // V5.2 §16 — the SAME dialog serves MT5 Demo Trading: pass `loadFn`/`saveFn`
 // to point it at another endpoint. The evaluator behind it is identical, so a
 // demo schedule is enforced by the very code the Live Testing engine uses.
-export function ScheduleDialog({ nodeId, onClose, onSaved, loadFn, saveFn, subtitle }) {
+export function ScheduleDialog({ nodeId, onClose, onSaved, loadFn, saveFn, subtitle, scenarioTarget="live" }) {
   /* §11 §12 §13 §17 — the fully editable per-node schedule.
 
    * Every group the engine actually enforces is editable here (days, sessions,
@@ -1196,6 +1197,7 @@ export function ScheduleDialog({ nodeId, onClose, onSaved, loadFn, saveFn, subti
                   confirmLabel={busy ? "Saving…" : (dirty ? "Save & enforce *" : "Save & enforce")}
                   busy={busy} onCancel={onClose} onConfirm={save}
                   result={err ? { ok: false, error: err.message || String(err) } : null}>
+      <ScenarioAssignment nodeId={nodeId} target={scenarioTarget}/>
       {err && (
         <div className="kit-inline-err">
           {txt(objOrNull(err)?.message, "") || err.message || String(err)}

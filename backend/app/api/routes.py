@@ -4046,6 +4046,18 @@ def live_testing_node_config(sid: int, payload: Dict = Body(...)) -> Dict:
                     raise HTTPException(status_code=422, detail={
                         "ok": False, "code": "INVALID_MAX_ACTIVE_TRADES",
                         "message": "MAX ACTIVE TRADES must be an integer 1..100 or Default (null)"})
+    for kind in ('sl','tp'):
+        sign_key=kind+'_offset_sign'
+        if sign_key in payload:
+            if payload[sign_key] not in ('+ve','-ve'):
+                raise HTTPException(422, 'offset sign must be +ve or -ve')
+            limit_keys[sign_key]=payload[sign_key]
+            limit_keys['offset_schema_version']=2
+        elif kind+'_offset_pips' in payload:
+            # Old API clients retain their signed-number behavior on every save.
+            try:negative=float(payload.get(kind+'_offset_pips') or 0)<0
+            except (ValueError,TypeError):negative=False
+            limit_keys[sign_key]=('-ve' if negative else '+ve') if kind=='sl' else ('+ve' if negative else '-ve')
     for off_key in ("sl_offset_pips", "tp_offset_pips"):
         if off_key in payload:
             v = payload.get(off_key)
@@ -5384,7 +5396,8 @@ async def deeptest_csv_validate(request: Request,
                                 timeframe: str = Query(...),
                                 filename: str = Query(""),
                                 timezone_offset_hours: Optional[float] = Query(None),
-                                timestamp_mode: Optional[str] = Query(None)):
+                                timestamp_mode: Optional[str] = Query(None),
+                                source_timezone: Optional[str] = Query(None)):
     """Raw request body = the CSV file bytes (no multipart dependency)."""
     from ..deeptest.csv_import import validate_frame
     raw = await request.body()
@@ -5396,7 +5409,7 @@ async def deeptest_csv_validate(request: Request,
     report = validate_frame(raw, symbol=symbol, timeframe=timeframe,
                             filename=filename or "",
                             timezone_offset_hours=timezone_offset_hours,
-                            timestamp_mode=timestamp_mode)
+                            timestamp_mode=timestamp_mode, source_timezone=source_timezone)
     if not report.get("ok") and not report.get("needs_timezone_confirmation"):
         return {k: v for k, v in report.items() if k != "frame"}   # frame is preview-only
     import uuid as _uuid
@@ -5436,9 +5449,13 @@ def deeptest_csv_commit(payload: Dict[str, Any] = Body(...)):
         return {"ok": False, "error": f"this file was validated for {box['timeframe']} — it "
                                       f"cannot be committed as {want_tf} (refusing a "
                                       f"timeframe mismatch)"}
+    if box['report'].get('needs_timezone_confirmation'):
+        return {'ok':False,'needs_timezone_confirmation':True,'error':'confirm the source timezone and validate again; commit never reinterprets an old token'}
     res = commit_import(box["report"], symbol=box["symbol"], timeframe=box["timeframe"],
                         timezone_confirmed=(payload or {}).get("timezone_confirmed"))
     if res.get("ok"):
+        from ..data.history import archive_source
+        res['original_artifact'] = archive_source(box['raw'],box['filename'],box['report'],res)
         _DT_CSV_VALIDATED.pop(token, None)
         # §9 re-ask: after the import the coverage question is answered again
         res["next_step"] = ("re-run the coverage preflight — if history is still incomplete "
@@ -5658,14 +5675,16 @@ def deeptest_filtered_stats(run_id: str, payload: Dict[str, Any] = Body(default_
     def _sess(t):
         return str(t.get("session") or "").strip().lower() or None
 
+    from ..deeptest.filter_rules import normalize as normalize_filters,reason as filter_reason
+    entry_rules=normalize_filters(payload)
     def _excluded(t):
-        d = _day_name(t)
-        if d and d in excl_days:
-            return f"day:{d}"
-        sess = _sess(t)
-        if sess and sess in excl_sessions:
-            return f"session:{sess}"
-        return None
+        # Existing unversioned clients retain their recorded-label contract.
+        # V9.2 UI explicitly sends schema_version=1: actual UTC entry time and
+        # DST-aware overlapping memberships, also used by Live scenario gates.
+        if payload.get('schema_version') is None:
+            d,sess=_day_name(t),_sess(t)
+            return 'day:'+d if d in excl_days else 'session:'+sess if sess in excl_sessions else None
+        return filter_reason(t,entry_rules)
 
     kept, dropped = [], []
     for t in trades:
@@ -5738,12 +5757,15 @@ def deeptest_filtered_stats(run_id: str, payload: Dict[str, Any] = Body(default_
                              "entry day-of-week is excluded OR entry session is excluded"),
         "filters": {"exclude_days": sorted(excl_days),
                     "exclude_sessions": sorted(excl_sessions)},
-        "active": bool(excl_days or excl_sessions),
+        "entry_rules":entry_rules,
+        "calendar":__import__('app.deeptest.inspect_calendar',fromlist=['aggregate']).aggregate(trades,init_cap,entry_rules,sc.get('requested_start'),sc.get('requested_end')),
+        "active": bool(excl_days or excl_sessions or entry_rules.get('exclude_by_day') or entry_rules.get('include_sessions') or entry_rules.get('range_start') or entry_rules.get('range_end')),
         "trade_counts": {"original": len(trades), "kept": len(kept),
                          "excluded": len(dropped)},
         "original": {"summary": orig_summary, **_side_block(trades)},
         "filtered": {"summary": filt_summary, **_side_block(kept), **filt_extra},
         "excluded_trades": dropped[:200],
+        "kept_trade_numbers":[t.get("trade_no") for t in kept],
         "disclosure": ("post-trade exclusion analysis of saved results — NOT a "
                        "re-simulation or re-backtest. Path-dependent metrics are "
                        "rebuilt chronologically from the KEPT trades; values that "
@@ -6150,6 +6172,8 @@ def nodes_index(
             "max_active_trades_default": resolve_per_node_limit({"config": cfg})["default"],
             "sl_offset_pips": cfg.get("sl_offset_pips"),
             "tp_offset_pips": cfg.get("tp_offset_pips"),
+            "sl_offset_sign": cfg.get('sl_offset_sign','+ve'), "tp_offset_sign": cfg.get('tp_offset_sign','-ve'),
+            "offset_schema_version":cfg.get('offset_schema_version',1),
             "offsets_active": bool(cfg.get("sl_offset_pips") or cfg.get("tp_offset_pips")),
             "risk_mode": _risk_mode_row(cfg),
             "lifecycle": _lifecycle_of(_ws, cfg.get("is_active"), cfg.get("status")),
@@ -6529,6 +6553,8 @@ def live_testing_nodes_table(
             # V6.5 §9 — experimental SL/TP offsets (0/unset = strategy defaults)
             "sl_offset_pips": cfg.get("sl_offset_pips"),
             "tp_offset_pips": cfg.get("tp_offset_pips"),
+            "sl_offset_sign": cfg.get('sl_offset_sign','+ve'), "tp_offset_sign": cfg.get('tp_offset_sign','-ve'),
+            "offset_schema_version":cfg.get('offset_schema_version',1),
             "offsets_active": bool(cfg.get("sl_offset_pips") or cfg.get("tp_offset_pips")),
             "schedule": schedule,
             # V6 — the BACKEND's live-testing worker state for this node. The
@@ -7242,3 +7268,60 @@ def power_heartbeat() -> Dict[str, Any]:
     pm.save()
     return {"ok": True, "accepting_tasks": accepting_tasks(),
             "session_id": pm.session_id, "owned_process_count": pm.session()["owned_process_count"]}
+
+
+@router.get("/history/inventory")
+def history_inventory():
+    from ..data.history import inventory
+    return {"ok":True,"datasets":inventory()}
+
+@router.get("/history/latest")
+def history_latest_status():
+    from ..data.history_latest import status
+    return status()
+
+@router.post("/history/latest")
+def history_latest_start(payload: Dict[str, Any] = Body(default_factory=dict)):
+    from ..data.history_latest import start
+    return start(payload.get("timeframes"))
+
+@router.post("/history/latest/cancel")
+def history_latest_cancel():
+    from ..data.history_latest import cancel
+    return cancel()
+
+
+@router.get('/filter-scenarios')
+def filter_scenarios_list(node_id: Optional[int] = None):
+    from ..deeptest.filter_scenarios import listing
+    return {'ok':True,'scenarios':listing(get_db(),node_id)}
+
+@router.post('/filter-scenarios')
+def filter_scenarios_save(payload: Dict[str,Any] = Body(...)):
+    from ..deeptest.filter_scenarios import save
+    try:return {'ok':True,'scenario':save(get_db(),payload)}
+    except (ValueError,TypeError,KeyError) as exc:raise HTTPException(422,str(exc))
+
+@router.get('/filter-scenarios/assignment/{node_id}')
+def filter_scenario_assignment(node_id:int,target:str='live'):
+    from ..deeptest.filter_scenarios import assignment
+    return {'ok':True,'assignment':assignment(get_db(),node_id,target)}
+
+@router.post('/filter-scenarios/assignment/{node_id}')
+def filter_scenario_assign(node_id:int,payload:Dict[str,Any]=Body(...)):
+    from ..deeptest.filter_scenarios import assign
+    try:return {'ok':True,'assignment':assign(get_db(),node_id,payload.get('scenario_id'),payload.get('target','live')),'note':'entry gate only; prior schedule/risk unchanged; no worker enabled or order submitted'}
+    except (ValueError,TypeError) as exc:raise HTTPException(422,str(exc))
+
+
+@router.get('/generation-window')
+def generation_window_get(include_results:bool=False):
+    from ..research.generation_window import settings,recent
+    db=get_db()
+    return {'ok':True,'settings':settings(db),'results':recent(db) if include_results else [],'namespace':'generation_window','disclosure':'Optional research-only metrics; never changes qualification, generation fitness, Deep or live records.'}
+
+@router.post('/generation-window')
+def generation_window_save(payload:Dict[str,Any]=Body(...)):
+    from ..research.generation_window import save_settings
+    try:return {'ok':True,'settings':save_settings(get_db(),payload),'note':'settings saved; generation was not started'}
+    except (TypeError,ValueError) as exc:raise HTTPException(422,str(exc))

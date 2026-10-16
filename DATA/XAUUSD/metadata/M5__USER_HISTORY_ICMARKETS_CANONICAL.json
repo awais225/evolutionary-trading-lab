@@ -1,0 +1,127 @@
+{
+ "symbol": "XAUUSD",
+ "timeframe": "M5",
+ "profile": {
+  "source": "USER_HISTORY",
+  "broker": "ICMARKETS",
+  "server": "CANONICAL"
+ },
+ "profile_key": "USER_HISTORY|ICMARKETS|CANONICAL",
+ "schema_version": 3,
+ "partitions": {
+  "202505": {
+   "rows": 2063,
+   "first_ts": 1747812900.0,
+   "last_ts": 1748638500.0,
+   "sha256": "fe35b0c423d6e0d12806416d87ce6376"
+  },
+  "202506": {
+   "rows": 5790,
+   "first_ts": 1748815200.0,
+   "last_ts": 1751327700.0,
+   "sha256": "5081a5a93f4b7231bfa57c826ee03b6b"
+  },
+  "202507": {
+   "rows": 6300,
+   "first_ts": 1751328000.0,
+   "last_ts": 1754006100.0,
+   "sha256": "7d29e7fa3f25b2c784d73b3df6f31cb1"
+  },
+  "202508": {
+   "rows": 5796,
+   "first_ts": 1754006400.0,
+   "last_ts": 1756684500.0,
+   "sha256": "98ef12b4619aed5a2fedcc313523241f"
+  },
+  "202509": {
+   "rows": 6042,
+   "first_ts": 1756684800.0,
+   "last_ts": 1759276500.0,
+   "sha256": "93f6793c1b025a95b1374f19fff3dba1"
+  },
+  "202510": {
+   "rows": 6324,
+   "first_ts": 1759276800.0,
+   "last_ts": 1761944100.0,
+   "sha256": "b568318273f4ab4c347dd4b95d945074"
+  },
+  "202511": {
+   "rows": 5470,
+   "first_ts": 1762124400.0,
+   "last_ts": 1764546900.0,
+   "sha256": "bcf2951a81e8a81d38ae4dd79d29425d"
+  },
+  "202512": {
+   "rows": 6021,
+   "first_ts": 1764547200.0,
+   "last_ts": 1767218100.0,
+   "sha256": "a5438c8247b2afe121af1c0e0313e74b"
+  },
+  "202601": {
+   "rows": 5766,
+   "first_ts": 1767308400.0,
+   "last_ts": 1769810100.0,
+   "sha256": "becea338721d6d7dbc2b4ea35a918715"
+  },
+  "202602": {
+   "rows": 5490,
+   "first_ts": 1769986800.0,
+   "last_ts": 1772229300.0,
+   "sha256": "c57bbfa3700470e8f365dba23fc47f07"
+  },
+  "202603": {
+   "rows": 6072,
+   "first_ts": 1772406000.0,
+   "last_ts": 1775001300.0,
+   "sha256": "f55b61001deeeed4645c2628a9daf151"
+  },
+  "202604": {
+   "rows": 5792,
+   "first_ts": 1775001600.0,
+   "last_ts": 1777593300.0,
+   "sha256": "31b4cf875ca17835b8e27a0ab979daa8"
+  },
+  "202605": {
+   "rows": 5765,
+   "first_ts": 1777593600.0,
+   "last_ts": 1780271700.0,
+   "sha256": "ca2c51d01086c6baf381ef93499b8826"
+  },
+  "202606": {
+   "rows": 5996,
+   "first_ts": 1780272000.0,
+   "last_ts": 1782863700.0,
+   "sha256": "8ce3a89484e6fb5ce7b18df0f9571439"
+  },
+  "202607": {
+   "rows": 6276,
+   "first_ts": 1782864000.0,
+   "last_ts": 1785531300.0,
+   "sha256": "da7976b91a38d21c1597294d093039c9"
+  },
+  "202608": {
+   "rows": 5820,
+   "first_ts": 1785708000.0,
+   "last_ts": 1788220500.0,
+   "sha256": "2d6bb7c16b0169ae55da0c3f1e5ab194"
+  },
+  "202609": {
+   "rows": 6042,
+   "first_ts": 1788220800.0,
+   "last_ts": 1790812500.0,
+   "sha256": "6e8fe1748acc36008029bab802268cf1"
+  },
+  "202610": {
+   "rows": 3187,
+   "first_ts": 1790812800.0,
+   "last_ts": 1792153800.0,
+   "sha256": "5cec5bc62274fabc83a4918e0036828a"
+  }
+ },
+ "rows": 100012,
+ "first_ts": 1747812900.0,
+ "last_ts": 1792153800.0,
+ "version": 1,
+ "conflicts": 0,
+ "fingerprint": "d6ff7ffd80fef2c59aa428562dcfbe07"
+}

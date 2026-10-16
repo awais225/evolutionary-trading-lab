@@ -90,7 +90,7 @@ def detect_format(sample_text: str) -> Dict[str, Any]:
 def parse_csv(raw: bytes, *, filename: str = "", delimiter: Optional[str] = None,
               has_header: Optional[bool] = None,
               timestamp_mode: Optional[str] = None,
-              timezone_offset_hours: Optional[float] = None) -> Dict[str, Any]:
+              timezone_offset_hours: Optional[float] = None, source_timezone: Optional[str] = None) -> Dict[str, Any]:
     """Parse a candle CSV into a raw frame + mapping report. No writes.
 
     ``timestamp_mode`` ∈ ``auto|epoch_s|epoch_ms|mt5|iso`` — default auto.
@@ -140,6 +140,7 @@ def parse_csv(raw: bytes, *, filename: str = "", delimiter: Optional[str] = None
     for key, aliases in (("open", HEADER_ALIASES["open"]), ("high", HEADER_ALIASES["high"]),
                          ("low", HEADER_ALIASES["low"]), ("close", HEADER_ALIASES["close"]),
                          ("tick_volume", HEADER_ALIASES["tick_volume"]),
+                         ("volume", HEADER_ALIASES["volume"]),
                          ("spread", HEADER_ALIASES["spread"])):
         c = find_col(*aliases)
         if c is not None:
@@ -194,11 +195,11 @@ def parse_csv(raw: bytes, *, filename: str = "", delimiter: Optional[str] = None
             if date_col is not None and time_col is not None:
                 joined = (df[date_col].astype(str).str.strip() + " " +
                           df[time_col].astype(str).str.strip())
-                ts_values, had_tz = _parse_dt_series(joined, timezone_offset_hours)
+                ts_values, had_tz = _parse_dt_series(joined, timezone_offset_hours, source_timezone)
             elif date_col is not None:
-                ts_values, had_tz = _parse_dt_series(df[date_col].astype(str), timezone_offset_hours)
+                ts_values, had_tz = _parse_dt_series(df[date_col].astype(str), timezone_offset_hours, source_timezone)
             elif ts_col is not None:
-                ts_values, had_tz = _parse_dt_series(df[ts_col].astype(str), timezone_offset_hours)
+                ts_values, had_tz = _parse_dt_series(df[ts_col].astype(str), timezone_offset_hours, source_timezone)
             else:
                 return {"ok": False, "error": "no timestamp/date column found"}
             if had_tz:
@@ -213,8 +214,10 @@ def parse_csv(raw: bytes, *, filename: str = "", delimiter: Optional[str] = None
     ts_values = pd.to_datetime(ts_values, utc=True)
     # unit-safe epoch seconds (pandas may hold datetime64[us] or [ns])
     epoch_s = ((ts_values - pd.Timestamp("1970-01-01", tz="UTC"))
-               // pd.Timedelta(seconds=1)).astype("int64")
-    tz_ambiguous = (tz_source is None and timezone_offset_hours is None)
+               / pd.Timedelta(seconds=1)).astype("float64")
+    tz_ambiguous = (tz_source is None and timezone_offset_hours is None and not source_timezone)
+    if source_timezone:
+        tz_source = "explicit source timezone: " + source_timezone
     if tz_source is None:
         if timezone_offset_hours is not None:
             tz_source = f"naive local timestamps interpreted as UTC = local - ({timezone_offset_hours}h)"
@@ -230,6 +233,8 @@ def parse_csv(raw: bytes, *, filename: str = "", delimiter: Optional[str] = None
     })
     if "tick_volume" in mapping:
         out["tick_volume"] = pd.to_numeric(df[mapping["tick_volume"]], errors="coerce").fillna(0)
+    if "volume" in mapping:
+        out["volume"] = pd.to_numeric(df[mapping["volume"]], errors="coerce").fillna(0)
     if "spread" in mapping:
         out["spread"] = pd.to_numeric(df[mapping["spread"]], errors="coerce")
 
@@ -240,10 +245,12 @@ def parse_csv(raw: bytes, *, filename: str = "", delimiter: Optional[str] = None
         "timezone_ambiguous": bool(tz_ambiguous),
         "filename": filename, "file_sha256": _sha256_bytes(raw),
         "delimiter": delim, "has_header": header,
+        "source_first": str(df.iloc[0][date_col]) + (" " + str(df.iloc[0][time_col]) if time_col else "") if len(df) and date_col else None,
+        "source_last": str(df.iloc[-1][date_col]) + (" " + str(df.iloc[-1][time_col]) if time_col else "") if len(df) and date_col else None,
     }
 
 
-def _parse_dt_series(series: pd.Series, tz_offset: Optional[float]) -> Tuple[pd.Series, bool]:
+def _parse_dt_series(series: pd.Series, tz_offset: Optional[float], source_timezone: Optional[str] = None) -> Tuple[pd.Series, bool]:
     """Parse MT5 'YYYY.MM.DD HH:MM[:SS]' or ISO strings; return (tz-aware UTC, had_tz).
 
     Naive timestamps (no zone info anywhere) are interpreted as
@@ -259,6 +266,9 @@ def _parse_dt_series(series: pd.Series, tz_offset: Optional[float]) -> Tuple[pd.
         raise ValueError("timestamps are neither MT5 'YYYY.MM.DD HH:MM' nor parseable dates")
     if getattr(parsed.dt, "tz", None) is not None:
         return parsed.dt.tz_convert("UTC"), True
+    if source_timezone:
+        from ..data.history import localize_source
+        return localize_source(parsed, source_timezone), True
     off = 0.0 if tz_offset is None else float(tz_offset)
     return parsed.dt.tz_localize("UTC") - pd.Timedelta(hours=off), False
 
@@ -268,7 +278,7 @@ def _parse_dt_series(series: pd.Series, tz_offset: Optional[float]) -> Tuple[pd.
 # --------------------------------------------------------------------------- #
 def validate_frame(raw: bytes, *, symbol: str, timeframe: str,
                    filename: str = "", timezone_offset_hours: Optional[float] = None,
-                   timestamp_mode: Optional[str] = None,
+                   timestamp_mode: Optional[str] = None, source_timezone: Optional[str] = None,
                    target_first_ts: Optional[float] = None,
                    target_last_ts: Optional[float] = None) -> Dict[str, Any]:
     """Parse + validate a candidate import. Never writes.
@@ -277,8 +287,11 @@ def validate_frame(raw: bytes, *, symbol: str, timeframe: str,
     as interpreted (unclear interpretation is reported and refused, never
     guessed).
     """
+    import math
+    if timezone_offset_hours is not None and (not math.isfinite(float(timezone_offset_hours)) or abs(float(timezone_offset_hours))>14):
+        return {"ok":False,"error":"fixed source UTC offset must be finite and within -14..14 hours"}
     parsed = parse_csv(raw, filename=filename, timezone_offset_hours=timezone_offset_hours,
-                       timestamp_mode=timestamp_mode)
+                       timestamp_mode=timestamp_mode, source_timezone=source_timezone)
     if not parsed.get("ok"):
         return parsed
     df = parsed["frame"]
@@ -295,12 +308,12 @@ def validate_frame(raw: bytes, *, symbol: str, timeframe: str,
 
     rows_read = len(df)
     # ---- row-level validation ----
-    bad_type = df[["open", "high", "low", "close"]].isna().any(axis=1)
+    bad_type = ~np.isfinite(df[["open", "high", "low", "close"]]).all(axis=1)
     non_positive = (df[["open", "high", "low", "close"]] <= 0).any(axis=1)
     bad_ohlc = (df["high"] < df[["open", "close", "low"]].max(axis=1) - 1e-12) | \
                (df["low"] > df[["open", "close", "high"]].min(axis=1) + 1e-12) | \
                (df["high"] < df["low"] - 1e-12)
-    bad_ts = df["ts"].isna()
+    bad_ts = ~np.isfinite(df["ts"])
 
     reject_mask = bad_type | non_positive | bad_ohlc | bad_ts
     for i in df.index[reject_mask][:REJECT_LIST_LIMIT]:
@@ -313,9 +326,14 @@ def validate_frame(raw: bytes, *, symbol: str, timeframe: str,
     good = df[~reject_mask].copy()
     dup_mask = good.duplicated(subset=["ts"], keep="first")
     n_dupes = int(dup_mask.sum())
+    duplicate_prices=good[good.duplicated('ts',keep=False)]
+    conflict_timestamps=[]
+    if len(duplicate_prices):
+        differences=duplicate_prices.groupby('ts')[['open','high','low','close']].nunique().max(axis=1)
+        conflict_timestamps=[float(t) for t in differences[differences>1].index]
     good = good[~dup_mask].sort_values("ts").reset_index(drop=True)
 
-    ordered = bool(good["ts"].is_monotonic_increasing)
+    ordered = bool(df.loc[~reject_mask, "ts"].is_monotonic_increasing)
 
     # §10 — reject a mismapped timeframe outright. The rows' own spacing is the
     # only honest evidence of what timeframe they are: if the tightest bar gap is
@@ -378,6 +396,8 @@ def validate_frame(raw: bytes, *, symbol: str, timeframe: str,
         "rows_valid": int(len(good)),
         "rows_rejected": int(reject_mask.sum()),
         "rows_duplicate": n_dupes,
+        "within_file_conflicting_timestamps":len(conflict_timestamps),
+        "within_file_conflicts_sample":conflict_timestamps[:50],
         "rejects_sample": rejects,
         "rejects_truncated": bool(int(reject_mask.sum()) > len(rejects)),
         "earliest_ts": first_ts, "latest_ts": last_ts,
@@ -396,8 +416,12 @@ def validate_frame(raw: bytes, *, symbol: str, timeframe: str,
         "timestamp_mode": parsed.get("timestamp_mode"),
         "mapping": parsed.get("mapping"),
         "warnings": warnings,
-        "frame": good if len(good) <= MAX_PREVIEW_ROWS else good.iloc[:MAX_PREVIEW_ROWS],
-        "frame_truncated": bool(len(good) > MAX_PREVIEW_ROWS),
+        "frame": good,
+        "frame_truncated": False,
+        "preview_truncated": bool(len(good) > MAX_PREVIEW_ROWS),
+        "source_first": parsed.get("source_first"), "source_last": parsed.get("source_last"),
+        "source_timezone": source_timezone,
+        "interval_distribution": {str(int(k)): int(v) for k,v in pd.Series(np.diff(good["ts"])).value_counts().head(12).items()},
         "note": ("coverage above is what the FILE's rows actually cover — never the "
                  "filename or a claimed period"),
     }
@@ -439,8 +463,10 @@ def commit_import(report: Dict[str, Any], *, symbol: str, timeframe: str,
         "filename": report.get("filename"),
         "file_sha256": report.get("file_sha256"),
         "imported_at": time.time(),
-        "timezone": timezone_confirmed or report.get("timezone_source"),
+        "timezone": report.get("timezone_source"),
+        "confirmation": timezone_confirmed,
     }
+    before=mstore.rows
     result = mstore.append(df, source_info=source_info)
 
     # provenance row
@@ -452,7 +478,8 @@ def commit_import(report: Dict[str, Any], *, symbol: str, timeframe: str,
         "symbol": str(symbol).upper(), "timeframe": str(timeframe).upper(),
         "source_type": "CSV_IMPORT",
         "filename": report.get("filename"), "file_sha256": report.get("file_sha256"),
-        "timezone": timezone_confirmed or report.get("timezone_source"),
+        "timezone": report.get("timezone_source"),
+        "confirmation": timezone_confirmed,
         "rows_read": report.get("rows_read"), "rows_valid": report.get("rows_valid"),
         "rows_rejected": report.get("rows_rejected"), "rows_duplicate": report.get("rows_duplicate"),
         "earliest_ts": report.get("earliest_ts"), "latest_ts": report.get("latest_ts"),
@@ -469,6 +496,10 @@ def commit_import(report: Dict[str, Any], *, symbol: str, timeframe: str,
     return {
         "ok": True,
         "merge": result,
+        "existing_before":before,"target_profile":mstore.profile_key,
+        "symbol": symbol, "timeframe": timeframe,
+        "available_unique_bars": mstore.rows, "first_ts": mstore.first_ts, "last_ts": mstore.last_ts,
+        "rows_rejected": report.get("rows_rejected"), "timezone": source_info["timezone"],
         "policy": ("stored data wins over conflicting imported candles; identical "
                    "duplicates are skipped; every conflict is recorded"),
         "coverage_after": pair_coverage(symbol, timeframe),

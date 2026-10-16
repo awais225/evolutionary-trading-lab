@@ -112,6 +112,10 @@ class DataEngine:
         profile = bridge.profile()
         mstore = master.get_master(symbol, timeframe, profile)
 
+        from .history import canonical_profile,accepts_bridge
+        if canonical_profile(symbol, timeframe) and not accepts_bridge(bridge):
+            return {"symbol":symbol,"timeframe":timeframe,"status":"refused","sync_status":"FAILED",
+                    "error":"only a confirmed IC Markets MT5 bridge may update this broker baseline", "total_bars":mstore.rows}
         tf_min = TF_MINUTES.get(timeframe, 15)
         step_s = tf_min * 60
         now = time.time()
@@ -562,7 +566,7 @@ class DataEngine:
 
         # 3. Master append with deduplication & conflict detection (spec §5)
         job.add_task("persist", "append_partitions", "Append and update master store", total_units=len(df_norm), unit_name="bars")
-        append_rep = mstore.append(df_norm, source_info=profile)
+        append_rep = mstore.append(df_norm, source_info={**profile, "allow_corrections": bridge.source == "MT5"})
         job.update_task_progress("persist", "append_partitions", append_rep["accepted"], len(df_norm))
 
         # Materialize / update latest dataset view in registry so pipeline can query it
@@ -597,6 +601,7 @@ class DataEngine:
             "symbol": symbol, "timeframe": timeframe, "fetch_mode": fetch_mode,
             "new_bars": append_rep["accepted"],
             "duplicates_identical": append_rep["duplicates_identical"],
+            "updated": append_rep.get("updated", 0),
             "conflicts": append_rep["conflicts"],
             "total_bars": mstore.rows,
             "master_version": mstore.version,
@@ -638,7 +643,7 @@ class DataEngine:
                 log.info("[DATA ISOLATION] Simulator dataset saved to TEST_DATA: %s", sim_path)
             except Exception as e:
                 log.warning("Failed to write simulator dataset to TEST_DATA: %s", e)
-        else:
+        elif source_name == "MT5":
             # V2.8 Authoritative Real Data: DATA/MT5/{symbol}/{timeframe}.parquet
             try:
                 sym_dir = P.MT5_DIR / mstore.symbol
@@ -774,7 +779,7 @@ class DataEngine:
             work["tick_volume"] = 0
         work["tick_volume"] = work["tick_volume"].fillna(0).astype(np.int32)
 
-        return work[storage.COLUMNS]
+        return work[storage.COLUMNS + (["volume"] if "volume" in work.columns else [])]
 
     # ---------- access & retrieval ----------
     def get_frame(self, dataset_id: str) -> pd.DataFrame:
@@ -786,6 +791,14 @@ class DataEngine:
                 return df
 
         cfg = get_config()
+        # V9.2: a named canonical snapshot must never be replaced by a generic
+        # recent MT5/TF.parquet cache in another worker or after restart.
+        if 'USER_HISTORY_ICMARKETS_CANONICAL' in dataset_id:
+            exact=storage.read_dataset(cfg.data.cache_dir,dataset_id)
+            if exact is None:
+                raise ValueError('canonical history snapshot is missing; rematerialize from the persistent store, never substitute a recent cache')
+            with self._lock:self._frames[dataset_id]=exact
+            return exact
         # 1. Try V2.8 XAUUSD directory, then V2.7 raw / datasets directory
         df = None
         parts = dataset_id.split("_")
