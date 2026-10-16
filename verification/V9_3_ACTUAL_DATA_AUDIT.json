@@ -1,0 +1,1663 @@
+{
+  "logical_snapshot_raw_status_counts": {
+    "BACKTEST_ERROR": 45,
+    "FAILED": 3843,
+    "KILLED": 1289,
+    "QUALIFIED": 83,
+    "RETIRED": 4740
+  },
+  "environment": "Linux isolated COPY of original persisted DATA; no production data writes, no native MT5, no orders",
+  "files": [
+    {
+      "file": "XAUUSD_M1.csv",
+      "sha256": "840eeb06b0669a65251179702e2d8eafc848804d4e1f63245b2be59a8bcd73cb",
+      "original_versioned_identical": true,
+      "symbol": "XAUUSD",
+      "timeframe": "M1",
+      "validation": {
+        "rows_read": 100057,
+        "rows_valid": 100057,
+        "rows_rejected": 0,
+        "rows_duplicate": 0,
+        "mapping": {
+          "open": "<OPEN>",
+          "high": "<HIGH>",
+          "low": "<LOW>",
+          "close": "<CLOSE>",
+          "tick_volume": "<TICKVOL>",
+          "volume": "<VOL>",
+          "spread": "<SPREAD>"
+        },
+        "timestamp_mode": "mt5_or_iso",
+        "timezone_source": "explicit source timezone: ICMARKETS_NY_CLOSE",
+        "earliest": "2026-07-07T18:41:00Z",
+        "latest": "2026-10-16T12:31:00Z",
+        "earliest_ts": 1783449660.0,
+        "latest_ts": 1792153860.0,
+        "gaps": null,
+        "timeframe_mismatch": null
+      },
+      "merge": {
+        "accepted": 0,
+        "duplicates_identical": 100057,
+        "conflicts": 0,
+        "out_of_range": 0,
+        "version": 1
+      },
+      "existing_before": 100057,
+      "queryable_after": 100057,
+      "dataset_id": "XAUUSD_M1_USER_HISTORY_ICMARKETS_CANONICAL_v1",
+      "dataset_fingerprint": "d42e0fcc9e009c565a38406d3f2862db",
+      "actual_deep_engine_query_rows": 100057,
+      "original_archive_verified": true,
+      "quality": {
+        "bars": 100057,
+        "monotonic_increasing": true,
+        "duplicate_timestamps": 0,
+        "gaps": 75,
+        "missing_bars_total": 45014
+      }
+    },
+    {
+      "file": "XAUUSD_M5.csv",
+      "sha256": "7bdfeddbb119f9c0f910e1436e7c14beec8390a8379291b4a5f065ce410c1896",
+      "original_versioned_identical": true,
+      "symbol": "XAUUSD",
+      "timeframe": "M5",
+      "validation": {
+        "rows_read": 100012,
+        "rows_valid": 100012,
+        "rows_rejected": 0,
+        "rows_duplicate": 0,
+        "mapping": {
+          "open": "<OPEN>",
+          "high": "<HIGH>",
+          "low": "<LOW>",
+          "close": "<CLOSE>",
+          "tick_volume": "<TICKVOL>",
+          "volume": "<VOL>",
+          "spread": "<SPREAD>"
+        },
+        "timestamp_mode": "mt5_or_iso",
+        "timezone_source": "explicit source timezone: ICMARKETS_NY_CLOSE",
+        "earliest": "2025-05-21T07:35:00Z",
+        "latest": "2026-10-16T12:30:00Z",
+        "earliest_ts": 1747812900.0,
+        "latest_ts": 1792153800.0,
+        "gaps": null,
+        "timeframe_mismatch": null
+      },
+      "merge": {
+        "accepted": 0,
+        "duplicates_identical": 100012,
+        "conflicts": 0,
+        "out_of_range": 0,
+        "version": 1
+      },
+      "existing_before": 100012,
+      "queryable_after": 100012,
+      "dataset_id": "XAUUSD_M5_USER_HISTORY_ICMARKETS_CANONICAL_v1",
+      "dataset_fingerprint": "d6ff7ffd80fef2c59aa428562dcfbe07",
+      "actual_deep_engine_query_rows": 100012,
+      "original_archive_verified": true,
+      "quality": {
+        "bars": 100012,
+        "monotonic_increasing": true,
+        "duplicate_timestamps": 0,
+        "gaps": 372,
+        "missing_bars_total": 47792
+      }
+    },
+    {
+      "file": "XAUUSD_M15.csv",
+      "sha256": "aef59992b465d45ac7adc068ceace2ed5c58cf66ceb7d379e41e2b98a70def87",
+      "original_versioned_identical": true,
+      "symbol": "XAUUSD",
+      "timeframe": "M15",
+      "validation": {
+        "rows_read": 100856,
+        "rows_valid": 100856,
+        "rows_rejected": 0,
+        "rows_duplicate": 0,
+        "mapping": {
+          "open": "<OPEN>",
+          "high": "<HIGH>",
+          "low": "<LOW>",
+          "close": "<CLOSE>",
+          "tick_volume": "<TICKVOL>",
+          "volume": "<VOL>",
+          "spread": "<SPREAD>"
+        },
+        "timestamp_mode": "mt5_or_iso",
+        "timezone_source": "explicit source timezone: ICMARKETS_NY_CLOSE",
+        "earliest": "2022-07-12T22:00:00Z",
+        "latest": "2026-10-16T10:45:00Z",
+        "earliest_ts": 1657663200.0,
+        "latest_ts": 1792147500.0,
+        "gaps": null,
+        "timeframe_mismatch": null
+      },
+      "merge": {
+        "accepted": 0,
+        "duplicates_identical": 100856,
+        "conflicts": 0,
+        "out_of_range": 0,
+        "version": 1
+      },
+      "existing_before": 100856,
+      "queryable_after": 100856,
+      "dataset_id": "XAUUSD_M15_USER_HISTORY_ICMARKETS_CANONICAL_v1",
+      "dataset_fingerprint": "98d1f1445c2906e1fdbda773d74fa8fa",
+      "actual_deep_engine_query_rows": 100856,
+      "original_archive_verified": true,
+      "quality": {
+        "bars": 100856,
+        "monotonic_increasing": true,
+        "duplicate_timestamps": 0,
+        "gaps": 1106,
+        "missing_bars_total": 48572
+      }
+    },
+    {
+      "file": "XAUUSD_M30.csv",
+      "sha256": "f3293d536a6ffd79c7298412e746e0f792e473f7539013a27bfbef21c128985f",
+      "original_versioned_identical": true,
+      "symbol": "XAUUSD",
+      "timeframe": "M30",
+      "validation": {
+        "rows_read": 71441,
+        "rows_valid": 71441,
+        "rows_rejected": 0,
+        "rows_duplicate": 0,
+        "mapping": {
+          "open": "<OPEN>",
+          "high": "<HIGH>",
+          "low": "<LOW>",
+          "close": "<CLOSE>",
+          "tick_volume": "<TICKVOL>",
+          "volume": "<VOL>",
+          "spread": "<SPREAD>"
+        },
+        "timestamp_mode": "mt5_or_iso",
+        "timezone_source": "explicit source timezone: ICMARKETS_NY_CLOSE",
+        "earliest": "2020-09-30T22:00:00Z",
+        "latest": "2026-10-16T12:30:00Z",
+        "earliest_ts": 1601503200.0,
+        "latest_ts": 1792153800.0,
+        "gaps": null,
+        "timeframe_mismatch": null
+      },
+      "merge": {
+        "accepted": 0,
+        "duplicates_identical": 71441,
+        "conflicts": 0,
+        "out_of_range": 0,
+        "version": 1
+      },
+      "existing_before": 71441,
+      "queryable_after": 71441,
+      "dataset_id": "XAUUSD_M30_USER_HISTORY_ICMARKETS_CANONICAL_v1",
+      "dataset_fingerprint": "111b3638c2153fe9810c7810caf2f7a9",
+      "actual_deep_engine_query_rows": 71441,
+      "original_archive_verified": true,
+      "quality": {
+        "bars": 71441,
+        "monotonic_increasing": true,
+        "duplicate_timestamps": 0,
+        "gaps": 1563,
+        "missing_bars_total": 34477
+      }
+    },
+    {
+      "file": "XAUUSD_H1.csv",
+      "sha256": "c6403ee874ea3e6a2953edc250d4ccd8075400cc4211c58de0afe202bda04445",
+      "original_versioned_identical": true,
+      "symbol": "XAUUSD",
+      "timeframe": "H1",
+      "validation": {
+        "rows_read": 35738,
+        "rows_valid": 35738,
+        "rows_rejected": 0,
+        "rows_duplicate": 0,
+        "mapping": {
+          "open": "<OPEN>",
+          "high": "<HIGH>",
+          "low": "<LOW>",
+          "close": "<CLOSE>",
+          "tick_volume": "<TICKVOL>",
+          "volume": "<VOL>",
+          "spread": "<SPREAD>"
+        },
+        "timestamp_mode": "mt5_or_iso",
+        "timezone_source": "explicit source timezone: ICMARKETS_NY_CLOSE",
+        "earliest": "2020-09-30T22:00:00Z",
+        "latest": "2026-10-16T12:00:00Z",
+        "earliest_ts": 1601503200.0,
+        "latest_ts": 1792152000.0,
+        "gaps": null,
+        "timeframe_mismatch": null
+      },
+      "merge": {
+        "accepted": 0,
+        "duplicates_identical": 35738,
+        "conflicts": 0,
+        "out_of_range": 0,
+        "version": 1
+      },
+      "existing_before": 35738,
+      "queryable_after": 35738,
+      "dataset_id": "XAUUSD_H1_USER_HISTORY_ICMARKETS_CANONICAL_v1",
+      "dataset_fingerprint": "7f939043b7f202161ca4a27035636b92",
+      "actual_deep_engine_query_rows": 35738,
+      "original_archive_verified": true,
+      "quality": {
+        "bars": 35738,
+        "monotonic_increasing": true,
+        "duplicate_timestamps": 0,
+        "gaps": 1561,
+        "missing_bars_total": 17221
+      }
+    },
+    {
+      "file": "XAUUSD_H4.csv",
+      "sha256": "a1b2f93cd30ac42de422783c6660d6ca84ba49e247d4e8d38cfd7d08dc59c338",
+      "original_versioned_identical": true,
+      "symbol": "XAUUSD",
+      "timeframe": "H4",
+      "validation": {
+        "rows_read": 9349,
+        "rows_valid": 9349,
+        "rows_rejected": 0,
+        "rows_duplicate": 0,
+        "mapping": {
+          "open": "<OPEN>",
+          "high": "<HIGH>",
+          "low": "<LOW>",
+          "close": "<CLOSE>",
+          "tick_volume": "<TICKVOL>",
+          "volume": "<VOL>",
+          "spread": "<SPREAD>"
+        },
+        "timestamp_mode": "mt5_or_iso",
+        "timezone_source": "explicit source timezone: ICMARKETS_NY_CLOSE",
+        "earliest": "2020-09-30T21:00:00Z",
+        "latest": "2026-10-16T09:00:00Z",
+        "earliest_ts": 1601499600.0,
+        "latest_ts": 1792141200.0,
+        "gaps": null,
+        "timeframe_mismatch": null
+      },
+      "merge": {
+        "accepted": 0,
+        "duplicates_identical": 9349,
+        "conflicts": 0,
+        "out_of_range": 0,
+        "version": 1
+      },
+      "existing_before": 9349,
+      "queryable_after": 9349,
+      "dataset_id": "XAUUSD_H4_USER_HISTORY_ICMARKETS_CANONICAL_v1",
+      "dataset_fingerprint": "84771bb1629d02d703bbb4d28b61011e",
+      "actual_deep_engine_query_rows": 9349,
+      "original_archive_verified": true,
+      "quality": {
+        "bars": 9349,
+        "monotonic_increasing": true,
+        "duplicate_timestamps": 0,
+        "gaps": 325,
+        "missing_bars_total": 3891
+      }
+    },
+    {
+      "file": "XAUUSD_Daily.csv",
+      "sha256": "2cfc0fcf53c17c4892bc03fab87701aa6597bc9c1374678cf3501d3966cdb314",
+      "original_versioned_identical": true,
+      "symbol": "XAUUSD",
+      "timeframe": "D1",
+      "validation": {
+        "rows_read": 1560,
+        "rows_valid": 1560,
+        "rows_rejected": 0,
+        "rows_duplicate": 0,
+        "mapping": {
+          "open": "<OPEN>",
+          "high": "<HIGH>",
+          "low": "<LOW>",
+          "close": "<CLOSE>",
+          "tick_volume": "<TICKVOL>",
+          "volume": "<VOL>",
+          "spread": "<SPREAD>"
+        },
+        "timestamp_mode": "mt5_or_iso",
+        "timezone_source": "explicit source timezone: ICMARKETS_NY_CLOSE",
+        "earliest": "2020-09-30T21:00:00Z",
+        "latest": "2026-10-15T21:00:00Z",
+        "earliest_ts": 1601499600.0,
+        "latest_ts": 1792098000.0,
+        "gaps": null,
+        "timeframe_mismatch": null
+      },
+      "merge": {
+        "accepted": 0,
+        "duplicates_identical": 1560,
+        "conflicts": 0,
+        "out_of_range": 0,
+        "version": 1
+      },
+      "existing_before": 1560,
+      "queryable_after": 1560,
+      "dataset_id": "XAUUSD_D1_USER_HISTORY_ICMARKETS_CANONICAL_v1",
+      "dataset_fingerprint": "29b5232e2818b57c6de7f0e41852549f",
+      "actual_deep_engine_query_rows": 1560,
+      "original_archive_verified": true,
+      "quality": {
+        "bars": 1560,
+        "monotonic_increasing": true,
+        "duplicate_timestamps": 0,
+        "gaps": 319,
+        "missing_bars_total": 647
+      }
+    }
+  ],
+  "qualified_before_tabs": 99,
+  "initial_range_count": {
+    "symbol": "XAUUSD",
+    "timeframe": "M1",
+    "bars": 100057,
+    "first_ts": 1783449660.0,
+    "last_ts": 1792153860.0,
+    "first": "2026-07-07T18:41:00Z",
+    "last": "2026-10-16T12:31:00Z",
+    "coverage_label": "3.3 months (101 days)",
+    "coverage_days": 100.74,
+    "source": null,
+    "broker": null,
+    "server": null,
+    "fingerprint": "d42e0fcc9e009c565a38406d3f2862db",
+    "version": 1,
+    "last_fetch": null,
+    "fetch_status": "stored dataset materialised",
+    "quality": {
+      "bars": 100057,
+      "monotonic_increasing": true,
+      "duplicate_timestamps": 0,
+      "gaps": 75,
+      "missing_bars_total": 45014
+    },
+    "missing_periods": [
+      {
+        "after": "2026-07-07T20:58:00Z",
+        "before": "2026-07-07T22:00:00Z",
+        "after_ts": 1783457880.0,
+        "before_ts": 1783461600.0,
+        "missing_bars": 61
+      },
+      {
+        "after": "2026-07-08T20:58:00Z",
+        "before": "2026-07-08T22:00:00Z",
+        "after_ts": 1783544280.0,
+        "before_ts": 1783548000.0,
+        "missing_bars": 61
+      },
+      {
+        "after": "2026-07-09T20:58:00Z",
+        "before": "2026-07-09T22:00:00Z",
+        "after_ts": 1783630680.0,
+        "before_ts": 1783634400.0,
+        "missing_bars": 61
+      },
+      {
+        "after": "2026-07-10T20:56:00Z",
+        "before": "2026-07-12T22:00:00Z",
+        "after_ts": 1783716960.0,
+        "before_ts": 1783893600.0,
+        "missing_bars": 2943
+      },
+      {
+        "after": "2026-07-13T20:58:00Z",
+        "before": "2026-07-13T22:00:00Z",
+        "after_ts": 1783976280.0,
+        "before_ts": 1783980000.0,
+        "missing_bars": 61
+      },
+      {
+        "after": "2026-07-14T20:58:00Z",
+        "before": "2026-07-14T22:00:00Z",
+        "after_ts": 1784062680.0,
+        "before_ts": 1784066400.0,
+        "missing_bars": 61
+      },
+      {
+        "after": "2026-07-15T20:58:00Z",
+        "before": "2026-07-15T22:00:00Z",
+        "after_ts": 1784149080.0,
+        "before_ts": 1784152800.0,
+        "missing_bars": 61
+      },
+      {
+        "after": "2026-07-16T20:58:00Z",
+        "before": "2026-07-16T22:00:00Z",
+        "after_ts": 1784235480.0,
+        "before_ts": 1784239200.0,
+        "missing_bars": 61
+      },
+      {
+        "after": "2026-07-17T15:23:00Z",
+        "before": "2026-07-17T15:25:00Z",
+        "after_ts": 1784301780.0,
+        "before_ts": 1784301900.0,
+        "missing_bars": 1
+      },
+      {
+        "after": "2026-07-17T20:56:00Z",
+        "before": "2026-07-19T22:00:00Z",
+        "after_ts": 1784321760.0,
+        "before_ts": 1784498400.0,
+        "missing_bars": 2943
+      },
+      {
+        "after": "2026-07-20T20:58:00Z",
+        "before": "2026-07-20T22:00:00Z",
+        "after_ts": 1784581080.0,
+        "before_ts": 1784584800.0,
+        "missing_bars": 61
+      },
+      {
+        "after": "2026-07-21T20:58:00Z",
+        "before": "2026-07-21T22:00:00Z",
+        "after_ts": 1784667480.0,
+        "before_ts": 1784671200.0,
+        "missing_bars": 61
+      },
+      {
+        "after": "2026-07-22T20:58:00Z",
+        "before": "2026-07-22T22:00:00Z",
+        "after_ts": 1784753880.0,
+        "before_ts": 1784757600.0,
+        "missing_bars": 61
+      },
+      {
+        "after": "2026-07-23T20:58:00Z",
+        "before": "2026-07-23T22:00:00Z",
+        "after_ts": 1784840280.0,
+        "before_ts": 1784844000.0,
+        "missing_bars": 61
+      },
+      {
+        "after": "2026-07-24T05:13:00Z",
+        "before": "2026-07-24T05:15:00Z",
+        "after_ts": 1784869980.0,
+        "before_ts": 1784870100.0,
+        "missing_bars": 1
+      },
+      {
+        "after": "2026-07-24T20:56:00Z",
+        "before": "2026-07-26T22:00:00Z",
+        "after_ts": 1784926560.0,
+        "before_ts": 1785103200.0,
+        "missing_bars": 2943
+      },
+      {
+        "after": "2026-07-27T20:58:00Z",
+        "before": "2026-07-27T22:00:00Z",
+        "after_ts": 1785185880.0,
+        "before_ts": 1785189600.0,
+        "missing_bars": 61
+      },
+      {
+        "after": "2026-07-28T20:58:00Z",
+        "before": "2026-07-28T22:00:00Z",
+        "after_ts": 1785272280.0,
+        "before_ts": 1785276000.0,
+        "missing_bars": 61
+      },
+      {
+        "after": "2026-07-29T20:58:00Z",
+        "before": "2026-07-29T22:00:00Z",
+        "after_ts": 1785358680.0,
+        "before_ts": 1785362400.0,
+        "missing_bars": 61
+      },
+      {
+        "after": "2026-07-30T20:58:00Z",
+        "before": "2026-07-30T22:00:00Z",
+        "after_ts": 1785445080.0,
+        "before_ts": 1785448800.0,
+        "missing_bars": 61
+      },
+      {
+        "after": "2026-07-31T20:56:00Z",
+        "before": "2026-08-02T22:00:00Z",
+        "after_ts": 1785531360.0,
+        "before_ts": 1785708000.0,
+        "missing_bars": 2943
+      },
+      {
+        "after": "2026-08-03T20:58:00Z",
+        "before": "2026-08-03T22:00:00Z",
+        "after_ts": 1785790680.0,
+        "before_ts": 1785794400.0,
+        "missing_bars": 61
+      },
+      {
+        "after": "2026-08-04T20:58:00Z",
+        "before": "2026-08-04T22:00:00Z",
+        "after_ts": 1785877080.0,
+        "before_ts": 1785880800.0,
+        "missing_bars": 61
+      },
+      {
+        "after": "2026-08-05T20:58:00Z",
+        "before": "2026-08-05T22:00:00Z",
+        "after_ts": 1785963480.0,
+        "before_ts": 1785967200.0,
+        "missing_bars": 61
+      },
+      {
+        "after": "2026-08-06T20:58:00Z",
+        "before": "2026-08-06T22:00:00Z",
+        "after_ts": 1786049880.0,
+        "before_ts": 1786053600.0,
+        "missing_bars": 61
+      }
+    ],
+    "bars_in_range": 4131,
+    "range_start": 1791894720.0,
+    "range_end": 1792153920.0,
+    "warnings": [
+      "75 internal gap(s), 45014 missing bar(s) \u2014 listed for inspection; week-end/session closures are normal stored data"
+    ],
+    "error": null,
+    "cache_key": "XAUUSD|M1",
+    "checked_at": 1792177790.1075048,
+    "range_coverage_status": "OBSERVED_SPAN",
+    "range_coverage_policy": "Observed unique valid UTC records in [start,end); boundaries/gaps >96h flagged; market calendar not independently verified",
+    "missing_periods_truncated": true,
+    "dataset_id": "XAUUSD_M1_USER_HISTORY_ICMARKETS_CANONICAL_v1"
+  },
+  "historical_run_preflight": {
+    "ok": true,
+    "needs_confirmation": false,
+    "may_proceed": true,
+    "period": {
+      "duration_key": "CUSTOM",
+      "label": "CUSTOM",
+      "start_ts": 1791894720.0,
+      "end_ts": 1792153920.0,
+      "start_iso": "2026-10-13T12:32:00Z",
+      "end_iso": "2026-10-16T12:32:00Z",
+      "convention": "Calendar-based windows measured backwards from the period end (UTC): 1 DAY..14 DAYS are 24-hour periods; 1/3/6 MONTHS and 1/2/3 YEARS are calendar months/years (day clamped to the month's length). The window selects HISTORY RANGE ONLY \u2014 the node's configured candle timeframe is never changed."
+    }
+  },
+  "actual_historical_run": {
+    "run_id": "dt-7be825f6217540c8",
+    "node_id": 718,
+    "status": "COMPLETED",
+    "bars_used": 4131,
+    "dataset_id": "XAUUSD_M1_USER_HISTORY_ICMARKETS_CANONICAL_v1",
+    "dataset_fingerprint": "d42e0fcc9e009c565a38406d3f2862db",
+    "actual_start": 1791894720.0,
+    "actual_end": 1792153860.0,
+    "coverage_status": "COMPLETE",
+    "analytics": {
+      "summary": {
+        "initial_capital": 200000.0,
+        "final_equity": 204725.85,
+        "net_profit": 4725.85,
+        "gross_profit": 10693.81,
+        "gross_loss": 5967.96,
+        "total_costs": 672.92,
+        "costs": {
+          "commission": 0.0,
+          "spread_cost": 636.0,
+          "slippage_cost": 36.92,
+          "swap_cost": 0.0
+        },
+        "net_return_pct": 0.023629,
+        "max_drawdown": 2743.79,
+        "max_drawdown_pct": 0.013719,
+        "sharpe": 4.153,
+        "profit_factor": 1.792,
+        "trades": 40,
+        "winning_trades": 28,
+        "losing_trades": 12,
+        "win_rate": 0.7,
+        "avg_win": 381.9217,
+        "avg_loss": -497.3297,
+        "largest_win": 668.11,
+        "largest_loss": -879.66,
+        "expectancy_per_trade": 118.1463,
+        "long": {
+          "trades": 8,
+          "net_pnl": 314.46,
+          "win_rate": 0.625
+        },
+        "short": {
+          "trades": 32,
+          "net_pnl": 4411.39,
+          "win_rate": 0.7188
+        },
+        "holding": {
+          "avg_seconds": 651.0,
+          "max_seconds": 1440.0,
+          "avg_minutes": 10.85
+        },
+        "max_consecutive_wins": 10,
+        "max_consecutive_losses": 3
+      },
+      "breakdowns": {
+        "by_day_of_week": {
+          "Monday": {
+            "trades": 0,
+            "net_pnl": 0.0,
+            "wins": 0,
+            "win_rate": null
+          },
+          "Tuesday": {
+            "trades": 40,
+            "net_pnl": 4725.85,
+            "wins": 28,
+            "win_rate": 0.7
+          },
+          "Wednesday": {
+            "trades": 0,
+            "net_pnl": 0.0,
+            "wins": 0,
+            "win_rate": null
+          },
+          "Thursday": {
+            "trades": 0,
+            "net_pnl": 0.0,
+            "wins": 0,
+            "win_rate": null
+          },
+          "Friday": {
+            "trades": 0,
+            "net_pnl": 0.0,
+            "wins": 0,
+            "win_rate": null
+          },
+          "Saturday": {
+            "trades": 0,
+            "net_pnl": 0.0,
+            "wins": 0,
+            "win_rate": null
+          },
+          "Sunday": {
+            "trades": 0,
+            "net_pnl": 0.0,
+            "wins": 0,
+            "win_rate": null
+          }
+        },
+        "by_session": {
+          "newyork": {
+            "trades": 33,
+            "net_pnl": 5337.03,
+            "wins": 25,
+            "win_rate": 0.7576
+          },
+          "off": {
+            "trades": 7,
+            "net_pnl": -611.18,
+            "wins": 3,
+            "win_rate": 0.4286
+          }
+        },
+        "by_direction": {
+          "long": {
+            "trades": 8,
+            "net_pnl": 314.46,
+            "win_rate": 0.625
+          },
+          "short": {
+            "trades": 32,
+            "net_pnl": 4411.39,
+            "win_rate": 0.7188
+          }
+        }
+      },
+      "unavailable": [],
+      "conventions": {
+        "net_pnl": "gross P&L minus modelled spread, slippage and commission costs",
+        "win": "net P&L > 0",
+        "expectancy_per_trade": "mean(net P&L) over all trades",
+        "max_drawdown_pct": "peak-to-trough of the realised closed-trade equity curve over initial capital",
+        "sharpe": "mean/std of per-trade returns on initial capital, annualised x sqrt(252); N/A below 2 trades",
+        "profit_factor": "gross profit / gross loss; N/A when there are no losing trades",
+        "sessions": "labelled by the stored bar timestamps (UTC clock hour bands); scenario session filters are recorded in the scenario settings",
+        "no_nan_policy": "every undefined metric is null with a reason in `unavailable`"
+      },
+      "reconciliation": {
+        "ok": true,
+        "trade_level_sum": 4725.85,
+        "summary_net_profit": 4725.85,
+        "delta": 0.0008
+      }
+    },
+    "engine_versions": {
+      "app_version": "3.6",
+      "db_schema": 3,
+      "data_schema": 3,
+      "genome_schema": 1,
+      "feature_engine": 2,
+      "backtester": 2,
+      "fitness": 1,
+      "validation": 2,
+      "risk": 2,
+      "cost_model": 1,
+      "slippage_model": 1,
+      "sessions": 2,
+      "config": 2,
+      "git": "836df1ad",
+      "mt5_historical_adapter": "MT5->pandas historical adapter v1 (no broker orders)",
+      "deeptest": "V6.6",
+      "product": "V9.3"
+    }
+  },
+  "repeated_request_reused_same_id": true,
+  "qualified_after_import_and_deep": 99,
+  "exact_nodes": [
+    {
+      "node_id": 718,
+      "research_node_num": null,
+      "run_id": "RUN-HISTORICAL-PRESERVED",
+      "symbol": "XAUUSD",
+      "timeframe": "M1",
+      "metrics_source": "deeptest_latest_valid",
+      "generation_metrics": {
+        "return_pct": 1.481,
+        "profit_factor": 2.545,
+        "max_drawdown_pct": 0.0405,
+        "win_rate": 0.7724,
+        "trades": 905.0,
+        "net_profit": 14809.59,
+        "expectancy": 0.001636,
+        "avg_trade": 16.364,
+        "sharpe": 35.181
+      },
+      "generation_record": {
+        "backtest_id": 16082,
+        "stage": "detail",
+        "source": "saved generation backtest",
+        "provenance": {
+          "stored_dataset_id": "XAUUSD_M1_20260826_20260925_SIMULATOR",
+          "stored_window": "[0, 22176]",
+          "created_at": 1792177719.649263,
+          "fingerprint": null,
+          "dataset_version": null,
+          "engine_versions": null
+        }
+      },
+      "historical_statistics": {
+        "schema_version": 2,
+        "node_id": 718,
+        "source": "deeptest_latest_valid",
+        "status": "COMPLETED",
+        "metrics": {
+          "return_pct": 0.023629,
+          "profit_factor": 1.792,
+          "max_drawdown_pct": 0.013719,
+          "win_rate": 0.7,
+          "trades": 40.0,
+          "net_profit": 4725.85,
+          "expectancy": 118.1463,
+          "avg_trade": 118.1463,
+          "sharpe": 4.153
+        },
+        "warnings": [],
+        "provenance": {
+          "symbol": "XAUUSD",
+          "timeframe": "M1",
+          "research_run_id": "RUN-HISTORICAL-PRESERVED",
+          "scenario_id": "dt-7be825f6217540c8",
+          "dataset_id": "XAUUSD_M1_USER_HISTORY_ICMARKETS_CANONICAL_v1",
+          "dataset_fingerprint": "d42e0fcc9e009c565a38406d3f2862db",
+          "start_ts": 1791894720.0,
+          "end_ts": 1792153860.0,
+          "trade_count": 40.0,
+          "coverage_status": "COMPLETE",
+          "finished_at": 1792177792.9691184,
+          "generation_record": null,
+          "generation_coverage_note": null,
+          "freshness": "immutable historical snapshot",
+          "calculation_version": "deeptest-realised-initial-capital-v1",
+          "units": "return/drawdown/win_rate are fractions; UI multiplies by100"
+        }
+      }
+    },
+    {
+      "node_id": 726,
+      "research_node_num": null,
+      "run_id": "RUN-HISTORICAL-PRESERVED",
+      "symbol": "XAUUSD",
+      "timeframe": "M5",
+      "metrics_source": "generation",
+      "generation_metrics": {
+        "return_pct": 0.727,
+        "profit_factor": 3.196,
+        "max_drawdown_pct": 0.0242,
+        "win_rate": 0.7827,
+        "trades": 336.0,
+        "net_profit": 7270.42,
+        "expectancy": 0.002164,
+        "avg_trade": 21.638,
+        "sharpe": 20.982
+      },
+      "generation_record": {
+        "backtest_id": 16089,
+        "stage": "detail",
+        "source": "saved generation backtest",
+        "provenance": {
+          "stored_dataset_id": "XAUUSD_M5_20260329_20260925_SIMULATOR",
+          "stored_window": "[0, 26090]",
+          "created_at": 1792177719.649263,
+          "fingerprint": null,
+          "dataset_version": null,
+          "engine_versions": null
+        }
+      },
+      "historical_statistics": {
+        "schema_version": 2,
+        "node_id": 726,
+        "source": "generation",
+        "status": "GENERATION",
+        "metrics": {
+          "return_pct": 0.727,
+          "profit_factor": 3.196,
+          "max_drawdown_pct": 0.0242,
+          "win_rate": 0.7827,
+          "trades": 336.0,
+          "net_profit": 7270.42,
+          "expectancy": 0.002164,
+          "avg_trade": 21.638,
+          "sharpe": 20.982
+        },
+        "warnings": [],
+        "provenance": {
+          "symbol": "XAUUSD",
+          "timeframe": "M5",
+          "research_run_id": "RUN-HISTORICAL-PRESERVED",
+          "scenario_id": null,
+          "dataset_id": "XAUUSD_M5_20260329_20260925_SIMULATOR",
+          "dataset_fingerprint": null,
+          "start_ts": null,
+          "end_ts": null,
+          "trade_count": 336.0,
+          "coverage_status": null,
+          "finished_at": 1792177719.649263,
+          "generation_record": {
+            "backtest_id": 16089,
+            "stage": "detail",
+            "source": "saved generation backtest",
+            "provenance": {
+              "stored_dataset_id": "XAUUSD_M5_20260329_20260925_SIMULATOR",
+              "stored_window": "[0, 26090]",
+              "created_at": 1792177719.649263,
+              "fingerprint": null,
+              "dataset_version": null,
+              "engine_versions": null
+            }
+          },
+          "generation_coverage_note": "Exact timestamp span unavailable unless present in the original record; current imported/fetched coverage is not substituted",
+          "freshness": "stored generation record",
+          "calculation_version": "original-generation-engine",
+          "units": "return/drawdown/win_rate are fractions; UI multiplies by100"
+        }
+      }
+    },
+    {
+      "node_id": 728,
+      "research_node_num": null,
+      "run_id": "RUN-HISTORICAL-PRESERVED",
+      "symbol": "XAUUSD",
+      "timeframe": "M5",
+      "metrics_source": "generation",
+      "generation_metrics": {
+        "return_pct": 0.5257,
+        "profit_factor": 3.476,
+        "max_drawdown_pct": 0.0194,
+        "win_rate": 0.7864,
+        "trades": 323.0,
+        "net_profit": 5257.23,
+        "expectancy": 0.001628,
+        "avg_trade": 16.276,
+        "sharpe": 22.148
+      },
+      "generation_record": {
+        "backtest_id": 16091,
+        "stage": "detail",
+        "source": "saved generation backtest",
+        "provenance": {
+          "stored_dataset_id": "XAUUSD_M5_20260329_20260925_SIMULATOR",
+          "stored_window": "[0, 26090]",
+          "created_at": 1792177719.649263,
+          "fingerprint": null,
+          "dataset_version": null,
+          "engine_versions": null
+        }
+      },
+      "historical_statistics": {
+        "schema_version": 2,
+        "node_id": 728,
+        "source": "generation",
+        "status": "GENERATION",
+        "metrics": {
+          "return_pct": 0.5257,
+          "profit_factor": 3.476,
+          "max_drawdown_pct": 0.0194,
+          "win_rate": 0.7864,
+          "trades": 323.0,
+          "net_profit": 5257.23,
+          "expectancy": 0.001628,
+          "avg_trade": 16.276,
+          "sharpe": 22.148
+        },
+        "warnings": [],
+        "provenance": {
+          "symbol": "XAUUSD",
+          "timeframe": "M5",
+          "research_run_id": "RUN-HISTORICAL-PRESERVED",
+          "scenario_id": null,
+          "dataset_id": "XAUUSD_M5_20260329_20260925_SIMULATOR",
+          "dataset_fingerprint": null,
+          "start_ts": null,
+          "end_ts": null,
+          "trade_count": 323.0,
+          "coverage_status": null,
+          "finished_at": 1792177719.649263,
+          "generation_record": {
+            "backtest_id": 16091,
+            "stage": "detail",
+            "source": "saved generation backtest",
+            "provenance": {
+              "stored_dataset_id": "XAUUSD_M5_20260329_20260925_SIMULATOR",
+              "stored_window": "[0, 26090]",
+              "created_at": 1792177719.649263,
+              "fingerprint": null,
+              "dataset_version": null,
+              "engine_versions": null
+            }
+          },
+          "generation_coverage_note": "Exact timestamp span unavailable unless present in the original record; current imported/fetched coverage is not substituted",
+          "freshness": "stored generation record",
+          "calculation_version": "original-generation-engine",
+          "units": "return/drawdown/win_rate are fractions; UI multiplies by100"
+        }
+      }
+    },
+    {
+      "node_id": 735,
+      "research_node_num": null,
+      "run_id": "RUN-HISTORICAL-PRESERVED",
+      "symbol": "XAUUSD",
+      "timeframe": "M5",
+      "metrics_source": "generation",
+      "generation_metrics": {
+        "return_pct": 0.7133,
+        "profit_factor": 3.154,
+        "max_drawdown_pct": 0.0236,
+        "win_rate": 0.7798,
+        "trades": 336.0,
+        "net_profit": 7133.12,
+        "expectancy": 0.002123,
+        "avg_trade": 21.23,
+        "sharpe": 20.68
+      },
+      "generation_record": {
+        "backtest_id": 16097,
+        "stage": "detail",
+        "source": "saved generation backtest",
+        "provenance": {
+          "stored_dataset_id": "XAUUSD_M5_20260329_20260925_SIMULATOR",
+          "stored_window": "[0, 26090]",
+          "created_at": 1792177719.649263,
+          "fingerprint": null,
+          "dataset_version": null,
+          "engine_versions": null
+        }
+      },
+      "historical_statistics": {
+        "schema_version": 2,
+        "node_id": 735,
+        "source": "generation",
+        "status": "GENERATION",
+        "metrics": {
+          "return_pct": 0.7133,
+          "profit_factor": 3.154,
+          "max_drawdown_pct": 0.0236,
+          "win_rate": 0.7798,
+          "trades": 336.0,
+          "net_profit": 7133.12,
+          "expectancy": 0.002123,
+          "avg_trade": 21.23,
+          "sharpe": 20.68
+        },
+        "warnings": [],
+        "provenance": {
+          "symbol": "XAUUSD",
+          "timeframe": "M5",
+          "research_run_id": "RUN-HISTORICAL-PRESERVED",
+          "scenario_id": null,
+          "dataset_id": "XAUUSD_M5_20260329_20260925_SIMULATOR",
+          "dataset_fingerprint": null,
+          "start_ts": null,
+          "end_ts": null,
+          "trade_count": 336.0,
+          "coverage_status": null,
+          "finished_at": 1792177719.649263,
+          "generation_record": {
+            "backtest_id": 16097,
+            "stage": "detail",
+            "source": "saved generation backtest",
+            "provenance": {
+              "stored_dataset_id": "XAUUSD_M5_20260329_20260925_SIMULATOR",
+              "stored_window": "[0, 26090]",
+              "created_at": 1792177719.649263,
+              "fingerprint": null,
+              "dataset_version": null,
+              "engine_versions": null
+            }
+          },
+          "generation_coverage_note": "Exact timestamp span unavailable unless present in the original record; current imported/fetched coverage is not substituted",
+          "freshness": "stored generation record",
+          "calculation_version": "original-generation-engine",
+          "units": "return/drawdown/win_rate are fractions; UI multiplies by100"
+        }
+      }
+    },
+    {
+      "node_id": 737,
+      "research_node_num": null,
+      "run_id": "RUN-HISTORICAL-PRESERVED",
+      "symbol": "XAUUSD",
+      "timeframe": "M5",
+      "metrics_source": "generation",
+      "generation_metrics": {
+        "return_pct": 0.71,
+        "profit_factor": 3.143,
+        "max_drawdown_pct": 0.0236,
+        "win_rate": 0.7791,
+        "trades": 335.0,
+        "net_profit": 7100.06,
+        "expectancy": 0.002119,
+        "avg_trade": 21.194,
+        "sharpe": 20.62
+      },
+      "generation_record": {
+        "backtest_id": 16099,
+        "stage": "detail",
+        "source": "saved generation backtest",
+        "provenance": {
+          "stored_dataset_id": "XAUUSD_M5_20260329_20260925_SIMULATOR",
+          "stored_window": "[0, 26090]",
+          "created_at": 1792177719.649263,
+          "fingerprint": null,
+          "dataset_version": null,
+          "engine_versions": null
+        }
+      },
+      "historical_statistics": {
+        "schema_version": 2,
+        "node_id": 737,
+        "source": "generation",
+        "status": "GENERATION",
+        "metrics": {
+          "return_pct": 0.71,
+          "profit_factor": 3.143,
+          "max_drawdown_pct": 0.0236,
+          "win_rate": 0.7791,
+          "trades": 335.0,
+          "net_profit": 7100.06,
+          "expectancy": 0.002119,
+          "avg_trade": 21.194,
+          "sharpe": 20.62
+        },
+        "warnings": [],
+        "provenance": {
+          "symbol": "XAUUSD",
+          "timeframe": "M5",
+          "research_run_id": "RUN-HISTORICAL-PRESERVED",
+          "scenario_id": null,
+          "dataset_id": "XAUUSD_M5_20260329_20260925_SIMULATOR",
+          "dataset_fingerprint": null,
+          "start_ts": null,
+          "end_ts": null,
+          "trade_count": 335.0,
+          "coverage_status": null,
+          "finished_at": 1792177719.649263,
+          "generation_record": {
+            "backtest_id": 16099,
+            "stage": "detail",
+            "source": "saved generation backtest",
+            "provenance": {
+              "stored_dataset_id": "XAUUSD_M5_20260329_20260925_SIMULATOR",
+              "stored_window": "[0, 26090]",
+              "created_at": 1792177719.649263,
+              "fingerprint": null,
+              "dataset_version": null,
+              "engine_versions": null
+            }
+          },
+          "generation_coverage_note": "Exact timestamp span unavailable unless present in the original record; current imported/fetched coverage is not substituted",
+          "freshness": "stored generation record",
+          "calculation_version": "original-generation-engine",
+          "units": "return/drawdown/win_rate are fractions; UI multiplies by100"
+        }
+      }
+    }
+  ],
+  "ranking_top": [
+    {
+      "node_id": 728,
+      "historical_statistics": {
+        "schema_version": 2,
+        "node_id": 728,
+        "source": "generation",
+        "status": "GENERATION",
+        "metrics": {
+          "return_pct": 0.5257,
+          "profit_factor": 3.476,
+          "max_drawdown_pct": 0.0194,
+          "win_rate": 0.7864,
+          "trades": 323.0,
+          "net_profit": 5257.23,
+          "expectancy": 0.001628,
+          "avg_trade": 16.276,
+          "sharpe": 22.148
+        },
+        "warnings": [],
+        "provenance": {
+          "symbol": "XAUUSD",
+          "timeframe": "M5",
+          "research_run_id": "RUN-HISTORICAL-PRESERVED",
+          "scenario_id": null,
+          "dataset_id": "XAUUSD_M5_20260329_20260925_SIMULATOR",
+          "dataset_fingerprint": null,
+          "start_ts": null,
+          "end_ts": null,
+          "trade_count": 323.0,
+          "coverage_status": null,
+          "finished_at": 1792177719.649263,
+          "generation_record": {
+            "backtest_id": 16091,
+            "stage": "detail",
+            "source": "saved generation backtest",
+            "provenance": {
+              "stored_dataset_id": "XAUUSD_M5_20260329_20260925_SIMULATOR",
+              "stored_window": "[0, 26090]",
+              "created_at": 1792177719.649263,
+              "fingerprint": null,
+              "dataset_version": null,
+              "engine_versions": null
+            }
+          },
+          "generation_coverage_note": "Exact timestamp span unavailable unless present in the original record; current imported/fetched coverage is not substituted",
+          "freshness": "stored generation record",
+          "calculation_version": "original-generation-engine",
+          "units": "return/drawdown/win_rate are fractions; UI multiplies by100"
+        }
+      }
+    },
+    {
+      "node_id": 726,
+      "historical_statistics": {
+        "schema_version": 2,
+        "node_id": 726,
+        "source": "generation",
+        "status": "GENERATION",
+        "metrics": {
+          "return_pct": 0.727,
+          "profit_factor": 3.196,
+          "max_drawdown_pct": 0.0242,
+          "win_rate": 0.7827,
+          "trades": 336.0,
+          "net_profit": 7270.42,
+          "expectancy": 0.002164,
+          "avg_trade": 21.638,
+          "sharpe": 20.982
+        },
+        "warnings": [],
+        "provenance": {
+          "symbol": "XAUUSD",
+          "timeframe": "M5",
+          "research_run_id": "RUN-HISTORICAL-PRESERVED",
+          "scenario_id": null,
+          "dataset_id": "XAUUSD_M5_20260329_20260925_SIMULATOR",
+          "dataset_fingerprint": null,
+          "start_ts": null,
+          "end_ts": null,
+          "trade_count": 336.0,
+          "coverage_status": null,
+          "finished_at": 1792177719.649263,
+          "generation_record": {
+            "backtest_id": 16089,
+            "stage": "detail",
+            "source": "saved generation backtest",
+            "provenance": {
+              "stored_dataset_id": "XAUUSD_M5_20260329_20260925_SIMULATOR",
+              "stored_window": "[0, 26090]",
+              "created_at": 1792177719.649263,
+              "fingerprint": null,
+              "dataset_version": null,
+              "engine_versions": null
+            }
+          },
+          "generation_coverage_note": "Exact timestamp span unavailable unless present in the original record; current imported/fetched coverage is not substituted",
+          "freshness": "stored generation record",
+          "calculation_version": "original-generation-engine",
+          "units": "return/drawdown/win_rate are fractions; UI multiplies by100"
+        }
+      }
+    },
+    {
+      "node_id": 735,
+      "historical_statistics": {
+        "schema_version": 2,
+        "node_id": 735,
+        "source": "generation",
+        "status": "GENERATION",
+        "metrics": {
+          "return_pct": 0.7133,
+          "profit_factor": 3.154,
+          "max_drawdown_pct": 0.0236,
+          "win_rate": 0.7798,
+          "trades": 336.0,
+          "net_profit": 7133.12,
+          "expectancy": 0.002123,
+          "avg_trade": 21.23,
+          "sharpe": 20.68
+        },
+        "warnings": [],
+        "provenance": {
+          "symbol": "XAUUSD",
+          "timeframe": "M5",
+          "research_run_id": "RUN-HISTORICAL-PRESERVED",
+          "scenario_id": null,
+          "dataset_id": "XAUUSD_M5_20260329_20260925_SIMULATOR",
+          "dataset_fingerprint": null,
+          "start_ts": null,
+          "end_ts": null,
+          "trade_count": 336.0,
+          "coverage_status": null,
+          "finished_at": 1792177719.649263,
+          "generation_record": {
+            "backtest_id": 16097,
+            "stage": "detail",
+            "source": "saved generation backtest",
+            "provenance": {
+              "stored_dataset_id": "XAUUSD_M5_20260329_20260925_SIMULATOR",
+              "stored_window": "[0, 26090]",
+              "created_at": 1792177719.649263,
+              "fingerprint": null,
+              "dataset_version": null,
+              "engine_versions": null
+            }
+          },
+          "generation_coverage_note": "Exact timestamp span unavailable unless present in the original record; current imported/fetched coverage is not substituted",
+          "freshness": "stored generation record",
+          "calculation_version": "original-generation-engine",
+          "units": "return/drawdown/win_rate are fractions; UI multiplies by100"
+        }
+      }
+    },
+    {
+      "node_id": 737,
+      "historical_statistics": {
+        "schema_version": 2,
+        "node_id": 737,
+        "source": "generation",
+        "status": "GENERATION",
+        "metrics": {
+          "return_pct": 0.71,
+          "profit_factor": 3.143,
+          "max_drawdown_pct": 0.0236,
+          "win_rate": 0.7791,
+          "trades": 335.0,
+          "net_profit": 7100.06,
+          "expectancy": 0.002119,
+          "avg_trade": 21.194,
+          "sharpe": 20.62
+        },
+        "warnings": [],
+        "provenance": {
+          "symbol": "XAUUSD",
+          "timeframe": "M5",
+          "research_run_id": "RUN-HISTORICAL-PRESERVED",
+          "scenario_id": null,
+          "dataset_id": "XAUUSD_M5_20260329_20260925_SIMULATOR",
+          "dataset_fingerprint": null,
+          "start_ts": null,
+          "end_ts": null,
+          "trade_count": 335.0,
+          "coverage_status": null,
+          "finished_at": 1792177719.649263,
+          "generation_record": {
+            "backtest_id": 16099,
+            "stage": "detail",
+            "source": "saved generation backtest",
+            "provenance": {
+              "stored_dataset_id": "XAUUSD_M5_20260329_20260925_SIMULATOR",
+              "stored_window": "[0, 26090]",
+              "created_at": 1792177719.649263,
+              "fingerprint": null,
+              "dataset_version": null,
+              "engine_versions": null
+            }
+          },
+          "generation_coverage_note": "Exact timestamp span unavailable unless present in the original record; current imported/fetched coverage is not substituted",
+          "freshness": "stored generation record",
+          "calculation_version": "original-generation-engine",
+          "units": "return/drawdown/win_rate are fractions; UI multiplies by100"
+        }
+      }
+    },
+    {
+      "node_id": 725,
+      "historical_statistics": {
+        "schema_version": 2,
+        "node_id": 725,
+        "source": "generation",
+        "status": "GENERATION",
+        "metrics": {
+          "return_pct": 0.7168,
+          "profit_factor": 3.183,
+          "max_drawdown_pct": 0.0236,
+          "win_rate": 0.7784,
+          "trades": 334.0,
+          "net_profit": 7167.86,
+          "expectancy": 0.002146,
+          "avg_trade": 21.461,
+          "sharpe": 20.902
+        },
+        "warnings": [],
+        "provenance": {
+          "symbol": "XAUUSD",
+          "timeframe": "M5",
+          "research_run_id": "RUN-HISTORICAL-PRESERVED",
+          "scenario_id": null,
+          "dataset_id": "XAUUSD_M5_20260329_20260925_SIMULATOR",
+          "dataset_fingerprint": null,
+          "start_ts": null,
+          "end_ts": null,
+          "trade_count": 334.0,
+          "coverage_status": null,
+          "finished_at": 1792177719.649263,
+          "generation_record": {
+            "backtest_id": 16088,
+            "stage": "detail",
+            "source": "saved generation backtest",
+            "provenance": {
+              "stored_dataset_id": "XAUUSD_M5_20260329_20260925_SIMULATOR",
+              "stored_window": "[0, 26090]",
+              "created_at": 1792177719.649263,
+              "fingerprint": null,
+              "dataset_version": null,
+              "engine_versions": null
+            }
+          },
+          "generation_coverage_note": "Exact timestamp span unavailable unless present in the original record; current imported/fetched coverage is not substituted",
+          "freshness": "stored generation record",
+          "calculation_version": "original-generation-engine",
+          "units": "return/drawdown/win_rate are fractions; UI multiplies by100"
+        }
+      }
+    },
+    {
+      "node_id": 713,
+      "historical_statistics": {
+        "schema_version": 2,
+        "node_id": 713,
+        "source": "generation",
+        "status": "GENERATION",
+        "metrics": {
+          "return_pct": 0.542,
+          "profit_factor": 3.334,
+          "max_drawdown_pct": 0.0231,
+          "win_rate": 0.7782,
+          "trades": 266.0,
+          "net_profit": 5419.53,
+          "expectancy": 0.002037,
+          "avg_trade": 20.374,
+          "sharpe": 21.838
+        },
+        "warnings": [],
+        "provenance": {
+          "symbol": "XAUUSD",
+          "timeframe": "M5",
+          "research_run_id": "RUN-HISTORICAL-PRESERVED",
+          "scenario_id": null,
+          "dataset_id": "XAUUSD_M5_20260329_20260925_SIMULATOR",
+          "dataset_fingerprint": null,
+          "start_ts": null,
+          "end_ts": null,
+          "trade_count": 266.0,
+          "coverage_status": null,
+          "finished_at": 1792177719.649263,
+          "generation_record": {
+            "backtest_id": 16078,
+            "stage": "detail",
+            "source": "saved generation backtest",
+            "provenance": {
+              "stored_dataset_id": "XAUUSD_M5_20260329_20260925_SIMULATOR",
+              "stored_window": "[0, 26090]",
+              "created_at": 1792177719.649263,
+              "fingerprint": null,
+              "dataset_version": null,
+              "engine_versions": null
+            }
+          },
+          "generation_coverage_note": "Exact timestamp span unavailable unless present in the original record; current imported/fetched coverage is not substituted",
+          "freshness": "stored generation record",
+          "calculation_version": "original-generation-engine",
+          "units": "return/drawdown/win_rate are fractions; UI multiplies by100"
+        }
+      }
+    },
+    {
+      "node_id": 743,
+      "historical_statistics": {
+        "schema_version": 2,
+        "node_id": 743,
+        "source": "generation",
+        "status": "GENERATION",
+        "metrics": {
+          "return_pct": 0.6668,
+          "profit_factor": 3.022,
+          "max_drawdown_pct": 0.0231,
+          "win_rate": 0.7324,
+          "trades": 299.0,
+          "net_profit": 6667.82,
+          "expectancy": 0.00223,
+          "avg_trade": 22.3,
+          "sharpe": 19.47
+        },
+        "warnings": [],
+        "provenance": {
+          "symbol": "XAUUSD",
+          "timeframe": "M5",
+          "research_run_id": "RUN-HISTORICAL-PRESERVED",
+          "scenario_id": null,
+          "dataset_id": "XAUUSD_M5_20260329_20260925_SIMULATOR",
+          "dataset_fingerprint": null,
+          "start_ts": null,
+          "end_ts": null,
+          "trade_count": 299.0,
+          "coverage_status": null,
+          "finished_at": 1792177719.649263,
+          "generation_record": {
+            "backtest_id": 16104,
+            "stage": "detail",
+            "source": "saved generation backtest",
+            "provenance": {
+              "stored_dataset_id": "XAUUSD_M5_20260329_20260925_SIMULATOR",
+              "stored_window": "[0, 26090]",
+              "created_at": 1792177719.649263,
+              "fingerprint": null,
+              "dataset_version": null,
+              "engine_versions": null
+            }
+          },
+          "generation_coverage_note": "Exact timestamp span unavailable unless present in the original record; current imported/fetched coverage is not substituted",
+          "freshness": "stored generation record",
+          "calculation_version": "original-generation-engine",
+          "units": "return/drawdown/win_rate are fractions; UI multiplies by100"
+        }
+      }
+    },
+    {
+      "node_id": 719,
+      "historical_statistics": {
+        "schema_version": 2,
+        "node_id": 719,
+        "source": "generation",
+        "status": "GENERATION",
+        "metrics": {
+          "return_pct": 0.5496,
+          "profit_factor": 3.726,
+          "max_drawdown_pct": 0.0211,
+          "win_rate": 0.7316,
+          "trades": 231.0,
+          "net_profit": 5495.82,
+          "expectancy": 0.002379,
+          "avg_trade": 23.791,
+          "sharpe": 21.478
+        },
+        "warnings": [],
+        "provenance": {
+          "symbol": "XAUUSD",
+          "timeframe": "M5",
+          "research_run_id": "RUN-HISTORICAL-PRESERVED",
+          "scenario_id": null,
+          "dataset_id": "XAUUSD_M5_20260329_20260925_SIMULATOR",
+          "dataset_fingerprint": null,
+          "start_ts": null,
+          "end_ts": null,
+          "trade_count": 231.0,
+          "coverage_status": null,
+          "finished_at": 1792177719.649263,
+          "generation_record": {
+            "backtest_id": 16083,
+            "stage": "detail",
+            "source": "saved generation backtest",
+            "provenance": {
+              "stored_dataset_id": "XAUUSD_M5_20260329_20260925_SIMULATOR",
+              "stored_window": "[0, 26090]",
+              "created_at": 1792177719.649263,
+              "fingerprint": null,
+              "dataset_version": null,
+              "engine_versions": null
+            }
+          },
+          "generation_coverage_note": "Exact timestamp span unavailable unless present in the original record; current imported/fetched coverage is not substituted",
+          "freshness": "stored generation record",
+          "calculation_version": "original-generation-engine",
+          "units": "return/drawdown/win_rate are fractions; UI multiplies by100"
+        }
+      }
+    },
+    {
+      "node_id": 744,
+      "historical_statistics": {
+        "schema_version": 2,
+        "node_id": 744,
+        "source": "generation",
+        "status": "GENERATION",
+        "metrics": {
+          "return_pct": 0.549,
+          "profit_factor": 3.72,
+          "max_drawdown_pct": 0.0211,
+          "win_rate": 0.7316,
+          "trades": 231.0,
+          "net_profit": 5489.86,
+          "expectancy": 0.002377,
+          "avg_trade": 23.766,
+          "sharpe": 21.447
+        },
+        "warnings": [],
+        "provenance": {
+          "symbol": "XAUUSD",
+          "timeframe": "M5",
+          "research_run_id": "RUN-HISTORICAL-PRESERVED",
+          "scenario_id": null,
+          "dataset_id": "XAUUSD_M5_20260329_20260925_SIMULATOR",
+          "dataset_fingerprint": null,
+          "start_ts": null,
+          "end_ts": null,
+          "trade_count": 231.0,
+          "coverage_status": null,
+          "finished_at": 1792177719.649263,
+          "generation_record": {
+            "backtest_id": 16105,
+            "stage": "detail",
+            "source": "saved generation backtest",
+            "provenance": {
+              "stored_dataset_id": "XAUUSD_M5_20260329_20260925_SIMULATOR",
+              "stored_window": "[0, 26090]",
+              "created_at": 1792177719.649263,
+              "fingerprint": null,
+              "dataset_version": null,
+              "engine_versions": null
+            }
+          },
+          "generation_coverage_note": "Exact timestamp span unavailable unless present in the original record; current imported/fetched coverage is not substituted",
+          "freshness": "stored generation record",
+          "calculation_version": "original-generation-engine",
+          "units": "return/drawdown/win_rate are fractions; UI multiplies by100"
+        }
+      }
+    },
+    {
+      "node_id": 714,
+      "historical_statistics": {
+        "schema_version": 2,
+        "node_id": 714,
+        "source": "generation",
+        "status": "GENERATION",
+        "metrics": {
+          "return_pct": 0.6015,
+          "profit_factor": 2.913,
+          "max_drawdown_pct": 0.0269,
+          "win_rate": 0.7214,
+          "trades": 280.0,
+          "net_profit": 6015.0,
+          "expectancy": 0.002148,
+          "avg_trade": 21.482,
+          "sharpe": 18.689
+        },
+        "warnings": [],
+        "provenance": {
+          "symbol": "XAUUSD",
+          "timeframe": "M5",
+          "research_run_id": "RUN-HISTORICAL-PRESERVED",
+          "scenario_id": null,
+          "dataset_id": "XAUUSD_M5_20260329_20260925_SIMULATOR",
+          "dataset_fingerprint": null,
+          "start_ts": null,
+          "end_ts": null,
+          "trade_count": 280.0,
+          "coverage_status": null,
+          "finished_at": 1792177719.649263,
+          "generation_record": {
+            "backtest_id": 16079,
+            "stage": "detail",
+            "source": "saved generation backtest",
+            "provenance": {
+              "stored_dataset_id": "XAUUSD_M5_20260329_20260925_SIMULATOR",
+              "stored_window": "[0, 26090]",
+              "created_at": 1792177719.649263,
+              "fingerprint": null,
+              "dataset_version": null,
+              "engine_versions": null
+            }
+          },
+          "generation_coverage_note": "Exact timestamp span unavailable unless present in the original record; current imported/fetched coverage is not substituted",
+          "freshness": "stored generation record",
+          "calculation_version": "original-generation-engine",
+          "units": "return/drawdown/win_rate are fractions; UI multiplies by100"
+        }
+      }
+    }
+  ],
+  "old_duplicate_signatures": []
+}

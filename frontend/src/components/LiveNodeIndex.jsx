@@ -1,3 +1,5 @@
+import {HistoricalCells,HistoricalSource,useHistoricalSource} from './HistoricalStatistics.jsx';
+import {SelectionControls,LiveSelectionReview} from './SelectionControls.jsx';
 import {useStoredState} from "../lib/storedState.js";
 /* V5.1a §8 §9 §10 — the Live Testing node table (V6.5.1: the unified control surface).
  *
@@ -48,6 +50,7 @@ const FILTERS = [
 /* §10 — sortable columns. The key is what the backend sorts on; each alias is
  * resolved server-side against the row, then `metrics`, then `robustness`. */
 const SORTS = [
+  { value: "canonical_win_rate", label: "Historical win rate (complete first)" },
   { value: "node_id", label: "Node" },
   { value: "fitness", label: "Fitness" },
   { value: "return", label: "Return %" },
@@ -329,8 +332,8 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
   const [search, setSearch] = useStoredState("live.search", "");
   const [timeframe, setTimeframe] = useStoredState("live.timeframe", "");
   const [starredOnly, setStarredOnly] = useStoredState("live.starredOnly", false);
-  const [sortBy, setSortBy] = useStoredState("live.sortBy", "fitness");
-  const [sortDesc, setSortDesc] = useStoredState("live.sortDesc", true);
+  const [sortBy, setSortBy] = useStoredState("live.v93.sortBy", "canonical_win_rate");
+  const [sortDesc, setSortDesc] = useStoredState("live.v93.sortDesc", true);
   /* V5.2.3 §10 — the operator asked for ONE table, not pages: every matching
    * node is fetched (limit=0 = all rows) and rendered in one scrollable table. */
   const [allRows, setAllRows] = useState(0);
@@ -347,6 +350,8 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
   const [popErr, setPopErr] = useState(null);
   /* V6.5.1 §2 — stale-response guard: a polling response that lost the race to
    * a newer request is discarded instead of overwriting newer state. */
+  const [metricSource,setMetricSource]=useHistoricalSource();
+  const [selected,setSelected]=useStoredState('live.v93.selected',{});
   const loadSeq = useRef(0);
 
   const load = useCallback(async (opts = {}) => {
@@ -361,11 +366,12 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
       const res = await api.nodes({
         filter, search: search || undefined, timeframe: timeframe || undefined,
         ...(starredOnly ? { starred_only: true } : {}),
-        sort_by: sortBy, sort_desc: sortDesc,
+        sort_by: sortBy, sort_desc: sortDesc, metric_source:metricSource,
         limit: 0,
       });
       if (seq !== loadSeq.current) return;           // superseded by a newer load
       if (res && res.ok === false) throw new Error(txt(res.error, "the node index refused the filter"));
+      if(res.truncated)throw new Error("Incomplete registry response; previous full population retained");
       setRows(safeRows(res?.nodes));
       setTotal(res?.total ?? 0);
       setAllRows(safeRows(res?.nodes).length);
@@ -376,7 +382,7 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
     } finally {
       if (seq === loadSeq.current) setLoading(false);
     }
-  }, [filter, search, timeframe, starredOnly, sortBy, sortDesc]);
+  }, [filter, search, timeframe, starredOnly, sortBy, sortDesc, metricSource]);
 
   useEffect(() => { load({ silent: true }); }, [load]);
 
@@ -605,6 +611,9 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
       {msg && <div className="kit-ok" style={{ marginBottom: 6 }}>{msg}</div>}
 
       <div className="table-scroll">
+<HistoricalSource value={metricSource} onChange={setMetricSource}/>
+<SelectionControls rows={rows} selected={selected} setSelected={setSelected} eligible={r=>r.live_eligibility?.ok!==false}/>
+<LiveSelectionReview rows={rows} selected={selected}/>
 <NodeTable tableKey="live" rows={rows} className="table compact" resetKey={`${filter}|${search}|${sortBy}|${sortDesc}|${starredOnly}`}>{(visibleRows) => (<>
           <thead>
             <tr>
@@ -615,11 +624,11 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
               <th>Market</th>
               <th>TF</th>
               <th>{sortBtn("fitness", "Fitness")}</th>
-              <th>{sortBtn("return", "IS return")}</th>
+              <th>{sortBtn("return", "Hist return")}</th>
               <th>{sortBtn("profit_factor", "PF")}</th>
               <th>{sortBtn("max_drawdown_pct", "Max DD")}</th>
-              <th>{sortBtn("win_rate", "Win")}</th>
-              <th>{sortBtn("trades", "Trades")}</th>
+              <th>{sortBtn("canonical_win_rate", "Hist WR")}</th>
+              <th>{sortBtn("trades", "Trades")}</th><th>Historical source / coverage</th>
               <th>{sortBtn("robustness", "Robust")}</th>
               <th title="V6.5.1 §3 — risk mode + value, editable inline in this cell">Risk ✎</th>
               <th title="V6.5.1 §5.2 — this node's max active trades (Default = inherited)">Max trades ✎</th>
@@ -652,7 +661,7 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
                 <React.Fragment key={r.node_id}>
                   <tr>
                     <td>
-                      <CandidateStar row={r} />
+                      <CandidateStar row={r} /><input type="checkbox" aria-label={`Select node ${r.node_id}`} checked={!!selected[r.node_id]} disabled={r.live_eligibility?.ok===false} onChange={e=>setSelected(old=>({...old,[r.node_id]:e.target.checked}))}/>
                     </td>
                     <td className="mono">
                       <NodeIdentity row={r} onInspect={() => {
@@ -673,11 +682,7 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
                         (preferred DeepTest → latest valid DeepTest → generation →
                         N/A); the tooltip states the source. No layout/behaviour
                         change; live operational metrics stay live. */}
-                    <td className="mono" title={`performance statistics source: ${txt(r.metrics_source_label, "generation backtest")}${r.metrics_source && r.metrics_source !== "generation" ? " — generation metrics preserved separately (generation_metrics)" : ""}`}>{pct(m.return_pct)}</td>
-                    <td className="mono">{n2(m.profit_factor)}</td>
-                    <td className="mono">{pct(m.max_drawdown_pct)}</td>
-                    <td className="mono">{pct(m.win_rate)}</td>
-                    <td className="mono">{n0(m.trades)}</td>
+                    <HistoricalCells row={r}/>
                     <td className="mono">{n2(rob.score)}</td>
                     <td><RiskCell row={r} onSaved={onCellSaved} /></td>
                     <td>
@@ -738,7 +743,7 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
                   </tr>
                   {detail === r.node_id && (
                     <tr>
-                      <td colSpan={26} style={{ background: "rgba(255,255,255,0.02)" }}>
+                      <td colSpan={33} style={{ background: "rgba(255,255,255,0.02)" }}>
                         {/* §9 — the node's actual research record. Nothing here is
                             recalculated in the browser: it is the row the API served. */}
                         <div className="kit-grid" style={{ fontSize: 11.5 }}>
@@ -804,7 +809,7 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
             })}
             {rows.length === 0 && !loading && (
               <tr>
-                <td colSpan={26}>
+                <td colSpan={33}>
                   {/* §7 — an explicit, truthful empty state: the authoritative
                       population numbers, the eligibility reason and the next step.
                       Never a blank table, never an invented node. */}

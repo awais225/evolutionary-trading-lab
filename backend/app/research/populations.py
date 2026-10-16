@@ -584,7 +584,7 @@ def _best_generation_record(db) -> dict:
             "sharpe_ratio", "sortino", "sortino_ratio", "expectancy", "avg_trade",
             "avg_hold_bars", "avg_hold", "window", "dataset_id", "stage")
     fields = ",".join("'%s',json_extract(metrics,'$.%s')" % (k, k) for k in keys)
-    recs = db.q("""SELECT id, strategy_id, stage,
+    recs = db.q("""SELECT id, strategy_id, stage, dataset_id AS stored_dataset_id, window AS stored_window, created_at, fingerprint, dataset_version, engine_versions,
         CASE WHEN json_valid(metrics) THEN json_object(""" + fields + """) ELSE '{}' END metrics
         FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY strategy_id
              ORDER BY CASE stage WHEN 'detail' THEN 0 ELSE 1 END, id DESC) chosen
@@ -593,6 +593,8 @@ def _best_generation_record(db) -> dict:
     for r in recs:
         m = _metrics_from_json(r.get("metrics"))
         m["_record_id"], m["_stage"] = r["id"], r["stage"]
+        m['_origin']={k:r.get(k) for k in ('stored_dataset_id','stored_window','created_at','fingerprint','dataset_version','engine_versions')}
+        if m.get('dataset_id') is None:m['dataset_id']=r.get('stored_dataset_id')
         out[r["strategy_id"]] = m
     _GENERATION_CACHE[db] = (token, out)
     return out

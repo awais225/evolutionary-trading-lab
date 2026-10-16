@@ -1,0 +1,38 @@
+{
+  "dist": {
+    "status": "FRESH",
+    "ok": true,
+    "needs_build": false,
+    "reasons": [],
+    "dist_dir": "/home/user/v93-app/frontend/dist",
+    "index_html": "/home/user/v93-app/frontend/dist/index.html",
+    "src_hash": "7eb0b616e54d2930101ff02aec0b8b7deac4824d40108ea95fb8f769694bdd39",
+    "src_file_count": 71,
+    "stamp": {
+      "schema": 1,
+      "src_hash": "7eb0b616e54d2930101ff02aec0b8b7deac4824d40108ea95fb8f769694bdd39",
+      "src_file_count": 71,
+      "index_sha256": "6513f9870fc7111269f1f96fd51ad3858b7923a5c748ef6fde30a0b2ebd64c1a",
+      "entry_assets": [
+        "assets/index-DZZ4llON.js",
+        "assets/index-DYygB5sD.css"
+      ],
+      "built_at": "2026-10-16T18:59:47Z",
+      "built_by": "V9.3 final acceptance build",
+      "git_head": "836df1ade134ba911d8388a82dc488ffee98e8b4"
+    },
+    "entry_assets": [
+      "assets/index-DZZ4llON.js",
+      "assets/index-DYygB5sD.css"
+    ],
+    "index_sha256": "6513f9870fc7111269f1f96fd51ad3858b7923a5c748ef6fde30a0b2ebd64c1a"
+  },
+  "backend": {
+    "code_hash": "ddc5acbcf0bc5a967d3f2573dfa5077e975ef067bb756dee213d9d051d090d23",
+    "code_files": 140,
+    "base": "/home/user/v93-app/backend"
+  },
+  "build_command": "npm run build --prefix frontend",
+  "compileall_exit": 0,
+  "git_diff_check_exit": 0
+}

@@ -1,0 +1,44 @@
+[
+  {
+    "harness": "v47_render_smoke.mjs",
+    "exit": 0,
+    "summary": [
+      "render smoke: 35/35 renders OK"
+    ]
+  },
+  {
+    "harness": "v48_ui_smoke.mjs",
+    "exit": 0,
+    "summary": [
+      "render smoke: 54/54 renders OK"
+    ]
+  },
+  {
+    "harness": "v6_5_1_nodes_ui.mjs",
+    "exit": 0,
+    "summary": [
+      "v6.5.1 acceptance harness: 16/16 behaviours OK"
+    ]
+  },
+  {
+    "harness": "v9_1_nodes_ui.mjs",
+    "exit": 0,
+    "summary": [
+      "v9.1 acceptance harness: 6/6 behaviours OK"
+    ]
+  },
+  {
+    "harness": "v9_2_ui.mjs",
+    "exit": 0,
+    "summary": [
+      "v9.2 acceptance harness: 6/6 behaviours OK"
+    ]
+  },
+  {
+    "harness": "v9_3_ui.mjs",
+    "exit": 0,
+    "summary": [
+      "v9.3 acceptance harness: 11/11 behaviours OK"
+    ]
+  }
+]

@@ -24,6 +24,9 @@ def normalize(raw=None):
             if not math.isfinite(v):raise ValueError('range must be a finite UTC timestamp')
         out[key]=v
     if out['range_start'] is not None and out['range_end'] is not None and out['range_start']>=out['range_end']:raise ValueError('range start must precede end')
+    if raw.get('daily_schedule') is not None:
+        from .daily_schedule import normalize as normalize_daily
+        out['daily_schedule']=normalize_daily(raw['daily_schedule'])
     return out
 
 def memberships(ts):
@@ -48,6 +51,9 @@ def context(trade):
 
 def reason(trade,rules):
     ts,day,sessions=context(trade);ss=set(sessions)
+    if rules.get('daily_schedule'):
+        from .daily_schedule import allows as daily_allows
+        if ts is None or not daily_allows(ts,rules['daily_schedule']):return 'daily session matrix blocks this entry'
     if day in rules['exclude_days']:return 'day:'+day
     excluded=set(rules['exclude_sessions'])|set(rules['exclude_by_day'].get(day,[]))
     if ss&excluded:return 'session:'+','.join(sorted(ss&excluded))

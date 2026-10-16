@@ -40,11 +40,17 @@ VALID_FOR_PREFERENCE = ("COMPLETED", "PARTIAL")
 _executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="deeptest")
 _CANCELS: set = set()
 _LOCK = threading.Lock()
+_REQUEST_LOCK=threading.RLock()
 
 
 def settings_fingerprint(settings: Dict[str, Any]) -> str:
-    payload = json.dumps({k: settings.get(k) for k in sorted(settings)}, sort_keys=True, default=str)
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+    # Numeric representations normalize equally; names/timestamps are not test inputs.
+    def clean(value):
+        if isinstance(value,dict):return {k:clean(v) for k,v in sorted(value.items()) if k not in ('name','assigned_at','created_at','updated_at','provenance','idempotency_key','notes','updated_by')}
+        if isinstance(value,list):return [clean(v) for v in value]
+        if isinstance(value,(float,int)) and not isinstance(value,bool):return float(value)
+        return value
+    return hashlib.sha256(json.dumps(clean(settings),sort_keys=True,default=str).encode()).hexdigest()[:16]
 
 
 NODE_SETTING_FIELDS = ("risk_mode", "risk_pct", "risk_amount", "max_trades",
@@ -102,11 +108,19 @@ def preflight(db: Any, *, node_id: int, duration_key: str = "",
     see the same dict for a remembered YES to carry over.
     """
     settings = {**S.get_settings(db), **(settings or {})}
-    vns = _validate_node_settings(node_settings or {})
-    if not vns["ok"]:
-        return {"ok": False, "error": "invalid node settings", "details": vns["errors"]}
-    settings["node_settings"] = vns["values"]
     node = _load_node(db, node_id)
+    node_cfg = S.get_node_config(db, node_id)
+    effective_ns={**(node_cfg.get('node_settings') or {}),**settings.get('node_settings',{}),**(node_settings or {})}
+    for key in ('sl_offset_pips','tp_offset_pips'):
+        if effective_ns.get(key) is None:effective_ns[key]=(node.get('config') or {}).get(key) or 0.0
+    vns = _validate_node_settings(effective_ns)
+    if not vns['ok']:return {'ok':False,'error':'invalid node settings','details':vns['errors']}
+    settings['node_settings']=vns['values']
+    if node_cfg:settings['node_config']=node_cfg
+    from .filter_scenarios import assignment
+    assigned=assignment(db,node_id,'deep')
+    if assigned:settings['filter_scenario_snapshot']={'rules':assigned['rules']}
+    else:settings.pop('filter_scenario_snapshot',None)
     symbol = node["symbol"]
     timeframe = node["timeframe"]
     if duration_key:
@@ -120,6 +134,15 @@ def preflight(db: Any, *, node_id: int, duration_key: str = "",
                        period["start_ts"], period["end_ts"],
                        node_id=node_id, duration_key=period["duration_key"],
                        settings_fingerprint=settings_fingerprint(settings))
+    from ..data import history as H
+    if H.canonical_profile(symbol,timeframe):
+        from .coverage import _mstore
+        from ..data.history_range import coverage as observed
+        persisted=observed(_mstore(symbol,timeframe),period['start_ts'],__import__('math').nextafter(period['end_ts'],float('-inf')),tf_seconds(timeframe))
+        chk['effective_population']={k:persisted[k] for k in ('persisted_in_range','persisted_range_first','persisted_range_last')}
+        chk['actual']={**chk.get('actual',{}),'bars':persisted['persisted_in_range'],'first_ts':persisted['persisted_range_first'],'last_ts':persisted['persisted_range_last']}
+        if not persisted['persisted_in_range']:chk['coverage_status']='NONE'
+        elif persisted['status']=='PARTIAL':chk['coverage_status']='PARTIAL'
     needs_confirmation = chk["coverage_status"] != "COMPLETE"
     if chk["coverage_status"] == "NONE":
         return {"ok": False, "error": ("no historical candles exist for "
@@ -191,7 +214,7 @@ def effective_signature(*, node_id: int, genome_hash: str, config_hash: str,
     ).hexdigest()[:24]
 
 
-def _reuse_scenario(db: Any, node_id: int, signature: str) -> Optional[Dict[str, Any]]:
+def _reuse_scenario(db: Any, node_id: int, signature: str, *, require_valid: bool = False) -> Optional[Dict[str, Any]]:
     """An earlier valid scenario with this exact effective signature, if any."""
     rows = db.q("""SELECT run_id, status FROM deeptest_scenarios
                    WHERE node_id=? AND signature=?
@@ -199,7 +222,10 @@ def _reuse_scenario(db: Any, node_id: int, signature: str) -> Optional[Dict[str,
     for r in rows:
         if (r.get("status") or "") in ("COMPLETED", "PARTIAL", "RUNNING", "QUEUED",
                                        "FETCHING", "VALIDATING"):
-            return S.get_scenario(db, r["run_id"])
+            scenario = S.get_scenario(db, r["run_id"])
+            if require_valid and r['status'] in ('COMPLETED','PARTIAL') and not (scenario.get('analytics') or {}).get('summary'):
+                continue
+            return scenario
     return None
 
 
@@ -216,11 +242,23 @@ def _scenario_label(db: Any, run_id: str) -> str:
     return "Scenario"
 
 
-def start_run(db: Any, payload: Dict[str, Any]) -> Dict[str, Any]:
+def start_run(db: Any,payload: Dict[str,Any])->Dict[str,Any]:
+    # Cross-process keyed lock + UNIQUE claim; old duplicate history is retained.
+    from contextlib import nullcontext
+    from pathlib import Path
+    from ..data.master import _store_lock
+    path=getattr(db,'path',None)
+    with _REQUEST_LOCK, (_store_lock(Path(path).resolve().parent/'.deep-requests') if path is not None and str(path) != ':memory:' else nullcontext()):
+        S.ensure_schema(db)
+        db.x('CREATE TABLE IF NOT EXISTS deeptest_claims (signature TEXT PRIMARY KEY,run_id TEXT NOT NULL UNIQUE,owner_pid INTEGER NOT NULL)')
+        return _start_run_locked(db,payload)
+
+
+def _start_run_locked(db: Any, payload: Dict[str, Any]) -> Dict[str, Any]:
     """Validate + queue a DeepTest run. Returns the QUEUED scenario row.
 
-    Idempotency: an existing scenario with the same idempotency_key is returned
-    unchanged instead of queueing a duplicate. V6.7 §7.1: an identical rerun
+    Idempotency: material signatures, not caller request keys, select reuse.
+    A changed input is never replayed merely because a request key was reused. V6.7 §7.1: an identical rerun
     (same effective signature) REUSES the existing valid scenario — "Already
     DeepTested — see Scenario N" + an INSPECT action — and never reruns the
     engine or overwrites the scenario's historical metrics/trades.
@@ -230,12 +268,9 @@ def start_run(db: Any, payload: Dict[str, Any]) -> Dict[str, Any]:
     except (TypeError, ValueError):
         return {"ok": False, "error": "node_id is required"}
 
+    if payload.get('force_rerun'):
+        return {'ok':False,'error':'force_rerun is not supported; explicitly retry only failed/interrupted scenarios'}
     idem = payload.get("idempotency_key")
-    if idem:
-        for row in db.q("SELECT run_id FROM deeptest_scenarios WHERE idempotency_key=?", (str(idem),)) or []:
-            return {"ok": True, "idempotent_replay": True,
-                    "scenario": S.get_scenario(db, row["run_id"])}
-
     node = _load_node(db, node_id)
     settings = payload.get("settings") or S.get_settings(db)
     v = S.validate_settings(settings)
@@ -245,7 +280,8 @@ def start_run(db: Any, payload: Dict[str, Any]) -> Dict[str, Any]:
     # per-node experimental settings (Deep Testing only — the LIVE TESTING
     # config is never mutated). Missing fields inherit the node's own semantics
     # as read-only defaults inside the engine call.
-    node_settings = payload.get("node_settings") or {}
+    node_cfg = S.get_node_config(db, node_id)
+    node_settings = {**(node_cfg.get('node_settings') or {}), **(payload.get("node_settings") or {})}
     vns = _validate_node_settings(node_settings)
     if not vns["ok"]:
         return {"ok": False, "error": "invalid node settings", "details": vns["errors"]}
@@ -273,40 +309,55 @@ def start_run(db: Any, payload: Dict[str, Any]) -> Dict[str, Any]:
                              "(data/period/settings changed) — confirm again",
                     "confirmation": pf["coverage"]}
 
+    settings=pf.get("settings") or settings
     period = pf["period"]
     ghash = _genome_hash(node.get("genome"))
-    cfg_hash = _genome_hash(node.get("config"))
+    cfg_hash = _execution_config_hash()
     # V6.7 §7.2/§7.3 — the SCENARIO popup's saved config (DeepTesting-only
     # scheduling + scenario settings) is part of the scenario identity and is
     # never written to the live execution settings.
-    node_cfg = S.get_node_config(db, node_id)
-    if node_cfg:
-        settings = {**settings, "node_config": node_cfg}
-    from .filter_scenarios import assignment
-    assigned=assignment(db,node_id,'deep')
-    if assigned: settings={**settings,'filter_scenario_snapshot':assigned}
-    cov = pf.get("coverage") or {}
+    node_cfg = settings.get('node_config') or {}
+    cov = pf.get('coverage') or {}
+    effective_period=cov.get('effective_population') or {}
     signature = effective_signature(
         node_id=node_id, genome_hash=ghash, config_hash=cfg_hash,
         symbol=node.get("symbol") or "", timeframe=node.get("timeframe") or "",
         duration_key=period.get("duration_key") or "",
-        requested_start=period.get("start_ts"), requested_end=period.get("end_ts"),
+        requested_start=(effective_period.get('persisted_range_first') if effective_period and payload.get('duration_key') and payload.get('requested_end') is None else period.get('start_ts')),
+        requested_end=(effective_period.get('persisted_range_last') if effective_period and payload.get('duration_key') and payload.get('requested_end') is None else period.get('end_ts')),
         settings=settings, node_settings=settings.get("node_settings") or {},
         dataset_fingerprint=(cov.get("dataset_fingerprint")
                              or cov.get("fingerprint")
                              or cov.get("confirmation_fingerprint")),
-        engine_version=_product_version(),
-        node_config_hash=_genome_hash(node_cfg or {}),
+        engine_version=_material_engine_version(),
+        node_config_hash=settings_fingerprint(node_cfg or {}),
     )
     # V6.7 §7.1 — identical effective configuration + range ⇒ reuse. The
     # engine is NOT rerun and the existing scenario's historical metrics and
     # trades are never overwritten.
-    existing = _reuse_scenario(db, node_id, signature)
+    existing = _reuse_scenario(db, node_id, signature, require_valid=True)
+    prior=db.one('SELECT run_id,status FROM deeptest_scenarios WHERE node_id=? AND signature=? ORDER BY rowid DESC LIMIT 1',(node_id,signature))
+    if existing and existing['status'] not in ('COMPLETED','PARTIAL'):
+        import os
+        claim=db.one('SELECT * FROM deeptest_claims WHERE signature=?',(signature,))
+        owner_alive=False
+        if claim:
+            try:os.kill(claim['owner_pid'],0);owner_alive=True
+            except ProcessLookupError:pass
+            except PermissionError:owner_alive=True  # cannot prove death; never duplicate
+        if not owner_alive:
+            if not payload.get('retry_incomplete'):
+                return {'ok':False,'retry_required':True,'existing_run_id':existing['run_id'],'error':'prior in-flight owner is unavailable; explicitly retry after reviewing the retained run'}
+            existing=None
+    if prior and existing is None and not (payload.get('retry_incomplete') or payload.get('force_rerun')):
+        return {'ok':False,'retry_required':True,'existing_run_id':prior['run_id'],'error':'matching previous run is incomplete/failed; explicit retry is required; history is preserved'}
     if existing is not None:
         label = _scenario_label(db, existing.get("run_id"))
         return {
             "ok": True,
             "already_deep_tested": True,
+            "idempotent_replay": bool(idem),
+            "idempotency_basis": "material_signature",
             "duplicate": True,
             "existing_run_id": existing.get("run_id"),
             "scenario": existing,
@@ -321,13 +372,14 @@ def start_run(db: Any, payload: Dict[str, Any]) -> Dict[str, Any]:
         "node_id": node_id,
         "status": "QUEUED",
         "signature": signature,
-        "idempotency_key": str(idem) if idem else None,
+        "idempotency_key": None,
         "duration_key": period["duration_key"],
         "requested_start": period["start_ts"],
         "requested_end": period["end_ts"],
         "symbol": node["symbol"],
         "timeframe": node["timeframe"],
         "coverage_status": "PENDING",
+        "dataset_fingerprint": cov.get("dataset_fingerprint") or cov.get("fingerprint"),
         "settings": settings,
         "genome_hash": ghash,
         "config_hash": cfg_hash,
@@ -338,7 +390,12 @@ def start_run(db: Any, payload: Dict[str, Any]) -> Dict[str, Any]:
                        "requested_by": "deeptest-api",
                        "run_policy": "historical simulation only — no broker orders"},
     })
-    _executor.submit(_execute, run_id)
+    import os
+    db.x('INSERT INTO deeptest_claims VALUES (?,?,?) ON CONFLICT(signature) DO UPDATE SET run_id=excluded.run_id,owner_pid=excluded.owner_pid',(signature,run_id,os.getpid()))
+    try:_executor.submit(_execute, run_id)
+    except Exception:
+        S.update_scenario(db,run_id,status='FAILED',error='could not queue historical worker')
+        raise
     return {"ok": True, "run_id": run_id, "scenario": S.get_scenario(db, run_id)}
 
 
@@ -368,6 +425,11 @@ def _execute(run_id: str) -> None:
             return
         node = _load_node(db, int(sc["node_id"]))
         settings = sc.get("settings") or S.get_settings(db)
+        # Immutable historical schedule: never reread a subsequently edited live
+        # or Deep configuration while executing a queued scenario.
+        saved_schedule=(settings.get('node_config') or {}).get('schedule')
+        if saved_schedule is not None:
+            node={**node,'schedule':saved_schedule}
         symbol, timeframe = sc["symbol"], sc["timeframe"]
 
         # ---- VALIDATING: materialise the dataset view over the persisted store
@@ -382,8 +444,15 @@ def _execute(run_id: str) -> None:
                               error=f"no validated candles are persisted for {symbol}/{timeframe} — "
                                     "use GET MT5 DATA or IMPORT CSV first (nothing was fabricated)")
             return
-        dataset_id = engine._materialize_dataset_view(mstore)
-        frame = engine.get_frame(dataset_id)
+        from contextlib import nullcontext
+        from ..data.master import _store_lock
+        with (_store_lock(mstore.raw_dir) if getattr(mstore,'raw_dir',None) else nullcontext()):
+            dataset_id = engine._materialize_dataset_view(mstore)
+            frame = engine.get_frame(dataset_id)
+            cov = pair_coverage(symbol,timeframe)
+            if sc.get('dataset_fingerprint') and sc['dataset_fingerprint']!=cov.get('fingerprint'):
+                S.update_scenario(db,run_id,status='FAILED',finished_at=time.time(),error='Persisted history changed after queueing; review the new data and explicitly retry. No old-signature result was produced.')
+                return
         req_start, req_end = float(sc["requested_start"]), float(sc["requested_end"])
         ts = frame["ts"].to_numpy()
         lo = int(__import__("numpy").searchsorted(ts,req_start,side="left")) if len(ts) else 0
@@ -397,6 +466,9 @@ def _execute(run_id: str) -> None:
             S.update_scenario(db, run_id, status="CANCELLED", finished_at=time.time())
             return
 
+        if sc.get('config_hash') and sc['config_hash']!=_execution_config_hash():
+            S.update_scenario(db,run_id,status='FAILED',finished_at=time.time(),error='Material historical engine configuration changed after queueing; review and explicitly retry. No mismatched-signature result was produced.')
+            return
         # ---- RUNNING: the node's ACTUAL strategy through the historical engine
         S.update_scenario(db, run_id, status="RUNNING")
         result = _run_strategy(db, node, dataset_id, (lo, hi), settings, symbol, timeframe)
@@ -413,7 +485,7 @@ def _execute(run_id: str) -> None:
         summary = A.summarize(trades, initial_capital=float(settings["total_capital"]))
         reconciliation = A.reconcile(trades, summary["summary"])
 
-        cov = pair_coverage(symbol, timeframe)
+        # cov describes the immutable dataset snapshot captured before execution.
         gaps = (cov.get("missing_periods") or [])[:25]
         coverage_status = sc.get("provenance", {}) or {}
         coverage_state = "COMPLETE"
@@ -594,16 +666,16 @@ def _normalize_trades(raw_trades: List[Dict[str, Any]], settings: Dict[str, Any]
 def preferred_for(db: Any, node_id: int) -> Optional[Dict[str, Any]]:
     """The node's preferred scenario row (explicit choice first, else latest valid)."""
     pref = S.get_pref(db, node_id)
-    if pref and pref.get("preferred_run_id"):
+    if pref and pref.get("preferred_run_id") and int(pref.get("explicitly_selected") or 0):
         sc = S.get_scenario(db, pref["preferred_run_id"])
-        if sc and sc["status"] in VALID_FOR_PREFERENCE:
+        if sc and sc["status"] in VALID_FOR_PREFERENCE and (sc.get("analytics") or {}).get("summary"):
             sc["preference_source"] = "explicit"
             return sc
         if sc:
             # a stored explicit preference pointing at an invalid run is kept
             # as a record but never used silently
             pass
-    valid = [r for r in S.list_scenarios(db, int(node_id)) if r["status"] in VALID_FOR_PREFERENCE]
+    valid = [r for r in S.list_scenarios(db, int(node_id)) if r["status"] in VALID_FOR_PREFERENCE and (r.get("analytics") or {}).get("summary")]
     if valid:
         valid[0]["preference_source"] = "latest_valid"
         return valid[0]
@@ -822,6 +894,23 @@ def _genome_hash(g: Any) -> str:
         return hashlib.sha256(json.dumps(g, sort_keys=True, default=str).encode()).hexdigest()[:16]
     except Exception:
         return ""
+
+
+def _execution_config_hash():
+    from ..config import get_config
+    cfg=get_config()
+    # Effective offsets are already frozen in node_settings by preflight;
+    # unrelated Live metadata/default edits must not create duplicate tests.
+    return _genome_hash({'max_hold_bars':cfg.backtest.max_hold_bars,
+                         'max_position_size_lots':cfg.risk.max_position_size_lots})
+
+
+def _material_engine_version():
+    from ..versions import manifest
+    # Git/product names are provenance, NOT execution inputs. Explicit semantic
+    # versions keep cosmetic releases from invalidating identical scenarios.
+    m=manifest()
+    return _genome_hash({k:m[k] for k in ('backtester','cost_model','slippage_model','sessions','risk','data_schema')})+':daily-v1:realised-v1'
 
 
 def _product_version() -> str:

@@ -1,4 +1,4 @@
-import React,{useEffect,useState} from "react";
+import React,{useEffect,useState,useRef} from "react";
 import {api} from '../api.js';
 const terminal=new Set(['COMPLETE','PARTIAL','FAILED','CANCELLED']);
 const date=ts=>ts==null?'N/A':new Date(ts*1000).toISOString();
@@ -7,6 +7,8 @@ export default function HistoryLatest(){
  const load=()=>api.historyLatest().then(setState).catch(e=>setError(e.message));
  useEffect(()=>{let active=true;api.historyLatest().then(s=>active&&setState(s)).catch(e=>active&&setError(e.message));return()=>{active=false;};},[]);
  const job=state?.job,running=job&&!terminal.has(job.status);
+ const lastResult=useRef(null);
+ useEffect(()=>{if(job&&terminal.has(job.status)){const key=JSON.stringify([job.id,job.finished_at,job.updated_at,job.status,job.results]);if(lastResult.current!==key){lastResult.current=key;window.dispatchEvent(new window.CustomEvent('history-store-changed'));}}},[job]);
  useEffect(()=>{if(!running)return;const t=setInterval(load,1500);return()=>clearInterval(t);},[running]);
  async function start(){setBusy(true);setError(null);try{const s=await api.historyLatestStart(scope==='ALL'?undefined:[scope]);if(!s.ok)throw new Error(s.error);setState(v=>({...v,job:s.job}));await load();}catch(e){setError(e.message);}finally{setBusy(false);}}
  return <section className="panel" style={{padding:12,marginBottom:12}} aria-label="Shared persistent history">

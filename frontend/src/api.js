@@ -141,6 +141,13 @@ async function req(path, opts = {}) {
 }
 
 export const api = {
+  scheduleGet: (id,target='deep')=>req(`/api/schedules/${id}?target=${target}`),
+  scheduleSave: (id,body)=>req(`/api/schedules/${id}`,{method:'PUT',body}),
+  deepBatchCreate: body=>req('/api/deeptest/batches',{method:'POST',body}),
+  deepBatches: ()=>req('/api/deeptest/batches'),
+  deepBatchGet: id=>req(`/api/deeptest/batches/${id}`),
+  deepBatchAction: (id,action)=>req(`/api/deeptest/batches/${id}/${action}`,{method:'POST'}),
+  liveSelectionValidate: node_ids=>req('/api/live-testing/selection/validate',{method:'POST',body:{node_ids}}),
   // System & Lab Core
   status: () => req("/api/status"),
   labStatus: () => req("/api/lab/status"),

@@ -4,10 +4,10 @@ memberships may overlap; totals are recalculated from the union, never added.
 """
 import datetime as dt
 from .filter_rules import normalize,reason,context,DAYS,SESSIONS
-from .analytics import summarize
+from .analytics import summarize,eligible_trades
 
 def aggregate(trades,initial_capital,rules=None,start=None,end=None):
-    r=normalize(rules);valid=sorted(trades,key=lambda t:(t.get('exit_ts') or t.get('entry_ts') or 0,t.get('trade_no') or 0))
+    r=normalize(rules);valid=sorted(eligible_trades(trades),key=lambda t:(t.get('exit_ts') or t.get('entry_ts') or 0,t.get('trade_no') or 0))
     contexts={id(t):context(t) for t in valid}
     def ctx(t):return contexts[id(t)]
     kept=[t for t in valid if reason(t,r) is None]

@@ -49,10 +49,23 @@ def _std(xs: List[float]) -> Optional[float]:
     return math.sqrt(var) if var >= 0 else None
 
 
+def eligible_trades(trades):
+    """Unique finite closed observations; never collapse anonymous legacy rows."""
+    unique=[];seen=set()
+    for t in trades or []:
+        if t.get('status') and str(t['status']).upper() not in ('CLOSED','COMPLETED'):continue
+        if _f(t.get('net_pnl')) is None:continue
+        identity=(t['run_id'],t['trade_no']) if t.get('run_id') is not None and t.get('trade_no') is not None else None
+        if identity is not None and identity in seen:continue
+        if identity is not None:seen.add(identity)
+        unique.append(t)
+    return unique
+
+
 def summarize(trades: List[Dict[str, Any]], *, initial_capital: float) -> Dict[str, Any]:
     """The §11 summary metrics + breakdowns for one scenario's trades."""
     unavailable: List[Dict[str, str]] = []
-    tds = [t for t in (trades or []) if _f(t.get("net_pnl")) is not None]
+    tds = eligible_trades(trades)
     nt = len(tds)
     cap = float(initial_capital or 0.0)
 

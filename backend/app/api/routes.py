@@ -5538,23 +5538,29 @@ def _deeptest_schedule_contract(db, node_id: int, cfg: Dict[str, Any]) -> Dict[s
     metadata, and a real engine evaluation from the SAME evaluator
     (app.live_testing.schedule / eng.schedule_state) the live engine uses.
 
-    The evaluated schedule is the DeepTesting override when one is saved, else
-    the node's live schedule (the established DeepTest semantics: the DeepTest
-    applies the schedule the operator saved for this node). Storage stays
-    DeepTesting-only; nothing here mutates live configuration.
+    Preview the actual historical override/default plus the Deep assignment,
+    never a Live assignment or today's Live trade/cooldown state. Execution
+    snapshots these same Deep inputs. Nothing here mutates live configuration.
     """
     from ..deeptest import store as dstore
     from ..live_testing.schedule import (SESSION_HOURS_UTC, conditions_for_genome,
                                          describe, supported_options)
     strat = db.get_strategy(node_id) or {}
     genome = _genome_of(strat) if strat else {}
-    live_cfg = db.get_live_test_config(node_id) or {}
     saved = cfg or dstore.get_node_config(db, node_id) or {}
     saved_sched = saved.get("schedule") or {}
-    effective = saved_sched or live_cfg
-    node = {"id": node_id, "config": effective, "genome": genome}
+    effective = dict(saved_sched)
+    from ..deeptest.filter_scenarios import assignment
+    assigned = assignment(db, node_id, 'deep')
+    if assigned:
+        effective['filter_rules'] = assigned['rules']
     try:
-        state = _live_engine().schedule_state(node)
+        from ..live_testing.schedule import evaluate, condition_enabled
+        state = evaluate(effective, timeframe=genome.get('timeframe'))
+        state.update(trades_today=0, last_entry_ts=None,
+                     timeframe=genome.get('timeframe'),
+                     conditions={name: condition_enabled(effective, name) for name in
+                                 ('entry_long', 'entry_short', 'exit_condition', 'trailing_stop')})
     except Exception as exc:
         state = {"allowed": None, "reason": f"engine evaluation unavailable: {type(exc).__name__}: {exc}"}
     out = dict(state)
@@ -5567,7 +5573,8 @@ def _deeptest_schedule_contract(db, node_id: int, cfg: Dict[str, Any]) -> Dict[s
         "description": describe(effective),
         "config": saved,
         "config_source": ("DeepTesting scenario override" if saved_sched else
-                          "the node's live schedule (no DeepTesting override saved)"),
+                          "historical defaults (no DeepTesting override saved)") +
+                         (" + assigned Deep filter scenario" if assigned else ""),
         "session_hours_utc": SESSION_HOURS_UTC,
         "options": supported_options(genome),
         "node": {
@@ -5843,6 +5850,7 @@ def nodes_index(
     limit: int = 100,
     offset: int = 0,
     compact: bool = False,
+    metric_source: str = "effective",
 ) -> Dict[str, Any]:
     """§6/§7/§8/§25 — the qualified-node index.
 
@@ -6135,7 +6143,7 @@ def nodes_index(
             "metrics_source": _proj["metrics_source"],
             "metrics_source_label": _proj["metrics_source_label"],
             "generation_metrics": _proj["generation_metrics"],
-            "generation_record": {"backtest_id": m.get("_record_id"), "stage": m.get("_stage"), "source": "saved generation backtest"},
+            "generation_record": {"backtest_id": m.get("_record_id"), "stage": m.get("_stage"), "source": "saved generation backtest", "provenance": m.get("_origin") or {}},
             "deeptest": _proj["deeptest"],
             "robustness": {"score": val.get("robustness_score"), "passed": val.get("passed")},
             "backtest_coverage": cov,
@@ -6202,6 +6210,10 @@ def nodes_index(
     if starred_only:
         rows = [r for r in rows if r["starred"]]
 
+    from ..stats.canonical import attach as canonical_attach
+    if metric_source not in ('effective','generation','deeptest'):return {'ok':False,'error':'invalid metric_source','nodes':[]}
+    rows=[canonical_attach(row,metric_source) for row in rows]
+
     # §10 — sorting by return / PF / drawdown / win rate / trades / robustness must
     # actually sort, not fall back to "everything is None". Those values live inside
     # `metrics`/`robustness`, so both are searched before a key is declared missing.
@@ -6258,6 +6270,9 @@ def nodes_index(
     from ..research.registry import sort_nodes
     rows = sort_nodes(rows, _sort_value, descending=bool(sort_desc),
                       text=(sort_key_name in ("node_label", "symbol", "timeframe", "bucket")))
+    if sort_by=='canonical_win_rate':
+        from ..stats.canonical import rank
+        rows=rank(rows,descending=bool(sort_desc))
     total = len(rows)
     # V5.2.3 §10 — ONE scrollable table, no pagination: ``limit=0`` (or negative)
     # means "every matching node". A finite limit is still honoured for other
@@ -7332,3 +7347,72 @@ def generation_window_save(payload:Dict[str,Any]=Body(...)):
     from ..research.generation_window import save_settings
     try:return {'ok':True,'settings':save_settings(get_db(),payload),'note':'settings saved; generation was not started'}
     except (TypeError,ValueError) as exc:raise HTTPException(422,str(exc))
+
+# V9.3 additive typed APIs. Reading/selecting/applying never invokes live START.
+@router.get('/schedules/{node_id}')
+def daily_schedule_get(node_id:int,target:str='deep'):
+    from ..deeptest import filter_scenarios as F
+    from ..deeptest.daily_schedule import defaults
+    if target not in ('deep','live'):raise HTTPException(422,'target must be deep or live')
+    db=get_db()
+    if not db.get_strategy(node_id):raise HTTPException(404,'canonical node does not exist')
+    F._ASSIGNMENTS.pop(db,None)
+    assigned=F.assignment(db,node_id,target)
+    rules=assigned['rules'] if assigned else None
+    return {'ok':True,'node_id':node_id,'target':target,'assignment':assigned,'rules':rules,'preview_daily_schedule':(rules or {}).get('daily_schedule') or defaults(),'matrix_active':bool((rules or {}).get('daily_schedule')),'note':'Matrix replaces legacy day/session predicates only when explicitly saved/applied; all other schedule/risk/enable safeguards remain.'}
+
+from ..deeptest.contracts import ScheduleRequest, BulkDeepRequest, SelectionRequest
+@router.put('/schedules/{node_id}')
+def daily_schedule_put(node_id:int,payload:ScheduleRequest):
+    from ..deeptest import filter_scenarios as F
+    from ..deeptest.filter_rules import normalize
+    db=get_db()
+    with F._LOCK,F.mutation_lock(db):
+        current=F.assignment(db,node_id,payload.target)
+        if payload.expected_scenario_id is not None and ((current or {}).get('id') or '')!=payload.expected_scenario_id:raise HTTPException(409,'schedule changed; reload before saving')
+        try:
+            rules=normalize(payload.rules)
+            if not rules.get('daily_schedule'):raise ValueError('daily_schedule is required')
+            sc=F.save(db,{'name':payload.name.strip() or 'Manual schedule · Node #'+str(node_id),'scope':'NODE','node_id':node_id,'rules':rules,'provenance':{'operation':'explicit manual schedule save; no worker start'}})
+            F.assign(db,node_id,sc['id'],payload.target)
+        except (ValueError,TypeError,KeyError) as exc:raise HTTPException(422,str(exc))
+        return daily_schedule_get(node_id,payload.target)
+
+@router.post('/live-testing/selection/validate')
+def live_selection_validate(payload:SelectionRequest):
+    # Read-only validation/review; no bulk-start endpoint, no setting mutation.
+    ids=list(dict.fromkeys(payload.node_ids));db=get_db();result=[]
+    from ..live_testing.eligibility import tradeability
+    for ident in ids:
+        st=db.get_strategy(ident)
+        if not st:result.append({'node_id':ident,'eligible':False,'reason':'unknown canonical ID'});continue
+        eligible=tradeability(st)
+        cfg=db.get_live_test_config(ident) or {}
+        result.append({'node_id':ident,'status':st.get('status'),'eligible':eligible['ok'],'reason':eligible.get('reason'),'config':{k:cfg.get(k) for k in ('risk_pct','max_active_trades','sl_offset_pips','tp_offset_pips','days','sessions','risk_mode','risk_amount','timezone')},'assigned_schedule':__import__('app.deeptest.filter_scenarios',fromlist=['assignment']).assignment(db,ident,'live'),'instruction':'Use this node’s explicit START; all original eligibility/risk/broker checks run there.'})
+    return {'ok':True,'selected':len(ids),'nodes':result,'started':0,'orders_submitted':0,'note':'Selection review only. Explicit per-node START is still required.'}
+
+@router.post('/deeptest/batches')
+def deep_batch_create(payload:BulkDeepRequest):
+    from ..deeptest.bulk import create
+    try:return {'ok':True,'batch':create(get_db(),payload.model_dump())}
+    except (ValueError,TypeError) as exc:raise HTTPException(422,str(exc))
+
+@router.get('/deeptest/batches/{ident}')
+def deep_batch_get(ident:str):
+    from ..deeptest.bulk import get
+    try:return {'ok':True,'batch':get(get_db(),ident)}
+    except ValueError as exc:raise HTTPException(404,str(exc))
+
+@router.post('/deeptest/batches/{ident}/{action}')
+def deep_batch_action(ident:str,action:str):
+    from ..deeptest import bulk
+    if action not in ('cancel','resume'):raise HTTPException(422,'action must be cancel or resume')
+    try:return {'ok':True,'result':getattr(bulk,action)(get_db(),ident)}
+    except ValueError as exc:raise HTTPException(409,str(exc))
+
+@router.get('/deeptest/batches')
+def deep_batch_list():
+    from ..deeptest import bulk
+    db=get_db();bulk.schema(db)
+    rows=db.q('SELECT id FROM deeptest_batches ORDER BY updated_at DESC LIMIT 20')
+    return {'ok':True,'batches':[bulk.get(db,r['id']) for r in rows]}

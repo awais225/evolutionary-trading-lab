@@ -143,8 +143,12 @@ def pair_coverage(symbol: str, timeframe: str,
                 arr_ts = np.sort(np.asarray(ts, dtype="float64"))
                 if range_start is not None and range_end is not None:
                     # REAL count of persisted bars inside the requested range
-                    rec["bars_in_range"] = int(np.sum(
-                        (arr_ts >= float(range_start)) & (arr_ts <= float(range_end))))
+                    valid_ts=np.unique(arr_ts[np.isfinite(arr_ts)])
+                    selected=valid_ts[(valid_ts>=float(range_start)) & (valid_ts<float(range_end))]
+                    rec['bars_in_range']=int(len(selected))
+                    partial=bool(len(selected) and (selected[0]>float(range_start)+2*tf_s or selected[-1]<float(range_end)-2*tf_s or np.any(np.diff(selected)>96*3600)))
+                    rec['range_coverage_status']='NONE' if not len(selected) else 'PARTIAL' if partial else 'OBSERVED_SPAN'
+                    rec['range_coverage_policy']='Observed unique valid UTC records in [start,end); boundaries/gaps >96h flagged; market calendar not independently verified'
                 g = _scan_gaps(arr_ts, tf_s)
                 rec["quality"] = {
                     "bars": int(len(ts)),

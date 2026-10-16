@@ -98,6 +98,7 @@ def project_node(db: Any, node_id: int,
             "duration_key": pref.get("duration_key"),
             "finished_at": pref.get("finished_at"),
             "preference_source": pref.get("preference_source"),
+            **{k:pref.get(k) for k in ("dataset_id","dataset_fingerprint","actual_start","actual_end")},
             "analytics": pref.get("analytics"),
             "metrics": pref.get("metrics"),
         }
@@ -112,6 +113,7 @@ def project_node(db: Any, node_id: int,
             "preferred_status": deeptest_block["status"] if deeptest_block else None,
             "coverage_status": deeptest_block["coverage_status"] if deeptest_block else None,
             "preference_source": deeptest_block["preference_source"] if deeptest_block else None,
+            **({k:deeptest_block.get(k) for k in ("dataset_id","dataset_fingerprint","actual_start","actual_end","finished_at")} if deeptest_block else {}),
             "last_run": ({"run_id": deeptest_block["run_id"],
                           "finished_at": deeptest_block["finished_at"]}
                          if deeptest_block else None),
@@ -131,10 +133,10 @@ def build_index(db: Any) -> Dict[int, Dict[str, Any]]:
         prefs = {int(r["node_id"]): dict(r)
                  for r in (db.q("SELECT * FROM deeptest_prefs") or [])}
         rows = db.q("""SELECT run_id, node_id, status, coverage_status, duration_key,
-                              finished_at, metrics, analytics
+                              finished_at, metrics, analytics, dataset_id, dataset_fingerprint, actual_start, actual_end, created_at
                        FROM deeptest_scenarios
                        WHERE status IN ('COMPLETED','PARTIAL')
-                       ORDER BY node_id, created_at DESC""") or []
+                       ORDER BY node_id, created_at DESC, run_id DESC""") or []
         by_node: Dict[int, List[Dict[str, Any]]] = {}
         for r in rows:
             d = dict(r)
@@ -142,6 +144,7 @@ def build_index(db: Any) -> Dict[int, Dict[str, Any]]:
                 d["analytics"] = json.loads(d["analytics"]) if d.get("analytics") else None
             except Exception:
                 d["analytics"] = None
+            if not (d.get('analytics') or {}).get('summary'):continue
             by_node.setdefault(int(d["node_id"]), []).append(d)
         for nid, lst in by_node.items():
             pref = prefs.get(nid) or {}
@@ -176,7 +179,7 @@ def effective_for(index: Dict[int, Dict[str, Any]], node_id: int,
                           "duration_key": p.get("duration_key"),
                           "finished_at": p.get("finished_at"),
                           "preference_source": entry.get("preference_source"),
-                          "analytics": p.get("analytics")}
+                          "analytics": p.get("analytics"),**{k:p.get(k) for k in ("dataset_id","dataset_fingerprint","actual_start","actual_end","finished_at")}}
     metrics, src, label = effective_metrics(deeptest_block, generation_metrics)
     return {
         "metrics": metrics,
@@ -188,6 +191,7 @@ def effective_for(index: Dict[int, Dict[str, Any]], node_id: int,
             "preferred_status": deeptest_block["status"] if deeptest_block else None,
             "coverage_status": deeptest_block["coverage_status"] if deeptest_block else None,
             "preference_source": deeptest_block["preference_source"] if deeptest_block else None,
+            **({k:deeptest_block.get(k) for k in ("dataset_id","dataset_fingerprint","actual_start","actual_end","finished_at")} if deeptest_block else {}),
         } if deeptest_block else None,
     }
 

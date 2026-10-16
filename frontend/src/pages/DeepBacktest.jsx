@@ -1,3 +1,5 @@
+import {HistoricalCells,HistoricalSource,useHistoricalSource,historicalRank} from '../components/HistoricalStatistics.jsx';
+import {SelectionControls,DeepBulk} from '../components/SelectionControls.jsx';
 import {useStoredState} from "../lib/storedState.js";
 import HistoryLatest from "../components/HistoryLatest.jsx";
 // V6.6 — DEEP TESTING tab: a persistent, MT5-terminal-style workspace.
@@ -81,8 +83,8 @@ export default function DeepBacktest() {
   const [drawerId, setDrawerId] = useState(null);
   const [csvFor, setCsvFor] = useState(null);        // {symbol, timeframe}
   const [confirmState, setConfirmState] = useState(null); // §9 popup
-  const [sortKey, setSortKey] = useStoredState("deep.sortKey", "node_id");
-  const [sortDir, setSortDir] = useStoredState("deep.sortDir", 1);
+  const [sortKey, setSortKey] = useStoredState("deep.v93.sortKey", "canonical_win_rate");
+  const [sortDir, setSortDir] = useStoredState("deep.v93.sortDir", -1);
   // V6.7 §7.2 — the SCENARIO popup (scheduling/configuration; DeepTesting-only
   // storage through the shared presentation component — live settings frozen).
   const [scenarioFor, setScenarioFor] = useState(null);
@@ -106,14 +108,18 @@ export default function DeepBacktest() {
   const [authority, setAuthority] = useState(null);
 
   // ---- data loading --------------------------------------------------------
+  const [metricSource,setMetricSource]=useHistoricalSource();
+  const coverageSeq=useRef(0);
+  const [coverageError,setCoverageError]=useState(null);
   const nodeSeq = useRef(0);
   const loadNodes = useCallback(async () => {
     const seq = ++nodeSeq.current;
     setLoading(true);
     setError(null);
     try {
-      const res = await api.nodes({ filter, search, limit: 0, offset: 0, sort_by: "node_id" });
+      const res = await api.nodes({ filter, search, limit: 0, offset: 0, sort_by: "canonical_win_rate", sort_desc:true, metric_source:metricSource });
       if (seq !== nodeSeq.current) return;
+      if(res.ok===false||res.truncated)throw new Error("Incomplete canonical registry response; previous full population retained");
       setNodes(arr(res.nodes));
       setCounts(res.filter_totals || res.counts || null);
       setExperiment(res.experiment || null);
@@ -123,11 +129,12 @@ export default function DeepBacktest() {
     } finally {
       if (seq === nodeSeq.current) setLoading(false);
     }
-  }, [filter, search]);
+  }, [filter, search, metricSource]);
 
   // §7.2 — coverage recomputed from the PERSISTED candles (never a promised
   // count): every node row sharing a symbol|timeframe shows the same numbers.
   const loadCoverage = useCallback(async (nodeList) => {
+    const seq=++coverageSeq.current;setCovMap({});setCoverageError(null);
     try {
       const seen = new Set();
       const pairs = [];
@@ -137,13 +144,16 @@ export default function DeepBacktest() {
       }
       if (!pairs.length) return;
       const res = await api.deeptestCoveragePairs(pairs, periodKey);
+      if(seq!==coverageSeq.current)return;
       const map = {};
-      for (const rec of arr(res.coverage || res.pairs || res)) {
+      const records=res.coverage || res.pairs || res;
+      for (const rec of (Array.isArray(records)?records:Object.values(records||{}))) {
         const key = `${String(rec.symbol || "").toUpperCase()}|${String(rec.timeframe || "").toUpperCase()}`;
-        map[key] = rec;
+        map[key] = rec.error?{...rec,bars:null,bars_in_range:null}:rec;
       }
       setCovMap(map);
-    } catch { /* coverage degrades to the last known good map */ }
+      const failures=Object.values(map).filter(r=>r.error);if(failures.length)setCoverageError(failures.map(r=>`${r.symbol}/${r.timeframe}: ${r.error}`).join("; "));
+    } catch(e) {if(seq===coverageSeq.current){setCovMap({});setCoverageError(e.message||String(e));}}
   }, [nodes, periodKey]);
 
   const loadDt = useCallback(async () => {
@@ -178,6 +188,8 @@ export default function DeepBacktest() {
   // Recount persisted range bars after actual nodes arrive AND duration changes.
   // The old loadNodes().then(oldClosure) saw the previous empty node list.
   useEffect(() => { loadCoverage(nodes); }, [loadCoverage]);
+  useEffect(()=>()=>{coverageSeq.current++;},[loadCoverage]);
+  useEffect(()=>{const refresh=()=>loadCoverage(nodes);window.addEventListener('history-store-changed',refresh);return()=>window.removeEventListener('history-store-changed',refresh);},[loadCoverage]);
 
   // light polling while any job is active (fetch or run)
   useEffect(() => {
@@ -207,6 +219,7 @@ export default function DeepBacktest() {
         }
         if (Object.keys(runBusy).length) {
           await loadDt();
+          await loadNodes();
           const res = await api.deeptestScenarios({ statuses: "QUEUED,FETCHING,VALIDATING,RUNNING" });
           const running = new Set(arr(res.scenarios).map((s) => String(s.node_id)));
           setRunBusy((m) => {
@@ -363,7 +376,7 @@ export default function DeepBacktest() {
   // is missing — never fabricated).
   const covOf = useCallback((n) => {
     const key = `${String(n.symbol || "").toUpperCase()}|${String(n.timeframe || "").toUpperCase()}`;
-    return covMap[key] || n.backtest_coverage || null;
+    return covMap[key] || null;
   }, [covMap]);
   const barsInRangeOf = useCallback((n) => {
     // the REAL persisted bar count inside the selected test range (computed
@@ -379,6 +392,7 @@ export default function DeepBacktest() {
     // tie-break on the canonical node id. Generation metrics and DeepTest
     // metrics are distinct sort keys — one can never read the other's values.
     const rows = [...nodes];
+    if(sortKey==="canonical_win_rate")return rows.sort((a,b)=>historicalRank(a,b,sortDir<0));
     const val = (n) => {
       switch (sortKey) {
         case "gen_return": return n.generation_metrics?.return_pct;
@@ -571,12 +585,11 @@ export default function DeepBacktest() {
               {" "}— inventory statistics (gate-passed/VALID-tier ≠ qualified research nodes), never hardcoded
             </span>
           )}
-          <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
-            <button className="btn primary" disabled={!anySelected} onClick={() => selectedNodes.forEach((n) => startDeeptest(n))}>
-              DEEPTEST selected ({selectedNodes.length})
-            </button>
-          </span>
+          <HistoricalSource value={metricSource} onChange={setMetricSource}/>
         </div>
+        <SelectionControls rows={nodes} selected={selected} setSelected={setSelected}/>
+        <DeepBulk nodes={nodes} selected={selected} duration={periodKey} settings={settings} nodeConfig={id=>nodeSettingsOf(cfgOf(id))} onUpdated={()=>{loadNodes();loadDt();}}/>
+        {coverageError&&<p role="alert">Stored range counts unavailable: {coverageError}</p>}
         <StateBlock loading={loading} error={error} onRetry={loadNodes}
                     empty={!loading && !error && !nodes.length} emptyText="no nodes match this filter" />
         <div className="table-scroll" style={{ marginTop: 6 }}>
@@ -590,6 +603,7 @@ export default function DeepBacktest() {
                 <th>name / species</th>
                 {sortTh("symbol", "symbol")}
                 {sortTh("timeframe", "candle TF")}
+                <th>Hist Return</th><th>Hist PF</th><th>Hist DD</th>{sortTh("canonical_win_rate","Hist WR")}<th>Hist Trades</th><th>Historical source / coverage</th>
                 {sortTh("gen_return", "Gen Return", "Generation Return — from the stored generation record only")}
                 {sortTh("gen_net", "Gen Net", "Generation net profit")}
                 {sortTh("gen_pf", "Gen PF", "Generation profit factor (ratio)")}
@@ -620,7 +634,7 @@ export default function DeepBacktest() {
                 const busy = runBusy[n.node_id];
                 return (
                   <tr key={n.node_id}>
-                    <td><CandidateStar row={n} /><input type="checkbox" checked={!!selected[n.node_id]}
+                    <td><CandidateStar row={n} /><input type="checkbox" aria-label={`Select node ${n.node_id}`} checked={!!selected[n.node_id]}
                                onChange={(e) => setSelected((m) => ({ ...m, [n.node_id]: e.target.checked }))} /></td>
                     <td>
                       <NodeIdentity row={n} onInspect={() => setDrawerId(n.node_id)} />
@@ -634,7 +648,7 @@ export default function DeepBacktest() {
                     <td>{txt(n.timeframe)}</td>
                     {/* V6.7 §4.2 — generation metrics come from the stored generation
                         record ONLY; real zeros show as 0, missing stays N/A. */}
-                    <GenerationCells row={n} />
+                    <HistoricalCells row={n}/><GenerationCells row={n} />
                     <td className="mono">{fmtNum(n.fitness, 4)}</td>
                     <td className="mono">{pref ? fmtPct(pref.analytics?.summary?.net_return_pct) : <span className="muted">NOT DEEPTESTED</span>}</td>
                     <td className="mono">{pref ? fmtNum(pref.analytics?.summary?.profit_factor, 3) : "—"}</td>
@@ -690,7 +704,7 @@ export default function DeepBacktest() {
                       : "coverage unavailable"}>
                       {(() => {
                         const c = covOf(n);
-                        const bars = c?.bars ?? n.backtest_coverage?.bars;
+                        const bars = c?.bars;
                         return (
                           <>
                             {bars ?? <span className="muted">N/A</span>}
@@ -702,7 +716,7 @@ export default function DeepBacktest() {
                     <td className="mono" title="persisted bars inside the selected test range — real count, refreshed after every sync">
                       {barsInRangeOf(n) == null
                         ? <span className="muted">N/A</span>
-                        : barsInRangeOf(n)}
+                        : <>{barsInRangeOf(n)}<small style={{display:"block"}}>{covOf(n)?.range_coverage_status||""}</small></>}
                     </td>
                     <td>
                       <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>

@@ -1,0 +1,162 @@
+{
+  "snapshot_note": "Early private trace used the versioned MAIN DB file alone. Logical original SQLite with versioned WAL has83 QUALIFIED; immutable main alone has70 QUALIFIED and22 SURVIVED. Do not infer an initialization-induced downgrade from these different snapshots.",
+  "initialized_main_file_qualified": 70,
+  "qualified_after_restore": 99,
+  "exact_traces": [
+    {
+      "node_id": 726,
+      "research_node_num": null,
+      "run_id": "RUN-HISTORICAL-PRESERVED",
+      "symbol": "XAUUSD",
+      "timeframe": "M5",
+      "metrics": {
+        "return_pct": 0.727,
+        "profit_factor": 3.196,
+        "max_drawdown_pct": 0.0242,
+        "win_rate": 0.7827,
+        "trades": 336.0,
+        "net_profit": 7270.42,
+        "expectancy": 0.002164,
+        "avg_trade": 21.638,
+        "sharpe": 20.982
+      },
+      "generation_metrics": {
+        "return_pct": 0.727,
+        "profit_factor": 3.196,
+        "max_drawdown_pct": 0.0242,
+        "win_rate": 0.7827,
+        "trades": 336.0,
+        "net_profit": 7270.42,
+        "expectancy": 0.002164,
+        "avg_trade": 21.638,
+        "sharpe": 20.982
+      },
+      "metrics_source": "generation",
+      "deeptest": null
+    },
+    {
+      "node_id": 728,
+      "research_node_num": null,
+      "run_id": "RUN-HISTORICAL-PRESERVED",
+      "symbol": "XAUUSD",
+      "timeframe": "M5",
+      "metrics": {
+        "return_pct": 0.5257,
+        "profit_factor": 3.476,
+        "max_drawdown_pct": 0.0194,
+        "win_rate": 0.7864,
+        "trades": 323.0,
+        "net_profit": 5257.23,
+        "expectancy": 0.001628,
+        "avg_trade": 16.276,
+        "sharpe": 22.148
+      },
+      "generation_metrics": {
+        "return_pct": 0.5257,
+        "profit_factor": 3.476,
+        "max_drawdown_pct": 0.0194,
+        "win_rate": 0.7864,
+        "trades": 323.0,
+        "net_profit": 5257.23,
+        "expectancy": 0.001628,
+        "avg_trade": 16.276,
+        "sharpe": 22.148
+      },
+      "metrics_source": "generation",
+      "deeptest": null
+    },
+    {
+      "node_id": 735,
+      "research_node_num": null,
+      "run_id": "RUN-HISTORICAL-PRESERVED",
+      "symbol": "XAUUSD",
+      "timeframe": "M5",
+      "metrics": {
+        "return_pct": 0.7133,
+        "profit_factor": 3.154,
+        "max_drawdown_pct": 0.0236,
+        "win_rate": 0.7798,
+        "trades": 336.0,
+        "net_profit": 7133.12,
+        "expectancy": 0.002123,
+        "avg_trade": 21.23,
+        "sharpe": 20.68
+      },
+      "generation_metrics": {
+        "return_pct": 0.7133,
+        "profit_factor": 3.154,
+        "max_drawdown_pct": 0.0236,
+        "win_rate": 0.7798,
+        "trades": 336.0,
+        "net_profit": 7133.12,
+        "expectancy": 0.002123,
+        "avg_trade": 21.23,
+        "sharpe": 20.68
+      },
+      "metrics_source": "generation",
+      "deeptest": null
+    },
+    {
+      "node_id": 737,
+      "research_node_num": null,
+      "run_id": "RUN-HISTORICAL-PRESERVED",
+      "symbol": "XAUUSD",
+      "timeframe": "M5",
+      "metrics": {
+        "return_pct": 0.71,
+        "profit_factor": 3.143,
+        "max_drawdown_pct": 0.0236,
+        "win_rate": 0.7791,
+        "trades": 335.0,
+        "net_profit": 7100.06,
+        "expectancy": 0.002119,
+        "avg_trade": 21.194,
+        "sharpe": 20.62
+      },
+      "generation_metrics": {
+        "return_pct": 0.71,
+        "profit_factor": 3.143,
+        "max_drawdown_pct": 0.0236,
+        "win_rate": 0.7791,
+        "trades": 335.0,
+        "net_profit": 7100.06,
+        "expectancy": 0.002119,
+        "avg_trade": 21.194,
+        "sharpe": 20.62
+      },
+      "metrics_source": "generation",
+      "deeptest": null
+    },
+    {
+      "node_id": 718,
+      "research_node_num": null,
+      "run_id": "RUN-HISTORICAL-PRESERVED",
+      "symbol": "XAUUSD",
+      "timeframe": "M1",
+      "metrics": {
+        "return_pct": 1.481,
+        "profit_factor": 2.545,
+        "max_drawdown_pct": 0.0405,
+        "win_rate": 0.7724,
+        "trades": 905.0,
+        "net_profit": 14809.59,
+        "expectancy": 0.001636,
+        "avg_trade": 16.364,
+        "sharpe": 35.181
+      },
+      "generation_metrics": {
+        "return_pct": 1.481,
+        "profit_factor": 2.545,
+        "max_drawdown_pct": 0.0405,
+        "win_rate": 0.7724,
+        "trades": 905.0,
+        "net_profit": 14809.59,
+        "expectancy": 0.001636,
+        "avg_trade": 16.364,
+        "sharpe": 35.181
+      },
+      "metrics_source": "generation",
+      "deeptest": null
+    }
+  ]
+}

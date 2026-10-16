@@ -1,0 +1,30 @@
+{
+  "M1": {
+    "unique_rows": 100057,
+    "fingerprint": "d42e0fcc9e009c565a38406d3f2862db"
+  },
+  "M5": {
+    "unique_rows": 100012,
+    "fingerprint": "d6ff7ffd80fef2c59aa428562dcfbe07"
+  },
+  "M15": {
+    "unique_rows": 100856,
+    "fingerprint": "98d1f1445c2906e1fdbda773d74fa8fa"
+  },
+  "M30": {
+    "unique_rows": 71441,
+    "fingerprint": "111b3638c2153fe9810c7810caf2f7a9"
+  },
+  "H1": {
+    "unique_rows": 35738,
+    "fingerprint": "7f939043b7f202161ca4a27035636b92"
+  },
+  "H4": {
+    "unique_rows": 9349,
+    "fingerprint": "84771bb1629d02d703bbb4d28b61011e"
+  },
+  "D1": {
+    "unique_rows": 1560,
+    "fingerprint": "29b5232e2818b57c6de7f0e41852549f"
+  }
+}

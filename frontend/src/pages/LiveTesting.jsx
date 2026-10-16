@@ -1,3 +1,4 @@
+import ManualPanelDisclosure from '../components/ManualPanelDisclosure.jsx';
 import React, { useCallback, useEffect, useState } from "react";
 import { api } from "../api.js";
 import { useLab } from "../App.jsx";
@@ -202,7 +203,7 @@ export default function LiveTesting() {
         Action controls — Manual Trading Panel {manualOpen ? null : <Badge tone="warn">collapsed</Badge>}
       </SectionTitle>
       <div style={{ display: manualOpen ? "block" : "none" }} data-testid="manual-trading-panel">
-        <ManualOrderPanel defaultSymbol={marketSymbol} />
+        <ManualPanelDisclosure><ManualOrderPanel defaultSymbol={marketSymbol} /></ManualPanelDisclosure>
       </div>
 
       {/* ---------------------------------------------------------- 3 */}

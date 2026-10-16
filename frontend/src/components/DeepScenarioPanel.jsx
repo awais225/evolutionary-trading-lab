@@ -1,3 +1,4 @@
+import DailySchedule,{defaultSchedule} from './DailySchedule.jsx';
 import InspectCalendar from "./InspectCalendar.jsx";
 // V6.6 §11–13 — scenario inspector: all of a node's DeepTest scenarios,
 // preferred-scenario selection (explicit, never silently replaced), side-by-side
@@ -86,40 +87,52 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
   const filtSeq = useRef(0);             // latest-request-wins for filtered fetches
   const [filt, setFilt] = useState(null);
   const [filtBusy, setFiltBusy] = useState(false);
+  const [filtError,setFiltError]=useState(null);
+  const detailSeq=useRef(0);
   const setFlt = (next) => {
     setFltState(next);
     if (selected) filtByRun.current[selected] = next;
   };
   const exclDays = flt.days;
   const exclSessions = flt.sessions;
-  const filtersActive = flt.days.length > 0 || flt.sessions.length > 0 || Object.values(flt.by_day||{}).some(v=>v.length);
+  const filtersActive = !!flt.start || !!flt.end || !!flt.daily_schedule || flt.days.length > 0 || flt.sessions.length > 0 || Object.values(flt.by_day||{}).some(v=>v.length);
 
-  const loadFiltered = useCallback(async (runId, days, sessions, byDay={}) => {
+  const loadFiltered = useCallback(async (runId, days, sessions, byDay={},daily=null,range={}) => {
     if (!runId) return;
     const seq = ++filtSeq.current;
-    setFiltBusy(true);
+    setFiltBusy(true);setFilt(null);setFiltError(null);
     try {
       const res = await api.deeptestFilteredStats(runId, {
-        schema_version:1, exclude_days: days, exclude_sessions: sessions, exclude_by_day:byDay,
+        schema_version:1, exclude_days: days, exclude_sessions: sessions, exclude_by_day:byDay, ...(daily?{daily_schedule:daily}:{}),...range,
       });
       // §6.4 — an older async response can never overwrite the current results
       if (seq === filtSeq.current) setFilt(res);
-    } catch { if (seq === filtSeq.current) setFilt(null); }
+    } catch(e) { if (seq === filtSeq.current) {setFilt(null);setFiltError(e.message||String(e));} }
     finally { if (seq === filtSeq.current) setFiltBusy(false); }
   }, []);
 
   const loadDetail = useCallback(async (runId) => {
+    const seq=++detailSeq.current;setDetail(null);setTrades(null);
     setError(null);
     try {
       const res = await api.deeptestRunGet(runId);
+      if(seq!==detailSeq.current)return;
       setDetail(res.scenario);
       // the complete saved trade list — the filter recalculation and the
       // visible list must both cover every trade of the scenario
       const tr = await api.deeptestRunTrades(runId, { limit: 10000, offset: 0 });
-      setTrades(tr);
+      if(seq!==detailSeq.current)return;
+      const all=[...(tr.trades||[])];
+      while(all.length<(tr.total??all.length)){
+        const page=await api.deeptestRunTrades(runId,{limit:10000,offset:all.length});
+        if(seq!==detailSeq.current)return;
+        if(!(page.trades||[]).length)throw new Error('Incomplete trade response: no partial list was substituted');
+        all.push(...page.trades);
+      }
+      setTrades({...tr,trades:all});
       setPage(0);
     } catch (e) {
-      setError(e);
+      if(seq===detailSeq.current)setError(e);
     }
   }, []);
 
@@ -133,7 +146,7 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
   }, [selected]);
 
   useEffect(() => {
-    if (selected) loadFiltered(selected, flt.days, flt.sessions,flt.by_day||{});
+    if (selected) loadFiltered(selected, flt.days, flt.sessions,flt.by_day||{},flt.daily_schedule,{range_start:flt.start?Date.parse(flt.start+"Z")/1000:null,range_end:flt.end?Date.parse(flt.end+"Z")/1000:null});
   }, [selected, flt, loadFiltered]);
 
   useEffect(() => {
@@ -182,7 +195,7 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scenarios]);
 
-  const tradeRows = (trades?.trades || []).filter((t) => {
+  const tradeRows = (filtersActive && (!filt || filtBusy || filtError) ? [] : (trades?.trades || [])).filter((t) => {
     // §6.2 — exclusion semantics: keep only trades matching NO active exclusion
     if (filt?.kept_trade_numbers ? !filt.kept_trade_numbers.includes(t.trade_no) : !isKeptTrade(t, flt.days, flt.sessions)) return false;
     if (!search.trim()) return true;
@@ -214,13 +227,10 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
   // original summary scaled or left in place. Unfiltered = the scenario's own
   // saved analytics, exactly as stored.
   const origSummary = (sel?.analytics || {}).summary || {};
-  const summary = (filtersActive && filt?.filtered && !filt.filtered.error)
-    ? (filt.filtered.summary || {})
-    : origSummary;
+  const summary = filtersActive ? (!filtBusy&&!filtError?(filt?.filtered?.summary||{}):{}) : origSummary;
   const breakdowns = (sel?.analytics || {}).breakdowns || {};
   const unavail = (sel?.analytics || {}).unavailable || [];
-  const blocks = (filtersActive && filt?.filtered) ? filt.filtered
-    : (filt?.original || {});
+  const blocks = filtersActive ? (!filtBusy&&!filtError?(filt?.filtered||{}):{}) : (filt?.original||{});
   const shownTradeCounts = filt?.trade_counts || null;
 
   return (
@@ -331,7 +341,7 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
                   system (Kpi), each labelled with its source; a value that is
                   missing or statistically invalid renders as unavailable —
                   never invented, never borrowed from another scenario. */}
-              <b>Scenario statistics</b>
+              <b>Scenario statistics</b>{filtBusy&&<span role="status"> · Recalculating selected trade population…</span>}{filtError&&<p role="alert">Filtered analysis unavailable: {filtError}. Original metrics are not substituted.</p>}
               {" "}<span className="muted" style={{ fontSize: 10.5 }}>
                 source: {txt(sel?.run_id ? `DeepTest scenario ${sel.run_id}` : "DeepTest scenario")}
                 {filtersActive ? " · FILTERED (kept trades)" : ""}
@@ -347,7 +357,7 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
                 <Kpi label="Profit factor" value={numOrNa(summary.profit_factor, 3)}
                      sub="gross win / gross loss" />
                 <Kpi label="Max drawdown" value={pctOrNa(summary.max_drawdown_pct)}
-                     tone="neg" sub="from the chronological equity curve" />
+                     tone="neg" sub="max realised equity decline / initial capital" />
                 <Kpi label="Win rate" value={pctOrNa(summary.win_rate, 2)}
                      sub={`${summary.winning_trades ?? "—"}W / ${summary.losing_trades ?? "—"}L`} />
                 <Kpi label="Total trades" value={summary.trades ?? "N/A"}
@@ -432,6 +442,7 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
                 Recalculated immediately from saved trades; never creates a scenario, never alters
                 stored trades, never touches live.
               </div>
+              <div className="row-bar"><label>UTC entry from <input type="datetime-local" aria-label="Inspect UTC entry start" value={flt.start||''} onChange={e=>setFlt({...flt,start:e.target.value})}/></label><label>UTC entry before (exclusive) <input type="datetime-local" aria-label="Inspect UTC entry end" value={flt.end||''} onChange={e=>setFlt({...flt,end:e.target.value})}/></label></div>
               <div style={{ display: "flex", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
                 <div>
                   <div style={{ opacity: 0.8, fontSize: 10.5 }}>exclude day-of-week</div>
@@ -471,6 +482,7 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
                   Reset filters
                 </button>
               </div>
+              <details><summary>Per-day session matrix · {flt.daily_schedule?'ACTIVE filter':'inactive; stored historical trades unchanged'}</summary><label><input type="checkbox" aria-label="Enable Inspect daily schedule" checked={!!flt.daily_schedule} onChange={e=>setFlt({...flt,daily_schedule:e.target.checked?defaultSchedule():null})}/>Enable additional daily schedule filter</label>{flt.daily_schedule&&<DailySchedule value={flt.daily_schedule} onChange={daily_schedule=>setFlt({...flt,daily_schedule})}/>}</details>
               <InspectCalendar calendar={filt?.calendar} nodeId={nodeId} runId={selected} byDay={flt.by_day||{}} onByDay={by_day=>setFlt({...flt,by_day})}/>
               {!!filt && (
                 <div style={{ fontSize: 11, marginTop: 6 }}>

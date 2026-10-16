@@ -28,7 +28,14 @@ class Normalize(ast.NodeTransformer):
         return self.generic_visit(node)
     def visit_If(self,node):
         text=ast.unparse(node.test)
-        if text=='assigned' or "s.get('filter_rules')" in text or 'math.isfinite(sl_off)' in text or 'sl_offset_sign not in' in text or text in ('sl_offset_sign is not None','tp_offset_sign is not None'):return None
+        # V9.3 explicitly requested matrix replaces ONLY legacy day/session gates.
+        # Reject any other body under that exception; risk/windows remain frozen.
+        if text == "(s.get('filter_rules') or {}).get('daily_schedule')":
+            assert ast.unparse(node.body[0]) == "s['days'] = list(range(7))"
+            assert len(node.body)==2 and ast.unparse(node.body[1]) == "s['sessions'] = []"
+            assert not node.orelse
+            return None
+        if text=='assigned'  or "s.get('filter_rules')" in text or 'math.isfinite(sl_off)' in text or 'sl_offset_sign not in' in text or text in ('sl_offset_sign is not None','tp_offset_sign is not None'):return None
         return self.generic_visit(node)
     def visit_Dict(self,node):
         self.generic_visit(node);keep=[]
