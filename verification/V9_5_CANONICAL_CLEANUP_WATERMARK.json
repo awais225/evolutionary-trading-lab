@@ -1,0 +1,12 @@
+{
+  "fresh_checkout_nodes": 0,
+  "sequence": 10787,
+  "original_filesystem_max_canonical_id": 10814,
+  "typed_strategy_records": 10809,
+  "high_watermark_preserved": true,
+  "state": "CORRECTED_PUBLICATION_IMAGE",
+  "old_clean_sequence": 10787,
+  "new_clean_sequence": 10814,
+  "source_code_unchanged": true,
+  "actual_reset": false
+}

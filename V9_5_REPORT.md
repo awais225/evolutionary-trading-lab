@@ -21,3 +21,6 @@ The historical interrupted offsets test passed unchanged on all 10000 original S
 
 ## Prepared targeted Git cleanup (not an actual runtime reset)
 Verified isolated publication images remove 29555 tracked node/result/state/SQLite sidecar paths and rewrite five mixed payloads (primary SQLite plus four older backup ZIPs). All protected SQL rows and non-node archive member bytes were compared with originals. All 12400 result Parquets were individually schema-read: 6200 equity and 6200 trade tables, no OHLCV. Seven original CSVs/canonical bars are outside deletion scope. The source/config known-good backup ZIP is retained unchanged. Active SQL remains 10000; actual node files have not been removed.
+
+## Canonical cleanup reconciliation
+Cleanup initially preserved SQL strategy high-watermark 10787, but independent content parsing of 10809 filesystem strategy records found canonical ID 10814. A separate normal-push data-only correction raises the empty publication SQLite sequence to 10814, never reuses those historical canonical IDs, and changes no source, thresholds or tests. Actual reset must likewise preserve max(SQL sequence, persisted canonical filesystem IDs) = 10814. No active node has yet been deleted.
