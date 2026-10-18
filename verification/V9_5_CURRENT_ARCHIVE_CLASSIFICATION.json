@@ -1,0 +1,1442 @@
+{
+  "scope": "Current frozen app/frontend paired with published ac4c784 baseline; original archived assertion files identical; 31 files each, sequential, full original SQL and filesystem fixture, per-test GC/allocator cleanup only",
+  "summaries": {
+    "baseline": {
+      "finished_files": 31,
+      "counts": {
+        "passed": 188,
+        "failed": 44,
+        "errors": 0,
+        "skipped": 0
+      }
+    },
+    "candidate": {
+      "finished_files": 31,
+      "counts": {
+        "passed": 190,
+        "failed": 42,
+        "errors": 0,
+        "skipped": 0
+      }
+    }
+  },
+  "failures": [
+    {
+      "id": "DATA/tests/test_data_discovery_and_reconciliation.py::test_test5_feature_artifact_already_exists",
+      "result": "failed",
+      "detail": "DATA/tests/test_data_discovery_and_reconciliation.py:160: in test_test5_feature_artifact_already_exists\n    assert len(cached) > 0\nE   assert 0 > 0\nE    +  where 0 = len([])",
+      "classification": "PRE_EXISTING_ARCHIVED_FAILURE",
+      "reason": "Paired baseline and current fail the same named test and assertion location; exact traces retained below. This does not convert the failure into a passing test. Removed legacy routes, static historical identities/metrics, hashes and old schema assumptions are not restored to satisfy obsolete contracts.",
+      "baseline": {
+        "id": "DATA/tests/test_data_discovery_and_reconciliation.py::test_test5_feature_artifact_already_exists",
+        "result": "failed",
+        "detail": "DATA/tests/test_data_discovery_and_reconciliation.py:160: in test_test5_feature_artifact_already_exists\n    assert len(cached) > 0\nE   assert 0 > 0\nE    +  where 0 = len([])"
+      },
+      "command": [
+        "/var/tmp/v95-recovery/venv/bin/python",
+        "-m",
+        "pytest",
+        "-vv",
+        "-ra",
+        "--tb=short",
+        "-p",
+        "archive_resource_cleanup",
+        "-o",
+        "faulthandler_timeout=30",
+        "--junitxml=/home/user/V9_5_CURRENT_ARCHIVE_candidate_02.xml",
+        "DATA/tests/test_data_discovery_and_reconciliation.py"
+      ],
+      "log": "/home/user/V9_5_CURRENT_ARCHIVE_candidate_02.log",
+      "peak_owned_rss_bytes": 189362176,
+      "current_failure_lines": [
+        "160"
+      ],
+      "baseline_failure_lines": [
+        "160"
+      ]
+    },
+    {
+      "id": "DATA/tests/test_final_testing_and_orchestrator_loop_fix.py::test_final_testing_search_and_filter_apis",
+      "result": "failed",
+      "detail": "DATA/tests/test_final_testing_and_orchestrator_loop_fix.py:164: in test_final_testing_search_and_filter_apis\n    assert len(data_exact[\"strategies\"]) == 1\nE   assert 0 == 1\nE    +  where 0 = len([])",
+      "classification": "PRE_EXISTING_ARCHIVED_FAILURE",
+      "reason": "Paired baseline and current fail the same named test and assertion location; exact traces retained below. This does not convert the failure into a passing test. Removed legacy routes, static historical identities/metrics, hashes and old schema assumptions are not restored to satisfy obsolete contracts.",
+      "baseline": {
+        "id": "DATA/tests/test_final_testing_and_orchestrator_loop_fix.py::test_final_testing_search_and_filter_apis",
+        "result": "failed",
+        "detail": "DATA/tests/test_final_testing_and_orchestrator_loop_fix.py:164: in test_final_testing_search_and_filter_apis\n    assert len(data_exact[\"strategies\"]) == 1\nE   assert 0 == 1\nE    +  where 0 = len([])"
+      },
+      "command": [
+        "/var/tmp/v95-recovery/venv/bin/python",
+        "-m",
+        "pytest",
+        "-vv",
+        "-ra",
+        "--tb=short",
+        "-p",
+        "archive_resource_cleanup",
+        "-o",
+        "faulthandler_timeout=30",
+        "--junitxml=/home/user/V9_5_CURRENT_ARCHIVE_candidate_06.xml",
+        "DATA/tests/test_final_testing_and_orchestrator_loop_fix.py"
+      ],
+      "log": "/home/user/V9_5_CURRENT_ARCHIVE_candidate_06.log",
+      "peak_owned_rss_bytes": 313249792,
+      "current_failure_lines": [
+        "164"
+      ],
+      "baseline_failure_lines": [
+        "164"
+      ]
+    },
+    {
+      "id": "DATA/tests/test_final_testing_and_orchestrator_loop_fix.py::test_final_testing_strategy_trades_endpoint",
+      "result": "failed",
+      "detail": "DATA/tests/test_final_testing_and_orchestrator_loop_fix.py:206: in test_final_testing_strategy_trades_endpoint\n    assert res.status_code == 200\nE   assert 404 == 200\nE    +  where 404 = <Response [404 Not Found]>.status_code",
+      "classification": "PRE_EXISTING_ARCHIVED_FAILURE",
+      "reason": "Paired baseline and current fail the same named test and assertion location; exact traces retained below. This does not convert the failure into a passing test. Removed legacy routes, static historical identities/metrics, hashes and old schema assumptions are not restored to satisfy obsolete contracts.",
+      "baseline": {
+        "id": "DATA/tests/test_final_testing_and_orchestrator_loop_fix.py::test_final_testing_strategy_trades_endpoint",
+        "result": "failed",
+        "detail": "DATA/tests/test_final_testing_and_orchestrator_loop_fix.py:206: in test_final_testing_strategy_trades_endpoint\n    assert res.status_code == 200\nE   assert 404 == 200\nE    +  where 404 = <Response [404 Not Found]>.status_code"
+      },
+      "command": [
+        "/var/tmp/v95-recovery/venv/bin/python",
+        "-m",
+        "pytest",
+        "-vv",
+        "-ra",
+        "--tb=short",
+        "-p",
+        "archive_resource_cleanup",
+        "-o",
+        "faulthandler_timeout=30",
+        "--junitxml=/home/user/V9_5_CURRENT_ARCHIVE_candidate_06.xml",
+        "DATA/tests/test_final_testing_and_orchestrator_loop_fix.py"
+      ],
+      "log": "/home/user/V9_5_CURRENT_ARCHIVE_candidate_06.log",
+      "peak_owned_rss_bytes": 313249792,
+      "current_failure_lines": [
+        "206"
+      ],
+      "baseline_failure_lines": [
+        "206"
+      ]
+    },
+    {
+      "id": "DATA/tests/test_launcher_scenarios.py::test_start_bat_static_structure",
+      "result": "failed",
+      "detail": "DATA/tests/test_launcher_scenarios.py:19: in test_start_bat_static_structure\n    assert start_bat.exists()\nE   AssertionError: assert False\nE    +  where False = exists()\nE    +    where exists = PosixPath('/var/tmp/v95-recovery/archive-candidate-source/START.bat').exists",
+      "classification": "ENVIRONMENT_FIXTURE",
+      "reason": "Linux case-sensitive fixture expects uppercase START.bat; tracked launcher is start.bat. Baseline extraction also omitted root launchers, so its missing-file result is not native Windows proof. Native Windows launcher unverified; assertions retained.",
+      "baseline": {
+        "id": "DATA/tests/test_launcher_scenarios.py::test_start_bat_static_structure",
+        "result": "failed",
+        "detail": "DATA/tests/test_launcher_scenarios.py:19: in test_start_bat_static_structure\n    assert start_bat.exists()\nE   AssertionError: assert False\nE    +  where False = exists()\nE    +    where exists = PosixPath('/var/tmp/v95-recovery/archive-baseline-source/START.bat').exists"
+      },
+      "command": [
+        "/var/tmp/v95-recovery/venv/bin/python",
+        "-m",
+        "pytest",
+        "-vv",
+        "-ra",
+        "--tb=short",
+        "-p",
+        "archive_resource_cleanup",
+        "-o",
+        "faulthandler_timeout=30",
+        "--junitxml=/home/user/V9_5_CURRENT_ARCHIVE_candidate_09.xml",
+        "DATA/tests/test_launcher_scenarios.py"
+      ],
+      "log": "/home/user/V9_5_CURRENT_ARCHIVE_candidate_09.log",
+      "peak_owned_rss_bytes": 128266240,
+      "current_failure_lines": [
+        "19"
+      ],
+      "baseline_failure_lines": [
+        "19"
+      ]
+    },
+    {
+      "id": "DATA/tests/test_mt5_sync_and_activity.py::test_database_and_tree_preserved",
+      "result": "failed",
+      "detail": "DATA/tests/test_mt5_sync_and_activity.py:223: in test_database_and_tree_preserved\n    assert db_path.exists()\nE   AssertionError: assert False\nE    +  where False = exists()\nE    +    where exists = PosixPath('/var/tmp/v95-recovery/archive-candidate-source/DATABASE/lab_state.db').exists",
+      "classification": "ENVIRONMENT_FIXTURE",
+      "reason": "Archived test hard-codes repository/default database layout rather than the explicitly isolated external DATA root. Real isolated DB exists and is exercised; same old assertion fails in baseline. No missing active DB or reset is inferred.",
+      "baseline": {
+        "id": "DATA/tests/test_mt5_sync_and_activity.py::test_database_and_tree_preserved",
+        "result": "failed",
+        "detail": "DATA/tests/test_mt5_sync_and_activity.py:223: in test_database_and_tree_preserved\n    assert db_path.exists()\nE   AssertionError: assert False\nE    +  where False = exists()\nE    +    where exists = PosixPath('/var/tmp/v95-recovery/archive-baseline-source/DATABASE/lab_state.db').exists"
+      },
+      "command": [
+        "/var/tmp/v95-recovery/venv/bin/python",
+        "-m",
+        "pytest",
+        "-vv",
+        "-ra",
+        "--tb=short",
+        "-p",
+        "archive_resource_cleanup",
+        "-o",
+        "faulthandler_timeout=30",
+        "--junitxml=/home/user/V9_5_CURRENT_ARCHIVE_candidate_10.xml",
+        "DATA/tests/test_mt5_sync_and_activity.py"
+      ],
+      "log": "/home/user/V9_5_CURRENT_ARCHIVE_candidate_10.log",
+      "peak_owned_rss_bytes": 260882432,
+      "current_failure_lines": [
+        "223"
+      ],
+      "baseline_failure_lines": [
+        "223"
+      ]
+    },
+    {
+      "id": "DATA/tests/test_scenarios_a_to_f.py::test_launcher_scripts_and_powershell_routing",
+      "result": "failed",
+      "detail": "DATA/tests/test_scenarios_a_to_f.py:277: in test_launcher_scripts_and_powershell_routing\n    assert path.exists(), f\"{bf} does not exist\"\nE   AssertionError: START.bat does not exist\nE   assert False\nE    +  where False = exists()\nE    +    where exists = PosixPath('/var/tmp/v95-recovery/archive-candidate-source/START.bat').exists",
+      "classification": "ENVIRONMENT_FIXTURE",
+      "reason": "Linux case-sensitive fixture expects uppercase START.bat; tracked launcher is start.bat. Baseline extraction also omitted root launchers, so its missing-file result is not native Windows proof. Native Windows launcher unverified; assertions retained.",
+      "baseline": {
+        "id": "DATA/tests/test_scenarios_a_to_f.py::test_launcher_scripts_and_powershell_routing",
+        "result": "failed",
+        "detail": "DATA/tests/test_scenarios_a_to_f.py:277: in test_launcher_scripts_and_powershell_routing\n    assert path.exists(), f\"{bf} does not exist\"\nE   AssertionError: START.bat does not exist\nE   assert False\nE    +  where False = exists()\nE    +    where exists = PosixPath('/var/tmp/v95-recovery/archive-baseline-source/START.bat').exists"
+      },
+      "command": [
+        "/var/tmp/v95-recovery/venv/bin/python",
+        "-m",
+        "pytest",
+        "-vv",
+        "-ra",
+        "--tb=short",
+        "-p",
+        "archive_resource_cleanup",
+        "-o",
+        "faulthandler_timeout=30",
+        "--junitxml=/home/user/V9_5_CURRENT_ARCHIVE_candidate_12.xml",
+        "DATA/tests/test_scenarios_a_to_f.py"
+      ],
+      "log": "/home/user/V9_5_CURRENT_ARCHIVE_candidate_12.log",
+      "peak_owned_rss_bytes": 217878528,
+      "current_failure_lines": [
+        "277"
+      ],
+      "baseline_failure_lines": [
+        "277"
+      ]
+    },
+    {
+      "id": "DATA/tests/test_v2_1_features.py::test_start_bat_structure",
+      "result": "failed",
+      "detail": "DATA/tests/test_v2_1_features.py:52: in test_start_bat_structure\n    assert bat_path.exists(), \"START.bat must exist in project root\"\nE   AssertionError: START.bat must exist in project root\nE   assert False\nE    +  where False = exists()\nE    +    where exists = PosixPath('/var/tmp/v95-recovery/archive-candidate-source/START.bat').exists",
+      "classification": "ENVIRONMENT_FIXTURE",
+      "reason": "Linux case-sensitive fixture expects uppercase START.bat; tracked launcher is start.bat. Baseline extraction also omitted root launchers, so its missing-file result is not native Windows proof. Native Windows launcher unverified; assertions retained.",
+      "baseline": {
+        "id": "DATA/tests/test_v2_1_features.py::test_start_bat_structure",
+        "result": "failed",
+        "detail": "DATA/tests/test_v2_1_features.py:52: in test_start_bat_structure\n    assert bat_path.exists(), \"START.bat must exist in project root\"\nE   AssertionError: START.bat must exist in project root\nE   assert False\nE    +  where False = exists()\nE    +    where exists = PosixPath('/var/tmp/v95-recovery/archive-baseline-source/START.bat').exists"
+      },
+      "command": [
+        "/var/tmp/v95-recovery/venv/bin/python",
+        "-m",
+        "pytest",
+        "-vv",
+        "-ra",
+        "--tb=short",
+        "-p",
+        "archive_resource_cleanup",
+        "-o",
+        "faulthandler_timeout=30",
+        "--junitxml=/home/user/V9_5_CURRENT_ARCHIVE_candidate_13.xml",
+        "DATA/tests/test_v2_1_features.py"
+      ],
+      "log": "/home/user/V9_5_CURRENT_ARCHIVE_candidate_13.log",
+      "peak_owned_rss_bytes": 158793728,
+      "current_failure_lines": [
+        "52"
+      ],
+      "baseline_failure_lines": [
+        "52"
+      ]
+    },
+    {
+      "id": "DATA/tests/test_v2_2_features.py::test_v2_2_launcher_scripts",
+      "result": "failed",
+      "detail": "DATA/tests/test_v2_2_features.py:23: in test_v2_2_launcher_scripts\n    assert start.exists()\nE   AssertionError: assert False\nE    +  where False = exists()\nE    +    where exists = PosixPath('/var/tmp/v95-recovery/archive-candidate-source/START.bat').exists",
+      "classification": "ENVIRONMENT_FIXTURE",
+      "reason": "Linux case-sensitive fixture expects uppercase START.bat; tracked launcher is start.bat. Baseline extraction also omitted root launchers, so its missing-file result is not native Windows proof. Native Windows launcher unverified; assertions retained.",
+      "baseline": {
+        "id": "DATA/tests/test_v2_2_features.py::test_v2_2_launcher_scripts",
+        "result": "failed",
+        "detail": "DATA/tests/test_v2_2_features.py:22: in test_v2_2_launcher_scripts\n    assert prereq.exists()\nE   AssertionError: assert False\nE    +  where False = exists()\nE    +    where exists = PosixPath('/var/tmp/v95-recovery/archive-baseline-source/Prerequisite.bat').exists"
+      },
+      "command": [
+        "/var/tmp/v95-recovery/venv/bin/python",
+        "-m",
+        "pytest",
+        "-vv",
+        "-ra",
+        "--tb=short",
+        "-p",
+        "archive_resource_cleanup",
+        "-o",
+        "faulthandler_timeout=30",
+        "--junitxml=/home/user/V9_5_CURRENT_ARCHIVE_candidate_14.xml",
+        "DATA/tests/test_v2_2_features.py"
+      ],
+      "log": "/home/user/V9_5_CURRENT_ARCHIVE_candidate_14.log",
+      "peak_owned_rss_bytes": 126894080,
+      "current_failure_lines": [
+        "23"
+      ],
+      "baseline_failure_lines": [
+        "22"
+      ]
+    },
+    {
+      "id": "DATA/tests/test_v2_3_features.py::test_start_bat_v2_3_structure",
+      "result": "failed",
+      "detail": "DATA/tests/test_v2_3_features.py:71: in test_start_bat_v2_3_structure\n    assert start.exists()\nE   AssertionError: assert False\nE    +  where False = exists()\nE    +    where exists = PosixPath('/var/tmp/v95-recovery/archive-candidate-source/START.bat').exists",
+      "classification": "ENVIRONMENT_FIXTURE",
+      "reason": "Linux case-sensitive fixture expects uppercase START.bat; tracked launcher is start.bat. Baseline extraction also omitted root launchers, so its missing-file result is not native Windows proof. Native Windows launcher unverified; assertions retained.",
+      "baseline": {
+        "id": "DATA/tests/test_v2_3_features.py::test_start_bat_v2_3_structure",
+        "result": "failed",
+        "detail": "DATA/tests/test_v2_3_features.py:71: in test_start_bat_v2_3_structure\n    assert start.exists()\nE   AssertionError: assert False\nE    +  where False = exists()\nE    +    where exists = PosixPath('/var/tmp/v95-recovery/archive-baseline-source/START.bat').exists"
+      },
+      "command": [
+        "/var/tmp/v95-recovery/venv/bin/python",
+        "-m",
+        "pytest",
+        "-vv",
+        "-ra",
+        "--tb=short",
+        "-p",
+        "archive_resource_cleanup",
+        "-o",
+        "faulthandler_timeout=30",
+        "--junitxml=/home/user/V9_5_CURRENT_ARCHIVE_candidate_15.xml",
+        "DATA/tests/test_v2_3_features.py"
+      ],
+      "log": "/home/user/V9_5_CURRENT_ARCHIVE_candidate_15.log",
+      "peak_owned_rss_bytes": 302383104,
+      "current_failure_lines": [
+        "71"
+      ],
+      "baseline_failure_lines": [
+        "71"
+      ]
+    },
+    {
+      "id": "DATA/tests/test_v2_3_tree_lineage.py::test_api_health_endpoint",
+      "result": "failed",
+      "detail": "DATA/tests/test_v2_3_tree_lineage.py:201: in test_api_health_endpoint\n    assert data[\"status\"] == \"ok\"\nE   AssertionError: assert 'starting' == 'ok'\nE     \nE     - ok\nE     + starting",
+      "classification": "PRE_EXISTING_ARCHIVED_FAILURE",
+      "reason": "Paired baseline and current fail the same named test and assertion location; exact traces retained below. This does not convert the failure into a passing test. Removed legacy routes, static historical identities/metrics, hashes and old schema assumptions are not restored to satisfy obsolete contracts.",
+      "baseline": {
+        "id": "DATA/tests/test_v2_3_tree_lineage.py::test_api_health_endpoint",
+        "result": "failed",
+        "detail": "DATA/tests/test_v2_3_tree_lineage.py:201: in test_api_health_endpoint\n    assert data[\"status\"] == \"ok\"\nE   AssertionError: assert 'starting' == 'ok'\nE     \nE     - ok\nE     + starting"
+      },
+      "command": [
+        "/var/tmp/v95-recovery/venv/bin/python",
+        "-m",
+        "pytest",
+        "-vv",
+        "-ra",
+        "--tb=short",
+        "-p",
+        "archive_resource_cleanup",
+        "-o",
+        "faulthandler_timeout=30",
+        "--junitxml=/home/user/V9_5_CURRENT_ARCHIVE_candidate_16.xml",
+        "DATA/tests/test_v2_3_tree_lineage.py"
+      ],
+      "log": "/home/user/V9_5_CURRENT_ARCHIVE_candidate_16.log",
+      "peak_owned_rss_bytes": 162623488,
+      "current_failure_lines": [
+        "201"
+      ],
+      "baseline_failure_lines": [
+        "201"
+      ]
+    },
+    {
+      "id": "DATA/tests/test_v2_6_features.py::test_database_preservation_and_schema_version",
+      "result": "failed",
+      "detail": "DATA/tests/test_v2_6_features.py:163: in test_database_preservation_and_schema_version\n    assert db_path.exists(), \"DATABASE/lab_state.db must exist\"\nE   AssertionError: DATABASE/lab_state.db must exist\nE   assert False\nE    +  where False = exists()\nE    +    where exists = PosixPath('/var/tmp/v95-recovery/archive-candidate-source/DATABASE/lab_state.db').exists",
+      "classification": "ENVIRONMENT_FIXTURE",
+      "reason": "Archived test hard-codes repository/default database layout rather than the explicitly isolated external DATA root. Real isolated DB exists and is exercised; same old assertion fails in baseline. No missing active DB or reset is inferred.",
+      "baseline": {
+        "id": "DATA/tests/test_v2_6_features.py::test_database_preservation_and_schema_version",
+        "result": "failed",
+        "detail": "DATA/tests/test_v2_6_features.py:163: in test_database_preservation_and_schema_version\n    assert db_path.exists(), \"DATABASE/lab_state.db must exist\"\nE   AssertionError: DATABASE/lab_state.db must exist\nE   assert False\nE    +  where False = exists()\nE    +    where exists = PosixPath('/var/tmp/v95-recovery/archive-baseline-source/DATABASE/lab_state.db').exists"
+      },
+      "command": [
+        "/var/tmp/v95-recovery/venv/bin/python",
+        "-m",
+        "pytest",
+        "-vv",
+        "-ra",
+        "--tb=short",
+        "-p",
+        "archive_resource_cleanup",
+        "-o",
+        "faulthandler_timeout=30",
+        "--junitxml=/home/user/V9_5_CURRENT_ARCHIVE_candidate_17.xml",
+        "DATA/tests/test_v2_6_features.py"
+      ],
+      "log": "/home/user/V9_5_CURRENT_ARCHIVE_candidate_17.log",
+      "peak_owned_rss_bytes": 172118016,
+      "current_failure_lines": [
+        "163"
+      ],
+      "baseline_failure_lines": [
+        "163"
+      ]
+    },
+    {
+      "id": "DATA/tests/test_v2_71_dataset_eligibility_and_feature_contract.py::test_test_a_stale_database_record_missing_on_disk",
+      "result": "failed",
+      "detail": "DATA/tests/test_v2_71_dataset_eligibility_and_feature_contract.py:170: in test_test_a_stale_database_record_missing_on_disk\n    assert strat[\"status\"] == \"FAILED\"\nE   AssertionError: assert 'DATA_UNAVAILABLE' == 'FAILED'\nE     \nE     - FAILED\nE     + DATA_UNAVAILABLE",
+      "classification": "PRE_EXISTING_ARCHIVED_FAILURE",
+      "reason": "Paired baseline and current fail the same named test and assertion location; exact traces retained below. This does not convert the failure into a passing test. Removed legacy routes, static historical identities/metrics, hashes and old schema assumptions are not restored to satisfy obsolete contracts.",
+      "baseline": {
+        "id": "DATA/tests/test_v2_71_dataset_eligibility_and_feature_contract.py::test_test_a_stale_database_record_missing_on_disk",
+        "result": "failed",
+        "detail": "DATA/tests/test_v2_71_dataset_eligibility_and_feature_contract.py:170: in test_test_a_stale_database_record_missing_on_disk\n    assert strat[\"status\"] == \"FAILED\"\nE   AssertionError: assert 'DATA_UNAVAILABLE' == 'FAILED'\nE     \nE     - FAILED\nE     + DATA_UNAVAILABLE"
+      },
+      "command": [
+        "/var/tmp/v95-recovery/venv/bin/python",
+        "-m",
+        "pytest",
+        "-vv",
+        "-ra",
+        "--tb=short",
+        "-p",
+        "archive_resource_cleanup",
+        "-o",
+        "faulthandler_timeout=30",
+        "--junitxml=/home/user/V9_5_CURRENT_ARCHIVE_candidate_18.xml",
+        "DATA/tests/test_v2_71_dataset_eligibility_and_feature_contract.py"
+      ],
+      "log": "/home/user/V9_5_CURRENT_ARCHIVE_candidate_18.log",
+      "peak_owned_rss_bytes": 692953088,
+      "current_failure_lines": [
+        "170"
+      ],
+      "baseline_failure_lines": [
+        "170"
+      ]
+    },
+    {
+      "id": "DATA/tests/test_v2_71_dataset_eligibility_and_feature_contract.py::test_test_c_feature_validation_fails_blocks_research",
+      "result": "failed",
+      "detail": "DATA/tests/test_v2_71_dataset_eligibility_and_feature_contract.py:213: in test_test_c_feature_validation_fails_blocks_research\n    assert valid is False\nE   assert ([], [{'dataset_id': 'XAUUSD_M15', 'reason': \"Feature validation failed for XAUUSD_M15: missing columns for specs ['price', 'ema:20', 'ema:50', 'ema:100', 'sma:20', 'rsi:14', 'macd:12:26:9', 'roc:12', 'momentum:10', 'stoch:14:3', 'cci:20', 'adx:14', 'atr:14', 'bb:20:2.0', 'volatility:20', 'volume:20', 'vwap', 'prev_day', 'time', 'regime', 'sessions']\"}]) is False",
+      "classification": "PRE_EXISTING_ARCHIVED_FAILURE",
+      "reason": "Paired baseline and current fail the same named test and assertion location; exact traces retained below. This does not convert the failure into a passing test. Removed legacy routes, static historical identities/metrics, hashes and old schema assumptions are not restored to satisfy obsolete contracts.",
+      "baseline": {
+        "id": "DATA/tests/test_v2_71_dataset_eligibility_and_feature_contract.py::test_test_c_feature_validation_fails_blocks_research",
+        "result": "failed",
+        "detail": "DATA/tests/test_v2_71_dataset_eligibility_and_feature_contract.py:213: in test_test_c_feature_validation_fails_blocks_research\n    assert valid is False\nE   assert ([], [{'dataset_id': 'XAUUSD_M15', 'reason': \"Feature validation failed for XAUUSD_M15: missing columns for specs ['price', 'ema:20', 'ema:50', 'ema:100', 'sma:20', 'rsi:14', 'macd:12:26:9', 'roc:12', 'momentum:10', 'stoch:14:3', 'cci:20', 'adx:14', 'atr:14', 'bb:20:2.0', 'volatility:20', 'volume:20', 'vwap', 'prev_day', 'time', 'regime', 'sessions']\"}]) is False"
+      },
+      "command": [
+        "/var/tmp/v95-recovery/venv/bin/python",
+        "-m",
+        "pytest",
+        "-vv",
+        "-ra",
+        "--tb=short",
+        "-p",
+        "archive_resource_cleanup",
+        "-o",
+        "faulthandler_timeout=30",
+        "--junitxml=/home/user/V9_5_CURRENT_ARCHIVE_candidate_18.xml",
+        "DATA/tests/test_v2_71_dataset_eligibility_and_feature_contract.py"
+      ],
+      "log": "/home/user/V9_5_CURRENT_ARCHIVE_candidate_18.log",
+      "peak_owned_rss_bytes": 692953088,
+      "current_failure_lines": [
+        "213"
+      ],
+      "baseline_failure_lines": [
+        "213"
+      ]
+    },
+    {
+      "id": "DATA/tests/test_v2_71_dataset_eligibility_and_feature_contract.py::test_test_d_candidate_references_unavailable_dataset",
+      "result": "failed",
+      "detail": "DATA/tests/test_v2_71_dataset_eligibility_and_feature_contract.py:269: in test_test_d_candidate_references_unavailable_dataset\n    assert s1[\"status\"] == \"FAILED\"\nE   AssertionError: assert 'DATA_UNAVAILABLE' == 'FAILED'\nE     \nE     - FAILED\nE     + DATA_UNAVAILABLE",
+      "classification": "PRE_EXISTING_ARCHIVED_FAILURE",
+      "reason": "Paired baseline and current fail the same named test and assertion location; exact traces retained below. This does not convert the failure into a passing test. Removed legacy routes, static historical identities/metrics, hashes and old schema assumptions are not restored to satisfy obsolete contracts.",
+      "baseline": {
+        "id": "DATA/tests/test_v2_71_dataset_eligibility_and_feature_contract.py::test_test_d_candidate_references_unavailable_dataset",
+        "result": "failed",
+        "detail": "DATA/tests/test_v2_71_dataset_eligibility_and_feature_contract.py:269: in test_test_d_candidate_references_unavailable_dataset\n    assert s1[\"status\"] == \"FAILED\"\nE   AssertionError: assert 'DATA_UNAVAILABLE' == 'FAILED'\nE     \nE     - FAILED\nE     + DATA_UNAVAILABLE"
+      },
+      "command": [
+        "/var/tmp/v95-recovery/venv/bin/python",
+        "-m",
+        "pytest",
+        "-vv",
+        "-ra",
+        "--tb=short",
+        "-p",
+        "archive_resource_cleanup",
+        "-o",
+        "faulthandler_timeout=30",
+        "--junitxml=/home/user/V9_5_CURRENT_ARCHIVE_candidate_18.xml",
+        "DATA/tests/test_v2_71_dataset_eligibility_and_feature_contract.py"
+      ],
+      "log": "/home/user/V9_5_CURRENT_ARCHIVE_candidate_18.log",
+      "peak_owned_rss_bytes": 692953088,
+      "current_failure_lines": [
+        "269"
+      ],
+      "baseline_failure_lines": [
+        "269"
+      ]
+    },
+    {
+      "id": "DATA/tests/test_v2_71_dataset_eligibility_and_feature_contract.py::test_test_e_valid_dataset_and_features_evaluates_normally",
+      "result": "failed",
+      "detail": "DATA/tests/test_v2_71_dataset_eligibility_and_feature_contract.py:298: in test_test_e_valid_dataset_and_features_evaluates_normally\n    assert s[\"status\"] in (\"SURVIVED\", \"FAILED\", \"KILLED\")\nE   AssertionError: assert 'BACKTEST_ERROR' in ('SURVIVED', 'FAILED', 'KILLED')",
+      "classification": "PRE_EXISTING_ARCHIVED_FAILURE",
+      "reason": "Paired baseline and current fail the same named test and assertion location; exact traces retained below. This does not convert the failure into a passing test. Removed legacy routes, static historical identities/metrics, hashes and old schema assumptions are not restored to satisfy obsolete contracts.",
+      "baseline": {
+        "id": "DATA/tests/test_v2_71_dataset_eligibility_and_feature_contract.py::test_test_e_valid_dataset_and_features_evaluates_normally",
+        "result": "failed",
+        "detail": "DATA/tests/test_v2_71_dataset_eligibility_and_feature_contract.py:298: in test_test_e_valid_dataset_and_features_evaluates_normally\n    assert s[\"status\"] in (\"SURVIVED\", \"FAILED\", \"KILLED\")\nE   AssertionError: assert 'BACKTEST_ERROR' in ('SURVIVED', 'FAILED', 'KILLED')"
+      },
+      "command": [
+        "/var/tmp/v95-recovery/venv/bin/python",
+        "-m",
+        "pytest",
+        "-vv",
+        "-ra",
+        "--tb=short",
+        "-p",
+        "archive_resource_cleanup",
+        "-o",
+        "faulthandler_timeout=30",
+        "--junitxml=/home/user/V9_5_CURRENT_ARCHIVE_candidate_18.xml",
+        "DATA/tests/test_v2_71_dataset_eligibility_and_feature_contract.py"
+      ],
+      "log": "/home/user/V9_5_CURRENT_ARCHIVE_candidate_18.log",
+      "peak_owned_rss_bytes": 692953088,
+      "current_failure_lines": [
+        "298"
+      ],
+      "baseline_failure_lines": [
+        "298"
+      ]
+    },
+    {
+      "id": "DATA/tests/test_v2_71_dataset_eligibility_and_feature_contract.py::test_test_f_three_genuine_runtime_failures_safe_paused",
+      "result": "failed",
+      "detail": "DATA/tests/test_v2_71_dataset_eligibility_and_feature_contract.py:334: in test_test_f_three_genuine_runtime_failures_safe_paused\n    assert health.json()[\"status\"] == \"ok\"\nE   AssertionError: assert 'starting' == 'ok'\nE     \nE     - ok\nE     + starting",
+      "classification": "PRE_EXISTING_ARCHIVED_FAILURE",
+      "reason": "Paired baseline and current fail the same named test and assertion location; exact traces retained below. This does not convert the failure into a passing test. Removed legacy routes, static historical identities/metrics, hashes and old schema assumptions are not restored to satisfy obsolete contracts.",
+      "baseline": {
+        "id": "DATA/tests/test_v2_71_dataset_eligibility_and_feature_contract.py::test_test_f_three_genuine_runtime_failures_safe_paused",
+        "result": "failed",
+        "detail": "DATA/tests/test_v2_71_dataset_eligibility_and_feature_contract.py:334: in test_test_f_three_genuine_runtime_failures_safe_paused\n    assert health.json()[\"status\"] == \"ok\"\nE   AssertionError: assert 'starting' == 'ok'\nE     \nE     - ok\nE     + starting"
+      },
+      "command": [
+        "/var/tmp/v95-recovery/venv/bin/python",
+        "-m",
+        "pytest",
+        "-vv",
+        "-ra",
+        "--tb=short",
+        "-p",
+        "archive_resource_cleanup",
+        "-o",
+        "faulthandler_timeout=30",
+        "--junitxml=/home/user/V9_5_CURRENT_ARCHIVE_candidate_18.xml",
+        "DATA/tests/test_v2_71_dataset_eligibility_and_feature_contract.py"
+      ],
+      "log": "/home/user/V9_5_CURRENT_ARCHIVE_candidate_18.log",
+      "peak_owned_rss_bytes": 692953088,
+      "current_failure_lines": [
+        "334"
+      ],
+      "baseline_failure_lines": [
+        "334"
+      ]
+    },
+    {
+      "id": "DATA/tests/test_v2_7_features.py::test_persistent_data_architecture",
+      "result": "failed",
+      "detail": "DATA/tests/test_v2_7_features.py:50: in test_persistent_data_architecture\n    assert P.DATA_ROOT == ROOT_DIR / \"DATA\"\nE   AssertionError: assert PosixPath('/var/tmp/v95-recovery/archive-candidate-full-data') == (PosixPath('/var/tmp/v95-recovery/archive-candidate-source') / 'DATA')\nE    +  where PosixPath('/var/tmp/v95-recovery/archive-candidate-full-data') = P.DATA_ROOT",
+      "classification": "ENVIRONMENT_FIXTURE",
+      "reason": "Archived test hard-codes repository/default database layout rather than the explicitly isolated external DATA root. Real isolated DB exists and is exercised; same old assertion fails in baseline. No missing active DB or reset is inferred.",
+      "baseline": {
+        "id": "DATA/tests/test_v2_7_features.py::test_persistent_data_architecture",
+        "result": "failed",
+        "detail": "DATA/tests/test_v2_7_features.py:50: in test_persistent_data_architecture\n    assert P.DATA_ROOT == ROOT_DIR / \"DATA\"\nE   AssertionError: assert PosixPath('/var/tmp/v95-recovery/archive-baseline-full-data') == (PosixPath('/var/tmp/v95-recovery/archive-baseline-source') / 'DATA')\nE    +  where PosixPath('/var/tmp/v95-recovery/archive-baseline-full-data') = P.DATA_ROOT"
+      },
+      "command": [
+        "/var/tmp/v95-recovery/venv/bin/python",
+        "-m",
+        "pytest",
+        "-vv",
+        "-ra",
+        "--tb=short",
+        "-p",
+        "archive_resource_cleanup",
+        "-o",
+        "faulthandler_timeout=30",
+        "--junitxml=/home/user/V9_5_CURRENT_ARCHIVE_candidate_20.xml",
+        "DATA/tests/test_v2_7_features.py"
+      ],
+      "log": "/home/user/V9_5_CURRENT_ARCHIVE_candidate_20.log",
+      "peak_owned_rss_bytes": 188944384,
+      "current_failure_lines": [
+        "50"
+      ],
+      "baseline_failure_lines": [
+        "50"
+      ]
+    },
+    {
+      "id": "DATA/tests/test_v2_7_features.py::test_data_reuse_and_persistent_features",
+      "result": "failed",
+      "detail": "DATA/tests/test_v2_7_features.py:119: in test_data_reuse_and_persistent_features\n    assert res_reuse.get(\"fetch_mode\") == \"reuse_existing\" or res_reuse.get(\"new_bars\") == 0\nE   AssertionError: assert (None == 'reuse_existing' or None == 0)\nE    +  where None = <built-in method get of dict object at 0x7f1d2dfbeec0>('fetch_mode')\nE    +    where <built-in method get of dict object at 0x7f1d2dfbeec0> = {'symbol': 'XAUUSD', 'timeframe': 'M15', 'status': 'refused', 'sync_status': 'FAILED', 'error': 'only a confirmed IC Markets MT5 bridge may update this broker baseline', 'total_bars': 100864}.get\nE    +  and   None = <built-in method get of dict object at 0x7f1d2dfbeec0>('new_bars')\nE    +    where <built-in method get of dict object at 0x7f1d2dfbeec0> = {'symbol': 'XAUUSD', 'timeframe': 'M15', 'status': 'refused', 'sync_status': 'FAILED', 'error': 'only a confirmed IC Markets MT5 bridge may update this broker baseline', 'total_bars': 100864}.get",
+      "classification": "PRE_EXISTING_ARCHIVED_FAILURE",
+      "reason": "Paired baseline and current fail the same named test and assertion location; exact traces retained below. This does not convert the failure into a passing test. Removed legacy routes, static historical identities/metrics, hashes and old schema assumptions are not restored to satisfy obsolete contracts.",
+      "baseline": {
+        "id": "DATA/tests/test_v2_7_features.py::test_data_reuse_and_persistent_features",
+        "result": "failed",
+        "detail": "DATA/tests/test_v2_7_features.py:119: in test_data_reuse_and_persistent_features\n    assert res_reuse.get(\"fetch_mode\") == \"reuse_existing\" or res_reuse.get(\"new_bars\") == 0\nE   AssertionError: assert (None == 'reuse_existing' or None == 0)\nE    +  where None = <built-in method get of dict object at 0x7fbf9ce3a240>('fetch_mode')\nE    +    where <built-in method get of dict object at 0x7fbf9ce3a240> = {'symbol': 'XAUUSD', 'timeframe': 'M15', 'status': 'refused', 'sync_status': 'FAILED', 'error': 'only a confirmed IC Markets MT5 bridge may update this broker baseline', 'total_bars': 100864}.get\nE    +  and   None = <built-in method get of dict object at 0x7fbf9ce3a240>('new_bars')\nE    +    where <built-in method get of dict object at 0x7fbf9ce3a240> = {'symbol': 'XAUUSD', 'timeframe': 'M15', 'status': 'refused', 'sync_status': 'FAILED', 'error': 'only a confirmed IC Markets MT5 bridge may update this broker baseline', 'total_bars': 100864}.get"
+      },
+      "command": [
+        "/var/tmp/v95-recovery/venv/bin/python",
+        "-m",
+        "pytest",
+        "-vv",
+        "-ra",
+        "--tb=short",
+        "-p",
+        "archive_resource_cleanup",
+        "-o",
+        "faulthandler_timeout=30",
+        "--junitxml=/home/user/V9_5_CURRENT_ARCHIVE_candidate_20.xml",
+        "DATA/tests/test_v2_7_features.py"
+      ],
+      "log": "/home/user/V9_5_CURRENT_ARCHIVE_candidate_20.log",
+      "peak_owned_rss_bytes": 188944384,
+      "current_failure_lines": [
+        "119"
+      ],
+      "baseline_failure_lines": [
+        "119"
+      ]
+    },
+    {
+      "id": "DATA/tests/test_v2_7_features.py::test_critical_invariants_db_and_tree",
+      "result": "failed",
+      "detail": "DATA/tests/test_v2_7_features.py:309: in test_critical_invariants_db_and_tree\n    assert db_path.exists(), \"DATABASE/lab_state.db must exist\"\nE   AssertionError: DATABASE/lab_state.db must exist\nE   assert False\nE    +  where False = exists()\nE    +    where exists = PosixPath('/var/tmp/v95-recovery/archive-candidate-source/DATABASE/lab_state.db').exists",
+      "classification": "ENVIRONMENT_FIXTURE",
+      "reason": "Archived test hard-codes repository/default database layout rather than the explicitly isolated external DATA root. Real isolated DB exists and is exercised; same old assertion fails in baseline. No missing active DB or reset is inferred.",
+      "baseline": {
+        "id": "DATA/tests/test_v2_7_features.py::test_critical_invariants_db_and_tree",
+        "result": "failed",
+        "detail": "DATA/tests/test_v2_7_features.py:309: in test_critical_invariants_db_and_tree\n    assert db_path.exists(), \"DATABASE/lab_state.db must exist\"\nE   AssertionError: DATABASE/lab_state.db must exist\nE   assert False\nE    +  where False = exists()\nE    +    where exists = PosixPath('/var/tmp/v95-recovery/archive-baseline-source/DATABASE/lab_state.db').exists"
+      },
+      "command": [
+        "/var/tmp/v95-recovery/venv/bin/python",
+        "-m",
+        "pytest",
+        "-vv",
+        "-ra",
+        "--tb=short",
+        "-p",
+        "archive_resource_cleanup",
+        "-o",
+        "faulthandler_timeout=30",
+        "--junitxml=/home/user/V9_5_CURRENT_ARCHIVE_candidate_20.xml",
+        "DATA/tests/test_v2_7_features.py"
+      ],
+      "log": "/home/user/V9_5_CURRENT_ARCHIVE_candidate_20.log",
+      "peak_owned_rss_bytes": 188944384,
+      "current_failure_lines": [
+        "309"
+      ],
+      "baseline_failure_lines": [
+        "309"
+      ]
+    },
+    {
+      "id": "DATA/tests/test_v2_7_orchestration_and_watchdog.py::test_population_deficit_spawns_candidates",
+      "result": "failed",
+      "detail": "DATA/tests/test_v2_7_orchestration_and_watchdog.py:90: in test_population_deficit_spawns_candidates\n    assert qualified >= 113\nE   assert 83 >= 113",
+      "classification": "PRE_EXISTING_ARCHIVED_FAILURE",
+      "reason": "Paired baseline and current fail the same named test and assertion location; exact traces retained below. This does not convert the failure into a passing test. Removed legacy routes, static historical identities/metrics, hashes and old schema assumptions are not restored to satisfy obsolete contracts.",
+      "baseline": {
+        "id": "DATA/tests/test_v2_7_orchestration_and_watchdog.py::test_population_deficit_spawns_candidates",
+        "result": "failed",
+        "detail": "DATA/tests/test_v2_7_orchestration_and_watchdog.py:90: in test_population_deficit_spawns_candidates\n    assert qualified >= 113\nE   assert 83 >= 113"
+      },
+      "command": [
+        "/var/tmp/v95-recovery/venv/bin/python",
+        "-m",
+        "pytest",
+        "-vv",
+        "-ra",
+        "--tb=short",
+        "-p",
+        "archive_resource_cleanup",
+        "-o",
+        "faulthandler_timeout=30",
+        "--junitxml=/home/user/V9_5_CURRENT_ARCHIVE_candidate_21.xml",
+        "DATA/tests/test_v2_7_orchestration_and_watchdog.py"
+      ],
+      "log": "/home/user/V9_5_CURRENT_ARCHIVE_candidate_21.log",
+      "peak_owned_rss_bytes": 194265088,
+      "current_failure_lines": [
+        "90"
+      ],
+      "baseline_failure_lines": [
+        "90"
+      ]
+    },
+    {
+      "id": "DATA/tests/test_v2_7_regression_repair.py::test_recovery_idempotency_and_no_counter_inflation",
+      "result": "failed",
+      "detail": "DATA/tests/test_v2_7_regression_repair.py:58: in test_recovery_idempotency_and_no_counter_inflation\n    assert s1 in lab._recovered_strategy_ids\nE   assert 1 in set()\nE    +  where set() = <backend.app.orchestrator.lab.Lab object at 0x7f446da52f90>._recovered_strategy_ids",
+      "classification": "JUSTIFIED_ACTIVE_RUN_RECOVERY_CONTRACT",
+      "reason": "Focused two-run regression proves recovery touches only explicitly active run and is idempotent: baseline 2 failed, current 2 passed. Archived fixture reassigns lab.db without assigning the injected rows the selected active run; old repeated-timeout FAILED expectation also predates BACKTEST_ERROR semantics. Original archived test retained unchanged.",
+      "baseline": {
+        "id": "DATA/tests/test_v2_7_regression_repair.py::test_recovery_idempotency_and_no_counter_inflation",
+        "result": "failed",
+        "detail": "DATA/tests/test_v2_7_regression_repair.py:77: in test_recovery_idempotency_and_no_counter_inflation\n    assert st1_after[\"status\"] == \"FAILED\"\nE   AssertionError: assert 'BACKTEST_ERROR' == 'FAILED'\nE     \nE     - FAILED\nE     + BACKTEST_ERROR"
+      },
+      "command": [
+        "/var/tmp/v95-recovery/venv/bin/python",
+        "-m",
+        "pytest",
+        "-vv",
+        "-ra",
+        "--tb=short",
+        "-p",
+        "archive_resource_cleanup",
+        "-o",
+        "faulthandler_timeout=30",
+        "--junitxml=/home/user/V9_5_CURRENT_ARCHIVE_candidate_22.xml",
+        "DATA/tests/test_v2_7_regression_repair.py"
+      ],
+      "log": "/home/user/V9_5_CURRENT_ARCHIVE_candidate_22.log",
+      "peak_owned_rss_bytes": 195686400,
+      "focused_current_receipt": "V9_5_CURRENT_RECOVERY_SCOPE_V2.json",
+      "focused_baseline_receipt": "V9_5_BASELINE_RECOVERY_SCOPE_V2.json",
+      "current_failure_lines": [
+        "58"
+      ],
+      "baseline_failure_lines": [
+        "77"
+      ]
+    },
+    {
+      "id": "DATA/tests/test_v2_7_regression_repair.py::test_evolution_tree_jsx_integrity",
+      "result": "failed",
+      "detail": "DATA/tests/test_v2_7_regression_repair.py:137: in test_evolution_tree_jsx_integrity\n    assert current_sha == EVOLUTION_TREE_ORIGINAL_SHA, \"EvolutionTree.jsx MUST remain untouched!\"\nE   AssertionError: EvolutionTree.jsx MUST remain untouched!\nE   assert '27d889250dc44af22437f706015e3291fa7ccf6138a566fc4bf5237732512ed6' == '62017667f4568816916285c42d6ba7ed98db2eccbc45f971c222ab48213061f4'\nE     \nE     - 62017667f4568816916285c42d6ba7ed98db2eccbc45f971c222ab48213061f4\nE     + 27d889250dc44af22437f706015e3291fa7ccf6138a566fc4bf5237732512ed6",
+      "classification": "PRE_EXISTING_ARCHIVED_FAILURE",
+      "reason": "Paired baseline and current fail the same named test and assertion location; exact traces retained below. This does not convert the failure into a passing test. Removed legacy routes, static historical identities/metrics, hashes and old schema assumptions are not restored to satisfy obsolete contracts.",
+      "baseline": {
+        "id": "DATA/tests/test_v2_7_regression_repair.py::test_evolution_tree_jsx_integrity",
+        "result": "failed",
+        "detail": "DATA/tests/test_v2_7_regression_repair.py:137: in test_evolution_tree_jsx_integrity\n    assert current_sha == EVOLUTION_TREE_ORIGINAL_SHA, \"EvolutionTree.jsx MUST remain untouched!\"\nE   AssertionError: EvolutionTree.jsx MUST remain untouched!\nE   assert '27d889250dc44af22437f706015e3291fa7ccf6138a566fc4bf5237732512ed6' == '62017667f4568816916285c42d6ba7ed98db2eccbc45f971c222ab48213061f4'\nE     \nE     - 62017667f4568816916285c42d6ba7ed98db2eccbc45f971c222ab48213061f4\nE     + 27d889250dc44af22437f706015e3291fa7ccf6138a566fc4bf5237732512ed6"
+      },
+      "command": [
+        "/var/tmp/v95-recovery/venv/bin/python",
+        "-m",
+        "pytest",
+        "-vv",
+        "-ra",
+        "--tb=short",
+        "-p",
+        "archive_resource_cleanup",
+        "-o",
+        "faulthandler_timeout=30",
+        "--junitxml=/home/user/V9_5_CURRENT_ARCHIVE_candidate_22.xml",
+        "DATA/tests/test_v2_7_regression_repair.py"
+      ],
+      "log": "/home/user/V9_5_CURRENT_ARCHIVE_candidate_22.log",
+      "peak_owned_rss_bytes": 195686400,
+      "current_failure_lines": [
+        "137"
+      ],
+      "baseline_failure_lines": [
+        "137"
+      ]
+    },
+    {
+      "id": "DATA/tests/test_v2_8_clean_data_and_execution.py::test_test_e_database_contains_old_nodes_data_empty",
+      "result": "failed",
+      "detail": "DATA/tests/test_v2_8_clean_data_and_execution.py:212: in test_test_e_database_contains_old_nodes_data_empty\n    assert \"CLEAN-MT5\" in diag[\"run_id\"]\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nE   TypeError: argument of type 'NoneType' is not iterable",
+      "classification": "JUSTIFIED_EXPLICIT_RUN_CONTRACT",
+      "reason": "Archived constructor expects an implicit CLEAN-MT5 identifier even in a new/empty state. V9.5 deliberately has no active run until explicit new UUID or verified persisted resume. Maintained V9.5 lifecycle/collision/empty-state tests passed.",
+      "baseline": null,
+      "command": [
+        "/var/tmp/v95-recovery/venv/bin/python",
+        "-m",
+        "pytest",
+        "-vv",
+        "-ra",
+        "--tb=short",
+        "-p",
+        "archive_resource_cleanup",
+        "-o",
+        "faulthandler_timeout=30",
+        "--junitxml=/home/user/V9_5_CURRENT_ARCHIVE_candidate_23.xml",
+        "DATA/tests/test_v2_8_clean_data_and_execution.py"
+      ],
+      "log": "/home/user/V9_5_CURRENT_ARCHIVE_candidate_23.log",
+      "peak_owned_rss_bytes": 185270272,
+      "current_failure_lines": [
+        "212"
+      ],
+      "baseline_failure_lines": []
+    },
+    {
+      "id": "DATA/tests/test_v2_8_clean_data_and_execution.py::test_test_f_existing_old_run",
+      "result": "failed",
+      "detail": "DATA/tests/test_v2_8_clean_data_and_execution.py:246: in test_test_f_existing_old_run\n    assert \"CLEAN-MT5\" in clean_run_id\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^\nE   TypeError: argument of type 'NoneType' is not iterable",
+      "classification": "JUSTIFIED_EXPLICIT_RUN_CONTRACT",
+      "reason": "Archived constructor expects an implicit CLEAN-MT5 identifier even in a new/empty state. V9.5 deliberately has no active run until explicit new UUID or verified persisted resume. Maintained V9.5 lifecycle/collision/empty-state tests passed.",
+      "baseline": null,
+      "command": [
+        "/var/tmp/v95-recovery/venv/bin/python",
+        "-m",
+        "pytest",
+        "-vv",
+        "-ra",
+        "--tb=short",
+        "-p",
+        "archive_resource_cleanup",
+        "-o",
+        "faulthandler_timeout=30",
+        "--junitxml=/home/user/V9_5_CURRENT_ARCHIVE_candidate_23.xml",
+        "DATA/tests/test_v2_8_clean_data_and_execution.py"
+      ],
+      "log": "/home/user/V9_5_CURRENT_ARCHIVE_candidate_23.log",
+      "peak_owned_rss_bytes": 185270272,
+      "current_failure_lines": [
+        "246"
+      ],
+      "baseline_failure_lines": []
+    },
+    {
+      "id": "DATA/tests/test_v2_features.py::test_broker_identity_prevents_collision",
+      "result": "failed",
+      "detail": "DATA/tests/test_v2_features.py:202: in test_broker_identity_prevents_collision\n    assert mA.profile_key != mB.profile_key\nE   AssertionError: assert 'USER_HISTORY|ICMARKETS|CANONICAL' != 'USER_HISTORY|ICMARKETS|CANONICAL'\nE    +  where 'USER_HISTORY|ICMARKETS|CANONICAL' = <app.data.master.MasterStore object at 0x7f115a417110>.profile_key\nE    +  and   'USER_HISTORY|ICMARKETS|CANONICAL' = <app.data.master.MasterStore object at 0x7f1158b3c640>.profile_key",
+      "classification": "PRE_EXISTING_ARCHIVED_FAILURE",
+      "reason": "Paired baseline and current fail the same named test and assertion location; exact traces retained below. This does not convert the failure into a passing test. Removed legacy routes, static historical identities/metrics, hashes and old schema assumptions are not restored to satisfy obsolete contracts.",
+      "baseline": {
+        "id": "DATA/tests/test_v2_features.py::test_broker_identity_prevents_collision",
+        "result": "failed",
+        "detail": "DATA/tests/test_v2_features.py:202: in test_broker_identity_prevents_collision\n    assert mA.profile_key != mB.profile_key\nE   AssertionError: assert 'USER_HISTORY|ICMARKETS|CANONICAL' != 'USER_HISTORY|ICMARKETS|CANONICAL'\nE    +  where 'USER_HISTORY|ICMARKETS|CANONICAL' = <app.data.master.MasterStore object at 0x7f8de12c3110>.profile_key\nE    +  and   'USER_HISTORY|ICMARKETS|CANONICAL' = <app.data.master.MasterStore object at 0x7f8de07b4640>.profile_key"
+      },
+      "command": [
+        "/var/tmp/v95-recovery/venv/bin/python",
+        "-m",
+        "pytest",
+        "-vv",
+        "-ra",
+        "--tb=short",
+        "-p",
+        "archive_resource_cleanup",
+        "-o",
+        "faulthandler_timeout=30",
+        "--junitxml=/home/user/V9_5_CURRENT_ARCHIVE_candidate_25.xml",
+        "DATA/tests/test_v2_features.py"
+      ],
+      "log": "/home/user/V9_5_CURRENT_ARCHIVE_candidate_25.log",
+      "peak_owned_rss_bytes": 177451008,
+      "current_failure_lines": [
+        "202"
+      ],
+      "baseline_failure_lines": [
+        "202"
+      ]
+    },
+    {
+      "id": "DATA/tests/test_v3_2_comprehensive_acceptance.py::test_a_button_differentiation",
+      "result": "failed",
+      "detail": "DATA/tests/test_v3_2_comprehensive_acceptance.py:44: in test_a_button_differentiation\n    assert res_new[\"ok\"] is True\nE   assert False is True",
+      "classification": "JUSTIFIED_FIXED_ID_COLLISION_CONTRACT",
+      "reason": "Archived caller asks for NEW using pre-existing COMPLETED RUN-TEST-A-NEW. Current refuses overwrite; maintained fresh UUID/collision tests passed. Baseline accepts this old fixed identity.",
+      "baseline": null,
+      "command": [
+        "/var/tmp/v95-recovery/venv/bin/python",
+        "-m",
+        "pytest",
+        "-vv",
+        "-ra",
+        "--tb=short",
+        "-p",
+        "archive_resource_cleanup",
+        "-o",
+        "faulthandler_timeout=30",
+        "--junitxml=/home/user/V9_5_CURRENT_ARCHIVE_candidate_26.xml",
+        "DATA/tests/test_v3_2_comprehensive_acceptance.py"
+      ],
+      "log": "/home/user/V9_5_CURRENT_ARCHIVE_candidate_26.log",
+      "peak_owned_rss_bytes": 163934208,
+      "current_failure_lines": [
+        "44"
+      ],
+      "baseline_failure_lines": []
+    },
+    {
+      "id": "DATA/tests/test_v3_2_restoration_and_recovery.py::test_test_d_evolution_tree_restoration",
+      "result": "failed",
+      "detail": "DATA/tests/test_v3_2_restoration_and_recovery.py:130: in test_test_d_evolution_tree_restoration\n    assert 1 in node_ids\nE   assert 1 in {4096, 4097, 4098, 4101, 10277, 10278, 10283, 10292, 10293, 10294, 10298, 10300, 10302, 10304, 10307, 10312, 10332, 10335, 10336, 10337, 10339, 10341, 10343, 10344, 10345, 10346, 10347, 6257, 10353, 10356, 10362, 10364, 6269, 10365, 10368, 6273, 10374, 6279, 6280, 10375, 10378, 6282, 10381, 6289, 6290, 6291, 10387, 10386, 6296, 10394, 10395, 6300, 10397, 10401, 6306, 8354, 8356, 6310, 8359, 6313, 10411, 10412, 6315, 10413, 8367, 10414, 8365, 10418, 10422, 8378, 10427, 6332, 6333, 10430, 8387, 6340, 10437, 8390, 6344, 10440, 8395, 8396, 8397, 6351, 8401, 8403, 10456, 10457, 8409, 8411, 8408, 10461, 8413, 4317, 4322, 4323, 4325, 10469, 4327, 10473, 8426, 4332, 8595, 4334, 8431, 4336, 8433, 10478, 10483, 4339, 10487, 10488, 10490, 10491, 10493, 4351, 8450, 8451, 4355, 10498, 4358, 8456, 10505, 8458, 10507, 4364, 4367, 8464, 10514, 8469, 4374, 4373, 4376, 4380, 6429, 6432, 4385, 4386, 6433, 6438, 8487, 8488, 6441, 6442, 8490, 4396, 8492, 6446, 8491, 6444, 8497, 8496, 8499, 6981, 8504, 8505, 6459, 8507, 8510, 8512, 6467, 6468, 4423, 6471, 6985, 6474, 6477, 6479, 4432, 4434, 6483, 8530, 8533, 4438, 4437, 6487, 8538, 4442, 6490, 8539, 2397, 8544, 6498, 6499, 6500, 8548, 4452, 6503, 6504, 8553, 6506, 4459, 4455, 4461, 4462, 6511, 6512, 8561, 8563, 8564, 6517, 8565, 6519, 6521, 8569, 8572, 8574, 6526, 4478, 8575, 4484, 8580, 6535, 8585, 6538, 8587, 4491, 8591, 6544, 6547, 4500, 8596, 8597, 8599, 4503, 6553, 6554, 8603, 4508, 6557, 4510, 8606, 6560, 4511, 6562, 4515, 6563, 8612, 6566, 4519, 8611, 6569, 4521, 6572, 4524, 2479, 4532, 6580, 6582, 4533, 6585, 6588, 2498, 4546, 4548, 6596, 6599, 4552, 4553, 4560, 6613, 6614, 4567, 6618, 6619, 4572, 4571, 4570, 6623, 6624, 4578, 6628, 4580, 6630, 6636, 6638, 6642, 6643, 6644, 6648, 6649, 6652, 6653, 6654, 6658, 6660, 10756, 10758, 10759, 6664, 6666, 6667, 10764, 10767, 6673, 6676, 6679, 4634, 6682, 6685, 6691, 8837, 8841, 8842, 8843, 8851, 8853, 8855, 8856, 8867, 8872, 8885, 8888, 8890, 8894, 4800, 4801, 8897, 8899, 8900, 4803, 8902, 8901, 4809, 4810, 4811, 8907, 8913, 8915, 8917, 8918, 4822, 4826, 8922, 8929, 8934, 8935, 4841, 4842, 8943, 8946, 4851, 8948, 4853, 8949, 8947, 4854, 4857, 4858, 8957, 8961, 6917, 6919, 8967, 4873, 6922, 8971, 2827, 4875, 6926, 8975, 6928, 6930, 4882, 6932, 8981, 4886, 8980, 8983, 8984, 6939, 8990, 8991, 8992, 6947, 6948, 8997, 4904, 6953, 6955, 9003, 6958, 9006, 9008, 4912, 6960, 4915, 9525, 9013, 6965, 6962, 9017, 9018, 9019, 6971, 2873, 6975, 9024, 6976, 9026, 6977, 4928, 2885, 6982, 837, 4933, 9030, 6984, 4936, 9036, 4941, 6990, 4943, 4942, 9041, 4939, 9037, 4948, 6997, 2901, 6996, 7000, 7001, 7002, 4955, 7004, 7005, 7006, 7007, 4960, 9056, 9058, 7010, 7012, 9061, 2917, 7009, 4968, 4964, 7019, 9068, 4973, 9069, 7023, 9073, 7026, 9075, 7028, 4982, 7031, 7033, 7034, 4986, 4989, 9086, 9087, 7040, 2942, 4994, 9090, 4995, 7039, 2950, 4999, 5000, 5001, 5002, 9097, 5004, 2958, 7057, 7061, 5016, 5018, 7067, 924, 7069, 5022, 7071, 7072, 5025, 7076, 5029, 5032, 7080, 5034, 2985, 5038, 7087, 5039, 7089, 2990, 7090, 2996, 5048, 7098, 5051, 3006, 7103, 7104, 3009, 7106, 7108, 3020, 7118, 3022, 7119, 3035, 7133, 3038, 7136, 7142, 7146, 3054, 7153, 7154, 3063, 7161, 3070, 7173, 7174, 3087, 3090, 3091, 3096, 3125, 3127, 3128, 3140, 3141, 3142, 9332, 9335, 9340, 9342, 9344, 9349, 9352, 9353, 9354, 9359, 9365, 9367, 9368, 5278, 5280, 9377, 9380, 9382, 5287, 9384, 9390, 5296, 9396, 5302, 9398, 5308, 9409, 9411, 5316, 9413, 5315, 9415, 9416, 9417, 9418, 5323, 9421, 5329, 5332, 5333, 5335, 9432, 5338, 5342, 9439, 9438, 7391, 9442, 5348, 9444, 5350, 7402, 7403, 9451, 9454, 7408, 5361, 7409, 5362, 5366, 5367, 5369, 7418, 7419, 9468, 5374, 9470, 5378, 5379, 9476, 9477, 5381, 9474, 9480, 5385, 9482, 9483, 7438, 5391, 9486, 5392, 9491, 9492, 7445, 7448, 9499, 3356, 5404, 7453, 7452, 3355, 7457, 7458, 5411, 5412, 7461, 7454, 5416, 9512, 9514, 7467, 3371, 7470, 5422, 5426, 5427, 9522, 7477, 5430, 7474, 3384, 3385, 9529, 9527, 9531, 9532, 3390, 5439, 5444, 3397, 3396, 3398, 5448, 3401, 7498, 5445, 7496, 9543, 7502, 3406, 9549, 9547, 7506, 7507, 9555, 5461, 9560, 5464, 5467, 7516, 3420, 3423, 5473, 5476, 7525, 3430, 9574, 3431, 5481, 3434, 3435, 7530, 7529, 3440, 5491, 5498, 3453, 5503, 5504, 5505, 3455, 5507, 5508, 7557, 7553, 7559, 7561, 7562, 5516, 7565, 5521, 3474, 7569, 5526, 5528, 3482, 5531, 7583, 5539, 3492, 7590, 5542, 7593, 3498, 7595, 7599, 3504, 3505, 3506, 7600, 3508, 7604, 3503, 3507, 3512, 7609, 3516, 7614, 7619, 3524, 3530, 3535, 3537, 7633, 7639, 3544, 7642, 3546, 3548, 3549, 3551, 7647, 3558, 3567, 3575, 1528, 3578, 3581, 3585, 3590, 3593, 3597, 3603, 3606, 3610, 3611, 3612, 3613, 3615, 9794, 9801, 9805, 9811, 9822, 9825, 9830, 9832, 9833, 9837, 9840, 9850, 5758, 9855, 5763, 5764, 9862, 9863, 9864, 5769, 9866, 5770, 9869, 5774, 9872, 9873, 9877, 9883, 9887, 5792, 5793, 9889, 5795, 5796, 9891, 9892, 9888, 9895, 5803, 9899, 9901, 5807, 9904, 5809, 5810, 5811, 5812, 5813, 9910, 9914, 9916, 5821, 5822, 5823, 5825, 5826, 9923, 9924, 7880, 5832, 9931, 5836, 7885, 9934, 5839, 7888, 5841, 9938, 9939, 9940, 5846, 5847, 5848, 9945, 5850, 7899, 5852, 7894, 5856, 9953, 7906, 7910, 9960, 5864, 5866, 7914, 7917, 5870, 9970, 7925, 5877, 7927, 9973, 5881, 5882, 7926, 7932, 5885, 9984, 5890, 7939, 7940, 9994, 9995, 3852, 5900, 5898, 5901, 5904, 7953, 3856, 9998, 7956, 5908, 5910, 3860, 5909, 7957, 7962, 5915, 10012, 10013, 7966, 10010, 10011, 3874, 7971, 5925, 7977, 3881, 3883, 5932, 7979, 5934, 3890, 7986, 10036, 5941, 7990, 5944, 10041, 3898, 5948, 10044, 5952, 5953, 3906, 8003, 8002, 5956, 5958, 3909, 8001, 3918, 8015, 8014, 5973, 5977, 8026, 8025, 3933, 5982, 8032, 3937, 3940, 3941, 5991, 5992, 8041, 3946, 5993, 8043, 6002, 8051, 3956, 6005, 3957, 8054, 8059, 6012, 8061, 8062, 3965, 8066, 6019, 8067, 8069, 3975, 6024, 8073, 8074, 6026, 3977, 3978, 6031, 6032, 3985, 8082, 6035, 6037, 8086, 6038, 8088, 6040, 6042, 6045, 8096, 8097, 6049, 4003, 8100, 4004, 4001, 8103, 8098, 8105, 4007, 4012, 8108, 8110, 1967, 8114, 4018, 4025, 8129, 4034, 4039, 4040, 8135, 4047, 4066, 4067, 4068, 4071, 4077, 4079, 9524, 4081, 4083, 4085, 4086, 4087, 4090, 4095}",
+      "classification": "PRE_EXISTING_ARCHIVED_FAILURE",
+      "reason": "Paired baseline and current fail the same named test and assertion location; exact traces retained below. This does not convert the failure into a passing test. Removed legacy routes, static historical identities/metrics, hashes and old schema assumptions are not restored to satisfy obsolete contracts.",
+      "baseline": {
+        "id": "DATA/tests/test_v3_2_restoration_and_recovery.py::test_test_d_evolution_tree_restoration",
+        "result": "failed",
+        "detail": "DATA/tests/test_v3_2_restoration_and_recovery.py:130: in test_test_d_evolution_tree_restoration\n    assert 1 in node_ids\nE   assert 1 in {4096, 4098, 4101, 10277, 10278, 10283, 10292, 10293, 10294, 10298, 10300, 10302, 10304, 10307, 10312, 10332, 10335, 10336, 10337, 10339, 10341, 10343, 10345, 10346, 10347, 6257, 10353, 10356, 10362, 10364, 6269, 10365, 10368, 6273, 10374, 6279, 6280, 10375, 10378, 6282, 8907, 10381, 6289, 6290, 6291, 10387, 6296, 10394, 10395, 6300, 10397, 10401, 6306, 8354, 8356, 6310, 8359, 6313, 10411, 10412, 6315, 10413, 8367, 10414, 8365, 10418, 10422, 8378, 10427, 6332, 6333, 10430, 186, 8387, 6340, 10437, 8390, 6344, 10440, 8395, 8396, 8397, 6351, 8401, 8403, 10456, 8409, 10457, 8411, 8408, 10461, 8413, 4317, 4322, 4323, 226, 4325, 10469, 4327, 10473, 8426, 234, 4332, 8595, 4334, 8431, 4336, 8433, 10478, 10483, 237, 243, 10487, 10488, 10490, 10491, 10493, 4351, 8450, 8451, 4355, 10498, 8456, 10505, 8458, 10507, 4364, 8464, 10514, 8469, 4374, 4373, 4376, 4380, 6429, 287, 6432, 4385, 4386, 6433, 6438, 8487, 8488, 6441, 6442, 8490, 4396, 8492, 6446, 8491, 6444, 8497, 8499, 8504, 8505, 6459, 8507, 8510, 8512, 6467, 6468, 4423, 6471, 6985, 6474, 6477, 6479, 4432, 4434, 6483, 8530, 8533, 4438, 4437, 6487, 8538, 4442, 6490, 8539, 2397, 8544, 6498, 6499, 6500, 8548, 4452, 6503, 6504, 8553, 6506, 4459, 4455, 4461, 4462, 6511, 6512, 8561, 8563, 8564, 6517, 8565, 6519, 6521, 8569, 8572, 8574, 6526, 384, 4478, 8575, 4484, 8580, 6535, 8585, 6538, 8587, 4491, 8591, 6544, 6547, 4500, 8596, 8597, 8599, 4503, 6553, 6554, 8603, 4508, 6557, 4510, 8606, 6560, 4511, 6562, 4515, 6563, 8612, 6566, 4519, 8611, 6569, 4521, 6572, 4524, 2479, 4532, 6580, 6582, 4533, 6585, 6588, 2498, 4546, 4548, 6596, 6599, 4553, 459, 464, 6613, 6614, 4567, 6618, 6619, 4572, 4571, 6623, 6624, 4578, 6628, 4580, 6630, 6636, 6638, 6642, 6643, 6644, 6648, 6649, 6653, 6654, 6658, 6660, 10756, 10758, 10759, 6664, 6667, 10764, 10767, 6673, 6676, 6679, 4634, 6682, 6685, 6691, 8837, 8841, 8842, 8843, 8851, 8853, 8855, 8856, 8867, 8872, 8885, 8888, 8890, 8894, 4800, 4801, 8897, 8899, 8900, 4803, 8902, 711, 712, 713, 4810, 4811, 714, 716, 717, 718, 719, 721, 722, 723, 724, 725, 8918, 726, 727, 728, 729, 731, 732, 733, 734, 735, 736, 737, 8929, 739, 741, 742, 743, 744, 745, 746, 747, 748, 4842, 8934, 8935, 4841, 8943, 8946, 4851, 8948, 4853, 8949, 8947, 4854, 4857, 4858, 8957, 8961, 6917, 6919, 8967, 4873, 6922, 2827, 8971, 4875, 6926, 8975, 6928, 6930, 4882, 6932, 8981, 4886, 8980, 8983, 6939, 8990, 8991, 8992, 6947, 6948, 8997, 4904, 6953, 6955, 9003, 6958, 9006, 9008, 4912, 6960, 4915, 9525, 9013, 6965, 6962, 9017, 9018, 9019, 6971, 2873, 6975, 9024, 6976, 9026, 6977, 4928, 4933, 837, 6982, 2885, 9030, 6984, 4936, 9036, 4941, 6990, 4943, 4942, 9041, 4939, 9037, 4948, 6997, 2901, 6996, 7000, 7001, 4955, 7004, 7006, 7007, 4960, 9056, 9058, 7010, 7012, 9061, 2917, 7009, 4968, 7019, 9068, 4973, 7023, 9073, 9075, 7028, 4982, 7031, 7033, 7034, 4986, 4989, 9086, 9087, 7040, 2942, 4994, 9090, 4995, 7039, 2950, 4999, 5000, 5001, 5002, 9097, 5004, 2958, 7057, 7061, 5016, 5018, 7067, 924, 5022, 7071, 7072, 7076, 5029, 5032, 7080, 5034, 2985, 5038, 7087, 5039, 7089, 2990, 7090, 2996, 5048, 7098, 5051, 3006, 7103, 7104, 3009, 7108, 3020, 7118, 3022, 7119, 3035, 7133, 3038, 7136, 7142, 7146, 3054, 7153, 7154, 3063, 7161, 3070, 7173, 7174, 3087, 3090, 3091, 3096, 3125, 3127, 3128, 3140, 3141, 3142, 9332, 9335, 9340, 9342, 9344, 9349, 9352, 9353, 9354, 9359, 9365, 9367, 9368, 5278, 5280, 9377, 9380, 5287, 9384, 1195, 9390, 5296, 9396, 5302, 9398, 5308, 9409, 9411, 5316, 9413, 5315, 9415, 9416, 9417, 9418, 5323, 9421, 5329, 5332, 5333, 5335, 9432, 5338, 5342, 9439, 9438, 7391, 9442, 5348, 9444, 5350, 7402, 7403, 9451, 9454, 7408, 5361, 7409, 5362, 5366, 5367, 5369, 7418, 7419, 9468, 5374, 9470, 5378, 5379, 9476, 9477, 5381, 9474, 9480, 5385, 9482, 9483, 7438, 5391, 9486, 5392, 9491, 9492, 7445, 7448, 9499, 3356, 5404, 7453, 7452, 3355, 7457, 7458, 5411, 5412, 7461, 7454, 9512, 5416, 7467, 3371, 7470, 5422, 5426, 5427, 9522, 7477, 5430, 7474, 3384, 3385, 9529, 9527, 9531, 9532, 3390, 5439, 5444, 3397, 3396, 3398, 5448, 3401, 7498, 5445, 7496, 9543, 7502, 3406, 9549, 9547, 7506, 7507, 9555, 9560, 5464, 5467, 7516, 3420, 3423, 5473, 5476, 7525, 3430, 9574, 3431, 5481, 3434, 3435, 7530, 7529, 5491, 5498, 3453, 5503, 5504, 5505, 3455, 5507, 5508, 7557, 7553, 7559, 7561, 7562, 5516, 7565, 5521, 3474, 7569, 5526, 5528, 3482, 5531, 7583, 5539, 3492, 7590, 5542, 7593, 3498, 7595, 7599, 3504, 3505, 3506, 7600, 3508, 7604, 3503, 3507, 3512, 7609, 3516, 7614, 7619, 3524, 3530, 3535, 3537, 7633, 7639, 3544, 7642, 3546, 3548, 3549, 3551, 7647, 3558, 3567, 3575, 1528, 3578, 3581, 3585, 3590, 3593, 3597, 3603, 3610, 3611, 3612, 3613, 3615, 9794, 9801, 9805, 9811, 9822, 9825, 9830, 9832, 9833, 9837, 9840, 9850, 5758, 9855, 5763, 4809, 5764, 9862, 9863, 9864, 5769, 9866, 5770, 5774, 9872, 9873, 9877, 9883, 9887, 5792, 5793, 9889, 5795, 5796, 9891, 9892, 5803, 9899, 9901, 5807, 9904, 5809, 5810, 5811, 5812, 5813, 9910, 9914, 9916, 5821, 5822, 5823, 5826, 9924, 7880, 9931, 5836, 7885, 5839, 7888, 5841, 9938, 9939, 9940, 5846, 5847, 5848, 9945, 4826, 7899, 5850, 5852, 5856, 9953, 7906, 7910, 9960, 5864, 5866, 7914, 7917, 5870, 8901, 9970, 7925, 5877, 7927, 9973, 5881, 5882, 7926, 7932, 5885, 9984, 5890, 7939, 7940, 9994, 9995, 3852, 5900, 5898, 5901, 5904, 7953, 3856, 9998, 7956, 5908, 5910, 3860, 5909, 7962, 5915, 10012, 10013, 7966, 10010, 10011, 3874, 7971, 5925, 7977, 3881, 3883, 8913, 5932, 5934, 7979, 3890, 7986, 10036, 5941, 8915, 7990, 5944, 10041, 3898, 5948, 10044, 5952, 8917, 3906, 8003, 8002, 5956, 5958, 5953, 3909, 3918, 8015, 8014, 5973, 8922, 8026, 5977, 8025, 3933, 5982, 8032, 3937, 3940, 3941, 5991, 5992, 8041, 3946, 5993, 8043, 6002, 8051, 1908, 6005, 3957, 8054, 3956, 8059, 6012, 8061, 8062, 3965, 8066, 6019, 8067, 8069, 3975, 6024, 8073, 8074, 6026, 3977, 3978, 6031, 6032, 3985, 8082, 6035, 6037, 8086, 6038, 8088, 6040, 6042, 6045, 8096, 8097, 6049, 4003, 8100, 4004, 4001, 8103, 8098, 8105, 4007, 4012, 8108, 8110, 1967, 8114, 4018, 4025, 8129, 4034, 4039, 4040, 8135, 4047, 4066, 4067, 4068, 4071, 4077, 4079, 9524, 4081, 4083, 4085, 4086, 4087, 4090, 4095}"
+      },
+      "command": [
+        "/var/tmp/v95-recovery/venv/bin/python",
+        "-m",
+        "pytest",
+        "-vv",
+        "-ra",
+        "--tb=short",
+        "-p",
+        "archive_resource_cleanup",
+        "-o",
+        "faulthandler_timeout=30",
+        "--junitxml=/home/user/V9_5_CURRENT_ARCHIVE_candidate_27.xml",
+        "DATA/tests/test_v3_2_restoration_and_recovery.py"
+      ],
+      "log": "/home/user/V9_5_CURRENT_ARCHIVE_candidate_27.log",
+      "peak_owned_rss_bytes": 670265344,
+      "current_failure_lines": [
+        "130"
+      ],
+      "baseline_failure_lines": [
+        "130"
+      ]
+    },
+    {
+      "id": "DATA/tests/test_v3_2_restoration_and_recovery.py::test_test_e_dashboard_synchronization",
+      "result": "failed",
+      "detail": "DATA/tests/test_v3_2_restoration_and_recovery.py:161: in test_test_e_dashboard_synchronization\n    assert pop_res[\"status_counts\"].get(\"QUALIFIED\", 0) == db_qual\nE   AssertionError: assert 83 == 94\nE    +  where 83 = <built-in method get of dict object at 0x7fc48c5c6ec0>('QUALIFIED', 0)\nE    +    where <built-in method get of dict object at 0x7fc48c5c6ec0> = {'BACKTEST_ERROR': 45, 'BORN': 27, 'FAILED': 3843, 'KILLED': 1288, 'PAPER': 1, 'QUALIFIED': 83, 'RETIRED': 4740}.get",
+      "classification": "PRE_EXISTING_ARCHIVED_FAILURE",
+      "reason": "Paired baseline and current fail the same named test and assertion location; exact traces retained below. This does not convert the failure into a passing test. Removed legacy routes, static historical identities/metrics, hashes and old schema assumptions are not restored to satisfy obsolete contracts.",
+      "baseline": {
+        "id": "DATA/tests/test_v3_2_restoration_and_recovery.py::test_test_e_dashboard_synchronization",
+        "result": "failed",
+        "detail": "DATA/tests/test_v3_2_restoration_and_recovery.py:161: in test_test_e_dashboard_synchronization\n    assert pop_res[\"status_counts\"].get(\"QUALIFIED\", 0) == db_qual\nE   AssertionError: assert 88 == 99\nE    +  where 88 = <built-in method get of dict object at 0x7fd40548b000>('QUALIFIED', 0)\nE    +    where <built-in method get of dict object at 0x7fd40548b000> = {'BACKTEST_ERROR': 41, 'BORN': 27, 'FAILED': 4761, 'QUALIFIED': 88, 'SURVIVED': 5110}.get"
+      },
+      "command": [
+        "/var/tmp/v95-recovery/venv/bin/python",
+        "-m",
+        "pytest",
+        "-vv",
+        "-ra",
+        "--tb=short",
+        "-p",
+        "archive_resource_cleanup",
+        "-o",
+        "faulthandler_timeout=30",
+        "--junitxml=/home/user/V9_5_CURRENT_ARCHIVE_candidate_27.xml",
+        "DATA/tests/test_v3_2_restoration_and_recovery.py"
+      ],
+      "log": "/home/user/V9_5_CURRENT_ARCHIVE_candidate_27.log",
+      "peak_owned_rss_bytes": 670265344,
+      "current_failure_lines": [
+        "161"
+      ],
+      "baseline_failure_lines": [
+        "161"
+      ]
+    },
+    {
+      "id": "DATA/tests/test_v3_6_recovery_isolation_and_matrices.py::test_v3_6_strategy_charts_and_fallback",
+      "result": "failed",
+      "detail": "DATA/tests/test_v3_6_recovery_isolation_and_matrices.py:144: in test_v3_6_strategy_charts_and_fallback\n    assert d[\"has_equity_curve\"] is True\nE   assert False is True",
+      "classification": "PRE_EXISTING_ARCHIVED_FAILURE",
+      "reason": "Paired baseline and current fail the same named test and assertion location; exact traces retained below. This does not convert the failure into a passing test. Removed legacy routes, static historical identities/metrics, hashes and old schema assumptions are not restored to satisfy obsolete contracts.",
+      "baseline": {
+        "id": "DATA/tests/test_v3_6_recovery_isolation_and_matrices.py::test_v3_6_strategy_charts_and_fallback",
+        "result": "failed",
+        "detail": "DATA/tests/test_v3_6_recovery_isolation_and_matrices.py:144: in test_v3_6_strategy_charts_and_fallback\n    assert d[\"has_equity_curve\"] is True\nE   assert False is True"
+      },
+      "command": [
+        "/var/tmp/v95-recovery/venv/bin/python",
+        "-m",
+        "pytest",
+        "-vv",
+        "-ra",
+        "--tb=short",
+        "-p",
+        "archive_resource_cleanup",
+        "-o",
+        "faulthandler_timeout=30",
+        "--junitxml=/home/user/V9_5_CURRENT_ARCHIVE_candidate_30.xml",
+        "DATA/tests/test_v3_6_recovery_isolation_and_matrices.py"
+      ],
+      "log": "/home/user/V9_5_CURRENT_ARCHIVE_candidate_30.log",
+      "peak_owned_rss_bytes": 196083712,
+      "current_failure_lines": [
+        "144"
+      ],
+      "baseline_failure_lines": [
+        "144"
+      ]
+    },
+    {
+      "id": "DATA/tests/test_v3_6_recovery_isolation_and_matrices.py::test_v3_6_reconciled_tasks_and_ceiling_state",
+      "result": "failed",
+      "detail": "DATA/tests/test_v3_6_recovery_isolation_and_matrices.py:177: in test_v3_6_reconciled_tasks_and_ceiling_state\n    assert pending_count == 0\nE   assert 766 == 0",
+      "classification": "PRE_EXISTING_ARCHIVED_FAILURE",
+      "reason": "Paired baseline and current fail the same named test and assertion location; exact traces retained below. This does not convert the failure into a passing test. Removed legacy routes, static historical identities/metrics, hashes and old schema assumptions are not restored to satisfy obsolete contracts.",
+      "baseline": {
+        "id": "DATA/tests/test_v3_6_recovery_isolation_and_matrices.py::test_v3_6_reconciled_tasks_and_ceiling_state",
+        "result": "failed",
+        "detail": "DATA/tests/test_v3_6_recovery_isolation_and_matrices.py:177: in test_v3_6_reconciled_tasks_and_ceiling_state\n    assert pending_count == 0\nE   assert 766 == 0"
+      },
+      "command": [
+        "/var/tmp/v95-recovery/venv/bin/python",
+        "-m",
+        "pytest",
+        "-vv",
+        "-ra",
+        "--tb=short",
+        "-p",
+        "archive_resource_cleanup",
+        "-o",
+        "faulthandler_timeout=30",
+        "--junitxml=/home/user/V9_5_CURRENT_ARCHIVE_candidate_30.xml",
+        "DATA/tests/test_v3_6_recovery_isolation_and_matrices.py"
+      ],
+      "log": "/home/user/V9_5_CURRENT_ARCHIVE_candidate_30.log",
+      "peak_owned_rss_bytes": 196083712,
+      "current_failure_lines": [
+        "177"
+      ],
+      "baseline_failure_lines": [
+        "177"
+      ]
+    },
+    {
+      "id": "DATA/tests/test_v3_6_recovery_isolation_and_matrices.py::test_v3_6_log_artifacts_exist",
+      "result": "failed",
+      "detail": "DATA/tests/test_v3_6_recovery_isolation_and_matrices.py:194: in test_v3_6_log_artifacts_exist\n    assert preflight.exists(), f\"Missing {preflight}\"\nE   AssertionError: Missing /var/tmp/v95-recovery/archive-candidate-full-data/logs/V3_6_SIZE_PREFLIGHT.log\nE   assert False\nE    +  where False = exists()\nE    +    where exists = PosixPath('/var/tmp/v95-recovery/archive-candidate-full-data/logs/V3_6_SIZE_PREFLIGHT.log').exists",
+      "classification": "PRE_EXISTING_ARCHIVED_ARTIFACT_EXPECTATION",
+      "reason": "Both revisions lack the required named historical diagnostic artifact in the isolated fixture; current startup diagnostics are tested separately. Original logs and exact assertions retained; not evidence that historical native acceptance occurred.",
+      "baseline": {
+        "id": "DATA/tests/test_v3_6_recovery_isolation_and_matrices.py::test_v3_6_log_artifacts_exist",
+        "result": "failed",
+        "detail": "DATA/tests/test_v3_6_recovery_isolation_and_matrices.py:194: in test_v3_6_log_artifacts_exist\n    assert preflight.exists(), f\"Missing {preflight}\"\nE   AssertionError: Missing /var/tmp/v95-recovery/archive-baseline-full-data/logs/V3_6_SIZE_PREFLIGHT.log\nE   assert False\nE    +  where False = exists()\nE    +    where exists = PosixPath('/var/tmp/v95-recovery/archive-baseline-full-data/logs/V3_6_SIZE_PREFLIGHT.log').exists"
+      },
+      "command": [
+        "/var/tmp/v95-recovery/venv/bin/python",
+        "-m",
+        "pytest",
+        "-vv",
+        "-ra",
+        "--tb=short",
+        "-p",
+        "archive_resource_cleanup",
+        "-o",
+        "faulthandler_timeout=30",
+        "--junitxml=/home/user/V9_5_CURRENT_ARCHIVE_candidate_30.xml",
+        "DATA/tests/test_v3_6_recovery_isolation_and_matrices.py"
+      ],
+      "log": "/home/user/V9_5_CURRENT_ARCHIVE_candidate_30.log",
+      "peak_owned_rss_bytes": 196083712,
+      "current_failure_lines": [
+        "194"
+      ],
+      "baseline_failure_lines": [
+        "194"
+      ]
+    },
+    {
+      "id": "DATA/tests/test_v4_comprehensive_workflow.py::test_01_authoritative_strategy_model",
+      "result": "failed",
+      "detail": "DATA/tests/test_v4_comprehensive_workflow.py:61: in test_01_authoritative_strategy_model\n    assert res.status_code == 200, f\"Failed: {res.text}\"\nE   AssertionError: Failed: {\"detail\":\"Not Found\"}\nE   assert 404 == 200\nE    +  where 404 = <Response [404 Not Found]>.status_code",
+      "classification": "PRE_EXISTING_ARCHIVED_FAILURE",
+      "reason": "Paired baseline and current fail the same named test and assertion location; exact traces retained below. This does not convert the failure into a passing test. Removed legacy routes, static historical identities/metrics, hashes and old schema assumptions are not restored to satisfy obsolete contracts.",
+      "baseline": {
+        "id": "DATA/tests/test_v4_comprehensive_workflow.py::test_01_authoritative_strategy_model",
+        "result": "failed",
+        "detail": "DATA/tests/test_v4_comprehensive_workflow.py:61: in test_01_authoritative_strategy_model\n    assert res.status_code == 200, f\"Failed: {res.text}\"\nE   AssertionError: Failed: {\"detail\":\"Not Found\"}\nE   assert 404 == 200\nE    +  where 404 = <Response [404 Not Found]>.status_code"
+      },
+      "command": [
+        "/var/tmp/v95-recovery/venv/bin/python",
+        "-m",
+        "pytest",
+        "-vv",
+        "-ra",
+        "--tb=short",
+        "-p",
+        "archive_resource_cleanup",
+        "-o",
+        "faulthandler_timeout=30",
+        "--junitxml=/home/user/V9_5_CURRENT_ARCHIVE_candidate_31.xml",
+        "DATA/tests/test_v4_comprehensive_workflow.py"
+      ],
+      "log": "/home/user/V9_5_CURRENT_ARCHIVE_candidate_31.log",
+      "peak_owned_rss_bytes": 314540032,
+      "current_failure_lines": [
+        "61"
+      ],
+      "baseline_failure_lines": [
+        "61"
+      ]
+    },
+    {
+      "id": "DATA/tests/test_v4_comprehensive_workflow.py::test_02_stage_separated_metrics",
+      "result": "failed",
+      "detail": "DATA/tests/test_v4_comprehensive_workflow.py:84: in test_02_stage_separated_metrics\n    assert res.status_code == 200\nE   assert 404 == 200\nE    +  where 404 = <Response [404 Not Found]>.status_code",
+      "classification": "PRE_EXISTING_ARCHIVED_FAILURE",
+      "reason": "Paired baseline and current fail the same named test and assertion location; exact traces retained below. This does not convert the failure into a passing test. Removed legacy routes, static historical identities/metrics, hashes and old schema assumptions are not restored to satisfy obsolete contracts.",
+      "baseline": {
+        "id": "DATA/tests/test_v4_comprehensive_workflow.py::test_02_stage_separated_metrics",
+        "result": "failed",
+        "detail": "DATA/tests/test_v4_comprehensive_workflow.py:84: in test_02_stage_separated_metrics\n    assert res.status_code == 200\nE   assert 404 == 200\nE    +  where 404 = <Response [404 Not Found]>.status_code"
+      },
+      "command": [
+        "/var/tmp/v95-recovery/venv/bin/python",
+        "-m",
+        "pytest",
+        "-vv",
+        "-ra",
+        "--tb=short",
+        "-p",
+        "archive_resource_cleanup",
+        "-o",
+        "faulthandler_timeout=30",
+        "--junitxml=/home/user/V9_5_CURRENT_ARCHIVE_candidate_31.xml",
+        "DATA/tests/test_v4_comprehensive_workflow.py"
+      ],
+      "log": "/home/user/V9_5_CURRENT_ARCHIVE_candidate_31.log",
+      "peak_owned_rss_bytes": 314540032,
+      "current_failure_lines": [
+        "84"
+      ],
+      "baseline_failure_lines": [
+        "84"
+      ]
+    },
+    {
+      "id": "DATA/tests/test_v4_comprehensive_workflow.py::test_03_diagnostic_report_exists",
+      "result": "failed",
+      "detail": "DATA/tests/test_v4_comprehensive_workflow.py:100: in test_03_diagnostic_report_exists\n    assert diag_file.exists(), f\"Diagnostic log missing at {diag_file}\"\nE   AssertionError: Diagnostic log missing at /var/tmp/v95-recovery/archive-candidate-full-data/logs/V4_FINAL_TESTING_VS_STRATEGY_LAB_DISCREPANCY_DIAGNOSTIC.log\nE   assert False\nE    +  where False = exists()\nE    +    where exists = PosixPath('/var/tmp/v95-recovery/archive-candidate-full-data/logs/V4_FINAL_TESTING_VS_STRATEGY_LAB_DISCREPANCY_DIAGNOSTIC.log').exists",
+      "classification": "PRE_EXISTING_ARCHIVED_ARTIFACT_EXPECTATION",
+      "reason": "Both revisions lack the required named historical diagnostic artifact in the isolated fixture; current startup diagnostics are tested separately. Original logs and exact assertions retained; not evidence that historical native acceptance occurred.",
+      "baseline": {
+        "id": "DATA/tests/test_v4_comprehensive_workflow.py::test_03_diagnostic_report_exists",
+        "result": "failed",
+        "detail": "DATA/tests/test_v4_comprehensive_workflow.py:100: in test_03_diagnostic_report_exists\n    assert diag_file.exists(), f\"Diagnostic log missing at {diag_file}\"\nE   AssertionError: Diagnostic log missing at /var/tmp/v95-recovery/archive-baseline-full-data/logs/V4_FINAL_TESTING_VS_STRATEGY_LAB_DISCREPANCY_DIAGNOSTIC.log\nE   assert False\nE    +  where False = exists()\nE    +    where exists = PosixPath('/var/tmp/v95-recovery/archive-baseline-full-data/logs/V4_FINAL_TESTING_VS_STRATEGY_LAB_DISCREPANCY_DIAGNOSTIC.log').exists"
+      },
+      "command": [
+        "/var/tmp/v95-recovery/venv/bin/python",
+        "-m",
+        "pytest",
+        "-vv",
+        "-ra",
+        "--tb=short",
+        "-p",
+        "archive_resource_cleanup",
+        "-o",
+        "faulthandler_timeout=30",
+        "--junitxml=/home/user/V9_5_CURRENT_ARCHIVE_candidate_31.xml",
+        "DATA/tests/test_v4_comprehensive_workflow.py"
+      ],
+      "log": "/home/user/V9_5_CURRENT_ARCHIVE_candidate_31.log",
+      "peak_owned_rss_bytes": 314540032,
+      "current_failure_lines": [
+        "100"
+      ],
+      "baseline_failure_lines": [
+        "100"
+      ]
+    },
+    {
+      "id": "DATA/tests/test_v4_comprehensive_workflow.py::test_04_harmonized_metrics_across_endpoints",
+      "result": "failed",
+      "detail": "DATA/tests/test_v4_comprehensive_workflow.py:120: in test_04_harmonized_metrics_across_endpoints\n    assert node_240 is not None, \"Node 240 must not be filtered out by default duration filter\"\nE   AssertionError: Node 240 must not be filtered out by default duration filter\nE   assert None is not None",
+      "classification": "PRE_EXISTING_ARCHIVED_FAILURE",
+      "reason": "Paired baseline and current fail the same named test and assertion location; exact traces retained below. This does not convert the failure into a passing test. Removed legacy routes, static historical identities/metrics, hashes and old schema assumptions are not restored to satisfy obsolete contracts.",
+      "baseline": {
+        "id": "DATA/tests/test_v4_comprehensive_workflow.py::test_04_harmonized_metrics_across_endpoints",
+        "result": "failed",
+        "detail": "DATA/tests/test_v4_comprehensive_workflow.py:120: in test_04_harmonized_metrics_across_endpoints\n    assert node_240 is not None, \"Node 240 must not be filtered out by default duration filter\"\nE   AssertionError: Node 240 must not be filtered out by default duration filter\nE   assert None is not None"
+      },
+      "command": [
+        "/var/tmp/v95-recovery/venv/bin/python",
+        "-m",
+        "pytest",
+        "-vv",
+        "-ra",
+        "--tb=short",
+        "-p",
+        "archive_resource_cleanup",
+        "-o",
+        "faulthandler_timeout=30",
+        "--junitxml=/home/user/V9_5_CURRENT_ARCHIVE_candidate_31.xml",
+        "DATA/tests/test_v4_comprehensive_workflow.py"
+      ],
+      "log": "/home/user/V9_5_CURRENT_ARCHIVE_candidate_31.log",
+      "peak_owned_rss_bytes": 314540032,
+      "current_failure_lines": [
+        "120"
+      ],
+      "baseline_failure_lines": [
+        "120"
+      ]
+    },
+    {
+      "id": "DATA/tests/test_v4_comprehensive_workflow.py::test_07_shortlist_synchronization",
+      "result": "failed",
+      "detail": "DATA/tests/test_v4_comprehensive_workflow.py:174: in test_07_shortlist_synchronization\n    assert s_auth[\"shortlisted\"] is True\n           ^^^^^^^^^^^^^^^^^^^^^\nE   KeyError: 'shortlisted'",
+      "classification": "PRE_EXISTING_ARCHIVED_FAILURE",
+      "reason": "Paired baseline and current fail the same named test and assertion location; exact traces retained below. This does not convert the failure into a passing test. Removed legacy routes, static historical identities/metrics, hashes and old schema assumptions are not restored to satisfy obsolete contracts.",
+      "baseline": {
+        "id": "DATA/tests/test_v4_comprehensive_workflow.py::test_07_shortlist_synchronization",
+        "result": "failed",
+        "detail": "DATA/tests/test_v4_comprehensive_workflow.py:174: in test_07_shortlist_synchronization\n    assert s_auth[\"shortlisted\"] is True\n           ^^^^^^^^^^^^^^^^^^^^^\nE   KeyError: 'shortlisted'"
+      },
+      "command": [
+        "/var/tmp/v95-recovery/venv/bin/python",
+        "-m",
+        "pytest",
+        "-vv",
+        "-ra",
+        "--tb=short",
+        "-p",
+        "archive_resource_cleanup",
+        "-o",
+        "faulthandler_timeout=30",
+        "--junitxml=/home/user/V9_5_CURRENT_ARCHIVE_candidate_31.xml",
+        "DATA/tests/test_v4_comprehensive_workflow.py"
+      ],
+      "log": "/home/user/V9_5_CURRENT_ARCHIVE_candidate_31.log",
+      "peak_owned_rss_bytes": 314540032,
+      "current_failure_lines": [
+        "174"
+      ],
+      "baseline_failure_lines": [
+        "174"
+      ]
+    },
+    {
+      "id": "DATA/tests/test_v4_comprehensive_workflow.py::test_09_node_economics_indicators_and_logic",
+      "result": "failed",
+      "detail": "DATA/tests/test_v4_comprehensive_workflow.py:208: in test_09_node_economics_indicators_and_logic\n    assert econ[\"node_id\"] == \"Node_240\"\nE   AssertionError: assert 'Node #240' == 'Node_240'\nE     \nE     - Node_240\nE     ?     ^\nE     + Node #240\nE     ?     ^^",
+      "classification": "PRE_EXISTING_ARCHIVED_FAILURE",
+      "reason": "Paired baseline and current fail the same named test and assertion location; exact traces retained below. This does not convert the failure into a passing test. Removed legacy routes, static historical identities/metrics, hashes and old schema assumptions are not restored to satisfy obsolete contracts.",
+      "baseline": {
+        "id": "DATA/tests/test_v4_comprehensive_workflow.py::test_09_node_economics_indicators_and_logic",
+        "result": "failed",
+        "detail": "DATA/tests/test_v4_comprehensive_workflow.py:208: in test_09_node_economics_indicators_and_logic\n    assert econ[\"node_id\"] == \"Node_240\"\nE   AssertionError: assert 'Node #240' == 'Node_240'\nE     \nE     - Node_240\nE     ?     ^\nE     + Node #240\nE     ?     ^^"
+      },
+      "command": [
+        "/var/tmp/v95-recovery/venv/bin/python",
+        "-m",
+        "pytest",
+        "-vv",
+        "-ra",
+        "--tb=short",
+        "-p",
+        "archive_resource_cleanup",
+        "-o",
+        "faulthandler_timeout=30",
+        "--junitxml=/home/user/V9_5_CURRENT_ARCHIVE_candidate_31.xml",
+        "DATA/tests/test_v4_comprehensive_workflow.py"
+      ],
+      "log": "/home/user/V9_5_CURRENT_ARCHIVE_candidate_31.log",
+      "peak_owned_rss_bytes": 314540032,
+      "current_failure_lines": [
+        "208"
+      ],
+      "baseline_failure_lines": [
+        "208"
+      ]
+    },
+    {
+      "id": "DATA/tests/test_v4_comprehensive_workflow.py::test_12_mt5_backtest_execution_and_storage",
+      "result": "failed",
+      "detail": "DATA/tests/test_v4_comprehensive_workflow.py:276: in test_12_mt5_backtest_execution_and_storage\n    assert res.status_code == 200\nE   assert 405 == 200\nE    +  where 405 = <Response [405 Method Not Allowed]>.status_code",
+      "classification": "PRE_EXISTING_ARCHIVED_FAILURE",
+      "reason": "Paired baseline and current fail the same named test and assertion location; exact traces retained below. This does not convert the failure into a passing test. Removed legacy routes, static historical identities/metrics, hashes and old schema assumptions are not restored to satisfy obsolete contracts.",
+      "baseline": {
+        "id": "DATA/tests/test_v4_comprehensive_workflow.py::test_12_mt5_backtest_execution_and_storage",
+        "result": "failed",
+        "detail": "DATA/tests/test_v4_comprehensive_workflow.py:276: in test_12_mt5_backtest_execution_and_storage\n    assert res.status_code == 200\nE   assert 405 == 200\nE    +  where 405 = <Response [405 Method Not Allowed]>.status_code"
+      },
+      "command": [
+        "/var/tmp/v95-recovery/venv/bin/python",
+        "-m",
+        "pytest",
+        "-vv",
+        "-ra",
+        "--tb=short",
+        "-p",
+        "archive_resource_cleanup",
+        "-o",
+        "faulthandler_timeout=30",
+        "--junitxml=/home/user/V9_5_CURRENT_ARCHIVE_candidate_31.xml",
+        "DATA/tests/test_v4_comprehensive_workflow.py"
+      ],
+      "log": "/home/user/V9_5_CURRENT_ARCHIVE_candidate_31.log",
+      "peak_owned_rss_bytes": 314540032,
+      "current_failure_lines": [
+        "276"
+      ],
+      "baseline_failure_lines": [
+        "276"
+      ]
+    },
+    {
+      "id": "DATA/tests/test_v4_comprehensive_workflow.py::test_13_live_testing_schedule_controls",
+      "result": "failed",
+      "detail": "DATA/tests/test_v4_comprehensive_workflow.py:318: in test_13_live_testing_schedule_controls\n    assert strat[\"genome\"][\"symbol\"] == \"XAUUSD\"\n           ^^^^^^^^^^^^^^^\nE   KeyError: 'genome'",
+      "classification": "PRE_EXISTING_ARCHIVED_FAILURE",
+      "reason": "Paired baseline and current fail the same named test and assertion location; exact traces retained below. This does not convert the failure into a passing test. Removed legacy routes, static historical identities/metrics, hashes and old schema assumptions are not restored to satisfy obsolete contracts.",
+      "baseline": {
+        "id": "DATA/tests/test_v4_comprehensive_workflow.py::test_13_live_testing_schedule_controls",
+        "result": "failed",
+        "detail": "DATA/tests/test_v4_comprehensive_workflow.py:318: in test_13_live_testing_schedule_controls\n    assert strat[\"genome\"][\"symbol\"] == \"XAUUSD\"\n           ^^^^^^^^^^^^^^^\nE   KeyError: 'genome'"
+      },
+      "command": [
+        "/var/tmp/v95-recovery/venv/bin/python",
+        "-m",
+        "pytest",
+        "-vv",
+        "-ra",
+        "--tb=short",
+        "-p",
+        "archive_resource_cleanup",
+        "-o",
+        "faulthandler_timeout=30",
+        "--junitxml=/home/user/V9_5_CURRENT_ARCHIVE_candidate_31.xml",
+        "DATA/tests/test_v4_comprehensive_workflow.py"
+      ],
+      "log": "/home/user/V9_5_CURRENT_ARCHIVE_candidate_31.log",
+      "peak_owned_rss_bytes": 314540032,
+      "current_failure_lines": [
+        "318"
+      ],
+      "baseline_failure_lines": [
+        "318"
+      ]
+    },
+    {
+      "id": "DATA/tests/test_v4_comprehensive_workflow.py::test_14_live_test_results_and_prop_firm_metrics",
+      "result": "failed",
+      "detail": "DATA/tests/test_v4_comprehensive_workflow.py:332: in test_14_live_test_results_and_prop_firm_metrics\n    assert \"summary\" in data\nE   assert 'summary' in {'starting_balance': 10000.0, 'current_balance': 10000.0, 'peak_balance': 10000.0, 'net_profit': 0, 'gross_profit': 0, 'gross_loss': 0, 'return_pct': 0.0, 'profit_factor': None, 'win_rate': None, 'trade_count': 0, 'closed_trades': 0, 'open_trades': 0, 'wins': 0, 'losses': 0, 'breakeven': 0, 'average_win': None, 'average_loss': None, 'largest_win': None, 'largest_loss': None, 'max_drawdown_abs': None, 'max_drawdown_pct': None, 'current_daily_pnl': None, 'sharpe': None, 'sortino': None, 'expectancy': None, 'consecutive_wins': None, 'consecutive_losses': None, 'trading_days': 0, 'exposure_pct': None, 'exit_reasons': {}, 'risk_per_trade_pct': 0.9167, 'prop_firm': {'account_size': 10000.0, 'equity': 10000.0, 'daily_loss_limit': 500.0, 'daily_loss_used': 0.0, 'daily_loss_remaining': 500.0, 'max_loss_limit': 1000.0, 'max_loss_remaining': 1000.0, 'profit_target': 1000.0, 'profit_target_distance': 1000.0, 'min_trading_days': 5, 'trading_days': 0, 'rule_violations': [], 'rule_violation_count': 0, 'verdict': 'NO_DATA'}, 'unavailable': ['maximum drawdown (no closed trades yet)', \"today's P/L (nothing closed today)\", 'sharpe (needs >= 10 closed trades)', 'sortino (needs >= 10 closed trades and at least one losing trade)', 'profit factor (no closed trades yet)'], 'source': 'computed from recorded live-test trades', 'trades': [], 'trade_sample_note': 'at most 200 records are returned; every statistic above is computed over ALL recorded trades', 'read_only': True}",
+      "classification": "PRE_EXISTING_ARCHIVED_FAILURE",
+      "reason": "Paired baseline and current fail the same named test and assertion location; exact traces retained below. This does not convert the failure into a passing test. Removed legacy routes, static historical identities/metrics, hashes and old schema assumptions are not restored to satisfy obsolete contracts.",
+      "baseline": {
+        "id": "DATA/tests/test_v4_comprehensive_workflow.py::test_14_live_test_results_and_prop_firm_metrics",
+        "result": "failed",
+        "detail": "DATA/tests/test_v4_comprehensive_workflow.py:332: in test_14_live_test_results_and_prop_firm_metrics\n    assert \"summary\" in data\nE   assert 'summary' in {'starting_balance': 10000.0, 'current_balance': 10000.0, 'peak_balance': 10000.0, 'net_profit': 0, 'gross_profit': 0, 'gross_loss': 0, 'return_pct': 0.0, 'profit_factor': None, 'win_rate': None, 'trade_count': 0, 'closed_trades': 0, 'open_trades': 0, 'wins': 0, 'losses': 0, 'breakeven': 0, 'average_win': None, 'average_loss': None, 'largest_win': None, 'largest_loss': None, 'max_drawdown_abs': None, 'max_drawdown_pct': None, 'current_daily_pnl': None, 'sharpe': None, 'sortino': None, 'expectancy': None, 'consecutive_wins': None, 'consecutive_losses': None, 'trading_days': 0, 'exposure_pct': None, 'exit_reasons': {}, 'risk_per_trade_pct': 0.9167, 'prop_firm': {'account_size': 10000.0, 'equity': 10000.0, 'daily_loss_limit': 500.0, 'daily_loss_used': 0.0, 'daily_loss_remaining': 500.0, 'max_loss_limit': 1000.0, 'max_loss_remaining': 1000.0, 'profit_target': 1000.0, 'profit_target_distance': 1000.0, 'min_trading_days': 5, 'trading_days': 0, 'rule_violations': [], 'rule_violation_count': 0, 'verdict': 'NO_DATA'}, 'unavailable': ['maximum drawdown (no closed trades yet)', \"today's P/L (nothing closed today)\", 'sharpe (needs >= 10 closed trades)', 'sortino (needs >= 10 closed trades and at least one losing trade)', 'profit factor (no closed trades yet)'], 'source': 'computed from recorded live-test trades', 'trades': [], 'trade_sample_note': 'at most 200 records are returned; every statistic above is computed over ALL recorded trades', 'read_only': True}"
+      },
+      "command": [
+        "/var/tmp/v95-recovery/venv/bin/python",
+        "-m",
+        "pytest",
+        "-vv",
+        "-ra",
+        "--tb=short",
+        "-p",
+        "archive_resource_cleanup",
+        "-o",
+        "faulthandler_timeout=30",
+        "--junitxml=/home/user/V9_5_CURRENT_ARCHIVE_candidate_31.xml",
+        "DATA/tests/test_v4_comprehensive_workflow.py"
+      ],
+      "log": "/home/user/V9_5_CURRENT_ARCHIVE_candidate_31.log",
+      "peak_owned_rss_bytes": 314540032,
+      "current_failure_lines": [
+        "332"
+      ],
+      "baseline_failure_lines": [
+        "332"
+      ]
+    },
+    {
+      "id": "DATA/tests/test_v4_comprehensive_workflow.py::test_15_mt5_demo_trading_safety_gating",
+      "result": "failed",
+      "detail": "DATA/tests/test_v4_comprehensive_workflow.py:355: in test_15_mt5_demo_trading_safety_gating\n    assert r_stat.status_code == 200\nE   assert 404 == 200\nE    +  where 404 = <Response [404 Not Found]>.status_code",
+      "classification": "PRE_EXISTING_ARCHIVED_FAILURE",
+      "reason": "Paired baseline and current fail the same named test and assertion location; exact traces retained below. This does not convert the failure into a passing test. Removed legacy routes, static historical identities/metrics, hashes and old schema assumptions are not restored to satisfy obsolete contracts.",
+      "baseline": {
+        "id": "DATA/tests/test_v4_comprehensive_workflow.py::test_15_mt5_demo_trading_safety_gating",
+        "result": "failed",
+        "detail": "DATA/tests/test_v4_comprehensive_workflow.py:355: in test_15_mt5_demo_trading_safety_gating\n    assert r_stat.status_code == 200\nE   assert 404 == 200\nE    +  where 404 = <Response [404 Not Found]>.status_code"
+      },
+      "command": [
+        "/var/tmp/v95-recovery/venv/bin/python",
+        "-m",
+        "pytest",
+        "-vv",
+        "-ra",
+        "--tb=short",
+        "-p",
+        "archive_resource_cleanup",
+        "-o",
+        "faulthandler_timeout=30",
+        "--junitxml=/home/user/V9_5_CURRENT_ARCHIVE_candidate_31.xml",
+        "DATA/tests/test_v4_comprehensive_workflow.py"
+      ],
+      "log": "/home/user/V9_5_CURRENT_ARCHIVE_candidate_31.log",
+      "peak_owned_rss_bytes": 314540032,
+      "current_failure_lines": [
+        "355"
+      ],
+      "baseline_failure_lines": [
+        "355"
+      ]
+    },
+    {
+      "id": "DATA/tests/test_v4_comprehensive_workflow.py::test_16_promotion_pipeline_transitions",
+      "result": "failed",
+      "detail": "DATA/tests/test_v4_comprehensive_workflow.py:373: in test_16_promotion_pipeline_transitions\n    assert auth[\"pipeline_stage\"] == st\n           ^^^^^^^^^^^^^^^^^^^^^^\nE   KeyError: 'pipeline_stage'",
+      "classification": "PRE_EXISTING_ARCHIVED_FAILURE",
+      "reason": "Paired baseline and current fail the same named test and assertion location; exact traces retained below. This does not convert the failure into a passing test. Removed legacy routes, static historical identities/metrics, hashes and old schema assumptions are not restored to satisfy obsolete contracts.",
+      "baseline": {
+        "id": "DATA/tests/test_v4_comprehensive_workflow.py::test_16_promotion_pipeline_transitions",
+        "result": "failed",
+        "detail": "DATA/tests/test_v4_comprehensive_workflow.py:373: in test_16_promotion_pipeline_transitions\n    assert auth[\"pipeline_stage\"] == st\n           ^^^^^^^^^^^^^^^^^^^^^^\nE   KeyError: 'pipeline_stage'"
+      },
+      "command": [
+        "/var/tmp/v95-recovery/venv/bin/python",
+        "-m",
+        "pytest",
+        "-vv",
+        "-ra",
+        "--tb=short",
+        "-p",
+        "archive_resource_cleanup",
+        "-o",
+        "faulthandler_timeout=30",
+        "--junitxml=/home/user/V9_5_CURRENT_ARCHIVE_candidate_31.xml",
+        "DATA/tests/test_v4_comprehensive_workflow.py"
+      ],
+      "log": "/home/user/V9_5_CURRENT_ARCHIVE_candidate_31.log",
+      "peak_owned_rss_bytes": 314540032,
+      "current_failure_lines": [
+        "373"
+      ],
+      "baseline_failure_lines": [
+        "373"
+      ]
+    }
+  ],
+  "unresolved": [],
+  "no_failures_reported_as_passes": true,
+  "no_timeouts_or_oom": true,
+  "focused_proof_sha256": "033febfcc688ba68da67307cf5c651387c6d4ce4aa993c69882f2b85288177cd",
+  "initial_focused_probe_fixture_error": "First added probe used update_strategy(updated_at=old), whose deliberate now-stamp defeated stale setup; retained failing receipts. Corrected only seeding to SQL UPDATE; assertions unchanged; reran both variants."
+}

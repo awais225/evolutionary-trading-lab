@@ -73,6 +73,13 @@ class ResearchRestorationEngine:
     def restore_all(self, emit_logs: bool = True) -> Dict[str, Any]:
         """Execute the full 18-step restoration sequence (spec V3.2 §2)."""
         with _lock:
+            # A release reset is an explicit durable refusal to auto-import old
+            # node files/backups. Only an operator's verified offline restore
+            # may remove this barrier; ordinary startup must never do so.
+            if self.db.get_meta('v95_restoration_barrier'):
+                self._restored=True
+                self._report={'ok':True,'mode':'explicit_node_reset_barrier','nodes_restored':0,'auto_restore_disabled':True}
+                return dict(self._report)
             P.ensure_layout()
             t0 = time.time()
 
@@ -361,17 +368,17 @@ class ResearchRestorationEngine:
                     existing_db_hashes.add(h)
                     new_nodes_inserted += 1
                 else:
-                    # Update status/fitness if newly discovered validation or backtest
-                    if n["status"] in ("QUALIFIED", "SURVIVED") or n["fitness"] is not None:
-                        db.x("""UPDATE strategies SET status = ?, fitness = COALESCE(?, fitness),
-                                survival_reason = COALESCE(?, survival_reason),
-                                failure_reason = COALESCE(?, failure_reason),
-                                updated_at = ?
-                                WHERE id = ?""",
-                             (n["status"], n["fitness"], n["survival_reason"],
-                              n["failure_reason"], n["updated_at"], sid))
-                        nodes_updated += 1
+                    # Persisted canonical SQLite wins over old sidecars. A stale
+                    # file (even a reused ID with a different genome hash) must
+                    # not promote/reclassify an existing row on refresh/restart.
+                    pass
 
+            # Apply the existing DB historical classifier in this same restore.
+            db.x("""UPDATE strategies SET data_source='LEGACY_TEST'
+                    WHERE (id<=787 OR run_id IS NULL OR run_id LIKE '%TEST%' OR run_id='RUN-HISTORICAL-PRESERVED')
+                      AND COALESCE(data_source,'')<>'LEGACY_TEST'""")
+            from ..db.database import RESEARCH_ALIAS_SQL
+            db.x(RESEARCH_ALIAS_SQL)
             # Reconcile backtests
             existing_bt_keys = set(
                 (r["strategy_id"], r["stage"])

@@ -143,7 +143,11 @@ def test_02_every_filter_is_reachable_and_reports_its_own_count(client):
     from app.db.database import get_db
     n_legacy = get_db().q(
         "SELECT COUNT(*) AS n FROM strategies WHERE data_source='LEGACY_TEST'")[0]["n"]
-    assert totals["excluded"] == n_legacy, (totals["excluded"], n_legacy)
+    # V9.5 supersedes the active excluded bucket: legacy history is a separate
+    # disclosed scope, never an active/selectable row (including filter=excluded).
+    assert totals['excluded']==0
+    assert d['population_snapshot']['legacy_total']==n_legacy
+    assert not client.get('/api/nodes?filter=excluded&limit=0').json()['nodes']
     # (the failed:qualified proportion is study mix, not contract — see test_01;
     #  what IS contract is that every filter reports its own honest count)
     assert totals["failed"] == buckets.get("failed", 0)

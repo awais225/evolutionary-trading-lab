@@ -147,7 +147,9 @@ def test_06_the_index_and_the_population_authority_agree(db, monkeypatch):
     assert state["QUALIFIED"] == 2 == index["counts"]["qualified"]
     # the six names are the same vocabulary on both endpoints
     assert list(state.keys()) == POP_NAMES
-    assert index["counts"]["excluded"] == 1, "the legacy row is excluded, not counted as a node"
+    assert index['counts'].get('excluded',0)==0, 'legacy must be absent from active counts'
+    assert index['population_snapshot']['legacy_total']==1
+    assert all(n['node_id']!=13 for n in routes.nodes_index(filter='all',limit=0)['nodes'])
     # the labels the page shows for the filters come from the server, not from a recount
     assert index["filter_totals"]["gate_passed"] == 2
 

@@ -58,7 +58,7 @@ class PipelineStateManager:
 
         now = time.time()
         now_dt = datetime.fromtimestamp(now, tz=timezone.utc)
-        self.run_id = f"RUN-{now_dt.strftime('%Y%m%d')}-CLEAN-MT5"
+        self.run_id = None
         self.experiment_id = "EXP-XAUUSD-M15"
 
         self.stage = "INITIALIZATION"
@@ -73,7 +73,7 @@ class PipelineStateManager:
         self.current_dataset = "XAUUSD_M5"
         self.current_node = 0
         self.node_completed = 0
-        self.node_total = 1000
+        self.node_total = int(get_db().get_meta('total_node_target') or get_config().evolution.total_node_target)
         self.generation = 0
 
         self.overall_completed = 0
@@ -110,6 +110,10 @@ class PipelineStateManager:
 
         # Load active run if persisted or query latest from database
         self._load_active_run()
+        self.status = 'INTERRUPTED' if self.run_id else 'STOPPED'
+        self.worker_status = 'INACTIVE'
+        if self.run_id:
+            get_db().x("UPDATE research_runs SET status='INTERRUPTED' WHERE run_id=? AND status IN ('RUNNING','STOPPING')",(self.run_id,))
 
         # Check for previous persisted run to record info without hijacking clean run
         self._check_recovery()
@@ -118,7 +122,7 @@ class PipelineStateManager:
         if self.active_run_file.exists():
             try:
                 data = json.loads(self.active_run_file.read_text(encoding="utf-8"))
-                if isinstance(data, dict) and data.get("run_id"):
+                if isinstance(data, dict) and data.get("run_id") and get_db().one('SELECT run_id FROM research_runs WHERE run_id=?',(data['run_id'],)):
                     self.run_id = data["run_id"]
                     self.experiment_id = data.get("experiment_id", self.experiment_id)
                     self.node_total = data.get("target_nodes", self.node_total)
@@ -129,7 +133,7 @@ class PipelineStateManager:
         try:
             db = get_db()
             runs = db.get_all_research_runs()
-            if runs:
+            if len(runs)==1:
                 latest = runs[0]
                 if latest.get("status") not in ("COMPLETED", "FINISHED"):
                     self.run_id = latest["run_id"]
@@ -156,51 +160,32 @@ class PipelineStateManager:
             log.warning("Notice: failed saving active run: %s", e)
 
     def new_run(self, run_id: Optional[str] = None, target: Optional[int] = None) -> str:
-        """Start a new research run with clean frontier without modifying historical database (spec §8)."""
+        """Insert fresh identity atomically before changing any in-memory frontier."""
         with self._lock:
-            now = time.time()
-            now_dt = datetime.fromtimestamp(now, tz=timezone.utc)
-            self.run_id = run_id or f"RUN-{now_dt.strftime('%Y%m%d-%H%M%S')}"
-            self.started_at = now
-            self.updated_at = now
-            self.last_progress_ts = now
-            self.status = "RUNNING"
-            if target and target > 0:
-                self.node_total = target
-                self.overall_total = target
-            self.node_completed = 0
-            self.overall_completed = 0
-            self.overall_percent = 0.0
-
-            self._save_active_run()
-
-            try:
-                db = get_db()
-                db.upsert_research_run({
-                    "run_id": self.run_id,
-                    "experiment_id": self.experiment_id,
-                    "created_at": self.started_at,
-                    "target_nodes": self.node_total,
-                    "status": "RUNNING",
-                    "persistence_status": "PERSISTED",
-                    "last_checkpoint": now,
-                })
-            except Exception as e:
-                log.warning("Notice: failed upserting research run to DB: %s", e)
-
-            try:
-                from .diagnostic_logger import log_research_run_event
-                log_research_run_event("NEW_RUN", self.run_id, {"target": self.node_total, "experiment_id": self.experiment_id})
-            except Exception:
-                pass
-
-            self._persist()
-            self._broadcast()
+            import uuid
+            now=time.time();proposed=run_id or f'RUN-{uuid.uuid4().hex}'
+            ceiling=int(target or self.node_total)
+            db=get_db()
+            if db.one('SELECT run_id FROM research_runs WHERE run_id=?',(proposed,)):
+                raise ValueError('Fresh run ID already exists; explicitly resume instead')
+            # Plain INSERT, not upsert: concurrent duplicate IDs cannot overwrite.
+            db.x("INSERT INTO research_runs(run_id,experiment_id,created_at,target_nodes,status,persistence_status,last_checkpoint) VALUES (?,?,?,?,?,?,?)",
+                 (proposed,self.experiment_id,now,ceiling,'RUNNING','PERSISTED',now))
+            self.run_id=proposed;self.started_at=self.updated_at=self.last_progress_ts=now
+            self.status='RUNNING';self.stage='INITIALIZATION';self.generation=0
+            self.node_total=self.overall_total=ceiling
+            self.node_completed=self.overall_completed=0;self.overall_percent=0.
+            self.current_node=None;self.worker_status='IDLE'
+            self.stage_statuses={key:'QUEUED' for key in self.stage_statuses}
+            self._save_active_run();self._persist()
+            # Lab binds its engine to this identity before publishing started.
             return self.run_id
 
     def resume_run(self, target: Optional[int] = None) -> str:
         """Resume existing research from persisted frontier (spec §8)."""
         with self._lock:
+            if not self.run_id or not get_db().one('SELECT run_id FROM research_runs WHERE run_id=?',(self.run_id,)):
+                raise ValueError('No verified persisted run/checkpoint to resume')
             now = time.time()
             self.updated_at = now
             self.status = "RUNNING"
@@ -493,6 +478,8 @@ class PipelineStateManager:
             pass
 
         db = get_db()
+        from ..research.population_state import snapshot
+        node_st=snapshot(db,self.run_id,self.node_total or 10000)
         all_runs = db.get_all_research_runs()
         current_run_match = next((r for r in all_runs if r["run_id"] == self.run_id), None)
         if not current_run_match and all_runs:
@@ -509,18 +496,19 @@ class PipelineStateManager:
         elapsed = round(now - self.started_at, 1)
 
         run_gen_nodes = current_run_match["generated_nodes"] if current_run_match else self.node_completed
-        run_comp_nodes = current_run_match["completed_nodes"] if current_run_match else 0
+        run_comp_nodes=node_st['current_nodes']-node_st['pending_nodes']
         run_qual_nodes = current_run_match["qualified_nodes"] if current_run_match else 0
-        run_pen_bt = current_run_match["pending_backtesting"] if current_run_match else 0
-        run_pen_val = current_run_match["pending_validation"] if current_run_match else 0
+        run_pen_bt=sum(node_st['status_counts'].get(s,0) for s in ('BORN','BACKTESTING','SURVIVED'))
+        run_pen_val=node_st['validating_nodes']
         ceiling = self.node_total or (current_run_match["node_ceiling"] if current_run_match else 500)
         run_gen = current_run_match["current_generation"] if current_run_match else self.generation
 
         # V4.0: the cumulative research figure shown on the dashboard excludes the
         # ~787 LEGACY_TEST infrastructure records (display scope only).
-        cum_total = db.total_strategies_count(exclude_legacy=True)
-        cum_completed = sum(r.get("completed_nodes", 0) for r in all_runs)
-        cum_qualified = sum(r.get("qualified_nodes", 0) for r in all_runs)
+        persisted=snapshot(db)
+        cum_total=persisted['current_nodes']
+        cum_completed=cum_total-persisted['pending_nodes']
+        cum_qualified=persisted['qualified_nodes']
 
         with self._lock:
             self.generation = run_gen
@@ -559,6 +547,7 @@ class PipelineStateManager:
                 "overall_completed": run_comp_nodes,
                 "overall_total": ceiling,
                 "overall_percent": self.overall_percent,
+                "population_snapshot":node_st,
                 "generated_nodes": run_gen_nodes,
                 "generated_percent": gen_pct,
                 "completed_nodes": run_comp_nodes,
@@ -594,7 +583,8 @@ class PipelineStateManager:
                     "current_generation": self.generation,
                     "node_ceiling": ceiling,
                     "target": ceiling,
-                    "generated_nodes": run_gen_nodes,
+                    "population_snapshot":node_st,
+                "generated_nodes": run_gen_nodes,
                     "completed_nodes": run_comp_nodes,
                     "qualified_nodes": run_qual_nodes,
                     "pending_validation": run_pen_val,

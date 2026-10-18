@@ -39,7 +39,9 @@ const SUMMARY_ROWS = [
     const h = s.holding || {};
     return `${h.avg_minutes == null ? "N/A" : h.avg_minutes + " min"} / ${h.max_seconds == null ? "N/A" : h.max_seconds + " s"}`;
   }],
-  ["Max consecutive W / L", (s) => `${s.max_consecutive_wins ?? "N/A"} / ${s.max_consecutive_losses ?? "N/A"}`],
+  ["Maximum consecutive losing trades", (s) => s.max_consecutive_losing_trades ?? "N/A — trade chronology/data incomplete"],
+  ["Maximum consecutive-loss sequence · account currency (USD if USD capital)", (s) => s.max_consecutive_loss_currency == null ? "N/A — trade chronology/data incomplete" : f2(s.max_consecutive_loss_currency)],
+  ["Loss sequence convention", (s) => s.loss_sequence_reason || s.loss_sequence_convention || "N/A — reopen/recompute saved-trade analysis"],
 ];
 
 const DAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
@@ -227,7 +229,7 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
   // original summary scaled or left in place. Unfiltered = the scenario's own
   // saved analytics, exactly as stored.
   const origSummary = (sel?.analytics || {}).summary || {};
-  const summary = filtersActive ? (!filtBusy&&!filtError?(filt?.filtered?.summary||{}):{}) : origSummary;
+  const summary = filtersActive ? (!filtBusy&&!filtError?(filt?.filtered?.summary||{}):{}) : (filt?.original?.summary || origSummary);
   const breakdowns = (sel?.analytics || {}).breakdowns || {};
   const unavail = (sel?.analytics || {}).unavailable || [];
   const blocks = filtersActive ? (!filtBusy&&!filtError?(filt?.filtered||{}):{}) : (filt?.original||{});

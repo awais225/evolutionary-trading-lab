@@ -279,3 +279,12 @@ class TestRangeFetch:
                                 "duration_key": "2Y"})
         assert out["ok"]
         assert captured["period"] == {"duration_key": "2Y"}
+
+
+@pytest.fixture(autouse=True)
+def _synthetic_memory_history_is_not_the_operator_broker_baseline(monkeypatch):
+    # Range-fetch tests use SIMULATOR bridges and isolated in-memory stores.
+    # Do not ask them to mutate the real provisioned IC Markets source. The
+    # independent V9.2 tests retain every broker-provenance rejection assertion.
+    import app.data.history as H
+    monkeypatch.setattr(H,'canonical_profile',lambda *a:None)

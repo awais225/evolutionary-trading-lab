@@ -337,7 +337,9 @@ class ResourceManager:
         budget_bytes = self.memory_budget_bytes()
         ram_limit_gb = round(budget_bytes / (1024 ** 3), 1)
 
-        active_workers = min(self._active_workers, eff_workers)
+        from ..orchestrator.cancellable import active_tasks
+        owned=active_tasks()
+        active_workers=min(self._active_workers,eff_workers)+len(owned)
         idle_workers = max(0, eff_workers - active_workers)
 
         return {
@@ -351,6 +353,7 @@ class ResourceManager:
                 "configured_workers": cfg.evolution.workers,
                 "effective_workers": eff_workers,
                 "active_workers": active_workers,
+                "owned_long_tasks":owned,
                 "idle_workers": idle_workers,
                 "limit_enabled": cfg.resources.cpu_limit_enabled,
             },

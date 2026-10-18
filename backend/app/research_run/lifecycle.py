@@ -169,7 +169,8 @@ def _run_context() -> Dict[str, Any]:
     evo = get_evo_engine()
     psm = get_pipeline_state_manager()
     run_id = psm.run_id or evo.active_run_id
-    run_nodes = evo.run_nodes(run_id) if run_id else evo.total_nodes()
+    from ..research.population_state import snapshot
+    run_nodes = snapshot(evo.db,run_id,evo.get_total_node_target())['current_nodes']
     return {
         "run_id": run_id,
         "active_run_id": evo.active_run_id,
@@ -204,7 +205,9 @@ def state() -> Dict[str, Any]:
     c = counts()
     ctx = _run_context()
     return {
-        "user_research_nodes": c["user_research_nodes"],
+        "user_research_nodes": ctx["run_nodes"],
+        "lifetime_user_research_nodes": c["user_research_nodes"],
+        "population_scope": "current_run" if ctx['run_id'] else 'persisted_research',
         "legacy_test_nodes": c["legacy_test_nodes"],
         "total_strategies": c["total_strategies"],
         "run_id": ctx["run_id"],

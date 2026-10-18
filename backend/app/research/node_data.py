@@ -99,7 +99,8 @@ def node_data_snapshot(db=None, limit_top: int = 10, use_cache: bool = True) -> 
                     out = dict(hit)
                     out["cached"] = True
                     return out
-        out = _node_data_snapshot_uncached(db, limit_top=limit_top)
+        with db.read_snapshot():
+            out = _node_data_snapshot_uncached(db, limit_top=limit_top)
         if use_cache and out.get("state_token"):
             with _SNAPSHOT_LOCK:
                 _SNAPSHOT_CACHE.clear()
@@ -122,7 +123,8 @@ def _node_data_snapshot_uncached(db, limit_top: int = 10) -> Dict[str, Any]:
     except Exception:
         token_before = None
     try:
-        rows = [dict(r) for r in (db.q(f"SELECT {INVENTORY_ROW_COLS} FROM strategies")
+        from .population_state import ACTIVE_SQL
+        rows = [dict(r) for r in (db.q(f"SELECT {INVENTORY_ROW_COLS} FROM strategies WHERE {ACTIVE_SQL}")
                                   or [])]
         gen = _best_generation_record(db)
 
@@ -163,7 +165,7 @@ def _node_data_snapshot_uncached(db, limit_top: int = 10) -> Dict[str, Any]:
                 fit_scored.append((float(fv), row, met))
 
         total = len(rows)
-        q = db.one(f"SELECT COUNT(*) c FROM strategies WHERE {QUALIFIED_TIER_SQL}") or {}
+        q = db.one(f"SELECT COUNT(*) c FROM strategies WHERE ({QUALIFIED_TIER_SQL}) AND ({ACTIVE_SQL})") or {}
         alive = sum(by_status.get(s, 0) for s in ALIVE_TIER_STATUSES)
         dead = sum(by_status.get(s, 0) for s in DEAD_TIER_STATUSES)
         counts = {
@@ -173,7 +175,7 @@ def _node_data_snapshot_uncached(db, limit_top: int = 10) -> Dict[str, Any]:
             "backtesting": int(by_status.get("BACKTESTING", 0)),
             "validating": int(by_status.get("VALIDATING", 0)),
             "total": int(total),
-            "scope": "complete stored research history (all runs incl. preserved)",
+            "scope": "complete stored research history — active canonical rows; legacy/excluded lifetime disclosed separately",
             "formula": "qualified = stored status QUALIFIED + PAPER "
                        "(db.get_qualified_strategies / reconstruct_state semantics)",
         }
@@ -230,6 +232,7 @@ def _node_data_snapshot_uncached(db, limit_top: int = 10) -> Dict[str, Any]:
             token_after = token_before
         return {
             "schema_version": 1,
+            "population_snapshot": __import__('app.research.population_state',fromlist=['snapshot']).snapshot(db),
             "revision": f"{rev_base}:{token}:{content_fp[:12]}",
             "state_token": token,
             "mixed_snapshot": bool(token_before and token_after and token_before != token_after),

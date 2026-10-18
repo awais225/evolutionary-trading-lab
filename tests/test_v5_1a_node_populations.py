@@ -37,8 +37,18 @@ class FakeDB:
 
     def q(self, sql, params=()):
         low = " ".join(sql.split()).lower()
-        if "from strategies" in low:
-            return [dict(r) for r in self.tables["strategies"]]
+        if 'from strategies' in low or 'from node_registry_revision' in low:
+            # Execute the actual SELECT/WHERE/GROUP BY, not a mock which
+            # silently ignores V9.5's population scope and revision joins.
+            import sqlite3
+            conn=sqlite3.connect(':memory:');conn.row_factory=sqlite3.Row
+            columns=set().union(*(r.keys() for r in self.tables['strategies']))|{'id','run_id','generation','updated_at','status','data_source'}
+            conn.execute('CREATE TABLE strategies ('+','.join('"'+c+'"' for c in sorted(columns))+')')
+            conn.execute('CREATE TABLE node_registry_revision (revision INTEGER)');conn.execute('INSERT INTO node_registry_revision VALUES (1)')
+            for r in self.tables['strategies']:
+                conn.execute('INSERT INTO strategies ('+','.join('"'+k+'"' for k in r)+') VALUES ('+','.join('?' for _ in r)+')',list(r.values()))
+            try:return [dict(r) for r in conn.execute(sql,params).fetchall()]
+            finally:conn.close()
         if "from mt5_historical_runs" in low:
             return [dict(r) for r in self.tables["mt5_historical_runs"]]
         if "from live_test_configs" in low and "is_active" in low:
@@ -102,7 +112,8 @@ def population_db():
 # ===========================================================================
 def test_01_counts_every_stored_row(population_db):
     out = P.populations(population_db)
-    assert out["counts"]["total"] == 17
+    assert out["counts"]["total"] == 15
+    assert out['population_snapshot']['lifetime_total']==17
     assert out["detail"]["legacy_excluded"] == 2
     assert out["detail"]["user_research_total"] == 15
 
@@ -200,9 +211,9 @@ def test_11_an_unreadable_database_says_so_instead_of_reporting_fake_numbers():
         def one(self, *a, **k):
             raise RuntimeError("database is locked")
 
-    out = P.populations(Broken())
-    assert out["counts"]["total"] == 0
-    assert out["notes"] and "0" in out["notes"][0]
+    # A failed authoritative snapshot must not publish fabricated zero counts.
+    with pytest.raises(RuntimeError,match='database is locked'):
+        P.populations(Broken())
 
 
 def test_12_empty_database_is_zero_with_a_note():
@@ -353,6 +364,7 @@ def test_26_authoritative_data_keeps_its_own_vocabulary():
     total = db.one("SELECT COUNT(*) n FROM strategies")["n"]
     legacy = db.one("SELECT COUNT(*) n FROM strategies WHERE data_source='LEGACY_TEST'")["n"]
     out = P.populations(db)
-    assert out["counts"]["total"] == total
+    assert out['counts']['total']==total-legacy
+    assert out['population_snapshot']['lifetime_total']==total
     assert out["detail"]["legacy_excluded"] == legacy
     assert out["detail"]["user_research_total"] == total - legacy

@@ -238,6 +238,20 @@
       "release": "V9.3",
       "src_file_count": 71,
       "src_hash": "7eb0b616e54d2930101ff02aec0b8b7deac4824d40108ea95fb8f769694bdd39"
+    },
+    {
+      "code_files": 144,
+      "code_hash": "3a5e5e53f6e584945195aa7b2eda9c3f5706436d83e0c356bdc24278d9fc6793",
+      "commit": "ac4c784fa0d3eec23390fb1054b846a9c3d3a9da",
+      "entry_assets": [
+        "assets/index-2ikODb4E.js",
+        "assets/index-DYygB5sD.css"
+      ],
+      "index_sha256": "793f97e0b8066ebc398c69fd79e0d6c181939993d0637173e973f4896c886300",
+      "recorded_at": "2026-10-18T11:43:04Z",
+      "release": "V9.5",
+      "src_file_count": 71,
+      "src_hash": "76cbe97b6dfa09283436a375e1233aec7c85ce912c56a33343cd729d7d49991b"
     }
   ],
   "schema": 1

@@ -132,7 +132,8 @@ def test_02_qualified_nodes_are_live_eligible_before_anything_is_started(db):
     rejected = detail["eligible_detail"]["rejected"]
     assert rejected.get(E.REASON_NO_ENTRY) == 1, "the reason is exposed, never just the total"
     # the legacy row and the failed row are not even candidates (not qualified)
-    assert state["TOTAL"] == 5 and state["ALIVE"] == 3
+    assert state["TOTAL"] == 4 and state["ALIVE"] == 3
+    assert P.populations(db=db)['population_snapshot']['legacy_total']==1
 
 
 def test_03_enrolling_a_node_moves_activity_only(db):

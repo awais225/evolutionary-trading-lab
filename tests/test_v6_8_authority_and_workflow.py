@@ -53,13 +53,13 @@ class TestNodeDataAuthority:
         node-data authority and the per-run counters all agree."""
         nd = client.get("/api/node-data").json()["node_data"]
         q = nd["counts"]["qualified"]
-        con = sqlite3.connect(str(REPO / "DATA" / "DATABASE" / "lab_state.db"))
-        sql_q = con.execute(f"SELECT COUNT(*) FROM strategies WHERE {QUALIFIED_TIER_SQL}").fetchone()[0]
+        con = sqlite3.connect(str(__import__('app.config',fromlist=['get_config']).get_config().database_path))
+        sql_q = con.execute(f"SELECT COUNT(*) FROM strategies WHERE {QUALIFIED_TIER_SQL} AND COALESCE(data_source,'')<>'LEGACY_TEST' AND status<>'EXCLUDED'").fetchone()[0]
         con.close()
         assert q == sql_q
         runs = client.get("/api/lab/runs").json()["runs"]
         run_sum = sum(int(r.get("qualified_nodes") or 0) for r in runs)
-        db = Database(str(REPO / "DATA" / "DATABASE" / "lab_state.db"))
+        db = Database(str(__import__('app.config',fromlist=['get_config']).get_config().database_path))
         engine_q = len(db.get_qualified_strategies())
         db.close()
         assert engine_q == q, "get_qualified_strategies() and the authority must agree"
@@ -82,7 +82,7 @@ class TestNodeDataAuthority:
         rows = client.get("/api/nodes?filter=all&limit=5&sort_by=node_id").json()["nodes"]
         pop = client.get("/api/population?limit=5&sort=id&sort_desc=false&include_legacy=true").json()["strategies"]
         by_id = {r["id"]: r for r in pop}
-        con = sqlite3.connect(str(REPO / "DATA" / "DATABASE" / "lab_state.db"))
+        con = sqlite3.connect(str(__import__('app.config',fromlist=['get_config']).get_config().database_path))
         con.row_factory = sqlite3.Row
         try:
             for r in rows[:5]:
@@ -107,10 +107,10 @@ class TestNodeDataAuthority:
         whenever the dataset contains it; values are never hardcoded."""
         nd = client.get("/api/node-data").json()["node_data"]
         tops = nd["tops"]["return_pct"]
-        con = sqlite3.connect(str(REPO / "DATA" / "DATABASE" / "lab_state.db"))
+        con = sqlite3.connect(str(__import__('app.config',fromlist=['get_config']).get_config().database_path))
         con.row_factory = sqlite3.Row
         try:
-            row718 = con.execute("SELECT id FROM strategies WHERE id=718").fetchone()
+            row718 = con.execute("SELECT id FROM strategies WHERE id=718 AND COALESCE(data_source,'')<>'LEGACY_TEST' AND status<>'EXCLUDED'").fetchone()
             if row718:
                 raw = con.execute("""SELECT metrics FROM backtests WHERE strategy_id=718
                                      AND stage IN ('detail','screen')
@@ -177,14 +177,14 @@ class TestNodeDataAuthority:
         db.close()
 
     def test_sorting_never_mutates_records_or_qualification(self, client):
-        con = sqlite3.connect(str(REPO / "DATA" / "DATABASE" / "lab_state.db"))
+        con = sqlite3.connect(str(__import__('app.config',fromlist=['get_config']).get_config().database_path))
         before = con.execute(f"SELECT COUNT(*), SUM(CASE WHEN {QUALIFIED_TIER_SQL} THEN 1 ELSE 0 END) "
                              "FROM strategies").fetchone()
         con.close()
         for sort in ("return_pct", "trades", "pf"):
             client.get(f"/api/population?limit=3&sort={sort}&sort_desc=true&include_legacy=true")
             client.get(f"/api/population?limit=3&sort={sort}&sort_desc=false&include_legacy=true")
-        con = sqlite3.connect(str(REPO / "DATA" / "DATABASE" / "lab_state.db"))
+        con = sqlite3.connect(str(__import__('app.config',fromlist=['get_config']).get_config().database_path))
         after = con.execute(f"SELECT COUNT(*), SUM(CASE WHEN {QUALIFIED_TIER_SQL} THEN 1 ELSE 0 END) "
                             "FROM strategies").fetchone()
         con.close()

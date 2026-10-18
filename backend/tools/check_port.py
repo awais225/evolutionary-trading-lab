@@ -55,11 +55,11 @@ def identify_lab(port: int = 8787) -> str:
     * ``none``       - nothing is listening.
     """
     code, body = _json(f"http://127.0.0.1:{port}/system/build")
-    if code == 200 and isinstance(body, dict) and body.get("app"):
+    if code == 200 and isinstance(body, dict) and body.get("app")=="EVOLUTIONARY TRADING RESEARCH LAB":
         return "lab"
     code, body = _json(f"http://127.0.0.1:{port}/health")
     if code in (200, 503) and isinstance(body, dict):
-        if "startup" in body or "app_version" in body or "ready" in body:
+        if "startup" in body or "app_version" in body:
             return "legacy-lab"
     if code is not None and isinstance(body, str) and "evolutionary trading" in body.lower():
         return "legacy-lab"

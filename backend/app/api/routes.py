@@ -157,6 +157,7 @@ def status() -> Dict:
     sm = get_stage_manager()
     _nd_summary = _peek_node_data_summary()
     return {
+        "research_epoch": db.get_meta('v95_research_epoch'),
         "app_version": FULL_VERSION_STRING,
         "version": FULL_VERSION_STRING,
         "version_number": APP_VERSION,
@@ -197,7 +198,7 @@ def status() -> Dict:
 def lab_start(payload: Dict[str, Any] = Body(default_factory=dict)) -> Dict:
     mode = payload.get("mode", "continuous")
     target = payload.get("target")
-    run_type = payload.get("run_type", "resume")
+    run_type = payload.get("run_type", "new")
     new_run_id = payload.get("run_id")
     if target is not None:
         try:
@@ -470,7 +471,8 @@ def population(limit: int = 200, status: Optional[str] = None,
                sort_desc: bool = True,
                include_legacy: bool = False) -> Dict:
     db = get_db()
-    where, args = [], []
+    from ..research.population_state import ACTIVE_SQL
+    where, args = [ACTIVE_SQL], []
     if status:
         where.append("s.status=?"); args.append(status)
     if timeframe:
@@ -5871,9 +5873,7 @@ def nodes_index(
     NODE_FILTERS = (*NODE_FILTERS, "gate_passed")
     wanted = str(filter or "qualified").strip().lower()
     if wanted not in NODE_FILTERS:
-        return {"ok": False, "error": f"unknown filter {filter!r}",
-                "filters": list(NODE_FILTERS),
-        "scope": "complete stored history; qualified = stored QUALIFIED + PAPER", "nodes": [], "total": 0}
+        return {'ok':False,'error':f'unknown filter {filter!r}','filters':list(NODE_FILTERS),'nodes':[],'total':0}
 
     db = get_db()
     limits = risk_limits()
@@ -5945,7 +5945,8 @@ def nodes_index(
         base_rows = db.q(f"""SELECT {q_cols} FROM strategies
                              WHERE COALESCE(data_source,'USER_RESEARCH') <> 'LEGACY_TEST'
                              ORDER BY id""") or []
-    legacy_rows = db.q("SELECT * FROM strategies WHERE data_source='LEGACY_TEST'") or []
+    legacy_rows = []  # V9.5 active selections never include archival legacy rows
+    base_rows = [r for r in base_rows if str(r.get('status') or '').upper() != 'EXCLUDED']
     strategies = list(base_rows)
     # V6.8 §3.3 — an identity search spans the COMPLETE stored research
     # history: a node can never disappear from a tab because one endpoint
@@ -6334,7 +6335,8 @@ def nodes_index(
         "ok": True,
         "filter": wanted,
         "filters": list(NODE_FILTERS),
-        "scope": "complete stored history; qualified = stored QUALIFIED + PAPER",
+        "scope": "active canonical research history; legacy/excluded absent from rows, filters, ranks and counts",
+        "population_snapshot": __import__('app.research.population_state',fromlist=['snapshot']).snapshot(db),
         "sort_by": sort_by,
         "sort_key": sort_key_name,
         "counts": counts,
@@ -7406,7 +7408,10 @@ def deep_batch_get(ident:str):
 @router.post('/deeptest/batches/{ident}/{action}')
 def deep_batch_action(ident:str,action:str):
     from ..deeptest import bulk
-    if action not in ('cancel','resume'):raise HTTPException(422,'action must be cancel or resume')
+    if action in ('partial','full_only'):
+        try:return {'ok':True,'batch':bulk.coverage_decision(get_db(),ident,action)}
+        except ValueError as exc:raise HTTPException(409,str(exc))
+    if action not in ('cancel','resume'):raise HTTPException(422,'action must be cancel, resume, partial or full_only')
     try:return {'ok':True,'result':getattr(bulk,action)(get_db(),ident)}
     except ValueError as exc:raise HTTPException(409,str(exc))
 

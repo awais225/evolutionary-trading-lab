@@ -23,6 +23,7 @@ from ..jsonutil import jd
 import time
 from typing import Any, Dict, List, Optional
 
+from ..orchestrator.cancellable import Cancelled
 from ..config import get_config
 from ..db.database import get_db
 from ..genome import ops as gops
@@ -93,7 +94,7 @@ def rule_analyze(strategy: Dict, matrices: Optional[Dict],
     return out
 
 
-def apply_hypothesis(hyp_id: int, db=None) -> Optional[int]:
+def apply_hypothesis(hyp_id: int, db=None,stop=None) -> Optional[int]:
     """Convert an approved hypothesis into a real child strategy."""
     db = db or get_db()
     row = db.one("SELECT * FROM hypotheses WHERE id=?", (hyp_id,))
@@ -105,12 +106,14 @@ def apply_hypothesis(hyp_id: int, db=None) -> Optional[int]:
         db.x("UPDATE hypotheses SET status='REJECTED' WHERE id=?", (hyp_id,))
         return None
     try:
-        child, mt, desc = gops.directed(parent["genome"], proposal["action"],
-                                        proposal["params"])
+        outcome=_bounded_directed(parent['genome'],proposal['action'],proposal['params'],stop)
+        if not outcome[0]:raise GenomeError(outcome[1])
+        child,mt,desc=outcome[1]
     except (GenomeError, KeyError, ValueError) as e:
         db.x("UPDATE hypotheses SET status='REJECTED' WHERE id=?", (hyp_id,))
         log.info("hypothesis %s rejected: %s", hyp_id, e)
         return None
+    _check_stop(stop)
     from ..evolution.engine import EvolutionEngine
     evo = EvolutionEngine(db)
     sid = evo.spawn_child(child, parent["id"], mt,
@@ -124,7 +127,7 @@ def apply_hypothesis(hyp_id: int, db=None) -> Optional[int]:
     return sid
 
 
-def run_research_cycle(evolution_engine) -> List[Dict]:
+def run_research_cycle(evolution_engine,stop=None) -> List[Dict]:
     """Analyze the most promising strategies and store new hypotheses."""
     cfg = get_config()
     if not cfg.ai.researcher_enabled:
@@ -136,6 +139,7 @@ def run_research_cycle(evolution_engine) -> List[Dict]:
                    ORDER BY fitness DESC LIMIT 12""")
     created: List[Dict] = []
     for r in rows:
+        _check_stop(stop)
         if len(created) >= cfg.ai.max_hypotheses_per_cycle:
             break
         genome = json.loads(r["genome"])
@@ -162,7 +166,8 @@ def run_research_cycle(evolution_engine) -> List[Dict]:
                 seen.add(json.loads(e["proposal"])["action"])
             except Exception:
                 pass
-        for h in rule_analyze(strat, matrices, validation):
+        for h in _bounded(rule_analyze,(strat,matrices,validation),stop):
+            _check_stop(stop)
             action = h["proposal"]["action"]
             if action in seen:
                 continue
@@ -189,7 +194,8 @@ def run_research_cycle(evolution_engine) -> List[Dict]:
     # LLM hypotheses (optional, same whitelist)
     try:
         from .llm_adapter import llm_hypotheses
-        for h in llm_hypotheses(rows):
+        for h in _bounded(llm_hypotheses,(rows,),stop):
+            _check_stop(stop)
             if len(created) >= cfg.ai.max_hypotheses_per_cycle:
                 break
             hid = db.x("""INSERT INTO hypotheses (strategy_id,source,observation,
@@ -199,6 +205,8 @@ def run_research_cycle(evolution_engine) -> List[Dict]:
                         time.time()))
             h["id"] = hid
             created.append(h)
+    except Cancelled:
+        raise
     except Exception as e:
         log.debug("llm adapter inactive: %s", e)
     return created
@@ -273,3 +281,21 @@ def record_experiment_memory(child_id: int, db=None) -> None:
           child["symbol"], child["timeframe"], str(c_genome.get("regime_filters", "")),
           parent_fit, child_fit, delta, outcome, fail_reason,
           surv_reason, learned, time.time()))
+
+
+def _check_stop(stop):
+    if stop is not None and stop.is_set():
+        from ..orchestrator.cancellable import Cancelled
+        raise Cancelled('Research computation stopped before mutation')
+
+def _bounded(fn,args,stop):
+    if stop is None:return fn(*args)
+    from ..orchestrator.cancellable import call
+    return call(fn,args,stop,timeout=120)
+
+def _directed_result(genome,action,params):
+    try:return True,gops.directed(genome,action,params)
+    except (GenomeError,KeyError,ValueError) as exc:return False,str(exc)
+
+def _bounded_directed(genome,action,params,stop):
+    return _bounded(_directed_result,(genome,action,params),stop)

@@ -3,6 +3,7 @@ import {useState,useEffect,useRef} from 'react';
 export function useStoredState(key,fallback){
  const read=()=>{try{const v=window.sessionStorage.getItem('v92.'+key);return v===null?fallback:JSON.parse(v);}catch{return fallback;}};
  const [value,setValue]=useState(read),current=useRef(value);current.current=value;
+ useEffect(()=>{const reset=()=>{if(/(?:deep|live).*?(?:batch|selected|selection|node|compare|run|expandedDt|search)/i.test(key))setValue(fallback);};window.addEventListener('lab-research-reset',reset);return()=>window.removeEventListener('lab-research-reset',reset);},[key]);
  useEffect(()=>{const listener=e=>{if(e.detail?.key===key&&JSON.stringify(e.detail.value)!==JSON.stringify(current.current))setValue(e.detail.value);};window.addEventListener('lab-preference',listener);return()=>window.removeEventListener('lab-preference',listener);},[key]);
  useEffect(()=>{try{window.sessionStorage.setItem('v92.'+key,JSON.stringify(value));window.dispatchEvent(new window.CustomEvent('lab-preference',{detail:{key,value}}));}catch{}},[key,value]);
  return [value,setValue];

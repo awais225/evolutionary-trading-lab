@@ -167,7 +167,7 @@ async def startup() -> None:
 
     # V9.2: establish canonical population BEFORE any usable dashboard count.
     from .research.startup_registry import ensure_ready
-    app.state.registry_startup = ensure_ready(db)
+    app.state.registry_startup = {'ready': False, 'mode': 'pending_background_reconciliation'}
     from .data.history import inventory as history_inventory
     app.state.history_inventory = history_inventory()  # metadata only; never reparses originals
 
@@ -226,7 +226,17 @@ async def startup() -> None:
         activity.success("SYSTEM", "Dashboard ready — listening on http://127.0.0.1:8787", operation_id="startup")
         return {"strategies": strat_count, "schema_version": u_ver}
 
+    # A second ASGI lifespan must not append pending steps to an already DONE
+    # singleton (which would leave the canonical guard pending forever).
+    from .lifecycle import reset_lifecycle
+    reset_lifecycle()
     lifecycle = get_lifecycle()
+    def _registry():
+        result = ensure_ready(db)
+        app.state.registry_startup = result
+        return result
+    lifecycle.register('canonical_registry', 'Reconcile canonical population before publishing counters', _registry,
+                       timeout_s=180.0, critical=True)
     lifecycle.register("data_discovery", "Scan DATA root & register datasets", _data_discovery,
                        timeout_s=90.0, critical=True)
     lifecycle.register("data_restoration", "Restore/verify persisted research & DATA mirrors", _data_restoration,
@@ -382,6 +392,14 @@ def _health_payload(api_style: bool = False) -> tuple[dict, int]:
     })
     return body, http_code
 
+
+@app.middleware('http')
+async def canonical_readiness(request, call_next):
+    state = getattr(app.state, 'registry_startup', {'ready': True})
+    if not state.get('ready') and request.url.path.startswith('/api/') and request.url.path not in ('/api/health','/api/ready'):
+        from fastapi.responses import JSONResponse
+        return JSONResponse({'detail':'Canonical registry reconciliation pending; no partial population published','ready':False},status_code=503)
+    return await call_next(request)
 
 @app.get("/health")
 def root_health():

@@ -284,17 +284,17 @@ if exist "%ROOT%\RUN_BACKEND.bat" (
 )
 
 echo.
-echo [OK] Backend process started.
-echo [OK] Backend process started. >> "%STARTUP_LOG%"
+echo [..] Backend process creation requested; API readiness is not yet verified.
+echo [..] Backend process creation requested; API readiness is not yet verified. >> "%STARTUP_LOG%"
 echo.
 
 REM ---------------------------------------------------------------------------
 REM STAGE 7: Wait for Backend Health / Readiness Endpoint
 REM ---------------------------------------------------------------------------
-call "%VENV_PYTHON%" "%ROOT%\backend\tools\wait_ready.py" http://127.0.0.1:8787/health 30
+call "%VENV_PYTHON%" "%ROOT%\backend\tools\wait_ready.py" http://127.0.0.1:8787/health 120
 if errorlevel 1 (
-    set "FAILED_REASON=Backend server did not respond at http://127.0.0.1:8787/health within 30 seconds. Check the 'EVOLAB Backend Server' console window and LOGS\lab.log."
-    set "FAILED_CMD=%VENV_PYTHON% backend\tools\wait_ready.py http://127.0.0.1:8787/health 30"
+    set "FAILED_REASON=Backend server did not respond at http://127.0.0.1:8787/health within 120 seconds. Check the 'EVOLAB Backend Server' console window and LOGS\lab.log."
+    set "FAILED_CMD=%VENV_PYTHON% backend\tools\wait_ready.py http://127.0.0.1:8787/health 120"
     goto :STARTUP_FAILED
 )
 
@@ -324,10 +324,10 @@ if exist "%ROOT%\RUN_BACKEND.bat" (
 ) else (
     start "EVOLAB Backend Server" cmd.exe /k "call "%ROOT%\scripts\run_backend.bat""
 )
-call "%VENV_PYTHON%" "%ROOT%\backend\tools\wait_ready.py" http://127.0.0.1:8787/health 30
+call "%VENV_PYTHON%" "%ROOT%\backend\tools\wait_ready.py" http://127.0.0.1:8787/health 120
 if errorlevel 1 (
-    set "FAILED_REASON=The restarted backend did not become ready within 30 seconds."
-    set "FAILED_CMD=%VENV_PYTHON% backend\tools\wait_ready.py http://127.0.0.1:8787/health 30"
+    set "FAILED_REASON=The restarted backend did not become ready within 120 seconds."
+    set "FAILED_CMD=%VENV_PYTHON% backend\tools\wait_ready.py http://127.0.0.1:8787/health 120"
     goto :STARTUP_FAILED
 )
 goto :SERVE_VERIFY

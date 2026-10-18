@@ -209,7 +209,8 @@ class Backtester:
         n = hi - lo
         if n < 300:
             return BacktestResult(ok=False, error="window too small")
-        df = df_full.iloc[lo:hi]
+        df = (self._data.generation_window_view(req.dataset_id, lo, hi, df_full)
+              if req.seed_salt == 'generation_window' else df_full.iloc[lo:hi])
 
         g = genome
         if req.perturb > 0:

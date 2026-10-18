@@ -72,7 +72,8 @@ def db(tmp_path):
     d=Database(str(tmp_path/'v93.db'));yield d;d.close()
 
 def seed(db):
-    return db.insert_strategy({'hash':'v93-real-unit-node','symbol':'XAUUSD','timeframe':'M1','genome':{'symbol':'XAUUSD','timeframe':'M1'},'status':'SURVIVED'})
+    db.x("INSERT OR REPLACE INTO sqlite_sequence(name,seq) VALUES ('strategies',787)")
+    return db.insert_strategy({'run_id':'RUN-V93-CONTRACT','hash':'v93-real-unit-node','symbol':'XAUUSD','timeframe':'M1','genome':{'symbol':'XAUUSD','timeframe':'M1'},'status':'SURVIVED'})
 
 def test_assignment_durable_snapshot_cross_connection_outdated_and_safety(db):
     from app.db.database import Database
@@ -145,6 +146,7 @@ def test_bulk_durable_queue_dedup_skip_failure_cancel_and_cross_process_owner(db
         S.insert_scenario(db,{'run_id':'unit-bulk','node_id':n,'status':'COMPLETED','analytics':{'summary':{'trades':0}}})
         return {'ok':True,'run_id':'unit-bulk'}
     monkeypatch.setattr(SC,'start_run',start)
+    monkeypatch.setattr(SC,'preflight',lambda *a,**k:{'ok':True,'needs_confirmation':False,'coverage':{'coverage_status':'COMPLETE'}})
     # Synchronous orchestration seam; no historical/live engines are invoked.
     monkeypatch.setattr(B._POOL,'submit',lambda fn,*args:fn(*args))
     out=B.create(db,{'node_ids':[n,n,n+1],'node_settings_by_id':{str(n):{'max_trades':3}}})

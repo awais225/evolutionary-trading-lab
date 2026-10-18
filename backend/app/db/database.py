@@ -11,6 +11,8 @@ import json
 import logging
 import os
 import sqlite3
+import uuid
+from contextlib import contextmanager
 import threading
 import time
 from pathlib import Path
@@ -368,6 +370,8 @@ BEGIN UPDATE node_registry_revision SET revision=revision+1 WHERE id=1; END;
 """
 
 
+RESEARCH_ALIAS_SQL = '\n                    WITH numbered AS (\n                        SELECT id, ROW_NUMBER() OVER (PARTITION BY COALESCE(run_id, data_source) ORDER BY id) as rn\n                        FROM strategies\n                    )\n                    UPDATE strategies\n                    SET research_node_num = (SELECT rn FROM numbered WHERE numbered.id = strategies.id)\n                    WHERE research_node_num IS NULL\n                '
+
 class Database:
     def __init__(self, path: str):
         self.path = path
@@ -422,15 +426,7 @@ class Database:
                     WHERE data_source IS NULL
                 """)
                 # Dynamic relative node calculation: relative index within partition
-                self._conn.execute("""
-                    WITH numbered AS (
-                        SELECT id, ROW_NUMBER() OVER (PARTITION BY COALESCE(run_id, data_source) ORDER BY id) as rn
-                        FROM strategies
-                    )
-                    UPDATE strategies
-                    SET research_node_num = (SELECT rn FROM numbered WHERE numbered.id = strategies.id)
-                    WHERE research_node_num IS NULL
-                """)
+                self._conn.execute(RESEARCH_ALIAS_SQL)
                 self._conn.commit()
             self._conn.executescript(SCHEMA)
             self._conn.commit()
@@ -444,6 +440,14 @@ class Database:
         return self._conn
 
     # ---------- meta key/value ----------
+    @contextmanager
+    def read_snapshot(self):
+        with self._lock:
+            name='population_read_'+uuid.uuid4().hex
+            self._conn.execute('SAVEPOINT '+name)
+            try:yield self
+            finally:self._conn.execute('RELEASE SAVEPOINT '+name)
+
     def get_meta(self, key: str, default=None):
         row = self.one("SELECT value FROM meta WHERE key=?", (key,))
         return row["value"] if row else default
@@ -597,7 +601,7 @@ class Database:
         return row
 
     def get_qualified_strategies(self, data_source: Optional[str] = None, run_id: Optional[str] = None,
-                                 exclude_legacy: bool = False) -> List[Dict[str, Any]]:
+                                 exclude_legacy: bool = True) -> List[Dict[str, Any]]:
         where = ["s.status IN ('QUALIFIED', 'PAPER')"]
         args = []
         if run_id:
@@ -834,6 +838,7 @@ class Database:
                    MIN(created_at) as created_at,
                    MAX(updated_at) as last_checkpoint
             FROM strategies
+            WHERE UPPER(COALESCE(data_source,''))<>'LEGACY_TEST' AND UPPER(status)<>'EXCLUDED'
             GROUP BY COALESCE(NULLIF(run_id, ''), 'RUN-HISTORICAL-PRESERVED')
             ORDER BY created_at DESC
         """)

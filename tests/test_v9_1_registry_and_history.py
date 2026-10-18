@@ -34,11 +34,12 @@ def registry(tmp_path, monkeypatch):
 def test_default_frozen_qualified_and_separate_gate_inventory(registry):
     db, R = registry
     v = R.nodes_index(limit=0)
-    assert {r['node_id'] for r in v['nodes']} == {1505, 1506, 1507}
-    assert v['total'] == v['filter_totals']['qualified'] == 3
+    assert {r['node_id'] for r in v['nodes']} == {1505, 1506}
+    assert v['total'] == v['filter_totals']['qualified'] == 2
     assert 718 not in {r['node_id'] for r in v['nodes']}
     assert R.nodes_index(filter='gate_passed', limit=0)['total'] == 3
-    assert next(r for r in v['nodes'] if r['node_id'] == 1507)['live_eligibility']['ok'] is False
+    assert 1507 not in {r['node_id'] for r in R.nodes_index(filter='all',limit=0)['nodes']}
+    assert v['population_snapshot']['legacy_total']==1
 
 
 def test_aliases_are_not_guessed_or_merged_and_run_provenance_is_own(registry):
@@ -67,7 +68,7 @@ def test_newest_detail_wins_over_old_detail_and_newer_screen(registry):
     assert next(t for t in top if t['canonical_node_id'] == 1505)['value'] == .4
 
 
-@pytest.mark.parametrize('desc,expected', [(False, [1505, 1506, 718, 1507]), (True, [718, 1506, 1505, 1507])])
+@pytest.mark.parametrize('desc,expected', [(False, [1505, 1506, 718]), (True, [718, 1506, 1505])])
 def test_numeric_string_sort_full_set_before_paging(registry, desc, expected):
     db, R = registry
     for sid, value in [(1505, '2'), (1506, '10'), (718, '100')]:
@@ -309,3 +310,12 @@ def test_failed_chunks_record_errors_without_recent_substitution(history,monkeyp
     assert result['status']=='no_data_from_bridge' and result['partial_reason']=='bridge error'
     assert rep['errors'] and rep['persisted_in_range']==0
     assert all(c['status']=='error' and c['attempts']==3 and c['error'] for c in rep['chunk_results'])
+
+
+@pytest.fixture(autouse=True)
+def _synthetic_memory_history_is_not_the_operator_broker_baseline(monkeypatch):
+    # Range-fetch tests use SIMULATOR bridges and isolated in-memory stores.
+    # Do not ask them to mutate the real provisioned IC Markets source. The
+    # independent V9.2 tests retain every broker-provenance rejection assertion.
+    import app.data.history as H
+    monkeypatch.setattr(H,'canonical_profile',lambda *a:None)

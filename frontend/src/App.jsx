@@ -128,7 +128,15 @@ export default function App() {
     if (statusInFlightRef.current) return;
     statusInFlightRef.current = true;
     api.status()
-      .then((s) => setStatus(s))
+      .then((s) => {
+        const epoch=s.research_epoch;
+        if(epoch && localStorage.getItem('evolab.researchEpoch')!==epoch){
+          for(const store of [localStorage,sessionStorage])for(const key of Object.keys(store))if(/(?:deep|live).*?(?:batch|selected|node|compare|run)/i.test(key))store.removeItem(key);
+          window.dispatchEvent(new window.Event('lab-research-reset'));
+          localStorage.setItem('evolab.researchEpoch',epoch);
+        }
+        setStatus(old=>old?.lab?.population_snapshot?.observed_at>s?.lab?.population_snapshot?.observed_at?old:s);
+      })
       .catch(() => {})
       .finally(() => { statusInFlightRef.current = false; });
   }, []);

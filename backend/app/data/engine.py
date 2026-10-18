@@ -789,12 +789,24 @@ class DataEngine:
         return work[storage.COLUMNS + (["volume"] if "volume" in work.columns else [])]
 
     # ---------- access & retrieval ----------
+    def generation_window_view(self, dataset_id, lo, hi, frame):
+        """Bounded shared iloc views; ID/frame revision + exact UTC bounds own the key."""
+        with self._lock:
+            if not hasattr(self, '_generation_views'): self._generation_views = {}
+            key = (dataset_id, id(frame), lo, hi)
+            if key not in self._generation_views:
+                self._generation_views[key] = frame.iloc[lo:hi]
+                while len(self._generation_views)>64: self._generation_views.pop(next(iter(self._generation_views)))
+            return self._generation_views[key]
+
     def get_frame(self, dataset_id: str) -> pd.DataFrame:
         """Retrieve dataset DataFrame, checking memory -> disk -> master store -> legacy."""
         with self._lock:
             if dataset_id in self._frames:
                 df = self._frames[dataset_id]
-                df["session"] = sessions.session_labels(df["ts"].to_numpy())
+                if not df.attrs.get('_utc_session_labels_v1'):
+                    df["session"] = sessions.session_labels(df["ts"].to_numpy())
+                    df.attrs['_utc_session_labels_v1'] = True
                 return df
 
         cfg = get_config()

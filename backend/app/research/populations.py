@@ -60,7 +60,7 @@ log = logging.getLogger("research.populations")
 
 #: word-for-word definitions, shipped with the numbers so the UI can show them
 POPULATION_DEFINITIONS: Dict[str, str] = {
-    "total": "Every strategy row in the authoritative database (legacy infrastructure rows included).",
+    "total": "Active canonical research history, excluding legacy infrastructure and EXCLUDED rows. Raw lifetime and excluded totals are disclosed separately in population_snapshot.",
     "alive": "Nodes that are not a dead end: they are still in research, valid, or already "
              "promoted to the live layers. Infrastructure failures are NOT counted as alive.",
     "qualified": "Nodes that cleared the research gates against real data "
@@ -105,7 +105,8 @@ def load_rows(db: Any = None) -> List[Dict[str, Any]]:
     last_err = None
     for sql in _ROW_SQLS:
         try:
-            rows = db.q(sql) or []
+            from .population_state import ACTIVE_SQL
+            rows = db.q(sql + ' WHERE ' + ACTIVE_SQL) or []
             return [dict(r) for r in rows]
         except Exception as e:
             last_err = e
@@ -321,6 +322,7 @@ def population_state(db: Any = None) -> Dict[str, Any]:
         "state_order": list(POPULATION_STATE_KEYS.keys()),
         "definitions": POPULATION_STATE_DEFINITIONS,
         "counts": counts,
+        "population_snapshot":data.get("population_snapshot"),
         "detail": data.get("detail"),
         "authority": data.get("authority"),
         "notes": data.get("notes"),
@@ -338,7 +340,9 @@ def populations(db: Any = None) -> Dict[str, Any]:
         notes.append("no strategy rows could be read — counts are reported as 0, not estimated")
 
     user_rows = [r for r in rows if str(r.get("data_source") or "").upper() != "LEGACY_TEST"]
-    legacy = len(rows) - len(user_rows)
+    from .population_state import snapshot
+    population=snapshot(db)
+    legacy=population['legacy_total']
 
     buckets: Dict[str, int] = {}
     for r in rows:
@@ -394,6 +398,7 @@ def populations(db: Any = None) -> Dict[str, Any]:
 
     return {
         "ok": True,
+        "population_snapshot":population,
         "counts": {"total": len(rows), "alive": alive, "qualified": qualified,
                    "final": final, "deep": deep, "live": live,
                    "live_active": live_active},

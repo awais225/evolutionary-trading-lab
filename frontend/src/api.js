@@ -151,7 +151,7 @@ export const api = {
   // System & Lab Core
   status: () => req("/api/status"),
   labStatus: () => req("/api/lab/status"),
-  labStart: (mode, target, run_type = "resume", run_id = null) =>
+  labStart: (mode, target, run_type = "new", run_id = null) =>
     req("/api/lab/start", { method: "POST", body: { mode, target, run_type, run_id } }),
   labPause: () => req("/api/lab/pause", { method: "POST" }),
   labResume: (target = null) => req("/api/lab/resume", { method: "POST", body: { target } }),

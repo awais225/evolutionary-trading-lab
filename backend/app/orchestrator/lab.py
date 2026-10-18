@@ -38,6 +38,7 @@ from ..data.engine import get_data_engine
 from ..status import STRATEGY_FAILED, classify_failure
 from ..db.database import get_db
 from ..evolution.engine import EvolutionEngine
+from .cancellable import Cancelled,active_tasks
 from ..features.engine import get_feature_engine
 from ..fitness.evaluator import death_check, fitness
 from ..genome.schema import describe, genome_hash
@@ -90,7 +91,15 @@ def feature_validation_outcome(usable_ids: List[str], failures: List[Dict[str, s
 class Lab:
     def __init__(self):
         self.db = get_db()
-        self.evo = EvolutionEngine(self.db)
+        from ..evolution.engine import get_evo_engine
+        self.evo = get_evo_engine(self.db)
+        from .pipeline_state import get_pipeline_state_manager
+        rid = get_pipeline_state_manager().run_id
+        if rid and self.db.one('SELECT run_id FROM research_runs WHERE run_id=?',(rid,)):
+            self.evo.active_run_id = rid
+        self.execution_state = 'STOPPED'
+        self.current_operation = None
+        self.last_progress_at = time.time()
         self.mode = "continuous"
         self.running = False
         self.paused = False
@@ -126,26 +135,43 @@ class Lab:
 
     # ---------------- lifecycle ----------------
     def start(self, mode: str = "continuous", target: Optional[int] = None,
-              run_type: str = "resume", new_run_id: Optional[str] = None) -> Dict:
+              run_type: str = "new", new_run_id: Optional[str] = None) -> Dict:
+        with self._lock:
+            return self._start_locked(mode,target,run_type,new_run_id)
+
+    def _start_locked(self, mode="continuous", target=None, run_type="resume", new_run_id=None):
+        with self._lock:
+            if (self._thread and self._thread.is_alive()) or self._blocked_owned_workers():
+                return {'ok': False, 'error': 'Research worker still active; stop/await it before starting', 'state': self.execution_state}
         mode = mode.lower()
         if mode not in MODES:
             return {"ok": False, "error": f"unknown mode {mode}"}
-        if target is not None and int(target) > 0:
-            self.evo.set_total_node_target(int(target))
+        if run_type not in ('new','resume'):
+            return {'ok':False,'error':'run_type must be new or explicit resume'}
 
         from .pipeline_state import get_pipeline_state_manager
         psm = get_pipeline_state_manager()
 
         if run_type == "new":
+            if new_run_id and self.db.one('SELECT run_id FROM research_runs WHERE run_id=?',(new_run_id,)):
+                return {'ok':False,'error':'Fresh run identity already exists; explicitly resume instead'}
             new_id = psm.new_run(run_id=new_run_id, target=target)
+            if target is not None and int(target)>0:self.evo.set_total_node_target(int(target))
             self.evo.active_run_id = new_id
+            self._cycle = self._tested_this_gen = self._generation = 0
+            self.counters = {k:0 for k in self.counters}
+            self._strategy_recovery_attempts.clear()
+            self._recovered_strategy_ids.clear()
             log.info("[RESEARCH] Started NEW RESEARCH RUN %s (target=%s)", new_id, self.evo.get_total_node_target())
             activity.info("SYSTEM", f"Started NEW RESEARCH RUN ({new_id}) with target {self.evo.get_total_node_target()} nodes")
         else:
             active_id = psm.run_id or self.evo.active_run_id
             if not active_id:
                 db_runs = self.db.get_all_research_runs()
-                active_id = db_runs[0]["run_id"] if db_runs else "RUN-HISTORICAL-PRESERVED"
+                active_id = db_runs[0]["run_id"] if len(db_runs)==1 else None
+            if not self.db.one('SELECT run_id FROM research_runs WHERE run_id=?',(active_id,)):
+                return {'ok':False,'error':'No verified persisted run to resume; explicitly start a new research run'}
+            if target is not None and int(target)>0:self.evo.set_total_node_target(int(target))
             self.evo.active_run_id = active_id
             psm.run_id = active_id
             psm.resume_run(target=target)
@@ -164,6 +190,7 @@ class Lab:
             self.paused = False
             if not self.running:
                 self.running = True
+                self.execution_state = 'RUNNING'
                 self._stop.clear()
                 self._thread = threading.Thread(target=self._loop, daemon=True,
                                                 name="lab-orchestrator")
@@ -180,6 +207,8 @@ class Lab:
         return {"ok": True}
 
     def resume(self, target: Optional[int] = None) -> Dict:
+        if not self._thread or not self._thread.is_alive():
+            return self.start(self.mode,target,run_type='resume')
         if target is not None and int(target) > 0:
             self.evo.set_total_node_target(int(target))
         from .pipeline_state import get_pipeline_state_manager
@@ -187,7 +216,9 @@ class Lab:
         active_id = psm.run_id or self.evo.active_run_id
         if not active_id:
             db_runs = self.db.get_all_research_runs()
-            active_id = db_runs[0]["run_id"] if db_runs else "RUN-HISTORICAL-PRESERVED"
+            active_id=db_runs[0]['run_id'] if len(db_runs)==1 else None
+        if not self.db.one('SELECT run_id FROM research_runs WHERE run_id=?',(active_id,)):
+            return {'ok':False,'error':'No unambiguous verified run to resume'}
         self.evo.active_run_id = active_id
         psm.run_id = active_id
         psm.resume_run(target=target)
@@ -203,7 +234,7 @@ class Lab:
 
     def stop(self) -> Dict:
         with self._lock:
-            self.running = False
+            self.execution_state = 'STOPPING'
             self.paused = False
             self._stop.set()
         get_paper_engine().stop()
@@ -217,8 +248,13 @@ class Lab:
         # Explicit diagnostic log on intentional user stop (spec §3, §4, §16)
         self.evo.emit_stop_diagnostic("NODE GENERATION STOPPED: USER REQUEST", recovery_action="Click Start to resume research loop")
         activity.info("SYSTEM", "NODE GENERATION STOPPED: USER REQUEST")
-        self._publish_state("stopped")
-        return {"ok": True}
+        if self._thread and self._thread is not threading.current_thread():
+            self._thread.join(timeout=2.0)
+        alive = bool(self._thread and self._thread.is_alive()) or bool(self._blocked_owned_workers())
+        self.running = alive
+        self.execution_state = 'STOPPING' if alive else 'STOPPED'
+        self._publish_state(self.execution_state.lower())
+        return {"ok": True, 'state': self.execution_state, 'blocked_operation': self.current_operation if alive else None}
 
     def reset_generation(self) -> Dict:
         cfg = get_config()
@@ -244,6 +280,8 @@ class Lab:
         """
         target = self.evo.get_total_node_target()
         state = self.db.reconstruct_state(target, exclude_legacy=True)
+        pop=self.evo.get_node_generation_state()['population_snapshot']
+        state.update(total_nodes=pop['current_nodes'],remaining=pop['remaining_nodes'],alive=pop['alive_nodes'],dead=pop['dead_nodes'],qualified=pop['qualified_nodes'],backtesting=pop['backtesting_nodes'],validating=pop['validating_nodes'],current_generation=pop['generation_number'],progress_pct=pop['progress_pct'],status_counts=pop['status_counts'],population_snapshot=pop)
         self._generation = state["current_generation"]
         bus.publish("lab_recheck", state)
         bus.publish("lab_status", self.status())
@@ -270,6 +308,9 @@ class Lab:
         node_state = self.evo.get_node_generation_state(exclude_legacy=True)
         return {
             "running": self.running, "paused": self.paused,
+            'execution_state': self.execution_state, 'current_operation': self.current_operation,
+            'last_progress_at':self.last_progress_at,'active_workers':get_resource_manager().live_metrics()['cpu']['active_workers'],'pool_capacity':self._pool_workers,'owned_long_tasks':active_tasks(),'blocked_workers':self._blocked_owned_workers(),
+            'population_snapshot': node_state.get('population_snapshot'),
             "safe_paused": getattr(self, "safe_paused", False),
             "safe_paused_reason": getattr(self, "safe_paused_reason", ""),
             "consecutive_failures": getattr(self, "_consecutive_failures", 0),
@@ -329,15 +370,27 @@ class Lab:
                     self._pool = None
                     self._pool_workers = 0
 
-    def _shutdown_pool(self) -> None:
+    def _blocked_owned_workers(self):
+        return [{'pid':p.pid,'task':'backtest pool','reason':'still alive after bounded terminate/kill'} for p in getattr(self,'_blocked_pool_children',[]) if p.is_alive()]+active_tasks()
+
+    def _shutdown_pool(self):
         with self._lock:
-            if self._pool is not None:
-                try:
-                    self._pool.shutdown(wait=False, cancel_futures=True)
-                except Exception:
-                    pass
-                self._pool = None
-                self._pool_workers = 0
+            pool=self._pool
+            if pool is None:return
+            owned=list((getattr(pool,'_processes',None) or {}).values())
+            try:
+                for child in owned:
+                    if child.is_alive():child.terminate()
+                pool.shutdown(wait=False,cancel_futures=True)
+                deadline=time.monotonic()+.75
+                for child in owned:child.join(timeout=max(0,deadline-time.monotonic()))
+                for child in owned:
+                    if child.is_alive():child.kill()
+                deadline=time.monotonic()+.25
+                for child in owned:child.join(timeout=max(0,deadline-time.monotonic()))
+            except Exception as exc:log.error('Owned worker shutdown needs inspection: %s',exc)
+            self._blocked_pool_children=[p for p in owned if p.is_alive()]
+            self._pool=None;self._pool_workers=0
 
     def resize_pool(self) -> int:
         """Dynamically resize worker pool according to current CPU target/settings."""
@@ -375,7 +428,8 @@ class Lab:
             from .workers import bt_worker
             for i, p in enumerate(payloads):
                 try:
-                    results[i] = bt_worker(p)
+                    from .cancellable import call
+                    results[i] = call(bt_worker, (p,), self._stop, timeout)
                 except Exception as e:
                     results[i] = {"ok": False, "error": str(e), "metrics": {},
                                   "trades": [], "equity_curve": []}
@@ -385,13 +439,20 @@ class Lab:
             try:
                 for i, p in enumerate(payloads):
                     futs[pool.submit(_worker_bt, p)] = i
-                for fut in as_completed(futs, timeout=timeout):
-                    i = futs[fut]
-                    try:
-                        results[i] = fut.result()
-                    except Exception as e:
-                        results[i] = {"ok": False, "error": str(e), "metrics": {},
-                                      "trades": [], "equity_curve": []}
+                from concurrent.futures import wait, FIRST_COMPLETED
+                pending = set(futs)
+                deadline = time.monotonic() + timeout
+                while pending:
+                    if self._stop.is_set():
+                        self._shutdown_pool()
+                        break
+                    if time.monotonic() >= deadline: raise TimeoutError('backtest batch deadline')
+                    done, pending = wait(pending, timeout=.05, return_when=FIRST_COMPLETED)
+                    for fut in done:
+                        i = futs[fut]
+                        try: results[i] = fut.result()
+                        except Exception as e:
+                            results[i] = {'ok':False,'error':str(e),'metrics':{},'trades':[],'equity_curve':[]}
             except TimeoutError:
                 log.error("backtest batch timed out — recycling pool")
                 for i, r in enumerate(results):
@@ -430,7 +491,7 @@ class Lab:
             if results[i] is None:
                 results[i] = {"ok": False, "error": "Evaluation worker uncompleted", "metrics": {},
                               "trades": [], "equity_curve": []}
-        return results
+        return [None] * len(payloads) if self._stop.is_set() else results
 
     # ---------------- main loop ----------------
     def _emit_node_heartbeat(self) -> None:
@@ -615,6 +676,9 @@ class Lab:
                         self._stop.wait(duty_pause)
                 else:
                     self._stop.wait(get_config().evolution.loop_interval_s)
+            except Cancelled:
+                if self._stop.is_set():break
+                raise
             except Exception as e:
                 self._consecutive_failures += 1
                 self.last_error = f"{type(e).__name__}: {e}"
@@ -663,6 +727,14 @@ class Lab:
                     bus.publish("lab_error", {"error": self.last_error, "retry_in": backoff_s})
                     self._stop.wait(backoff_s)
 
+        self.running = False
+        self.execution_state = ('STOPPING' if self._blocked_owned_workers() else 'STOPPED') if self._stop.is_set() else 'FAILED'
+        from .pipeline_state import get_pipeline_state_manager
+        psm = get_pipeline_state_manager()
+        psm.status = self.execution_state
+        psm._persist()
+        if self.evo.active_run_id:
+            self.db.x('UPDATE research_runs SET status=? WHERE run_id=?',(self.execution_state,self.evo.active_run_id))
         # Loop exited: verify whether target reached or unexpected exit
         if not self.evo.is_target_reached() and not self._stop.is_set():
             self.evo.emit_stop_diagnostic("NODE GENERATION STOPPED UNEXPECTEDLY", recovery_action="Click Start to resume research loop")
@@ -699,30 +771,37 @@ class Lab:
                 activity.info("PAPER", "Paper trading started for qualified strategies")
                 bus.publish("paper_auto_started", {"reason": "continuous mode with qualified strategies"})
 
+        if self._stop.is_set(): return
         # 2) population top-up
         if mode in ("exploration", "evolution", "continuous"):
             self._ensure_population()
 
+        if self._stop.is_set(): return
         # 3) screening (stage 1)
         if mode in ("exploration", "evolution", "continuous"):
             self._screen_batch()
 
+        if self._stop.is_set(): return
         # 4) detailed backtest (stage 2)
         if mode in ("evolution", "validation", "continuous"):
             self._detail_batch()
 
+        if self._stop.is_set(): return
         # 5) validation battery (stages 3-5)
         if mode in ("validation", "continuous", "evolution"):
             self._validation_batch()
 
+        if self._stop.is_set(): return
         # 6) specialization of newly qualified
         if mode in ("evolution", "continuous"):
             self._specialization_pass()
 
+        if self._stop.is_set(): return
         # 7) AI researcher cycle
         if mode == "continuous" and cfg.ai.researcher_enabled and self._cycle % 8 == 0:
             self._research_pass()
 
+        if self._stop.is_set(): return
         # 8) population cap + stats
         self.evo.enforce_population_cap(cfg.data.symbol)
         self._maybe_generation_complete()
@@ -861,6 +940,7 @@ class Lab:
         cfg = get_config()
 
         for ds in datasets:
+            if self._stop.is_set():return usable,failures
             ds_id = ds["id"]
             # 1. Verify feature artifact exists on disk (P.FEATURES_DIR or storage cache)
             v27_path = P.FEATURES_DIR / f"{ds_id}__core_v1__core_v1.parquet"
@@ -976,6 +1056,7 @@ class Lab:
 
         to_compute = []
         for ds in datasets:
+            if self._stop.is_set():return usable,failures
             ds_id = ds["id"]
             tf = ds.get("timeframe", "H1")
             cached = set(feat.cached_features(ds_id))
@@ -1184,8 +1265,13 @@ class Lab:
                 t_f0 = time.time()
                 task.start_feature(spec)
                 task.heartbeat(rows_processed=n_rows)
-                fn, args = parse_spec(spec)
-                out = fn(df, *args)
+                from .cancellable import call,Cancelled
+                from .workers import feature_worker
+                if self._stop.is_set():raise Cancelled('Feature computation stopped')
+                self.current_operation=f'FEATURES {dataset_id}: {spec}'
+                out=call(feature_worker,(df,spec),self._stop,timeout=240)
+                self.last_progress_at=time.time()
+                if self._stop.is_set():raise Cancelled('Feature result discarded after Stop')
                 for name, arr in out.items():
                     feat._put((dataset_id, name), arr)
                     accumulated_out[name] = arr
@@ -1272,6 +1358,9 @@ class Lab:
                              operation_id=op_id, progress=100.0)
             bus.publish("features_cached", {"dataset_id": dataset_id,
                                             "features": len(feat.cached_features(dataset_id))})
+        except Cancelled:
+            task.cancel('Operator cancellation; no completed feature artifact claimed')
+            return
         except Exception as e:
             task.fail(str(e))
             mm.set_subprocess("feature_precompute", dataset_id, {
@@ -1295,8 +1384,8 @@ class Lab:
 
         # Find candidates stuck in BACKTESTING or VALIDATING past 120s
         stuck_rows = self.db.q(
-            "SELECT id, status FROM strategies WHERE status IN ('BACKTESTING', 'VALIDATING') AND updated_at < ?",
-            (now_ts - 120.0,)
+            "SELECT id, status FROM strategies WHERE status IN ('BACKTESTING', 'VALIDATING') AND updated_at < ? AND (? IS NULL OR run_id=?)",
+            (now_ts - 120.0,self.evo.active_run_id,self.evo.active_run_id)
         )
         if not stuck_rows:
             return
@@ -1813,6 +1902,7 @@ class Lab:
         activity.running("VALIDATION", f"Starting validation battery for {total_val} candidate strategies", progress=0.0)
 
         for idx, r in enumerate(rows, 1):
+            if self._stop.is_set(): break
             genome = json.loads(r["genome"])
             bt = self.db.one("""SELECT * FROM backtests WHERE strategy_id=? AND stage='detail' AND stale=0
                                 ORDER BY id DESC LIMIT 1""", (r["id"],))
@@ -1826,8 +1916,25 @@ class Lab:
             bus.publish("validation_started", {"id": r["id"]})
             t0 = time.time()
             try:
-                v = full_validation({**r, "genome": genome}, base_metrics, base_fitness,
-                                    base_metrics.get("trades_sample", []))
+                from .cancellable import call, Cancelled
+                self.current_operation = f"VALIDATION node {r['id']}"
+                self.last_progress_at = time.time()
+                v = call(full_validation, ({**r, "genome": genome}, base_metrics, base_fitness,
+                                    base_metrics.get("trades_sample", [])), self._stop, timeout=240)
+                self.current_operation = None
+                self.last_progress_at = time.time()
+                if self._stop.is_set(): raise Cancelled('stop before committing validation')
+            except Cancelled:
+                self.db.update_strategy(r['id'],status='SURVIVED')
+                self.current_operation = None
+                break
+            except TimeoutError as exc:
+                self.db.update_strategy(r['id'],status='SURVIVED')
+                self.last_error = str(exc)
+                self.safe_paused = self.paused = True
+                self.safe_paused_reason = str(exc)
+                self.execution_state = 'FAILED'
+                break
             except Exception as e:
                 log.exception("validation crashed for #%s", r["id"])
                 self.db.update_strategy(r["id"], status="SURVIVED")
@@ -1899,6 +2006,9 @@ class Lab:
                 except Exception as e:
                     log.debug("record_experiment_memory failed #%s: %s", r["id"], e)
 
+        if self._stop.is_set() or self.safe_paused:
+            activity.warning('VALIDATION','Validation interrupted; unfinished node restored to SURVIVED, no result fabricated')
+            return
         log.info("[SUCCESS] [VALIDATION] Validation battery completed: %d strategies evaluated", total_val)
         activity.success("VALIDATION", f"✓ Validation completed — {total_val}/{total_val} strategies evaluated", progress=100.0)
         activity.set_idle()
@@ -1909,17 +2019,25 @@ class Lab:
         rows = self.db.q("""SELECT s.* FROM strategies s
                             WHERE s.status='QUALIFIED'
                               AND NOT EXISTS (SELECT 1 FROM matrices m WHERE m.strategy_id=s.id)
-                            ORDER BY s.fitness DESC LIMIT 1""")
+                              AND (? IS NULL OR s.run_id=?)
+                            ORDER BY s.fitness DESC LIMIT 1""",(self.evo.active_run_id,self.evo.active_run_id))
         for r in rows:
             genome = json.loads(r["genome"])
             bt = self.db.one("""SELECT metrics FROM backtests WHERE strategy_id=? AND stage='detail'
                                 ORDER BY id DESC LIMIT 1""", (r["id"],))
             trades = json.loads(bt["metrics"]).get("trades_sample", []) if bt else []
             try:
-                mats = full_matrices(genome, genome["symbol"], trades)
+                from .cancellable import call,Cancelled
+                self.current_operation=f'SPECIALIZATION node={r["id"]}'
+                mats = call(full_matrices,(genome, genome["symbol"], trades),self._stop,timeout=240)
+                if self._stop.is_set():return
             except Exception as e:
-                log.warning("matrix computation failed #%s: %s", r["id"], e)
+                log.warning("matrix computation interrupted/failed #%s: %s", r["id"], e)
+                if self._stop.is_set():return
                 continue
+            finally:
+                self.current_operation=None
+                self.last_progress_at=time.time()
             self.db.x("""INSERT OR REPLACE INTO matrices
                          (strategy_id,timeframe,session,day,regime,direction,created_at)
                          VALUES (?,?,?,?,?,?,?)""",
@@ -1930,7 +2048,7 @@ class Lab:
             props = propose_specializations(genome, mats, max_children=3)
             from ..genome import ops as gops
             for p in props:
-                if self.evo.is_target_reached():
+                if self._stop.is_set() or self.evo.is_target_reached():
                     break
                 try:
                     child, mt, desc = gops.directed(genome, p["action"], p["params"])
@@ -1956,7 +2074,10 @@ class Lab:
     def _research_pass(self) -> None:
         if self.evo.is_target_reached():
             return
-        created = run_research_cycle(self.evo)
+        self.current_operation='RESEARCH analysis'
+        try:created=run_research_cycle(self.evo,stop=self._stop)
+        except Cancelled:return
+        self.last_progress_at=time.time()
         for h in created:
             self.counters["hypotheses"] += 1
             export.export_hypothesis(h["id"], h)
@@ -1967,7 +2088,8 @@ class Lab:
         pending = self.db.q("""SELECT id FROM hypotheses WHERE status='PROPOSED'
                                ORDER BY id DESC LIMIT 2""")
         for p in pending:
-            child = apply_hypothesis(p["id"], self.db)
+            if self._stop.is_set():return
+            child = apply_hypothesis(p["id"], self.db,stop=self._stop)
             if child:
                 activity.info("AI", f"Applied hypothesis #{p['id']} -> spawned candidate strategy #{child}")
                 bus.publish("hypothesis_applied", {"hypothesis_id": p["id"],

@@ -436,7 +436,7 @@ export default function LiveActivitySidebar({ isOpen, onToggle, onOpenMt5Modal }
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
               <span style={{ fontWeight: 700, color: "var(--green)", letterSpacing: "0.5px" }}>
-                NODE GENERATION {curNodes} / {targetNodes}
+                NODE GENERATION {curNodes} / {targetNodes}{' · '}
               </span>
               <span className="mono font-bold" style={{ color: "var(--fg)", fontSize: "11px" }}>
                 {pct.toFixed(1)}%

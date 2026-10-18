@@ -157,9 +157,9 @@ class TestStore:
 # --------------------------------------------------------------------------- #
 class TestAnalytics:
     TRADES = [
-        {"side": "buy", "net_pnl": 100.0, "hold_seconds": 90.0, "session": "LONDON", "dow": 0},
-        {"side": "sell", "net_pnl": -50.0, "hold_seconds": 40.0, "session": "NY", "dow": 1},
-        {"side": "buy", "net_pnl": 25.0, "hold_seconds": 10.0, "session": "LONDON", "dow": 1},
+        {"exit_ts": 1, "side": "buy", "net_pnl": 100.0, "hold_seconds": 90.0, "session": "LONDON", "dow": 0},
+        {"exit_ts": 2, "side": "sell", "net_pnl": -50.0, "hold_seconds": 40.0, "session": "NY", "dow": 1},
+        {"exit_ts": 3, "side": "buy", "net_pnl": 25.0, "hold_seconds": 10.0, "session": "LONDON", "dow": 1},
     ]
 
     def test_summary_recomputes_every_field(self):

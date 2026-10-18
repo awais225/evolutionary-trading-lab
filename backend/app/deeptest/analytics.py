@@ -202,6 +202,15 @@ def summarize(trades: List[Dict[str, Any]], *, initial_capital: float) -> Dict[s
         "max_consecutive_losses": max_loss_run,
     }
 
+    from .loss_sequences import calculate
+    # Metrics and sequences describe the SAME unique eligible retained rows.
+    # calculate(raw) remains strict for callers checking an incomplete population.
+    sequence = calculate(tds)
+    summary.update(sequence)
+    summary['max_consecutive_losses'] = sequence['max_consecutive_losing_trades']
+    if sequence['loss_sequence_reason']:
+        na('max_consecutive_losses', sequence['loss_sequence_reason'])
+        na('max_consecutive_loss_currency', sequence['loss_sequence_reason'])
     return {
         "summary": summary,
         "breakdowns": {

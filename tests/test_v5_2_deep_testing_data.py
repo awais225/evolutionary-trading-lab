@@ -87,7 +87,9 @@ def test_01_population_state_names_match_the_counts(db):
     assert list(st.keys()) == ["TOTAL", "ALIVE", "QUALIFIED", "FINAL_TESTING_ELIGIBLE",
                                "DEEP_TESTING_ELIGIBLE", "LIVE_TESTING_ELIGIBLE",
                                "LIVE_TESTING_ACTIVE"]
-    assert st["TOTAL"] == counts["total"] == 4
+    assert st["TOTAL"] == counts["total"] == 3
+    assert data['population_snapshot']['lifetime_total']==4
+    assert data['population_snapshot']['legacy_total']==1
     assert st["ALIVE"] == counts["alive"]
     assert st["QUALIFIED"] == counts["qualified"] == 2      # the two VALID user nodes
     assert st["DEEP_TESTING_ELIGIBLE"] == counts["deep"] == 2
@@ -105,7 +107,7 @@ def test_01_population_state_names_match_the_counts(db):
 def test_02_the_legacy_row_is_never_alive_or_qualified_or_deep(db):
     state = P.population_state(db=db)["state"]
     # VALID user nodes count as alive; the LEGACY_TEST row and the failed node do not
-    assert state["TOTAL"] == 4 and state["ALIVE"] == 2
+    assert state["TOTAL"] == 3 and state["ALIVE"] == 2
     assert P.populations(db=db)["detail"]["legacy_excluded"] == 1
     members = {m["id"] for m in P.deep_universe(db=db)}
     legacy_id = [int(r["id"]) for r in db.q("SELECT id FROM strategies WHERE data_source='LEGACY_TEST'")][0]
@@ -135,7 +137,7 @@ def test_03_live_eligibility_is_capability_and_activity_is_enrolment(db):
     state = P.population_state(db=db)["state"]
     assert state["LIVE_TESTING_ELIGIBLE"] == 2, "enrolment never inflates eligibility"
     assert state["LIVE_TESTING_ACTIVE"] == 2, "both enrolments are real and counted"
-    assert state["TOTAL"] == 4                                # nothing else moved
+    assert state["TOTAL"] == 3                                # nothing else moved
 
     # and the detail behind the number is exposed, never just the total
     live_inputs = P.populations(db=db)["detail"]["live_inputs"]

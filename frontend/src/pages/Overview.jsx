@@ -469,20 +469,21 @@ export default function Overview() {
   // Derived V2.1 metrics — V6.8 §3: the node-data authority first (one source
   // every tab reads), then the established fallbacks. The scope is labelled on
   // the cards and in the strip below.
-  const totalNodes = ndCounts?.total ?? recheckData?.total_nodes ?? lab?.total_nodes ?? 0;
+  const population = lab?.population_snapshot;
+  const totalNodes = population?.current_nodes ?? ndCounts?.total ?? recheckData?.total_nodes ?? lab?.total_nodes ?? 0;
   const target = recheckData?.target ?? lab?.target ?? 500;
   const remaining = recheckData?.remaining ?? lab?.remaining ?? Math.max(0, target - totalNodes);
-  const alive = ndCounts?.alive ?? recheckData?.alive ?? lab?.alive ?? 0;
-  const dead = ndCounts?.dead ?? recheckData?.dead ?? lab?.dead ?? 0;
-  const backtesting = ndCounts?.backtesting ?? recheckData?.backtesting ?? lab?.backtesting ?? (counts.BACKTESTING || 0);
-  const validating = ndCounts?.validating ?? recheckData?.validating ?? lab?.validating ?? (counts.VALIDATING || 0);
+  const alive = population?.alive_nodes ?? ndCounts?.alive ?? recheckData?.alive ?? lab?.alive ?? 0;
+  const dead = population?.dead_nodes ?? ndCounts?.dead ?? recheckData?.dead ?? lab?.dead ?? 0;
+  const backtesting = population?.backtesting_nodes ?? ndCounts?.backtesting ?? recheckData?.backtesting ?? lab?.backtesting ?? (counts.BACKTESTING || 0);
+  const validating = population?.validating_nodes ?? ndCounts?.validating ?? recheckData?.validating ?? lab?.validating ?? (counts.VALIDATING || 0);
   // one headline number everywhere: the established QUALIFIED+PAPER tier over
   // the complete stored research history (never a per-tab re-derivation).
-  const qualified = qualifiedAuthoritative;   // null while loading — rendered as such
+  const qualified = population?.qualified_nodes ?? qualifiedAuthoritative;   // null while loading — rendered as such
   const qualifiedDisplay = ndLoading ? "…" : qualified;
   const currentGen = recheckData?.current_generation ?? lab?.generation ?? 0;
   const targetReached = totalNodes >= target;
-  const progressPct = target > 0 ? Math.min(100, Math.round((totalNodes / target) * 1000) / 10) : 100;
+  const progressPct = population?.progress_pct ?? (target > 0 ? Math.round((totalNodes / target) * 1000) / 10 : 0);
 
   const cpu = resources?.cpu;
   const mem = resources?.memory;
@@ -493,6 +494,7 @@ export default function Overview() {
   return (
     <div>
       <HistoryLatest />
+      {population&&<p role="status">Population snapshot {population.revision} · {population.scope} · {population.run_id||'all persisted research'} · current/run {population.current_nodes} · lifetime canonical {population.lifetime_total} · lifetime active research {population.lifetime_research} · archived/excluded {population.excluded_total} · generation births {population.current_generation_nodes} · other/unclassified {population.other_nodes}</p>}
       <GenerationWindow />
       {newRunOpen && (
         <NewResearchRunModal

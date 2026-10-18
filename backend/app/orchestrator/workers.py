@@ -46,3 +46,9 @@ def bt_worker(payload: Dict[str, Any]) -> Dict[str, Any]:
         import traceback
         return {"ok": False, "error": f"{e}\n{traceback.format_exc()[-800:]}",
                 "metrics": {}, "trades": [], "equity_curve": []}
+
+
+def feature_worker(frame, spec):
+    from ..features.library import parse_spec
+    fn,args=parse_spec(spec)
+    return fn(frame,*args)

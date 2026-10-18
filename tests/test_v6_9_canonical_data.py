@@ -129,13 +129,14 @@ class TestCanonicalCounts:
             st_y = c.get("/api/status").json()
             initial_y = ((st_y.get("node_data") or {}).get("counts") or {}).get("qualified")
             refresh_y = ((c.get("/api/status").json().get("node_data") or {}).get("counts") or {}).get("qualified")
-            assert initial_y == refresh_y == nd_y["counts"]["qualified"] == 5, \
-                "the authoritative count must not change with classification state (the 88→99 bug)"
+            assert initial_y == refresh_y == nd_y['counts']['qualified'] == 4
+            assert nd_y['population_snapshot']['lifetime_total']==9
+            assert nd_y['population_snapshot']['excluded_total']==3
             # the same number on every tab surface (DeepTesting authority + nodes index)
             authority = c.get("/api/node-data").json()["node_data"]
-            assert authority["counts"]["qualified"] == 5
+            assert authority["counts"]["qualified"] == 4
             ni = c.get("/api/nodes?filter=all&limit=0").json()
-            assert ni.get("total") == 9
+            assert ni.get("total") == 6
             # the lab exclude-legacy scope is a LABELLED secondary (the engine's own
             # counters may lag their internal cache — that is why it is never the
             # headline). The authority's own scope label reports it correctly:

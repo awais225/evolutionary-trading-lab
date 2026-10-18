@@ -167,7 +167,7 @@ class TestAuthoritativeInventory:
         row = next((r for r in rows if r["node_id"] == ids[0]["id"]), None)
         assert row is not None
         import sqlite3
-        con = sqlite3.connect(str(REPO / "DATA" / "DATABASE" / "lab_state.db"))
+        con = sqlite3.connect(str(__import__('app.config',fromlist=['get_config']).get_config().database_path))
         con.row_factory = sqlite3.Row
         raw = con.execute("""SELECT metrics FROM backtests WHERE strategy_id=?
                              AND stage IN ('detail','screen')
@@ -190,11 +190,11 @@ class TestAuthoritativeInventory:
         test asserts displayed == stored for whichever identity exists here,
         reading every expected value from the database (never hardcoded)."""
         import sqlite3
-        con = sqlite3.connect(str(REPO / "DATA" / "DATABASE" / "lab_state.db"))
+        con = sqlite3.connect(str(__import__('app.config',fromlist=['get_config']).get_config().database_path))
         con.row_factory = sqlite3.Row
         try:
             targets = [r["id"] for r in con.execute(
-                "SELECT id FROM strategies WHERE id=718 OR research_node_num=718 ORDER BY id")]
+                "SELECT id FROM strategies WHERE (id=718 OR research_node_num=718) AND COALESCE(data_source,'')<>'LEGACY_TEST' AND status<>'EXCLUDED' ORDER BY id")]
             assert targets, "Node #718 (canonical or research identity) must exist in this dataset"
             rows = client.get("/api/nodes?filter=all&search=718&limit=0").json()["nodes"]
             by_id = {r["node_id"]: r for r in rows}
@@ -337,6 +337,9 @@ class _FakeStore:
 
 class TestMt5Sync:
     def _isolate(self, monkeypatch, bridge):
+        import app.data.history as H
+        # This in-memory simulator fixture is not the operator's IC baseline.
+        monkeypatch.setattr(H,'canonical_profile',lambda *a:None)
         import app.data.engine as E
         monkeypatch.setattr(E, "get_bridge", lambda: bridge)
         store = _FakeStore()

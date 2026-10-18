@@ -158,7 +158,9 @@ def preflight(db: Any, *, node_id: int, duration_key: str = "",
         "coverage": chk,
         "settings": settings,
         "settings_fingerprint": settings_fingerprint(settings),
-        "needs_confirmation": needs_confirmation and not decided_yes,
+        "needs_confirmation": needs_confirmation,
+        "confirmation_required":needs_confirmation and not decided_yes,
+        "coverage_classification":"PARTIAL" if needs_confirmation else "FULL",
         "confirmation_valid_for_this_fingerprint": decided_yes,
         "may_proceed": (not needs_confirmation) or decided_yes,
     }
@@ -295,7 +297,7 @@ def _start_run_locked(db: Any, payload: Dict[str, Any]) -> Dict[str, Any]:
                    node_settings=None)     # already merged above — same dict
     if not pf.get("ok"):
         return pf
-    if pf["needs_confirmation"]:
+    if pf["needs_confirmation"] and not pf.get("may_proceed"):
         return {"ok": False, "needs_confirmation": True,
                 "error": "the requested history is incomplete — confirm the coverage "
                          "warning before this run may start",
@@ -866,6 +868,8 @@ def _load_node(db: Any, node_id: int) -> Dict[str, Any]:
     if not row:
         raise ValueError(f"node {node_id} is not in the authoritative inventory")
     r = dict(row)
+    if str(r.get('data_source') or '').upper()=='LEGACY_TEST' or str(r.get('status') or '').upper()=='EXCLUDED':
+        raise ValueError('Excluded/legacy node is not part of the active historical population')
     g = r.get("genome") or {}
     if isinstance(g, str):
         try:

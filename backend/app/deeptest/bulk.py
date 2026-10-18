@@ -19,7 +19,7 @@ _LOCK = threading.RLock()
 def schema(db):
     db.x('CREATE TABLE IF NOT EXISTS deeptest_batches(id TEXT PRIMARY KEY,status TEXT NOT NULL,payload TEXT NOT NULL,results TEXT NOT NULL,updated_at REAL NOT NULL)')
     cols = {r['name'] for r in db.q('PRAGMA table_info(deeptest_batches)')}
-    for name, definition in [('owner_pid', 'INTEGER'), ('cancel_requested', 'INTEGER NOT NULL DEFAULT 0')]:
+    for name, definition in [('owner_pid', 'INTEGER'), ('cancel_requested', 'INTEGER NOT NULL DEFAULT 0'), ('preflight', "TEXT NOT NULL DEFAULT '{}'"), ('coverage_decision', 'TEXT')]:
         if name not in cols:
             db.x('ALTER TABLE deeptest_batches ADD COLUMN ' + name + ' ' + definition)
 
@@ -41,10 +41,10 @@ def get(db, ident):
     r = db.one('SELECT * FROM deeptest_batches WHERE id=?', (ident,))
     if not r:
         raise ValueError('batch does not exist')
-    out = {**r, 'payload': json.loads(r['payload']), 'results': json.loads(r['results'])}
+    out = {**r, 'payload': json.loads(r['payload']), 'results': json.loads(r['results']), 'preflight': json.loads(r['preflight'] or '{}')}
     orphan = not _alive(r.get('owner_pid')) or (r.get('owner_pid') == os.getpid() and ident not in _ACTIVE)
-    if out['status'] in ('QUEUED', 'RUNNING') and orphan:
-        db.x("UPDATE deeptest_batches SET status='INTERRUPTED' WHERE id=? AND status IN ('QUEUED','RUNNING')", (ident,))
+    if out['status'] in ('QUEUED', 'RUNNING', 'PREFLIGHTING') and orphan:
+        db.x("UPDATE deeptest_batches SET status='INTERRUPTED' WHERE id=? AND status IN ('QUEUED','RUNNING','PREFLIGHTING')", (ident,))
         out['status'] = 'INTERRUPTED'
     out['total'] = len(out['payload']['node_ids'])
     out['finished'] = sum(r['status'] not in ('QUEUED', 'RUNNING') for r in out['results'])
@@ -63,13 +63,20 @@ def create(db, payload):
     payload['node_ids'] = list(dict.fromkeys(int(i) for i in payload['node_ids']))
     if not 1 <= len(payload['node_ids']) <= 5000 or any(i <= 0 for i in payload['node_ids']):
         raise ValueError('select 1..5000 positive canonical IDs')
+    payload.setdefault('requested_end', int(time.time()//60)*60)
     ident = 'batch-' + uuid.uuid4().hex[:20]
     with _LOCK, _claim_lock(db):
+        # One active identical selection/range/settings submission, even from
+        # concurrent HTTP clicks. A terminal batch may be explicitly submitted again.
+        canonical=json.dumps({**payload,'node_ids':sorted(payload['node_ids'])},sort_keys=True,separators=(',',':'))
+        for prior in db.q("SELECT id,payload FROM deeptest_batches WHERE status IN ('QUEUED','RUNNING','PREFLIGHTING','AWAITING_COVERAGE_DECISION')"):
+            previous=json.loads(prior['payload']);previous['node_ids']=sorted(previous['node_ids'])
+            if json.dumps(previous,sort_keys=True,separators=(',',':'))==canonical:return get(db,prior['id'])
         _ACTIVE.add(ident)
         db.x('INSERT INTO deeptest_batches(id,status,payload,results,updated_at,owner_pid) VALUES (?,?,?,?,?,?)',
              (ident, 'QUEUED', json.dumps(payload), '[]', time.time(), os.getpid()))
         try:
-            _POOL.submit(_run, db, ident)
+            _POOL.submit(_prepare, db, ident)
         except Exception:
             _ACTIVE.discard(ident)
             db.x("UPDATE deeptest_batches SET status='FAILED' WHERE id=?", (ident,))
@@ -80,6 +87,7 @@ def create(db, payload):
 def cancel(db, ident):
     get(db, ident)
     db.x('UPDATE deeptest_batches SET cancel_requested=1 WHERE id=?', (ident,))
+    db.x("UPDATE deeptest_batches SET status='CANCELLED' WHERE id=? AND status='AWAITING_COVERAGE_DECISION'", (ident,))
     return {'ok': True, 'note': 'Stops the remaining queue; shared/existing tests are retained, not cancelled.'}
 
 
@@ -92,7 +100,7 @@ def resume(db, ident):
         _ACTIVE.add(ident)
         db.x("UPDATE deeptest_batches SET status='QUEUED',owner_pid=?,cancel_requested=0,payload=? WHERE id=?",
              (os.getpid(), json.dumps(payload), ident))
-        _POOL.submit(_run, db, ident)
+        _POOL.submit(_prepare, db, ident)
     return get(db, ident)
 
 
@@ -121,6 +129,20 @@ def _run(db, ident):
             try:
                 request = {k: v for k, v in payload.items() if k not in ('node_ids', 'node_settings_by_id')}
                 request.update(node_id=node, node_settings=payload.get('node_settings_by_id', {}).get(str(node), payload.get('node_settings', {})))
+                pre = (job.get('preflight') or {}).get('nodes', {}).get(str(node))
+                if pre:
+                    rec['coverage'] = pre.get('coverage')
+                    rec['requested_period'] = pre.get('period')
+                    rec['coverage_decision'] = job.get('coverage_decision')
+                    if not pre.get('ok') or ((pre.get('coverage') or {}).get('coverage_status')!='COMPLETE' and job.get('coverage_decision') == 'full_only'):
+                        rec.update(status='SKIPPED',reason=pre.get('error') or 'Incomplete coverage excluded by batch decision')
+                        save('RUNNING');continue
+                    if (pre.get('coverage') or {}).get('coverage_status')!='COMPLETE':
+                        current = SC.preflight(db,node_id=node,duration_key=request.get('duration_key','3M'),requested_end=request.get('requested_end'),settings=request.get('settings'),node_settings=request.get('node_settings'))
+                        if (current.get('coverage') or {}).get('confirmation_fingerprint') != pre['coverage']['confirmation_fingerprint']:
+                            rec.update(status='SKIPPED',reason='Coverage/data/settings changed after batch consent; preflight again')
+                            save('RUNNING');continue
+                        SC.record_decision(db,confirmation_fingerprint=pre['coverage']['confirmation_fingerprint'],decision='YES_PROCEED',node_id=node)
                 res = SC.start_run(db, request)
                 if not res.get('ok'):
                     rec.update(status='SKIPPED', reason=res.get('error'), needs_confirmation=bool(res.get('needs_confirmation')), retry_required=bool(res.get('retry_required')))
@@ -154,3 +176,38 @@ def _run(db, ident):
         save('FAILED')
     finally:
         _ACTIVE.discard(ident)
+
+
+def _prepare(db,ident):
+    """Persist per-node coverage asynchronously; no historical runs before consent."""
+    from . import scenarios as SC
+    try:
+        job=get(db,ident);payload=job['payload']
+        db.x("UPDATE deeptest_batches SET status='PREFLIGHTING' WHERE id=?",(ident,))
+        report={'nodes':{},'full':0,'partial':0,'unavailable':0,'selected':len(payload['node_ids'])}
+        for node in payload['node_ids']:
+            if db.one('SELECT cancel_requested FROM deeptest_batches WHERE id=?',(ident,))['cancel_requested']:
+                db.x("UPDATE deeptest_batches SET status='CANCELLED',preflight=? WHERE id=?",(json.dumps(report),ident));return
+            try:
+                p=SC.preflight(db,node_id=node,duration_key=payload.get('duration_key','3M'),requested_end=payload.get('requested_end'),settings=payload.get('settings'),node_settings=payload.get('node_settings_by_id',{}).get(str(node),payload.get('node_settings',{})))
+            except Exception as exc:p={'ok':False,'error':str(exc)[:200]}
+            report['nodes'][str(node)]=p
+            kind='unavailable' if not p.get('ok') else 'partial' if (p.get('coverage') or {}).get('coverage_status')!='COMPLETE' else 'full'
+            report[kind]+=1
+            if len(report['nodes'])%10==0:db.x('UPDATE deeptest_batches SET preflight=?,updated_at=? WHERE id=?',(json.dumps(report),time.time(),ident))
+        waiting=report['partial']+report['unavailable']>0
+        db.x('UPDATE deeptest_batches SET preflight=?,status=?,updated_at=? WHERE id=?',(json.dumps(report),'AWAITING_COVERAGE_DECISION' if waiting else 'QUEUED',time.time(),ident))
+        if not waiting:_run(db,ident)
+    except Exception as exc:
+        db.x("UPDATE deeptest_batches SET status='FAILED',results=? WHERE id=?",(json.dumps([{'node_id':None,'status':'FAILED','reason':'Coverage preflight: '+str(exc)[:200]}]),ident))
+    finally:_ACTIVE.discard(ident)
+
+def coverage_decision(db,ident,decision):
+    if decision not in ('partial','full_only','cancel'):raise ValueError('Unknown batch coverage decision')
+    with _LOCK,_claim_lock(db):
+        job=get(db,ident)
+        if job['status']!='AWAITING_COVERAGE_DECISION':raise ValueError('Batch is not awaiting coverage consent')
+        if decision=='cancel':return cancel(db,ident)
+        db.x("UPDATE deeptest_batches SET status='QUEUED',coverage_decision=?,owner_pid=? WHERE id=?",(decision,os.getpid(),ident))
+        _ACTIVE.add(ident);_POOL.submit(_run,db,ident)
+    return get(db,ident)

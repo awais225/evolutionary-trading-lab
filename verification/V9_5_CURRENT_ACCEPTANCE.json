@@ -1,0 +1,90 @@
+{
+  "status": "CURRENT_ACCEPTANCE_COMPLETE_PUBLICATION_CLEANUP_RESET_PENDING",
+  "baseline_sha": "ac4c784fa0d3eec23390fb1054b846a9c3d3a9da",
+  "source_sha256": "9816db6d71fc94acbb113689109c20bcc19a466df1f48b82d2627009a8ef5f66",
+  "maintained": {
+    "passed": 1325,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 1,
+    "deselected": 0
+  },
+  "controlled_groups": 24,
+  "peak_owned_rss_bytes": 794279936,
+  "seconds": 395.509,
+  "owned_survivors": 0,
+  "oom_kill_delta": 0,
+  "focused_archive_scope": {
+    "current_passed": 2,
+    "baseline_failed": 2,
+    "file_sha256": "033febfcc688ba68da67307cf5c651387c6d4ce4aa993c69882f2b85288177cd"
+  },
+  "archive": {
+    "baseline": {
+      "finished_files": 31,
+      "counts": {
+        "passed": 188,
+        "failed": 44,
+        "errors": 0,
+        "skipped": 0
+      }
+    },
+    "candidate": {
+      "finished_files": 31,
+      "counts": {
+        "passed": 190,
+        "failed": 42,
+        "errors": 0,
+        "skipped": 0
+      }
+    }
+  },
+  "archived_unresolved": [],
+  "browser": {
+    "scope": "Chromium real components + HTTP/SQLite real batch state machine; SYNTHETIC coverage/results. Not full dashboard or real market backtest; no broker connected.",
+    "checks": [
+      "Disclosure/checkbox/master/indeterminate/global/tab return/refresh retained; live review starts zero workers/orders",
+      "Cancel: one modal, full/partial/unavailable 1/1/1, zero scenarios executed",
+      "Explicit partial: nodes 1+2 completed, empty node 3 skipped, 3/3 terminal observations with requested/actual coverage",
+      "Prior consent did not reclassify partial; full-only excluded node 2 and node 3; completed scenario reused",
+      "Changed range reopens one explicit modal; concurrent identical HTTP submissions share one pending job; cancel executes no tests"
+    ],
+    "errors": [],
+    "seconds": 4.303
+  },
+  "startup": {
+    "cold": {
+      "first_health_seconds": 2.480557702999704,
+      "ready_seconds": 19.35174389199983,
+      "statuses_unchanged": true,
+      "active_qualified": 83,
+      "http_statuses": {
+        "/api/ready": 200,
+        "/system/build": 200,
+        "/api/lab/status": 200,
+        "/api/nodes?filter=all&limit=1": 200,
+        "/api/nodes?filter=qualified&limit=1": 200,
+        "/api/node-data": 200,
+        "/api/live-testing/status": 200
+      }
+    },
+    "warm": {
+      "first_health_seconds": 1.1621618350000062,
+      "ready_seconds": 1.1621647800002393,
+      "statuses_unchanged": true,
+      "active_qualified": 83,
+      "http_statuses": {
+        "/api/ready": 200,
+        "/system/build": 200,
+        "/api/lab/status": 200,
+        "/api/nodes?filter=all&limit=1": 200,
+        "/api/nodes?filter=qualified&limit=1": 200,
+        "/api/node-data": 200,
+        "/api/live-testing/status": 200
+      }
+    }
+  },
+  "actual_reset": false,
+  "orders_submitted": 0,
+  "native_windows_edge_mt5": "UNVERIFIED"
+}

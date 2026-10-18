@@ -266,6 +266,18 @@ class TestEndpointWiring:
             ("backend/app/mt5/mt5_real.py", "MT5RealBridge", ("account_info", "check_market_order", "_ensure_order_session", "verify_sent_order", "send_market_order", "positions_get", "orders_get", "close_position", "place_order", "real_market_order")),
         ]:
             original = subprocess.check_output(["git", "show", f"{baseline}:{path}"], cwd=str(REPO), text=True)
-            before, after = methods(original, klass), methods(normalize_config_writer((REPO / path).read_text()) if klass == "Database" else (REPO / path).read_text(), klass)
+            current=normalize_config_writer((REPO/path).read_text()) if klass=='Database' else (REPO/path).read_text()
+            if klass=='Database':
+                # V9.5's explicitly requested population exclusion changes ONLY
+                # this default. Keep every byte of the classification/query body
+                # and all other protected method ASTs under the original guard.
+                tree=ast.parse(current)
+                owner=next(n for n in tree.body if isinstance(n,ast.ClassDef) and n.name=='Database')
+                method=next(n for n in owner.body if isinstance(n,ast.FunctionDef) and n.name=='get_qualified_strategies')
+                assert method.args.args[-1].arg=='exclude_legacy'
+                assert isinstance(method.args.defaults[-1],ast.Constant) and method.args.defaults[-1].value is True
+                method.args.defaults[-1]=ast.Constant(value=False)
+                current=ast.unparse(tree)
+            before,after=methods(original,klass),methods(current,klass)
             for method in protected:
                 assert before[method] == after[method], f"frozen semantics changed: {klass}.{method}"
