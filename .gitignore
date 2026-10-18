@@ -16,3 +16,20 @@ DATA/HISTORICAL/latest_fetch.json
 .history-transaction.*
 history-txn-*/
 DATA/**/.history-write.lock
+
+# V9.5: verified node-only generated research; never ignore market/config trees.
+/DATA/RESEARCH/backtests/
+/DATA/RESEARCH/generations/
+/DATA/RESEARCH/hypotheses/
+/DATA/RESEARCH/strategies/
+/DATA/RESEARCH/validations/
+/DATA/manifest.json
+/DATA/manifests/backtests.json
+/DATA/manifests/genomes.json
+/DATA/manifests/nodes.json
+/DATA/metadata/active_run.json
+/DATA/metadata/pipeline_state.json
+/DATA/DATABASE/*-wal
+/DATA/DATABASE/*-shm
+/frontend/dist
+/frontend/node_modules

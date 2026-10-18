@@ -1,0 +1,109 @@
+{
+  "state": "INDEX_PREPARED_ACTIVE_NOT_RESET",
+  "implementation_sha": "274bb151bd8bfc3a3528bbafec4c4b8bd6e1a9c9",
+  "active_untouched": false,
+  "active_database_sha256": "87ed8c781db1be4bd469a5d1348c995c2ccaaf66e76aae3c7b8ebe7f918327c7",
+  "publication_image": "/var/tmp/v95-recovery/cleanup-image",
+  "primary": {
+    "before_nodes": 10000,
+    "after_nodes": 0,
+    "preserved_market_configuration_mixed_rows": true,
+    "preserved_tables": [
+      "calibration",
+      "data_conflicts",
+      "datasets",
+      "feature_meta",
+      "integrity_reports",
+      "master_datasets"
+    ]
+  },
+  "archives": [
+    {
+      "path": "BACKUPS/lab_backup_20260927_132830.zip",
+      "action": "TARGETED_SQL_AND_NODE_MEMBER_CLEANUP",
+      "before_nodes": 371,
+      "after_nodes": 0,
+      "protected_member_count": 8,
+      "protected_member_bytes_unchanged": true,
+      "sha256": "16000ffc406802edd28b456d7aa1c25940e74e77c633d8de838635c7745b8cde"
+    },
+    {
+      "path": "BACKUPS/lab_backup_20261004_085708.zip",
+      "action": "TARGETED_SQL_AND_NODE_MEMBER_CLEANUP",
+      "before_nodes": 0,
+      "after_nodes": 0,
+      "protected_member_count": 9,
+      "protected_member_bytes_unchanged": true,
+      "sha256": "a4abe6bac7543e57f65b8518763ef0e8b7490c32176c60c600af15fe1f602f4f"
+    },
+    {
+      "path": "BACKUPS/lab_backup_20261004_090011.zip",
+      "action": "TARGETED_SQL_AND_NODE_MEMBER_CLEANUP",
+      "before_nodes": 787,
+      "after_nodes": 0,
+      "protected_member_count": 9,
+      "protected_member_bytes_unchanged": true,
+      "sha256": "a66146d52d7916f110a42caf9558186f1bac9612b1b4d89af7ef024665f75e35"
+    },
+    {
+      "path": "BACKUPS/lab_backup_20261004_170024.zip",
+      "action": "TARGETED_SQL_AND_NODE_MEMBER_CLEANUP",
+      "before_nodes": 787,
+      "after_nodes": 0,
+      "protected_member_count": 851,
+      "protected_member_bytes_unchanged": true,
+      "sha256": "e0ea85a605e969776ee713e1f3bb89a96d5d478b6bf0abcc68559cfc325d9e07"
+    },
+    {
+      "path": "BACKUPS/lab_v2_7_known_good_backup.zip",
+      "action": "PRESERVED_SOURCE_CONFIG_ARCHIVE_NO_NODE_DB",
+      "sha256": "c0a0f371024b7a00e60f45160e7ea45426ddf0ebbfd1c40deb0c6234b50f4ad1"
+    }
+  ],
+  "rewrites": [
+    "DATA/DATABASE/lab_state.db",
+    "DATA/BACKUPS/lab_backup_20260927_132830.zip",
+    "DATA/BACKUPS/lab_backup_20261004_085708.zip",
+    "DATA/BACKUPS/lab_backup_20261004_090011.zip",
+    "DATA/BACKUPS/lab_backup_20261004_170024.zip"
+  ],
+  "tracked_node_removal_count": 29555,
+  "result_parquet_schemas": {
+    "schemas": [
+      {
+        "suffix": ".parquet",
+        "columns": [
+          "ts",
+          "equity"
+        ],
+        "count": 6200,
+        "example": "RESEARCH/backtests/strategy_006664/equity.parquet"
+      },
+      {
+        "suffix": ".parquet",
+        "columns": [
+          "side",
+          "entry_ts",
+          "entry_price",
+          "exit_ts",
+          "exit_price",
+          "lots",
+          "pnl",
+          "exit_reason",
+          "session",
+          "dow",
+          "regime",
+          "slippage_points",
+          "spread_paid",
+          "hold_bars"
+        ],
+        "count": 6200,
+        "example": "RESEARCH/backtests/strategy_006664/trades.parquet"
+      }
+    ],
+    "ohlc_suspects": []
+  },
+  "no_original_csv_or_ohlcv_deleted": true,
+  "active_logical_rows_unchanged": true,
+  "active_base_file_checkpoint_note": "Verification connection checkpointed pre-existing WAL; all logical tables match pre-test SQLite backup exactly. See V9_5_ACTIVE_WAL_CHECKPOINT_VERIFICATION.json."
+}

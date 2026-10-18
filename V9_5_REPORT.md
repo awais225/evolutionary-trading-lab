@@ -1,4 +1,4 @@
-# V9.5 — current acceptance complete; publication, cleanup and actual reset pending
+# V9.5 — current acceptance and implementation publication complete; cleanup/reset pending
 
 Evidence date: 2026-10-18. Existing V9.5 continued, not rebuilt. No acceptance run was concurrent with another memory-intensive acceptance suite.
 
@@ -12,9 +12,12 @@ Evidence date: 2026-10-18. Existing V9.5 continued, not rebuilt. No acceptance r
 - Current frontend build exit 0. Exact commands, per-group exits/counts/RSS/OOM/owned-worker receipts: `verification/V9_5_CURRENT_GATE_RESULTS.json`.
 
 ## Safety and pending work
-No implementation commit/push or cleanup commit/push yet. No actual node reset or automatic active generation. Actual recovered DB remains 10000 strategies and byte-identical to original LFS SHA c159b0718c43b43f97609881bd3be196dad76274029949a9fb4c4e710f106a12. All canonical market partitions match the retained 419013-bar manifest; seven uploaded CSV originals remain verified in the durable upload archive. Temporary copies are not actual reset backups.
+Implementation normal-pushed and remote-verified at 274bb151bd8bfc3a3528bbafec4c4b8bd6e1a9c9. Separate cleanup publication and clean-checkout checks are pending. No actual node reset or automatic active generation. Actual recovered DB remains 10000 strategies and all logical tables exactly match the pre-test SQLite backup. A verification connection checkpointed the pre-existing WAL into the base file: original base SHA c159b0718c43b43f97609881bd3be196dad76274029949a9fb4c4e710f106a12, checkpointed base SHA 87ed8c781db1be4bd469a5d1348c995c2ccaaf66e76aae3c7b8ebe7f918327c7; no SQL row changed. All canonical market partitions match the retained 419013-bar manifest; seven uploaded CSV originals remain verified in the durable upload archive. Temporary copies are not actual reset backups.
 
 Required order: implementation audit/normal push/remote verification → separate precise tracked-node cleanup, mixed-file preservation and clean checkout → idle-worker verified backed-up actual reset, SQL/API/restart checks. No Git DATA symlink deletion has been staged as cleanup. Native Windows/Edge/FTMO/MT5 and live/demo broker execution remain unverified; no broker orders were submitted.
 
 ## Resource remediation
 The historical interrupted offsets test passed unchanged on all 10000 original SQL nodes: peak RSS 807755776 bytes. The original seven-file/60-test batch passed unchanged with measured post-test cyclic GC and optional allocator release: peak 836960256 bytes. Per-test telemetry demonstrates substantial reclaimable cyclic-object/allocator retention (up to roughly 95 MB GC and 64 MB trim examples), not proof of specific object types or a production leak. The permanent teardown changes no assertions, population caps, fixtures, business caches or admission rules. Final gate peak owned RSS 794279936 bytes, no OOM increment and no surviving owned workers. Unique-token and PID/create-time ownership checks block any batch leaving workers before cleaning only proven owned processes.
+
+## Prepared targeted Git cleanup (not an actual runtime reset)
+Verified isolated publication images remove 29555 tracked node/result/state/SQLite sidecar paths and rewrite five mixed payloads (primary SQLite plus four older backup ZIPs). All protected SQL rows and non-node archive member bytes were compared with originals. All 12400 result Parquets were individually schema-read: 6200 equity and 6200 trade tables, no OHLCV. Seven original CSVs/canonical bars are outside deletion scope. The source/config known-good backup ZIP is retained unchanged. Active SQL remains 10000; actual node files have not been removed.
