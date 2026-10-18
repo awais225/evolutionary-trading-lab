@@ -1,0 +1,95 @@
+{
+  "status": "PASS_CONTROLLED_LINUX_SCOPE",
+  "date": "2026-10-18",
+  "implementation_sha": "274bb151bd8bfc3a3528bbafec4c4b8bd6e1a9c9",
+  "cleanup_sha": "095a1d0161e78eb5236b488f08fec52ac0859ef9",
+  "canonical_data_correction_sha": "5dbbc22c6d1457962d414637b7c83040af829b4e",
+  "maintained_suite": {
+    "passed": 1325,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 1,
+    "deselected": 0
+  },
+  "maintained_groups": 24,
+  "separate_focused_current_passes": 2,
+  "peak_owned_rss_bytes": 794279936,
+  "oom_kill_delta": 0,
+  "owned_worker_survivors": 0,
+  "archived_comparison": {
+    "baseline": {
+      "finished_files": 31,
+      "counts": {
+        "passed": 188,
+        "failed": 44,
+        "errors": 0,
+        "skipped": 0
+      }
+    },
+    "candidate": {
+      "finished_files": 31,
+      "counts": {
+        "passed": 190,
+        "failed": 42,
+        "errors": 0,
+        "skipped": 0
+      }
+    }
+  },
+  "archived_unresolved": [],
+  "archived_failures_remain_failures": 42,
+  "chromium_checks": 5,
+  "chromium_scope": "Actual components + HTTP/SQLite batch engine; synthetic coverage/results; not full dashboard or real-market browser",
+  "actual_stored_bar_benchmarks": "M1/M5 COMPLETED; M15 INSUFFICIENT_HISTORY 276<300; latest persisted-bar anchor; csv_reads=0",
+  "startup_seconds": {
+    "cold_first_health": 2.480557702999704,
+    "cold_ready": 19.35174389199983,
+    "warm_ready": 1.1621647800002393,
+    "clean_checkout_ready": 2.420931507000205,
+    "actual_reset_restart_ready": 2.024359674000152
+  },
+  "tracked_node_paths_removed": 29555,
+  "mixed_payloads_sanitized": 5,
+  "known_good_source_config_archive_preserved": true,
+  "actual_runtime_root": "/var/tmp/v95-recovery/data-archive/DATA",
+  "actual_before_nodes": 10000,
+  "actual_after_node_tables": {
+    "strategies": 0,
+    "backtests": 0,
+    "validations": 0,
+    "research_runs": 0,
+    "generation_stats": 0,
+    "live_test_configs": 0,
+    "mt5_demo_configs": 0
+  },
+  "old_node_artifacts_removed": 29553,
+  "old_node_artifacts_remaining": 0,
+  "new_empty_manifest_entries": {
+    "nodes": 0,
+    "genomes": 0,
+    "backtests": 0
+  },
+  "post_restart_diagnostics": "Two fresh inactive startup/shutdown events and one INACTIVE live event with node_id NULL; five original dataset-ingestion events retained. No node/run/trade results resurrected.",
+  "canonical_highwatermark": 10814,
+  "next_canonical_id": 10815,
+  "manual_target": 10000,
+  "run_id": null,
+  "generation_started": false,
+  "orders_submitted": 0,
+  "canonical_bars_sha_preserved": 419013,
+  "original_csvs_preserved": 7,
+  "market_sql_tables_and_config_preserved": true,
+  "backup": {
+    "compound_directory": "/var/tmp/v95-recovery/actual-reset-backups/V9_5_ACTUAL_20261018T123812Z_5a354ff8",
+    "primary_directory": "/var/tmp/v95-recovery/actual-reset-backups/V9_5_ACTUAL_20261018T123812Z_5a354ff8/V9_5_20261018T123818Z_8d879119",
+    "primary_zip_sha256": "7e26b463e91d9bdcbb31c0fcd8acd6e125d7e28e1cb082e1e6203bf4b7d331e6",
+    "primary_zip_bytes": 81547685,
+    "full_independent_restore_nodes": 10000,
+    "full_independent_restore_artifacts": 29553,
+    "temporary_external_storage": true,
+    "durable_original_recovery_sources": "Immutable implementation commit 274bb151 plus private V9_5_WORKSPACE_PRESERVATION.zip and compact inventories; every original node artifact verified recoverable; original DB+WAL reproduce all original logical tables."
+  },
+  "native_windows_edge_ftmo_mt5": "UNVERIFIED",
+  "separate_native_windows_runtime_reset": "NOT CLAIMED",
+  "source_data_link_git_status": "Sandbox DATA is external symlink; apparent protected DATA deletions are not staged. Clean physical remote checkout was independently verified."
+}
