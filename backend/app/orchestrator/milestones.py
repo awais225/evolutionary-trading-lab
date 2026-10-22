@@ -101,7 +101,7 @@ class MilestoneManager:
                 stop.started_at = stop.started_at or time.time()
             if task_desc:
                 stop.current_task = task_desc
-            self._broadcast()
+        self._broadcast()
 
     def set_progress(
         self,
@@ -122,7 +122,7 @@ class MilestoneManager:
                 stop.current_task = task_desc
             if running_item and running_item not in stop.running_items:
                 stop.running_items.append(running_item)
-            self._broadcast()
+        self._broadcast()
 
     def add_completed_item(self, milestone_id: str, item_name: str) -> None:
         with self._lock:
@@ -135,7 +135,7 @@ class MilestoneManager:
                 stop.running_items.remove(item_name)
             if item_name in stop.remaining_items:
                 stop.remaining_items.remove(item_name)
-            self._broadcast()
+        self._broadcast()
 
     def set_subprocess(self, milestone_id: str, sub_key: str, details: Dict[str, Any]) -> None:
         with self._lock:
@@ -143,7 +143,7 @@ class MilestoneManager:
             if not stop:
                 return
             stop.subprocesses[sub_key] = details
-            self._broadcast()
+        self._broadcast()
 
     def set_complete(self, milestone_id: str, completed_item: Optional[str] = None) -> None:
         with self._lock:
@@ -157,7 +157,7 @@ class MilestoneManager:
             stop.remaining_items.clear()
             if completed_item and completed_item not in stop.completed_items:
                 stop.completed_items.append(completed_item)
-            self._broadcast()
+        self._broadcast()
 
     def set_failed(self, milestone_id: str, error_msg: str) -> None:
         with self._lock:
@@ -166,10 +166,20 @@ class MilestoneManager:
                 return
             stop.status = "FAILED"
             stop.error = error_msg
-            self._broadcast()
+        self._broadcast()
 
     def compute_route_state(self) -> Dict[str, Any]:
         """Calculates line fill percentage and currently active stop."""
+        # Evolution reads the stage lock; never hold the milestone lock here.
+        try:
+            from ..evolution.engine import get_evo_engine
+            ns = get_evo_engine().get_node_generation_state()
+            cur_nodes = ns["current_nodes"]
+            target_nodes = ns["target_nodes"]
+            pct = ns["progress_pct"]
+        except Exception:
+            cur_nodes, target_nodes, pct = 0, 1000, 0.0
+
         with self._lock:
             stops_list = [self._stops[m["id"]].to_dict() for m in MILESTONE_DEFINITIONS]
             n_stops = len(stops_list)
@@ -198,15 +208,6 @@ class MilestoneManager:
                         completed_segments = i - 1 + fraction
                         break
                 fill_pct = max(0.0, min(100.0, round(completed_segments * segment_pct, 1)))
-
-            try:
-                from ..evolution.engine import get_evo_engine
-                ns = get_evo_engine().get_node_generation_state()
-                cur_nodes = ns["current_nodes"]
-                target_nodes = ns["target_nodes"]
-                pct = ns["progress_pct"]
-            except Exception:
-                cur_nodes, target_nodes, pct = 0, 1000, 0.0
 
             return {
                 "milestones": stops_list,
