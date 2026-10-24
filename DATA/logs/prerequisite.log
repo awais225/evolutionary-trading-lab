@@ -2757,3 +2757,49 @@
 2026-10-09 10:11:18 [OK] Database verified at DATABASE/lab_state.db (user_version=3, strategies=10787). Historical data preserved.
 2026-10-09 10:11:18 [OK] Application main module imported successfully (FastAPI v3.6).
 2026-10-09 10:11:18 [OK] ALL BACKEND RUNTIME DEPENDENCIES & APPLICATION ENTRYPOINTS VERIFIED.
+2026-10-22 21:56:17 [INFO] ===========================================================
+2026-10-22 21:56:17 [INFO] EVOLUTIONARY TRADING RESEARCH LAB - V2.3 DEPENDENCY VERIFIER
+2026-10-22 21:56:17 [INFO] ===========================================================
+2026-10-22 21:56:17 [INFO] Python interpreter: E:\evolutionary-trading-lab\.venv\Scripts\python.exe
+2026-10-22 21:56:17 [INFO] Python version: 3.14.6 (win32)
+2026-10-22 21:56:17 [WARN] Python 3.14 detected (pre-release/latest version).
+2026-10-22 21:56:17 [INFO] Some binary C-extensions like MetaTrader5 on Windows may require Python 3.10 - 3.13.
+2026-10-22 21:56:17 [INFO] The research lab will operate cleanly using the SIMULATOR market data engine.
+2026-10-22 21:56:17 [OK] psutil verified (7.2.2).
+2026-10-22 21:56:18 [OK] fastapi verified (0.159.1).
+2026-10-22 21:56:18 [OK] uvicorn verified (0.54.0).
+2026-10-22 21:56:18 [OK] pydantic verified (2.14.1).
+2026-10-22 21:56:18 [OK] yaml verified (6.0.3).
+2026-10-22 21:56:18 [OK] httpx verified (0.28.1).
+2026-10-22 21:56:18 [OK] websockets verified (17.3).
+2026-10-22 21:56:18 [OK] numpy verified (2.5.4).
+2026-10-22 21:56:19 [OK] pandas verified (3.1.0).
+2026-10-22 21:56:19 [OK] pyarrow verified (26.0.0).
+2026-10-22 21:56:20 [OK] duckdb verified (2.0.0).
+2026-10-22 21:56:20 [OK] MetaTrader5 Python package installed (5.0.6231).
+2026-10-22 21:56:20 [OK] Database verified at DATABASE/lab_state.db (user_version=3, strategies=0). Historical data preserved.
+2026-10-22 21:56:21 [OK] Application main module imported successfully (FastAPI v3.6).
+2026-10-22 21:56:21 [OK] ALL BACKEND RUNTIME DEPENDENCIES & APPLICATION ENTRYPOINTS VERIFIED.
+2026-10-22 22:21:06 [INFO] ===========================================================
+2026-10-22 22:21:06 [INFO] EVOLUTIONARY TRADING RESEARCH LAB - V2.3 DEPENDENCY VERIFIER
+2026-10-22 22:21:06 [INFO] ===========================================================
+2026-10-22 22:21:06 [INFO] Python interpreter: E:\evolutionary-trading-lab\.venv\Scripts\python.exe
+2026-10-22 22:21:06 [INFO] Python version: 3.14.6 (win32)
+2026-10-22 22:21:06 [WARN] Python 3.14 detected (pre-release/latest version).
+2026-10-22 22:21:06 [INFO] Some binary C-extensions like MetaTrader5 on Windows may require Python 3.10 - 3.13.
+2026-10-22 22:21:06 [INFO] The research lab will operate cleanly using the SIMULATOR market data engine.
+2026-10-22 22:21:06 [OK] psutil verified (7.2.2).
+2026-10-22 22:21:06 [OK] fastapi verified (0.159.1).
+2026-10-22 22:21:06 [OK] uvicorn verified (0.54.0).
+2026-10-22 22:21:06 [OK] pydantic verified (2.14.1).
+2026-10-22 22:21:06 [OK] yaml verified (6.0.3).
+2026-10-22 22:21:06 [OK] httpx verified (0.28.1).
+2026-10-22 22:21:06 [OK] websockets verified (17.3).
+2026-10-22 22:21:06 [OK] numpy verified (2.5.4).
+2026-10-22 22:21:07 [OK] pandas verified (3.1.0).
+2026-10-22 22:21:07 [OK] pyarrow verified (26.0.0).
+2026-10-22 22:21:07 [OK] duckdb verified (2.0.0).
+2026-10-22 22:21:07 [OK] MetaTrader5 Python package installed (5.0.6231).
+2026-10-22 22:21:07 [OK] Database verified at DATABASE/lab_state.db (user_version=3, strategies=0). Historical data preserved.
+2026-10-22 22:21:07 [OK] Application main module imported successfully (FastAPI v3.6).
+2026-10-22 22:21:07 [OK] ALL BACKEND RUNTIME DEPENDENCIES & APPLICATION ENTRYPOINTS VERIFIED.

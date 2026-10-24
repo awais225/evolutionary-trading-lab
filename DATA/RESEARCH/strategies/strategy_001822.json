@@ -1,0 +1,57 @@
+{
+  "hash": "3bdedddd394b6e20d4a1cd482e6aa8f4",
+  "parent_id": 1182,
+  "generation": 1,
+  "symbol": "XAUUSD",
+  "timeframe": "M15",
+  "direction": "short",
+  "status": "BORN",
+  "creation_reason": "crossover of #1182 x #1234: crossover of features/filters/exit (3 indicators)",
+  "mutation_type": "crossover",
+  "species_key": "M15|short|stoch,vwap",
+  "genome": {
+    "symbol": "XAUUSD",
+    "timeframe": "M15",
+    "direction": "short",
+    "features": [
+      "stoch:9:3",
+      "vwap",
+      "stoch:14:3"
+    ],
+    "entry_long": null,
+    "entry_short": {
+      "type": "crossover",
+      "a": "stoch_k:14:3",
+      "b": "stoch_d:14:3",
+      "dir": "up"
+    },
+    "exit": {
+      "atr_spec": "atr:21",
+      "sl_atr_mult": 0.93,
+      "tp_atr_mult": 1.62,
+      "trailing": null,
+      "min_hold_bars": 1,
+      "max_hold_bars": 12,
+      "exit_condition": null
+    },
+    "sessions": null,
+    "days": null,
+    "regime_filters": [
+      "ranging"
+    ],
+    "risk": {
+      "risk_per_trade": 0.005,
+      "max_concurrent": 1
+    }
+  },
+  "complexity": 5,
+  "origin": "crossover",
+  "hypothesis_id": null,
+  "seed": 255601137,
+  "mutation_params": null,
+  "config_version": "664c0d10a49d16b0",
+  "software_version": "3.6",
+  "run_id": "RUN-5be1bdbf7821476fbe879e578eb1a07a",
+  "data_source": "USER_RESEARCH",
+  "id": 1822
+}

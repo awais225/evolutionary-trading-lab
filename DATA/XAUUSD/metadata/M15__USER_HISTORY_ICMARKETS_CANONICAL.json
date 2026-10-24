@@ -316,16 +316,17 @@
    "sha256": "5a451c8c9026e45671726e9b72000caa"
   },
   "202610": {
-   "rows": 1056,
+   "rows": 1568,
    "first_ts": 1790812800.0,
-   "last_ts": 1792147500.0,
-   "sha256": "812481484618744c4196b9d8aa7b9b54"
+   "last_ts": 1792799100.0,
+   "sha256": "d9632248f478a3a274d6e45e12623310"
   }
  },
- "rows": 100856,
+ "rows": 101368,
  "first_ts": 1657663200.0,
- "last_ts": 1792147500.0,
- "version": 1,
- "conflicts": 0,
- "fingerprint": "98d1f1445c2906e1fdbda773d74fa8fa"
+ "last_ts": 1792799100.0,
+ "version": 3,
+ "conflicts": 3,
+ "fingerprint": "fb403f0a823b5761160b07536afa57e5",
+ "updated_at": 1792822094.7242906
 }

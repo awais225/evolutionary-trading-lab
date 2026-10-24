@@ -1,0 +1,91 @@
+{
+  "hash": "93874792bf20240807df8ce5f1a7faaa",
+  "parent_id": null,
+  "generation": 16,
+  "symbol": "XAUUSD",
+  "timeframe": "M15",
+  "direction": "both",
+  "status": "BORN",
+  "creation_reason": "Gen 16 candidate exploration (filling shortfall)",
+  "mutation_type": "random_exploration",
+  "species_key": "M15|both|momentum,sma,volume",
+  "genome": {
+    "symbol": "XAUUSD",
+    "timeframe": "M15",
+    "direction": "both",
+    "features": [
+      "momentum:10",
+      "volume:20",
+      "sma:100"
+    ],
+    "entry_long": {
+      "op": "and",
+      "clauses": [
+        {
+          "type": "compare",
+          "left": "momentum:10",
+          "cmp": "<",
+          "right": 1.59
+        },
+        {
+          "type": "compare",
+          "left": "sma:100",
+          "cmp": "<",
+          "right": "close"
+        }
+      ]
+    },
+    "entry_short": {
+      "op": "and",
+      "clauses": [
+        {
+          "type": "compare",
+          "left": "relvol:20",
+          "cmp": ">",
+          "right": 1.73
+        },
+        {
+          "type": "compare",
+          "left": "momentum:10",
+          "cmp": "<",
+          "right": 1.42
+        },
+        {
+          "type": "compare",
+          "left": "relvol:20",
+          "cmp": ">",
+          "right": 1.4
+        }
+      ]
+    },
+    "exit": {
+      "atr_spec": "atr:7",
+      "sl_atr_mult": 1.37,
+      "tp_atr_mult": 1.56,
+      "trailing": {
+        "atr_mult": 2.8,
+        "activation_mult": 1.64
+      },
+      "min_hold_bars": 3,
+      "max_hold_bars": 72,
+      "exit_condition": null
+    },
+    "sessions": null,
+    "days": null,
+    "regime_filters": null,
+    "risk": {
+      "risk_per_trade": 0.005,
+      "max_concurrent": 1
+    }
+  },
+  "complexity": 6,
+  "origin": "exploration",
+  "hypothesis_id": null,
+  "seed": 1477951354,
+  "mutation_params": null,
+  "config_version": "73f86ee16ce4b5fd",
+  "software_version": "3.6",
+  "run_id": "RUN-5be1bdbf7821476fbe879e578eb1a07a",
+  "data_source": "USER_RESEARCH",
+  "id": 8077
+}

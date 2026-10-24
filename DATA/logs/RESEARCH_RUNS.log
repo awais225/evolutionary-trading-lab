@@ -103,3 +103,6 @@
 {"timestamp": "2026-10-09 05:17:20 UTC", "ts": 1791523040.584576, "event": "NEW_RUN", "run_id": "RUN-20261009-051720", "details": {"target": 5000, "experiment_id": "EXP-XAUUSD-M15"}}
 {"timestamp": "2026-10-09 05:17:20 UTC", "ts": 1791523040.641232, "event": "RESUME_RUN", "run_id": "RUN-20261009-051720", "details": {"target": 5000, "experiment_id": "EXP-XAUUSD-M15"}}
 {"timestamp": "2026-10-09 05:19:23 UTC", "ts": 1791523163.446874, "event": "COMPLETED", "run_id": "RUN-20261009-051720", "details": {"target": 5000, "total_nodes": 5000}}
+{"timestamp": "2026-10-22 17:22:14 UTC", "ts": 1792689734.673938, "event": "RESUME_RUN", "run_id": "RUN-f40e0d691133479492c4b35879c56b39", "details": {"target": 5000, "experiment_id": "EXP-XAUUSD-M15"}}
+{"timestamp": "2026-10-24 06:08:13 UTC", "ts": 1792822093.90911, "event": "RESUME_RUN", "run_id": "RUN-5be1bdbf7821476fbe879e578eb1a07a", "details": {"target": 5000, "experiment_id": "EXP-XAUUSD-M15"}}
+{"timestamp": "2026-10-24 06:22:17 UTC", "ts": 1792822937.10727, "event": "COMPLETED", "run_id": "RUN-5be1bdbf7821476fbe879e578eb1a07a", "details": {"target": 10000, "total_nodes": 10000}}

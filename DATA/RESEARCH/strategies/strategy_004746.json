@@ -1,0 +1,99 @@
+{
+  "hash": "50c1dbefaa7a8078306c0a6455abf5a8",
+  "parent_id": null,
+  "generation": 8,
+  "symbol": "XAUUSD",
+  "timeframe": "M15",
+  "direction": "both",
+  "status": "BORN",
+  "creation_reason": "Gen 8 candidate exploration (filling shortfall)",
+  "mutation_type": "random_exploration",
+  "species_key": "M15|both|momentum,volume,vwap",
+  "genome": {
+    "symbol": "XAUUSD",
+    "timeframe": "M15",
+    "direction": "both",
+    "features": [
+      "vwap",
+      "volume:50",
+      "momentum:20"
+    ],
+    "entry_long": {
+      "op": "and",
+      "clauses": [
+        {
+          "type": "compare",
+          "left": "momentum:20",
+          "cmp": ">",
+          "right": 1.01
+        },
+        {
+          "type": "compare",
+          "left": "momentum:20",
+          "cmp": "<",
+          "right": 1.37
+        },
+        {
+          "type": "compare",
+          "left": "vwap_dist",
+          "cmp": "<",
+          "right": 0.108
+        }
+      ]
+    },
+    "entry_short": {
+      "op": "and",
+      "clauses": [
+        {
+          "type": "compare",
+          "left": "relvol:50",
+          "cmp": ">",
+          "right": 1.72
+        },
+        {
+          "type": "compare",
+          "left": "momentum:20",
+          "cmp": ">",
+          "right": 1.77
+        },
+        {
+          "type": "compare",
+          "left": "relvol:50",
+          "cmp": ">",
+          "right": 1.61
+        }
+      ]
+    },
+    "exit": {
+      "atr_spec": "atr:7",
+      "sl_atr_mult": 2.31,
+      "tp_atr_mult": 1.05,
+      "trailing": null,
+      "min_hold_bars": 0,
+      "max_hold_bars": 96,
+      "exit_condition": null
+    },
+    "sessions": [
+      "london",
+      "asia"
+    ],
+    "days": null,
+    "regime_filters": [
+      "high_volatility"
+    ],
+    "risk": {
+      "risk_per_trade": 0.005,
+      "max_concurrent": 1
+    }
+  },
+  "complexity": 7,
+  "origin": "exploration",
+  "hypothesis_id": null,
+  "seed": 1803228983,
+  "mutation_params": null,
+  "config_version": "664c0d10a49d16b0",
+  "software_version": "3.6",
+  "run_id": "RUN-5be1bdbf7821476fbe879e578eb1a07a",
+  "data_source": "USER_RESEARCH",
+  "id": 4746
+}

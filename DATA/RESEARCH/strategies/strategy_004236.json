@@ -1,0 +1,99 @@
+{
+  "hash": "e0299a96a9ebe1f1c49444bc88be7002",
+  "parent_id": null,
+  "generation": 7,
+  "symbol": "XAUUSD",
+  "timeframe": "M15",
+  "direction": "both",
+  "status": "BORN",
+  "creation_reason": "Gen 7 random exploration birth",
+  "mutation_type": "random_exploration",
+  "species_key": "M15|both|adx,regime,stoch",
+  "genome": {
+    "symbol": "XAUUSD",
+    "timeframe": "M15",
+    "direction": "both",
+    "features": [
+      "regime",
+      "stoch:9:3",
+      "adx:10"
+    ],
+    "entry_long": {
+      "op": "and",
+      "clauses": [
+        {
+          "type": "compare",
+          "left": "stoch_k:9:3",
+          "cmp": "<",
+          "right": 75
+        },
+        {
+          "type": "compare",
+          "left": "adx:10",
+          "cmp": ">",
+          "right": 18
+        },
+        {
+          "type": "compare",
+          "left": "regime:breakout",
+          "cmp": ">",
+          "right": 0.5
+        }
+      ]
+    },
+    "entry_short": {
+      "op": "and",
+      "clauses": [
+        {
+          "type": "compare",
+          "left": "stoch_k:9:3",
+          "cmp": "<",
+          "right": 50
+        },
+        {
+          "type": "compare",
+          "left": "adx:10",
+          "cmp": ">",
+          "right": 30
+        },
+        {
+          "type": "compare",
+          "left": "stoch_k:9:3",
+          "cmp": ">",
+          "right": 20
+        }
+      ]
+    },
+    "exit": {
+      "atr_spec": "atr:7",
+      "sl_atr_mult": 2.84,
+      "tp_atr_mult": 4.54,
+      "trailing": null,
+      "min_hold_bars": 0,
+      "max_hold_bars": 24,
+      "exit_condition": null
+    },
+    "sessions": null,
+    "days": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "regime_filters": null,
+    "risk": {
+      "risk_per_trade": 0.005,
+      "max_concurrent": 1
+    }
+  },
+  "complexity": 6,
+  "origin": "exploration",
+  "hypothesis_id": null,
+  "seed": 799904074,
+  "mutation_params": null,
+  "config_version": "664c0d10a49d16b0",
+  "software_version": "3.6",
+  "run_id": "RUN-5be1bdbf7821476fbe879e578eb1a07a",
+  "data_source": "USER_RESEARCH",
+  "id": 4236
+}
