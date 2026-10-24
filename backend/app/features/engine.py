@@ -53,7 +53,8 @@ def _warmup_bars_for_spec(spec: str, args: tuple) -> int:
 
 
 class FeatureEngine:
-    def __init__(self):
+    def __init__(self, data_engine=None):
+        self._data_engine = data_engine
         self._cache: "OrderedDict[tuple, np.ndarray]" = OrderedDict()
         self._lock = threading.RLock()
         self._disk_loaded: set[str] = set()
@@ -169,7 +170,7 @@ class FeatureEngine:
             if spec == "close" and (dataset_id, "price") in self._cache:
                 return self._cache[(dataset_id, "price")]
 
-        df = get_data_engine().get_frame(dataset_id)
+        df = (self._data_engine or get_data_engine()).get_frame(dataset_id)
         # V5: a requested spec can be an *output column* of a family
         # (bb_pctb:20:2.5 -> bb, relvol:50 -> volume, macd_hist:8:21:5 -> macd ...).
         # Computing the family with *default* parameters produced the default-parameter

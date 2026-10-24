@@ -344,9 +344,8 @@ def _start_run_locked(db: Any, payload: Dict[str, Any]) -> Dict[str, Any]:
         claim=db.one('SELECT * FROM deeptest_claims WHERE signature=?',(signature,))
         owner_alive=False
         if claim:
-            try:os.kill(claim['owner_pid'],0);owner_alive=True
-            except ProcessLookupError:pass
-            except PermissionError:owner_alive=True  # cannot prove death; never duplicate
+            from .runtime import alive
+            owner_alive=alive(claim['owner_pid'])
         if not owner_alive:
             if not payload.get('retry_incomplete'):
                 return {'ok':False,'retry_required':True,'existing_run_id':existing['run_id'],'error':'prior in-flight owner is unavailable; explicitly retry after reviewing the retained run'}
@@ -394,8 +393,11 @@ def _start_run_locked(db: Any, payload: Dict[str, Any]) -> Dict[str, Any]:
     })
     import os
     db.x('INSERT INTO deeptest_claims VALUES (?,?,?) ON CONFLICT(signature) DO UPDATE SET run_id=excluded.run_id,owner_pid=excluded.owner_pid',(signature,run_id,os.getpid()))
+    from .runtime import CALLBACKS
+    if payload.get('_progress_callback'):CALLBACKS[run_id]=payload['_progress_callback']
     try:_executor.submit(_execute, run_id)
     except Exception:
+        CALLBACKS.pop(run_id,None)
         S.update_scenario(db,run_id,status='FAILED',error='could not queue historical worker')
         raise
     return {"ok": True, "run_id": run_id, "scenario": S.get_scenario(db, run_id)}
@@ -415,10 +417,34 @@ def cancel_run(db: Any, run_id: str) -> Dict[str, Any]:
 
 
 def _execute(run_id: str) -> None:
+    from .runtime import Session, CURRENT, CALLBACKS, exception
+    from ..db.database import get_db
+    token = None
+    try:
+        with Session(run_id, CALLBACKS.pop(run_id, None)) as session:
+            token = CURRENT.set({'session': session})
+            _execute_body(run_id)
+            outcome = S.get_scenario(get_db(),run_id)
+            if outcome and outcome['status'] in ('FAILED','CANCELLED'):
+                session.update(outcome['status'],outcome.get('error') or 'Historical scenario cancelled',node_id=outcome.get('node_id'),error=outcome.get('error'))
+    except Exception as exc:
+        exception('job=%s phase=EXECUTION worker exception', run_id)
+        S.update_scenario(get_db(), run_id, status='FAILED', finished_at=time.time(),
+                          error=f'{type(exc).__name__}: {exc}'[:500], notes=traceback.format_exc()[-2000:])
+    finally:
+        CALLBACKS.pop(run_id, None)
+        if token is not None:CURRENT.reset(token)
+
+
+def _execute_body(run_id: str) -> None:
     from ..db.database import get_db
     db = get_db()
     t0 = time.time()
+    from .runtime import CURRENT, exception
+    execution = CURRENT.get()
+    session = execution['session']
     try:
+        session.update('LOADING_DATA', 'Loading authoritative node/genome and data availability')
         sc = S.get_scenario(db, run_id)
         if not sc or sc["status"] in TERMINAL:
             return
@@ -436,10 +462,8 @@ def _execute(run_id: str) -> None:
 
         # ---- VALIDATING: materialise the dataset view over the persisted store
         S.update_scenario(db, run_id, status="VALIDATING", started_at=t0)
-        from ..data.engine import get_data_engine
         from ..data.master import get_master
         from ..mt5.factory import get_bridge
-        engine = get_data_engine()
         mstore = get_master(symbol, timeframe, get_bridge().profile())
         if not mstore.rows:
             S.update_scenario(db, run_id, status="FAILED", finished_at=time.time(),
@@ -449,9 +473,21 @@ def _execute(run_id: str) -> None:
         from contextlib import nullcontext
         from ..data.master import _store_lock
         with (_store_lock(mstore.raw_dir) if getattr(mstore,'raw_dir',None) else nullcontext()):
-            dataset_id = engine._materialize_dataset_view(mstore)
-            frame = engine.get_frame(dataset_id)
+            # Read authoritative bars in place. Do not materialize canonical
+            # dataset/feature caches merely to execute a transient DeepTest.
+            from ..data.engine import make_master_dataset_id
+            from ..data import sessions
+            dataset_id = make_master_dataset_id(symbol, timeframe, mstore.profile_key, mstore.version)
+            frame = mstore.read_range()
+            frame['session'] = sessions.session_labels(frame['ts'].to_numpy())
+            view = session.path / 'source-view.parquet'
+            frame.to_parquet(view,index=False)
+            import pandas as pd
+            frame = pd.read_parquet(view)
+            execution['frame'] = frame
+            session.update('DATA_READY',f'Consistent single-timeframe view prepared in system TEMP ({view.stat().st_size} bytes)',node_id=node['node_id'])
             cov = pair_coverage(symbol,timeframe)
+            session.update('VALIDATING_COVERAGE', f'{symbol}/{timeframe}: {len(frame)} source bars, stored coverage inspected', node_id=node['node_id'])
             if sc.get('dataset_fingerprint') and sc['dataset_fingerprint']!=cov.get('fingerprint'):
                 S.update_scenario(db,run_id,status='FAILED',finished_at=time.time(),error='Persisted history changed after queueing; review the new data and explicitly retry. No old-signature result was produced.')
                 return
@@ -513,8 +549,9 @@ def _execute(run_id: str) -> None:
                                             "an exit is never forced early); 1 = one open "
                                             "simulated trade at a time"),
         }
+        session.update("PERSISTING_RESULTS", "Persisting metrics and trades", node_id=node["node_id"])
         S.update_scenario(db, run_id,
-                          status="PARTIAL" if coverage_state == "PARTIAL" else "COMPLETED",
+                          status="RUNNING",
                           finished_at=time.time(),
                           actual_start=ts_lo, actual_end=ts_hi,
                           bars_used=int(hi - lo),
@@ -539,7 +576,11 @@ def _execute(run_id: str) -> None:
                           },
                           engine_versions=result["engine_versions"])
         S.insert_trades(db, run_id, trades)
+        S.update_scenario(db, run_id, status='PARTIAL' if coverage_state == 'PARTIAL' else 'COMPLETED', finished_at=time.time())
+        session.update('COMPLETED', f'Real metrics and {len(trades)} trades durably persisted ({coverage_state})', node_id=node['node_id'])
     except Exception as e:  # noqa: BLE001 — a failed run must persist its failure
+        exception('job=%s phase=%s execution failed', run_id, session.phase)
+        session.update('FAILED', f'{type(e).__name__}: {e}'[:500])
         try:
             S.update_scenario(db, run_id, status="FAILED", finished_at=time.time(),
                               error=f"{type(e).__name__}: {e}"[:500],
@@ -593,7 +634,14 @@ def _run_strategy(db: Any, node: Dict[str, Any], dataset_id: str,
         sl_offset_pips=sl_off,
         tp_offset_pips=tp_off,
     )
-    res = run_backtest(req)
+    from .runtime import CURRENT, scratch_backtest
+    execution = CURRENT.get()
+    if execution and execution.get('frame') is not None:
+        session = execution['session']
+        res = scratch_backtest(req, execution['frame'], session.path,
+                               lambda phase,msg: session.update(phase,msg,node_id=node['node_id']))
+    else:
+        res = run_backtest(req)
     if not res.ok:
         return {"ok": False, "error": getattr(res, "error", "backtest failed")}
 
