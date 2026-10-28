@@ -158,11 +158,11 @@ class Session:
         self.close()
 
 
-def scratch_backtest(req, frame, directory, phase):
+def scratch_backtest(req, frame, directory, phase, *, configuration=None, cancelled=None, progress=None):
     """Same engine and feature functions; one node's caches, no shared-cache writes.
 
     Preserve the full source frame/window so indicator warmup and trade semantics
-    are identical. Only one scenario executes at a time in the existing executor.
+    are identical. Each scenario owns its feature cache and transient result state.
     """
     import numpy as np
     from types import SimpleNamespace
@@ -183,8 +183,8 @@ def scratch_backtest(req, frame, directory, phase):
 
     data = SimpleNamespace(get_frame=lambda ident: frame)
     features = ScratchFeatures(data_engine=data)
-    engine = Backtester()
-    engine._data, engine._feat = data, features
+    engine = Backtester(data_engine=data, feature_engine=features, configuration=configuration)
+    engine._cancelled, engine._progress = cancelled, progress
     # Prepare all engine-required arrays through the existing FeatureEngine.get.
     from ..genome.schema import referenced_features
     from ..backtest.engine import REGIME_FEATURES

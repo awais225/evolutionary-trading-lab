@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from ..activity import activity
+from ..performance import traced,measure,count
 from ..config import config_digest, get_config
 from ..data.engine import get_data_engine
 from ..db.database import get_db
@@ -162,7 +163,7 @@ class EvolutionEngine:
         cur = self.run_nodes() if self.active_run_id else self.total_nodes()
         return cur >= target
 
-    def node_accounting(self, target: Optional[int] = None, exclude_legacy: bool = False) -> Dict[str, int]:
+    def node_accounting(self, target: Optional[int] = None, exclude_legacy: bool = False, *, _population=None) -> Dict[str, int]:
         """Audit all 9 distinct node metrics (User Spec §4, §9).
 
         exclude_legacy (V4.0): scope the strategy status counts to the user
@@ -170,16 +171,15 @@ class EvolutionEngine:
         """
         target = target or self.get_total_node_target()
         from ..research.population_state import snapshot,ACTIVE_SQL
-        population=snapshot(self.db,self.active_run_id if exclude_legacy else None,target,include_excluded=not exclude_legacy)
+        population=(_population if _population is not None else snapshot(self.db,self.active_run_id if exclude_legacy else None,target,include_excluded=not exclude_legacy))
         total_created=population['current_nodes'];counts=population['status_counts']
         where=[ACTIVE_SQL] if exclude_legacy else ['1=1'];args=[]
         if exclude_legacy and self.active_run_id:
             where.append('run_id=?');args.append(self.active_run_id)
         scope='strategy_id IN (SELECT id FROM strategies WHERE '+' AND '.join(where)+')'
-        eval_row=self.db.one('SELECT COUNT(DISTINCT strategy_id) e FROM backtests WHERE '+scope,tuple(args))
-        bt_row=self.db.one("SELECT COUNT(*) b FROM backtests WHERE stage IN ('screen','detail') AND "+scope,tuple(args))
+        eval_row=self.db.one("SELECT COUNT(DISTINCT strategy_id) e, COALESCE(SUM(CASE WHEN stage IN ('screen','detail') THEN 1 ELSE 0 END),0) b FROM backtests WHERE "+scope,tuple(args))
         val_row=self.db.one('SELECT COUNT(*) v FROM validations WHERE '+scope,tuple(args))
-        total_eval=int(eval_row['e']);total_bt=int(bt_row['b']);total_val=int(val_row['v'])
+        total_eval=int(eval_row['e']);total_bt=int(eval_row['b']);total_val=int(val_row['v'])
         total_qual = sum(counts.get(s, 0) for s in QUALIFIED_STATES)
         total_rej = sum(counts.get(s, 0) for s in ("FAILED", "KILLED", "PAPER_FAILED"))
         total_dead = total_rej + counts.get("RETIRED", 0)
@@ -218,10 +218,10 @@ class EvolutionEngine:
         cached = self._cached_node_state_user if exclude_legacy else self._cached_node_state
         cached_at = self._cached_node_state_user_time if exclude_legacy else self._cached_node_state_time
         from ..research.population_state import snapshot
-        population = snapshot(self.db, self.active_run_id if exclude_legacy else None, self.get_total_node_target(), include_excluded=not exclude_legacy)
+        target = self.get_total_node_target()
+        population = snapshot(self.db, self.active_run_id if exclude_legacy else None, target, include_excluded=not exclude_legacy)
         counts = population['status_counts']
         total_nodes = population['current_nodes']
-        target = self.get_total_node_target()
         remaining = max(0, target - total_nodes)
         gen = population['generation_number']
 
@@ -343,7 +343,7 @@ class EvolutionEngine:
             "last_successful_generation_at": last_gen_at,
             "progress_pct": pct,
             "is_target_reached": is_complete,
-            "node_accounting": self.node_accounting(target, exclude_legacy=exclude_legacy),
+            "node_accounting": self.node_accounting(target, exclude_legacy=exclude_legacy, _population=population),
             "diagnostics": detailed_diagnostics,
             # Flattened upper-case keys for direct diagnostic indexing
             **detailed_diagnostics,
@@ -476,6 +476,7 @@ class EvolutionEngine:
         gops.set_timeframe_scope(avail)
         return gops.timeframe_scope()
 
+    @traced('generation.seed')
     def seed_population(self, n: int, symbol: str) -> int:
         """Create generation-0 random genomes (BORN) with dynamic entropy duplicate protection."""
         cfg = get_config()
@@ -494,8 +495,10 @@ class EvolutionEngine:
         avail_tfs = self._apply_timeframe_scope(symbol)
         while created < n and attempts < max_attempts and not self.is_target_reached():
             attempts += 1
+            count('candidates.attempted')
             chosen_tf = self._rng.choice(avail_tfs) if avail_tfs else cfg.data.timeframe
-            g = gops.random_genome(symbol, self._rng, cfg.evolution.max_indicators, timeframe=chosen_tf)
+            with measure('candidate.random_construction'):
+                g = gops.random_genome(symbol, self._rng, cfg.evolution.max_indicators, timeframe=chosen_tf)
             sid = self.try_insert(g, parent_id=None, generation=0, status="BORN",
                                   origin="seed", mutation_type="random_exploration",
                                   creation_reason="generation-0 random seed")
@@ -543,6 +546,8 @@ class EvolutionEngine:
                    hypothesis_id: Optional[int] = None,
                    mutation_params: Optional[Dict] = None) -> Optional[int]:
         """Validate, dedupe, insert. Returns strategy id or None (duplicate/invalid)."""
+        from ..performance import count, measure
+        count('candidates.insert_attempted')
         # Global Total Node Target ceiling check (V4.1: the configured target is
         # the authoritative node ceiling. The earlier hard-coded 10,000 boundary
         # made an approved "resume + add nodes" target above 10,000 impossible.)
@@ -555,15 +560,20 @@ class EvolutionEngine:
 
         cfg = get_config()
         try:
-            validate_genome(genome, cfg.evolution.max_indicators_hard,
-                            cfg.evolution.max_conditions + 4,
-                            cfg.evolution.max_condition_depth + 1)
+            with measure('candidate.validation'):
+                validate_genome(genome, cfg.evolution.max_indicators_hard,
+                                cfg.evolution.max_conditions + 4,
+                                cfg.evolution.max_condition_depth + 1)
         except GenomeError as e:
             log.debug("genome rejected: %s", e)
+            count('candidates.invalid')
             return None
-        h = genome_hash(genome)
-        existing = self.db.find_by_hash(h)
+        with measure('candidate.hash'):
+            h = genome_hash(genome)
+        with measure('candidate.duplicate_check'):
+            existing = self.db.strategy_hash_exists(h)
         if existing:
+            count('candidates.duplicates')
             self.duplicates_blocked += 1
             return None
         from ..genome.schema import complexity
@@ -593,7 +603,9 @@ class EvolutionEngine:
             # infrastructure rows only (classified once by the V3.6 migration).
             "data_source": "USER_RESEARCH",
         }
-        sid = self.db.insert_strategy(record)
+        with measure('candidate.persistence'):
+            sid = self.db.insert_strategy(record)
+        if sid is not None:count('candidates.persisted')
 
         # Invalidate cached node state so next poll gets fresh state
         self._cached_node_state = None
@@ -676,6 +688,7 @@ class EvolutionEngine:
         )
         log.info(msg)
 
+    @traced('generation.reproduce')
     def reproduce(self, target_births: int, symbol: str,
                   pct_override: Optional[Dict[str, float]] = None) -> Dict[str, int]:
         """Fill the population: elite children via mutation/crossover + exploration."""
@@ -726,10 +739,12 @@ class EvolutionEngine:
             for _ in range(n_mut * 5):
                 if counts["mutation"] >= n_mut or self.is_target_reached():
                     break
+                count('candidates.attempted')
                 parent = self._tournament_parent(pool)
                 try:
-                    child, mt, desc = gops.mutate(parent["genome"], self._rng,
-                                                  max_indicators=cfg.max_indicators_hard)
+                    with measure('candidate.mutation'):
+                        child, mt, desc = gops.mutate(parent["genome"], self._rng,
+                                                      max_indicators=cfg.max_indicators_hard)
                 except GenomeError as ge:
                     log.warning("INVALID CANDIDATE\nREASON: %s", ge)
                     counts["invalid"] += 1
@@ -745,13 +760,15 @@ class EvolutionEngine:
             for _ in range(n_cross * 5):
                 if counts["crossover"] >= n_cross or self.is_target_reached():
                     break
+                count('candidates.attempted')
                 p1 = self._tournament_parent(pool)
                 p2 = self._tournament_parent(pool)
                 if p1["id"] == p2["id"]:
                     continue
                 try:
-                    child, mt, desc = gops.crossover(p1["genome"], p2["genome"],
-                                                     self._rng, cfg.max_indicators_hard)
+                    with measure('candidate.crossover'):
+                        child, mt, desc = gops.crossover(p1["genome"], p2["genome"],
+                                                         self._rng, cfg.max_indicators_hard)
                 except GenomeError as ge:
                     log.warning("INVALID CANDIDATE\nREASON: %s", ge)
                     counts["invalid"] += 1
@@ -776,8 +793,10 @@ class EvolutionEngine:
         for _ in range(n_expl * 5):
             if counts["exploration"] >= n_expl or self.is_target_reached():
                 break
+            count('candidates.attempted')
             chosen_tf = self._rng.choice(avail_tfs) if avail_tfs else None
-            g = gops.random_genome(symbol, self._rng, cfg.max_indicators, timeframe=chosen_tf)
+            with measure('candidate.random_construction'):
+                g = gops.random_genome(symbol, self._rng, cfg.max_indicators, timeframe=chosen_tf)
             sid = self.try_insert(g, None, cur_gen + 1, origin="exploration",
                                   mutation_type="random_exploration",
                                   creation_reason=f"Gen {cur_gen + 1} random exploration birth")
@@ -803,8 +822,10 @@ class EvolutionEngine:
             for _ in range(shortfall * 20):
                 if counts["mutation"] + counts["crossover"] + counts["exploration"] >= target_births or self.is_target_reached():
                     break
+                count('candidates.attempted')
                 chosen_tf = self._rng.choice(avail_tfs) if avail_tfs else None
-                g = gops.random_genome(symbol, self._rng, cfg.max_indicators, timeframe=chosen_tf)
+                with measure('candidate.random_construction'):
+                    g = gops.random_genome(symbol, self._rng, cfg.max_indicators, timeframe=chosen_tf)
                 sid = self.try_insert(g, None, next_gen, origin="exploration",
                                       mutation_type="random_exploration",
                                       creation_reason=f"Gen {next_gen} candidate exploration (filling shortfall)")

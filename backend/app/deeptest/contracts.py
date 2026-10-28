@@ -5,6 +5,8 @@ class BulkDeepRequest(BaseModel):
     model_config=ConfigDict(extra='forbid')
     node_ids:list[PositiveInt]=Field(min_length=1,max_length=5000)
     duration_key:str='3M'
+    requested_start:float|None=None
+    requested_end:float|None=None
     settings:dict=Field(default_factory=dict)
     node_settings:dict=Field(default_factory=dict)
     node_settings_by_id:dict[str,dict]=Field(default_factory=dict)

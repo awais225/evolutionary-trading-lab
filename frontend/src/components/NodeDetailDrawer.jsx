@@ -10,6 +10,8 @@
  * Every section handles loading / empty / error independently, so a failing
  * sub-request never blanks the whole drawer.
  */
+import DeepScenarioPanel from "./DeepScenarioPanel.jsx";
+import HistoricalBacktestPanel from "./HistoricalBacktestPanel.jsx";
 import React, { useEffect, useState } from "react";
 import { Area, AreaChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api, fmt } from "../api.js";
@@ -23,7 +25,9 @@ const TABS = [
   ["research", "Research & execution"],
   ["equity", "Equity curve"],
   ["lineage", "Lineage"],
-  ["raw", "Raw data"],
+  ["raw", "Raw data / genome"],
+  ["trades", "Complete DeepTest trades"],
+  ["rerun", "Rerun Backtest (configure)"],
 ];
 
 export default function NodeDetailDrawer({ id, onClose, onOpenStrategy, initialTab = "overview" }) {
@@ -119,6 +123,15 @@ export default function NodeDetailDrawer({ id, onClose, onOpenStrategy, initialT
           </div>
         </div>
 
+        <div className="btn-row" style={{marginTop:8}}>
+          <button className="btn btn-sm" onClick={() => setTab("research")}>View Results / Validation records</button>
+          <button className="btn btn-sm" onClick={() => setTab("trades")}>View Trades</button>
+          <button className="btn btn-sm" onClick={() => setTab("raw")}>View Genome</button>
+          <button className="btn btn-sm" onClick={() => setTab("lineage")}>Ancestry / children</button>
+          <button className="btn btn-sm" disabled title="No standalone per-node Run Validation API is implemented">Run Validation — unavailable</button>
+        </div>
+        {tab === "trades" && <DeepScenarioPanel key={id} nodeId={id} />}
+        {tab === "rerun" && <HistoricalBacktestPanel key={id} strategyId={id} strategyLabel={`Node ${id}`} />}
         {note && <div className={note.ok ? "kit-ok" : "kit-inline-err"}>{note.text}</div>}
         {econErr && <div className="kit-inline-err">Authoritative model unavailable: {econErr}</div>}
 

@@ -16,6 +16,7 @@ Design:
 from __future__ import annotations
 
 import copy
+import heapq
 import hashlib
 import logging
 import math
@@ -55,7 +56,7 @@ class BacktestRequest:
     direction_override: Optional[str] = None
     perturb: float = 0.0                     # threshold perturbation strength
     seed_salt: str = ""
-    max_trades: int = 3000
+    max_trades: Optional[int] = 3000   # None/0 = data-bounded; research default unchanged
     mc_skip_prob: float = 0.0                # monte-carlo: randomly skip entries
     # V5.1a §21 — the node's own schedule (app.live_testing.schedule) is applied
     # to the historical bars with the *same* evaluator the live engine uses, and
@@ -74,6 +75,7 @@ class BacktestRequest:
     max_active_trades: Optional[int] = None     # None/1 = one at a time; 0 = unlimited
     sl_offset_pips: float = 0.0                 # + = SL farther from entry (V6.5 convention)
     tp_offset_pips: float = 0.0                 # + = TP closer to entry (V6.5 convention)
+    execution_snapshot: Optional[Tuple[Any, Any]] = None  # internal immutable broker facts; append to preserve positional API
 
 
 @dataclass
@@ -117,9 +119,10 @@ class _Ctx:
 
 
 class Backtester:
-    def __init__(self):
-        self._feat = get_feature_engine()
-        self._data = get_data_engine()
+    def __init__(self, *, data_engine=None, feature_engine=None, configuration=None):
+        self._feat = feature_engine if feature_engine is not None else get_feature_engine()
+        self._data = data_engine if data_engine is not None else get_data_engine()
+        self._configuration = configuration
 
     # ---------- vectorized condition evaluation ----------
     def _get(self, ctx: _Ctx, name: str) -> np.ndarray:
@@ -196,8 +199,10 @@ class Backtester:
     # ---------- main run ----------
     def run(self, req: BacktestRequest) -> BacktestResult:
         t0 = time.perf_counter()
-        cfg = get_config()
+        cfg = getattr(self, "_configuration", None) or get_config()
         genome = req.genome
+        progress = getattr(self, "_progress", None)
+        cancelled = getattr(self, "_cancelled", None)
         ghash = genome_hash(genome)
         try:
             df_full = self._data.get_frame(req.dataset_id)
@@ -303,7 +308,11 @@ class Backtester:
 
         # ---- execution model (V5 §5: driven by the symbol's broker specs) ----
         from .symbol_specs import execution_params_for
-        ep, symbol_specs = execution_params_for(g.get("symbol") or "", cfg)
+        if req.execution_snapshot is None:
+            ep, symbol_specs = execution_params_for(g.get("symbol") or "", cfg)
+        else:
+            from copy import deepcopy
+            ep, symbol_specs = deepcopy(req.execution_snapshot)
         ep.spread_mult = req.spread_mult
         ep.slippage_mult = req.slippage_mult
         ep.commission_mult = req.commission_mult
@@ -358,7 +367,8 @@ class Backtester:
         eq_curve: List[List[float]] = []
 
         entries = np.nonzero(sig_long | sig_short)[0]
-        if len(entries) > req.max_trades * 4:
+        capped = req.max_trades is not None and req.max_trades > 0
+        if capped and len(entries) > req.max_trades * 4:
             idx_keep = np.linspace(0, len(entries) - 1, req.max_trades * 4).astype(int)
             entries = entries[idx_keep]
 
@@ -381,15 +391,26 @@ class Backtester:
         risk_amount = float(req.risk_amount or 0.0)
         max_lots = cfg.risk.max_position_size_lots
 
-        for idx in entries:
+        active_exits = []
+        next_report = time.monotonic() + 0.5
+        for entry_number, idx in enumerate(entries):
+            if entry_number % 256 == 0:
+                if cancelled is not None and cancelled():
+                    return BacktestResult(ok=False, error="cancelled by operator")
+                if progress is not None and time.monotonic() >= next_report:
+                    progress(int(idx), int(n), len(trades))
+                    next_report = time.monotonic() + 0.5
             if idx + 1 >= n:
                 continue
             if concurrent:
                 # V6.6: count the simulated positions still open at this signal;
                 # 0 = unlimited
                 if mat_n > 0:
-                    open_now = sum(1 for t in trades
-                                   if t.entry_idx <= idx + 1 <= t.exit_idx)
+                    # Entries are monotone; inclusive exit-bar occupancy is
+                    # identical to the old full-history scan, O(log open) now.
+                    while active_exits and active_exits[0] < idx + 1:
+                        heapq.heappop(active_exits)
+                    open_now = len(active_exits)
                     if open_now >= mat_n:
                         continue
             elif idx < next_free:
@@ -458,6 +479,8 @@ class Backtester:
             exit_i = -1; exit_price = np.nan; reason = ""
             limit = min(n - 1, e_i + max_hold)
             for j in range(e_i, limit + 1):
+                if cancelled is not None and j % 1024 == 0 and cancelled():
+                    return BacktestResult(ok=False, error="cancelled by operator")
                 held = j - e_i
                 if trailing:
                     if not activated:
@@ -506,9 +529,11 @@ class Backtester:
             if peak > 0:
                 max_dd = max(max_dd, (peak - equity) / peak)
             trades.append(tr)
+            if concurrent and mat_n > 0:
+                heapq.heappush(active_exits, exit_i)
             eq_curve.append([float(ts[exit_i]), round(equity, 2)])
             next_free = exit_i + 1
-            if len(trades) >= req.max_trades:
+            if capped and len(trades) >= req.max_trades:
                 break
 
         metrics = self._metrics(trades, equity, balance, max_dd, req, ep, ghash, lo, hi,
@@ -516,6 +541,15 @@ class Backtester:
                                 schedule_meta=metrics_schedule)
         runtime = (time.perf_counter() - t0) * 1000.0
         metrics["runtime_ms"] = round(runtime, 1)
+        if not capped:
+            metrics.update(bars_processed=int(n), eligible_bars=int(n),
+                           actual_start_ts=float(ts[0]), actual_end_ts=float(ts[-1]),
+                           completed_trades=len(trades), trade_limit=None,
+                           execution_policy="data_bounded_v102")
+        if cancelled is not None and cancelled():
+            return BacktestResult(ok=False, error="cancelled by operator")
+        if progress is not None:
+            progress(int(n), int(n), len(trades))
         # Complete trade history and equity curve (spec §11)
         return BacktestResult(ok=True, metrics=metrics,
                               trades=[self._trade_json(t) for t in trades],

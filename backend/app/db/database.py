@@ -491,9 +491,15 @@ class Database:
 
     # ---------- helpers ----------
     def q(self, sql: str, args: tuple = ()) -> List[Dict[str, Any]]:
+        from ..performance import current
+        observer = current()
+        begun = time.perf_counter() if observer is not None else 0
         with self._lock:
+            if observer is not None:observer.record('db.lock_wait', time.perf_counter()-begun)
+            query = time.perf_counter() if observer is not None else 0
             cur = self._conn.execute(sql, args)
             rows = [dict(r) for r in cur.fetchall()]
+            if observer is not None:observer.record('db.query', time.perf_counter()-query)
         return rows
 
     def one(self, sql: str, args: tuple = ()) -> Optional[Dict[str, Any]]:
@@ -501,9 +507,17 @@ class Database:
         return rows[0] if rows else None
 
     def x(self, sql: str, args: tuple = ()) -> int:
+        from ..performance import current
+        observer = current()
+        begun = time.perf_counter() if observer is not None else 0
         with self._lock:
+            if observer is not None:observer.record('db.lock_wait', time.perf_counter()-begun)
+            query = time.perf_counter() if observer is not None else 0
             cur = self._conn.execute(sql, args)
+            if observer is not None:observer.record('db.write_sql', time.perf_counter()-query)
+            commit = time.perf_counter() if observer is not None else 0
             self._conn.commit()
+            if observer is not None:observer.record('db.commit', time.perf_counter()-commit)
             return cur.lastrowid or cur.rowcount
 
     def xm(self, sql: str, seq: List[tuple]) -> None:
@@ -574,6 +588,22 @@ class Database:
         except sqlite3.IntegrityError:
             # duplicate genome hash -> caller handles dedupe
             return None
+
+    def strategy_hash_exists(self, h: str) -> bool:
+        """Hot-path dedupe needs existence, not a deserialized full record."""
+        return self.one('SELECT 1 AS present FROM strategies WHERE hash=? LIMIT 1', (h,)) is not None
+
+    def set_observed_node_revision(self, value) -> bool:
+        """Only the derived polling stamp; generic set_meta semantics unchanged.
+        The read is the linearization point for an unchanged observation; a
+        changed observation retains the original atomic replace and commit.
+        """
+        with self._lock:
+            row = self.one('SELECT value FROM meta WHERE key=?', ('node_data_revision',))
+            if row is not None and row['value'] == value:
+                return False
+            self.set_meta('node_data_revision', value)
+            return True
 
     def find_by_hash(self, h: str) -> Optional[Dict[str, Any]]:
         return self.one("SELECT * FROM strategies WHERE hash=?", (h,))

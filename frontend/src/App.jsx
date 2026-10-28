@@ -52,6 +52,7 @@ export default function App() {
   const [status, setStatus] = useState(null);
   const [events, setEvents] = useState([]);
   const [connected, setConnected] = useState(false);
+  const [statusError, setStatusError] = useState(null);
   const [selectedStrategy, setSelectedStrategy] = useState(null);
   const [selectedStrategyId, setSelectedStrategyId] = useState(240);
   const [shortlist, setShortlist] = useState([]);
@@ -125,7 +126,7 @@ export default function App() {
 
   const statusInFlightRef = useRef(false);
   const refreshStatus = useCallback(() => {
-    if (statusInFlightRef.current) return;
+    if (statusInFlightRef.current || document.hidden) return;
     statusInFlightRef.current = true;
     api.status()
       .then((s) => {
@@ -135,9 +136,10 @@ export default function App() {
           window.dispatchEvent(new window.Event('lab-research-reset'));
           localStorage.setItem('evolab.researchEpoch',epoch);
         }
+        setStatusError(null);
         setStatus(old=>old?.lab?.population_snapshot?.observed_at>s?.lab?.population_snapshot?.observed_at?old:s);
       })
-      .catch(() => {})
+      .catch(e => setStatusError(e.message || String(e)))
       .finally(() => { statusInFlightRef.current = false; });
   }, []);
 
@@ -236,6 +238,7 @@ export default function App() {
     <LabContext.Provider
       value={{
         status,
+        statusError,
         events,
         connected,
         refreshStatus,
@@ -290,6 +293,7 @@ export default function App() {
 
           {/* V4.7: honest backend startup/readiness state (hidden once ready) */}
           <StartupBanner />
+          {statusError && <div role="alert" className="kit-inline-err">Status unavailable; displayed values may be stale: {statusError} <button className="btn btn-sm" onClick={refreshStatus}>Retry status</button></div>}
 
           {!isMt5RealConnected && (
             <div className="warn-banner flex justify-between items-center" style={{ padding: "8px 14px", margin: "0 0 1rem 0" }}>

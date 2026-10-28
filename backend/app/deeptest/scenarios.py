@@ -37,7 +37,8 @@ VALID_STATUSES = ("QUEUED", "FETCHING", "VALIDATING", "RUNNING",
 TERMINAL = ("COMPLETED", "PARTIAL", "CANCELLED", "FAILED")
 VALID_FOR_PREFERENCE = ("COMPLETED", "PARTIAL")
 
-_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="deeptest")
+from .parallel import ScenarioExecutor
+_executor = ScenarioExecutor()
 _CANCELS: set = set()
 _LOCK = threading.Lock()
 _REQUEST_LOCK=threading.RLock()
@@ -115,7 +116,11 @@ def preflight(db: Any, *, node_id: int, duration_key: str = "",
         if effective_ns.get(key) is None:effective_ns[key]=(node.get('config') or {}).get(key) or 0.0
     vns = _validate_node_settings(effective_ns)
     if not vns['ok']:return {'ok':False,'error':'invalid node settings','details':vns['errors']}
+    vns['values']['max_trades'] = None
     settings['node_settings']=vns['values']
+    settings['execution_policy'] = 'data_bounded_v102'
+    if node_cfg:
+        node_cfg = {**node_cfg, 'node_settings': {**(node_cfg.get('node_settings') or {}), 'max_trades':None}}
     if node_cfg:settings['node_config']=node_cfg
     from .filter_scenarios import assignment
     assigned=assignment(db,node_id,'deep')
@@ -274,6 +279,9 @@ def _start_run_locked(db: Any, payload: Dict[str, Any]) -> Dict[str, Any]:
         return {'ok':False,'error':'force_rerun is not supported; explicitly retry only failed/interrupted scenarios'}
     idem = payload.get("idempotency_key")
     node = _load_node(db, node_id)
+    for field in ('symbol','timeframe'):
+        if payload.get(field) and str(payload[field]).upper() != str(node[field]).upper():
+            return {'ok':False,'error':f"Requested {field} does not match selected stored node; select a node with the requested {field}"}
     settings = payload.get("settings") or S.get_settings(db)
     v = S.validate_settings(settings)
     if payload.get("settings") and not v["ok"]:
@@ -395,7 +403,15 @@ def _start_run_locked(db: Any, payload: Dict[str, Any]) -> Dict[str, Any]:
     db.x('INSERT INTO deeptest_claims VALUES (?,?,?) ON CONFLICT(signature) DO UPDATE SET run_id=excluded.run_id,owner_pid=excluded.owner_pid',(signature,run_id,os.getpid()))
     from .runtime import CALLBACKS
     if payload.get('_progress_callback'):CALLBACKS[run_id]=payload['_progress_callback']
-    try:_executor.submit(_execute, run_id)
+    try:
+        future = _executor.submit(_execute, run_id)
+        if hasattr(future,'add_done_callback'):
+            def queue_finished(future):
+                if future.cancelled():
+                    CALLBACKS.pop(run_id,None)
+                    S.update_scenario(db,run_id,status='CANCELLED',finished_at=time.time(),
+                                      error='Not started: backend historical executor shutdown')
+            future.add_done_callback(queue_finished)
     except Exception:
         CALLBACKS.pop(run_id,None)
         S.update_scenario(db,run_id,status='FAILED',error='could not queue historical worker')
@@ -410,9 +426,12 @@ def cancel_run(db: Any, run_id: str) -> Dict[str, Any]:
     if sc["status"] in TERMINAL:
         return {"ok": False, "error": f"run already {sc['status']}"}
     with _LOCK:
-        _CANCELS.add(run_id)
-    S.update_scenario(db, run_id, status="CANCELLED", finished_at=time.time(),
-                      notes="cancelled by operator")
+        sc = S.get_scenario(db, run_id)
+        if sc['status'] in TERMINAL:return {'ok':False,'error':f"run already {sc['status']}"}
+        _CANCELS.add(run_id)  # wake persistence before waiting for its writer lock
+        if not S.cancel_if_active(db,run_id):
+            _CANCELS.discard(run_id)
+            return {'ok':False,'error':'run reached a terminal state before cancellation'}
     return {"ok": True, "run_id": run_id, "status": "CANCELLED"}
 
 
@@ -423,7 +442,8 @@ def _execute(run_id: str) -> None:
     try:
         with Session(run_id, CALLBACKS.pop(run_id, None)) as session:
             token = CURRENT.set({'session': session})
-            _execute_body(run_id)
+            from ..performance import capture
+            with capture('deeptest'):_execute_body(run_id)
             outcome = S.get_scenario(get_db(),run_id)
             if outcome and outcome['status'] in ('FAILED','CANCELLED'):
                 session.update(outcome['status'],outcome.get('error') or 'Historical scenario cancelled',node_id=outcome.get('node_id'),error=outcome.get('error'))
@@ -434,6 +454,7 @@ def _execute(run_id: str) -> None:
     finally:
         CALLBACKS.pop(run_id, None)
         if token is not None:CURRENT.reset(token)
+        with _LOCK:_CANCELS.discard(run_id)
 
 
 def _execute_body(run_id: str) -> None:
@@ -443,12 +464,21 @@ def _execute_body(run_id: str) -> None:
     from .runtime import CURRENT, exception
     execution = CURRENT.get()
     session = execution['session']
+    last_check = [0.0,False]
+    def was_cancelled(force=False):
+        if run_id in _CANCELS:return True
+        now=time.monotonic()
+        if force or now-last_check[0]>=.2:
+            row=db.one('SELECT status FROM deeptest_scenarios WHERE run_id=?',(run_id,))
+            last_check[:]=[now,bool(row and row['status']=='CANCELLED')]
+        return last_check[1]
+    execution['cancelled']=was_cancelled
     try:
         session.update('LOADING_DATA', 'Loading authoritative node/genome and data availability')
         sc = S.get_scenario(db, run_id)
         if not sc or sc["status"] in TERMINAL:
             return
-        if run_id in _CANCELS:
+        if was_cancelled():
             S.update_scenario(db, run_id, status="CANCELLED", finished_at=time.time())
             return
         node = _load_node(db, int(sc["node_id"]))
@@ -477,13 +507,22 @@ def _execute_body(run_id: str) -> None:
             # dataset/feature caches merely to execute a transient DeepTest.
             from ..data.engine import make_master_dataset_id
             from ..data import sessions
+            from ..performance import measure
+            from .parallel import reserve_memory
+            with reserve_memory(source_rows=mstore.rows), measure('deeptest.materialization'):
+                frame = mstore.read_range()
+            if len(frame)!=mstore.rows:
+                raise RuntimeError(f'Incomplete persisted history snapshot: expected {mstore.rows} bars, read {len(frame)}; refusing partial-file success')
             dataset_id = make_master_dataset_id(symbol, timeframe, mstore.profile_key, mstore.version)
-            frame = mstore.read_range()
             frame['session'] = sessions.session_labels(frame['ts'].to_numpy())
-            view = session.path / 'source-view.parquet'
-            frame.to_parquet(view,index=False)
-            import pandas as pd
-            frame = pd.read_parquet(view)
+            from .parallel import worker_limit
+            if worker_limit() > 1:
+                import pyarrow.feather as feather
+                view = session.path / 'market.arrow'
+                feather.write_feather(frame, view, compression='uncompressed')
+            else:
+                view = session.path / 'source-view.parquet'
+                frame.to_parquet(view,index=False)
             execution['frame'] = frame
             session.update('DATA_READY',f'Consistent single-timeframe view prepared in system TEMP ({view.stat().st_size} bytes)',node_id=node['node_id'])
             cov = pair_coverage(symbol,timeframe)
@@ -500,7 +539,7 @@ def _execute_body(run_id: str) -> None:
                               error="fewer than 2 validated bars in the requested range — "
                                     "refusing to backtest a near-empty window")
             return
-        if run_id in _CANCELS:
+        if was_cancelled():
             S.update_scenario(db, run_id, status="CANCELLED", finished_at=time.time())
             return
 
@@ -510,7 +549,7 @@ def _execute_body(run_id: str) -> None:
         # ---- RUNNING: the node's ACTUAL strategy through the historical engine
         S.update_scenario(db, run_id, status="RUNNING")
         result = _run_strategy(db, node, dataset_id, (lo, hi), settings, symbol, timeframe)
-        if run_id in _CANCELS:
+        if was_cancelled():
             S.update_scenario(db, run_id, status="CANCELLED", finished_at=time.time())
             return
         if not result.get("ok"):
@@ -575,10 +614,18 @@ def _execute_body(run_id: str) -> None:
                               "run_policy": "historical simulation only — no broker orders",
                           },
                           engine_versions=result["engine_versions"])
-        S.insert_trades(db, run_id, trades)
-        S.update_scenario(db, run_id, status='PARTIAL' if coverage_state == 'PARTIAL' else 'COMPLETED', finished_at=time.time())
+        S.insert_trades(db, run_id, trades, cancelled=was_cancelled)
+        with _LOCK:
+            if was_cancelled():
+                S.update_scenario(db, run_id, status='CANCELLED', finished_at=time.time())
+                return
+            if not S.finish_if_running(db,run_id,status='PARTIAL' if coverage_state == 'PARTIAL' else 'COMPLETED'):
+                return
         session.update('COMPLETED', f'Real metrics and {len(trades)} trades durably persisted ({coverage_state})', node_id=node['node_id'])
     except Exception as e:  # noqa: BLE001 — a failed run must persist its failure
+        if was_cancelled():
+            S.update_scenario(db, run_id, status='CANCELLED', finished_at=time.time())
+            return
         exception('job=%s phase=%s execution failed', run_id, session.phase)
         session.update('FAILED', f'{type(e).__name__}: {e}'[:500])
         try:
@@ -598,7 +645,7 @@ def _run_strategy(db: Any, node: Dict[str, Any], dataset_id: str,
 
     g = node.get("genome") or {}
     ns = (settings or {}).get("node_settings") or {}
-    max_trades = int(ns.get("max_trades") if ns.get("max_trades") is not None else 3000)
+    max_trades = None  # V10.2: eligible data, never an inherited per-node trade ceiling
     # offsets default to the node's own config values (read-only); an explicit
     # DeepTest setting overrides them FOR THIS SCENARIO ONLY
     gen_settings = node.get("config") or {}
@@ -638,8 +685,19 @@ def _run_strategy(db: Any, node: Dict[str, Any], dataset_id: str,
     execution = CURRENT.get()
     if execution and execution.get('frame') is not None:
         session = execution['session']
-        res = scratch_backtest(req, execution['frame'], session.path,
-                               lambda phase,msg: session.update(phase,msg,node_id=node['node_id']))
+        from .parallel import worker_limit, execute
+        from ..performance import measure
+        cancelled = execution.get('cancelled') or (lambda: session.ident in _CANCELS)
+        phase = lambda phase,msg: session.update(phase,msg,node_id=node['node_id'])
+        progress = lambda processed,eligible,trades: session.update('BACKTESTING',f'Processing history: {processed}/{eligible} bars; {trades} closed trades',node_id=node['node_id'],bars_processed=processed,eligible_bars=eligible,completed_trades=trades)
+        with measure('deeptest.compute_wall'):
+            if worker_limit() > 1:
+                res = execute(req, execution['frame'], session, cancelled, phase)
+            else:
+                from .parallel import reserve_memory
+                with reserve_memory(execution['frame']):
+                    res = scratch_backtest(req, execution['frame'], session.path, phase,
+                                           cancelled=cancelled, progress=progress)
     else:
         res = run_backtest(req)
     if not res.ok:
@@ -670,11 +728,12 @@ def _run_strategy(db: Any, node: Dict[str, Any], dataset_id: str,
     engine_versions = {
         **engine_manifest(),
         "mt5_historical_adapter": "MT5->pandas historical adapter v1 (no broker orders)",
-        "deeptest": "V6.6",
+        "deeptest": "V10.2-data-bounded",
         "product": _product_version(),
     }
 
     trades = _normalize_trades(res.trades, settings)
+    for trade in trades:trade["symbol"] = symbol
     return {"ok": True, "metrics": res.metrics, "trades": trades,
             "assumptions": assumptions, "engine_versions": engine_versions}
 
@@ -962,7 +1021,7 @@ def _material_engine_version():
     # Git/product names are provenance, NOT execution inputs. Explicit semantic
     # versions keep cosmetic releases from invalidating identical scenarios.
     m=manifest()
-    return _genome_hash({k:m[k] for k in ('backtester','cost_model','slippage_model','sessions','risk','data_schema')})+':daily-v1:realised-v1'
+    return _genome_hash({k:m[k] for k in ('backtester','cost_model','slippage_model','sessions','risk','data_schema')})+':daily-v1:realised-v1:data-bounded-v102'
 
 
 def _product_version() -> str:

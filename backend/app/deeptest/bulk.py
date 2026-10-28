@@ -14,6 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 _POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix='deep-batch')
 _ACTIVE = set()
 _LOCK = threading.RLock()
+_PROGRESS_LOCK = threading.RLock()
 
 
 def schema(db):
@@ -29,7 +30,7 @@ def _alive(pid):
     return alive(pid)
 
 
-def _progress(db, ident, details):
+def _progress_unlocked(db, ident, details):
     row = db.one('SELECT preflight,status FROM deeptest_batches WHERE id=?', (ident,))
     if not row:return
     if row['status'] in ('CANCELLED','COMPLETED','COMPLETED_WITH_ISSUES','FAILED','INTERRUPTED') and details.get('phase')!=row['status']:return
@@ -38,6 +39,10 @@ def _progress(db, ident, details):
     meta.update(details)
     db.x('UPDATE deeptest_batches SET preflight=?,updated_at=? WHERE id=?', (json.dumps(report),time.time(),ident))
 
+
+
+def _progress(db, ident, details):
+    with _PROGRESS_LOCK:_progress_unlocked(db, ident, details)
 
 def _session(db, ident):
     from .runtime import Session
@@ -86,7 +91,13 @@ def _capacity(db):
 
 def _submit(db, ident, function):
     try:
-        _POOL.submit(function, db, ident)
+        future = _POOL.submit(function, db, ident)
+        if hasattr(future,'add_done_callback'):
+            def finished(future):
+                if future.cancelled():
+                    _ACTIVE.discard(ident)
+                    db.x("UPDATE deeptest_batches SET status='CANCELLED',cancel_requested=1,updated_at=? WHERE id=? AND status IN ('QUEUED','PREFLIGHTING')",(time.time(),ident))
+            future.add_done_callback(finished)
     except Exception as exc:
         _ACTIVE.discard(ident)
         db.x("UPDATE deeptest_batches SET status='FAILED',updated_at=? WHERE id=?",(time.time(),ident))
@@ -102,7 +113,7 @@ def create(db, payload):
     payload['node_ids'] = list(dict.fromkeys(int(i) for i in payload['node_ids']))
     if not 1 <= len(payload['node_ids']) <= 5000 or any(i <= 0 for i in payload['node_ids']):
         raise ValueError('select 1..5000 positive canonical IDs')
-    payload.setdefault('requested_end', int(time.time()//60)*60)
+    if payload.get('requested_end') is None:payload['requested_end'] = int(time.time()//60)*60
     ident = 'batch-' + uuid.uuid4().hex[:20]
     with _LOCK, _claim_lock(db):
         # One active identical selection/range/settings submission, even from
@@ -147,7 +158,8 @@ def _run(db, ident):
     from .runtime import exception
     try:
         with _session(db,ident) as session:
-            _run_body(db,ident,session)
+            from ..performance import capture
+            with capture('deep_batch'):_run_body(db,ident,session)
     except Exception as exc:
         exception('job=%s phase=EXECUTION batch failed',ident)
         _progress(db,ident,{'phase':'FAILED','error':str(exc)[:500]})
@@ -168,61 +180,49 @@ def _run_body(db, ident, session):
         payload, results = job['payload'], job['results']
         done = {r['node_id'] for r in results if r['status'] in ('COMPLETED', 'PARTIAL', 'REUSED', 'SKIPPED', 'FAILED')}
         save('RUNNING')
-        session.update('SCHEDULING','Starting bounded serial historical queue')
-        for node in payload['node_ids']:
-            if cancelled():
-                break
-            if node in done:
-                continue
-            results[:] = [r for r in results if r['node_id'] != node]
-            rec = {'node_id': node, 'status': 'RUNNING'}
-            results.append(rec)
-            save('RUNNING')
-            try:
-                session.update('VALIDATING_NODE','Validating stored coverage and genome',node_id=node)
-                request = {k: v for k, v in payload.items() if k not in ('node_ids', 'node_settings_by_id')}
-                request.update(node_id=node, node_settings=payload.get('node_settings_by_id', {}).get(str(node), payload.get('node_settings', {})))
-                pre = (job.get('preflight') or {}).get('nodes', {}).get(str(node))
-                if pre:
-                    rec['coverage'] = pre.get('coverage')
-                    rec['requested_period'] = pre.get('period')
-                    rec['coverage_decision'] = job.get('coverage_decision')
-                    if not pre.get('ok') or ((pre.get('coverage') or {}).get('coverage_status')!='COMPLETE' and job.get('coverage_decision') == 'full_only'):
-                        rec.update(status='SKIPPED',reason=pre.get('error') or 'Incomplete coverage excluded by batch decision')
-                        save('RUNNING');continue
-                    if (pre.get('coverage') or {}).get('coverage_status')!='COMPLETE':
-                        current = SC.preflight(db,node_id=node,duration_key=request.get('duration_key','3M'),requested_end=request.get('requested_end'),settings=request.get('settings'),node_settings=request.get('node_settings'))
-                        if (current.get('coverage') or {}).get('confirmation_fingerprint') != pre['coverage']['confirmation_fingerprint']:
-                            rec.update(status='SKIPPED',reason='Coverage/data/settings changed after batch consent; preflight again')
-                            save('RUNNING');continue
-                        SC.record_decision(db,confirmation_fingerprint=pre['coverage']['confirmation_fingerprint'],decision='YES_PROCEED',node_id=node)
-                request['_progress_callback'] = lambda d,n=node: session.update(d['phase'],d['message'],node_id=n,**{k:v for k,v in d.items() if k not in ('phase','message','current_node','started_at','temp_path','log_path')})
-                res = SC.start_run(db, request)
-                if not res.get('ok'):
-                    rec.update(status='SKIPPED', reason=res.get('error'), needs_confirmation=bool(res.get('needs_confirmation')), retry_required=bool(res.get('retry_required')))
-                    save('RUNNING')
-                    continue
-                run = res.get('run_id') or res['scenario']['run_id']
-                rec['run_id'] = run
-                session.update('WAITING_FOR_SCENARIO','Historical scenario ' + run + ' queued/running',node_id=node)
-                while True:
-                    scenario = S.get_scenario(db, run)
-                    if not scenario:
-                        raise ValueError('queued scenario disappeared')
-                    if scenario['status'] in SC.TERMINAL:
-                        rec.update(status=scenario['status'], reused=bool(res.get('already_deep_tested')), reason=scenario.get('error'))
-                        break
-                    if cancelled():
-                        rec.update(status='INTERRUPTED', reason='Observation stopped; existing run retained. Inspect before explicit resume.')
-                        break
-                    time.sleep(.15)
-            except Exception as exc:
-                from .runtime import exception
-                exception('job=%s node=%s execution/observation failed',ident,node)
-                _progress(db,ident,{'error':str(exc)[:500]})
-                rec.update(status='FAILED', reason=str(exc)[:200])
-            save('RUNNING')
-            session.update('NODE_FINISHED',f"Node persisted as {rec['status']}",node_id=node)
+        session.update('SCHEDULING','Starting bounded historical queue')
+        from concurrent.futures import wait, FIRST_COMPLETED
+        from .parallel import worker_limit
+        width = worker_limit()
+        nodes = iter(n for n in payload['node_ids'] if n not in done)
+        pending = {}
+        if width == 1:
+            for node in nodes:
+                if cancelled():break
+                results[:] = [row for row in results if row['node_id'] != node]
+                rec = {'node_id':node,'status':'RUNNING'}
+                results.append(rec);save('RUNNING')
+                rec = _observe_node(db,ident,session,job,payload,node,rec,cancelled)
+                results[:] = [rec if row['node_id']==node else row for row in results]
+                save('RUNNING')
+                session.update('NODE_FINISHED',f"Node persisted as {rec['status']}",node_id=node)
+        else:
+            # This pool only observes independent scenarios; CPU work is executed
+            # in the reusable spawn pool. No nested CPU executor per node/poll.
+            with ThreadPoolExecutor(max_workers=width, thread_name_prefix='deep-observer') as observers:
+                exhausted = False
+                while pending or not exhausted:
+                    while not exhausted and len(pending) < width:
+                        if cancelled():
+                            exhausted = True
+                            break
+                        try:node = next(nodes)
+                        except StopIteration:
+                            exhausted = True
+                            break
+                        results[:] = [r for r in results if r['node_id'] != node]
+                        rec = {'node_id':node, 'status':'RUNNING'}
+                        results.append(rec)
+                        save('RUNNING')
+                        pending[observers.submit(_observe_node,db,ident,session,job,payload,node,rec,cancelled)] = node
+                    if not pending:break
+                    completed, _ = wait(pending, return_when=FIRST_COMPLETED)
+                    for future in completed:
+                        node = pending.pop(future)
+                        rec = future.result()
+                        results[:] = [rec if row['node_id']==node else row for row in results]
+                        save('RUNNING')
+                        session.update('NODE_FINISHED',f"Node persisted as {rec['status']}",node_id=node)
         if cancelled():
             seen = {r['node_id'] for r in results}
             results.extend({'node_id': n, 'status': 'CANCELLED', 'reason': 'Not started: remaining queue cancelled'} for n in payload['node_ids'] if n not in seen)
@@ -246,7 +246,8 @@ def _prepare(db,ident):
     from .runtime import exception
     try:
         with _session(db,ident) as session:
-            _prepare_body(db,ident,session)
+            from ..performance import capture
+            with capture('deep_batch'):_prepare_body(db,ident,session)
     except Exception as exc:
         exception('job=%s phase=PREFLIGHTING preparation failed',ident)
         _progress(db,ident,{'phase':'FAILED','error':str(exc)[:500]})
@@ -269,7 +270,7 @@ def _prepare_body(db,ident,session):
                 return
             session.update('PREFLIGHTING','Checking coverage',node_id=node)
             try:
-                p=SC.preflight(db,node_id=node,duration_key=payload.get('duration_key','3M'),requested_end=payload.get('requested_end'),settings=payload.get('settings'),node_settings=payload.get('node_settings_by_id',{}).get(str(node),payload.get('node_settings',{})))
+                p=SC.preflight(db,node_id=node,duration_key=payload.get('duration_key','3M'),requested_start=payload.get('requested_start'),requested_end=payload.get('requested_end'),settings=payload.get('settings'),node_settings=payload.get('node_settings_by_id',{}).get(str(node),payload.get('node_settings',{})))
             except Exception as exc:
                 from .runtime import exception
                 exception('job=%s phase=PREFLIGHTING node=%s unavailable',ident,node)
@@ -304,3 +305,65 @@ def coverage_decision(db,ident,decision):
         db.x("UPDATE deeptest_batches SET status='QUEUED',coverage_decision=?,owner_pid=? WHERE id=?",(decision,os.getpid(),ident))
         _ACTIVE.add(ident);_submit(db,ident,_run)
     return get(db,ident)
+
+
+def _observe_node(db, ident, session, job, payload, node, rec, cancelled):
+    from . import scenarios as SC, store as S
+    rec = dict(rec)  # only the coordinator may mutate/persist its results array
+    try:
+        session.update('VALIDATING_NODE','Validating stored coverage and genome',node_id=node)
+        request = {k: v for k, v in payload.items() if k not in ('node_ids', 'node_settings_by_id')}
+        request.update(node_id=node, node_settings=payload.get('node_settings_by_id', {}).get(str(node), payload.get('node_settings', {})))
+        pre = (job.get('preflight') or {}).get('nodes', {}).get(str(node))
+        if pre:
+            rec['coverage'] = pre.get('coverage')
+            rec['requested_period'] = pre.get('period')
+            rec['coverage_decision'] = job.get('coverage_decision')
+            if not pre.get('ok') or ((pre.get('coverage') or {}).get('coverage_status')!='COMPLETE' and job.get('coverage_decision') == 'full_only'):
+                rec.update(status='SKIPPED',reason=pre.get('error') or 'Incomplete coverage excluded by batch decision')
+                return rec
+            if (pre.get('coverage') or {}).get('coverage_status')!='COMPLETE':
+                current = SC.preflight(db,node_id=node,duration_key=request.get('duration_key','3M'),requested_start=request.get('requested_start'),requested_end=request.get('requested_end'),settings=request.get('settings'),node_settings=request.get('node_settings'))
+                if (current.get('coverage') or {}).get('confirmation_fingerprint') != pre['coverage']['confirmation_fingerprint']:
+                    rec.update(status='SKIPPED',reason='Coverage/data/settings changed after batch consent; preflight again')
+                    return rec
+                SC.record_decision(db,confirmation_fingerprint=pre['coverage']['confirmation_fingerprint'],decision='YES_PROCEED',node_id=node)
+        request['_progress_callback'] = lambda d,n=node: session.update(d['phase'],d['message'],node_id=n,**{k:v for k,v in d.items() if k not in ('phase','message','current_node','started_at','temp_path','log_path')})
+        res = SC.start_run(db, request)
+        if not res.get('ok'):
+            rec.update(status='SKIPPED', reason=res.get('error'), needs_confirmation=bool(res.get('needs_confirmation')), retry_required=bool(res.get('retry_required')))
+            return rec
+        run = res.get('run_id') or res['scenario']['run_id']
+        rec['run_id'] = run
+        session.update('WAITING_FOR_SCENARIO','Historical scenario ' + run + ' queued/running',node_id=node)
+        while True:
+            scenario = S.get_scenario(db, run)
+            if not scenario:
+                raise ValueError('queued scenario disappeared')
+            if scenario['status'] in SC.TERMINAL:
+                rec.update(status=scenario['status'], reused=bool(res.get('already_deep_tested')), reason=scenario.get('error'))
+                break
+            if cancelled():
+                rec.update(status='INTERRUPTED', reason='Observation stopped; existing run retained. Inspect before explicit resume.')
+                break
+            time.sleep(.15)
+    except Exception as exc:
+        from .runtime import exception
+        exception('job=%s node=%s execution/observation failed',ident,node)
+        _progress(db,ident,{'error':str(exc)[:500]})
+        rec.update(status='FAILED', reason=str(exc)[:200])
+    return rec
+
+
+def shutdown():
+    """Stop owned admissions/CPU work before draining the observer/controller pools."""
+    from ..db.database import get_db
+    from . import scenarios as SC
+    db=get_db()
+    SC._executor.begin_shutdown()
+    if db.one("SELECT 1 present FROM sqlite_master WHERE type='table' AND name='deeptest_batches'"):
+        db.x("UPDATE deeptest_batches SET cancel_requested=1 WHERE owner_pid=? AND status IN ('QUEUED','PREFLIGHTING','RUNNING')",(os.getpid(),))
+    if db.one("SELECT 1 present FROM sqlite_master WHERE type='table' AND name='deeptest_claims'"):
+        for row in db.q("SELECT c.run_id FROM deeptest_claims c JOIN deeptest_scenarios s ON s.run_id=c.run_id WHERE c.owner_pid=? AND s.status IN ('QUEUED','FETCHING','VALIDATING','RUNNING')",(os.getpid(),)):
+            SC.cancel_run(db,row['run_id'])
+    _POOL.shutdown(wait=True,cancel_futures=True)

@@ -6,10 +6,11 @@ const SECTIONS = [
   ["resources", "Computational Resource Limiting (spec §26-32)", [
     ["cpu_limit_enabled", "CPU limit enabled", "bool"],
     ["cpu_workers_max", "CPU worker limit (0 = auto cores)", "int"],
+    ["deep_test_workers", "DeepTest CPU processes (1 = serial; opt-in, restart to resize)", "int"],
     ["memory_limit_enabled", "Memory limit enabled", "bool"],
     ["memory_limit_mode", "Memory mode: pct | gb", "text"],
     ["memory_limit_value", "Memory budget limit (pct or GB)", "float"],
-    ["gpu_enabled", "GPU acceleration enabled", "bool"],
+    ["gpu_enabled", "GPU device probe enabled", "bool"],
     ["gpu_workload_limit_pct", "GPU workload limit %", "int"],
   ]],
   ["mt5", "MetaTrader 5 Bridge & Connection (spec §13, §14)", [
@@ -214,7 +215,7 @@ export default function Settings() {
       if (c.gpu_enabled != null) setGpuToggle(c.gpu_enabled);
       else if (c.resources?.gpu_enabled != null) setGpuToggle(c.resources.gpu_enabled);
     }).catch((e) => setErr(e.message));
-    api.resources().then(setResources).catch(() => {});
+    api.resources().then(setResources).catch(e => setErr("Resources unavailable: " + e.message));
     api.risk().then(setRiskState).catch(() => {});
     api.backups().then(setBackupsList).catch(() => {});
     refreshDataStatus();
@@ -369,11 +370,11 @@ export default function Settings() {
     }
   };
 
-  if (!cfg) return <Spinner />;
+  if (!cfg) return err ? <ErrorNote err={err} /> : <Spinner />;
 
-  const cores = resources?.cpu?.physical_cores || 2;
-  const logicalCores = resources?.cpu?.logical_processors || 4;
-  const estimatedWorkers = Math.max(1, Math.round(logicalCores * (cpuTarget / 100)));
+  const cores = resources?.cpu?.physical_cores ?? "N/A";
+  const logicalCores = resources?.cpu?.logical_processors ?? "N/A";
+  const reportedWorkers = resources?.cpu?.effective_workers ?? "N/A";
 
   return (
     <div>
@@ -464,7 +465,7 @@ export default function Settings() {
               </span>
             </div>
             <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginBottom: 8 }}>
-              Dynamic worker pool: <b style={{ color: "var(--green)" }}>{estimatedWorkers} workers</b> allocated on {logicalCores} logical threads ({cores} physical cores).
+              Dynamic worker pool: <b style={{ color: "var(--green)" }}>{reportedWorkers} reported effective workers</b> allocated on {logicalCores} logical threads ({cores} physical cores).
             </div>
 
             {/* Slider Control */}
@@ -520,7 +521,7 @@ export default function Settings() {
             </div>
 
             <div style={{ fontSize: "0.72rem", color: "var(--muted)", paddingTop: "4px", borderTop: "1px dashed rgba(255,255,255,0.1)" }}>
-              Live Telemetry: System CPU <b>{resources?.cpu?.percent ?? 0}%</b> · App CPU <b>{resources?.cpu?.app_percent ?? 0}%</b> · App RAM <b>{resources?.memory?.app_used_mb ?? 0} MB</b> (Peak: {resources?.memory?.app_peak_mb ?? 0} MB)
+              Last resource sample: System CPU <b>{resources?.cpu?.percent ?? "N/A"}%</b> · App CPU <b>{resources?.cpu?.app_percent ?? "N/A"}%</b> · App RAM <b>{resources?.memory?.app_used_mb ?? "N/A"} MB</b> (Peak: {resources?.memory?.app_peak_mb ?? "N/A"} MB)
             </div>
           </div>
 
@@ -528,14 +529,14 @@ export default function Settings() {
           <div style={{ padding: "12px", background: "rgba(0,0,0,0.25)", borderRadius: "5px", border: "1px solid rgba(255,255,255,0.06)" }}>
             <div className="flex justify-between items-center" style={{ marginBottom: 6 }}>
               <label style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--fg)" }}>
-                GPU ACCELERATION:
+                GPU DEVICE PROBE:
               </label>
               <span className={`pill ${gpuToggle ? "pos" : "muted"}`} style={{ fontSize: "0.8rem", fontWeight: 800 }}>
                 {gpuToggle ? "ENABLED" : "DISABLED"}
               </span>
             </div>
             <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginBottom: 8 }}>
-              Hardware probe: <b>{resources?.gpu?.name || "CPU fallback"}</b> · VRAM: {resources?.gpu?.vram_used_mb ?? 0} / {resources?.gpu?.vram_total_mb ?? 0} MB
+              Hardware probe: <b>{resources?.gpu?.name || "CPU fallback"}</b> · VRAM: {resources?.gpu?.enabled && resources?.gpu?.available ? resources.gpu.vram_used_mb : "N/A"} / {resources?.gpu?.enabled && resources?.gpu?.available ? resources.gpu.vram_total_mb : "N/A"} MB
             </div>
             <div style={{ display: "flex", gap: "8px" }}>
               <button
@@ -543,7 +544,7 @@ export default function Settings() {
                 style={{ flex: 1, fontWeight: 700 }}
                 onClick={() => setGpuToggle(true)}
               >
-                ON (Accelerated)
+                ON (device probe)
               </button>
               <button
                 className={`btn btn-sm ${!gpuToggle ? "btn-primary" : "btn-subtle"}`}
@@ -917,6 +918,7 @@ export default function Settings() {
         </div>
       </div>
 
+      <div className="warn-banner">DeepTest CPU processes: default 1 (serial), 2–64 opt-in. Change only while idle, then restart the backend. This controls the process limit, not measured active workers or a speed guarantee. Queue admission and memory checks remain enforced; generation RNG/selection stays serial. Native Windows/Python 3.14 validation is still required. No presets or quotas change automatically. GPU device activity does not verify application GPU compute; historical compute is NumPy/pandas CPU.</div>
       {SECTIONS.map(([section, title, fields]) => (
         <div className="panel" key={section} style={{ marginBottom: 14 }}>
           <div className="flex justify-between items-center" style={{ marginBottom: 10 }}>

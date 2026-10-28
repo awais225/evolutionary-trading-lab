@@ -4,7 +4,7 @@ import InspectCalendar from "./InspectCalendar.jsx";
 // preferred-scenario selection (explicit, never silently replaced), side-by-side
 // comparison that names config/coverage differences, full analytics, and the
 // searchable/sortable/paginated trade-level detail.
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { api } from "../api";
 import { Badge, Kpi, StateBlock } from "./ui";
 import { txt } from "../lib/safe.js";
@@ -62,14 +62,19 @@ function isKeptTrade(t, days, sessions) {
 export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scenariosProp = null, onChanged,
                                             initialRunId = null, initialCompare = null }) {
   const [ownScenarios, setOwnScenarios] = useState(null);
+  const [ownLoading, setOwnLoading] = useState(!scenariosProp);
+  const scenarioSeq = useRef(0);
   const scenarios = scenariosProp || ownScenarios || [];
   const reload = useCallback(async () => {
+    const seq=++scenarioSeq.current;setOwnLoading(true);
     try {
       const res = await api.deeptestScenarios({ node_id: nodeId });
-      setOwnScenarios(res.scenarios || []);
-    } catch { setOwnScenarios([]); }
+      if(res.ok===false)throw new Error(res.error || "Scenario list unavailable");
+      if(seq===scenarioSeq.current)setOwnScenarios(res.scenarios || []);
+    } catch (e) { if(seq===scenarioSeq.current)setError(e); }
+    finally {if(seq===scenarioSeq.current)setOwnLoading(false);}
   }, [nodeId]);
-  useEffect(() => { if (!scenariosProp) reload(); }, [scenariosProp, reload]);
+  useEffect(() => { if (!scenariosProp) reload(); return () => {scenarioSeq.current++;}; }, [scenariosProp, reload]);
   const [selected, setSelected] = useState(null);
   const [detail, setDetail] = useState(null);
   const [trades, setTrades] = useState(null);
@@ -91,6 +96,8 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
   const [filtBusy, setFiltBusy] = useState(false);
   const [filtError,setFiltError]=useState(null);
   const detailSeq=useRef(0);
+  const [tradeLoad, setTradeLoad] = useState(null);
+  useEffect(() => () => { detailSeq.current++; filtSeq.current++; }, []);
   const setFlt = (next) => {
     setFltState(next);
     if (selected) filtByRun.current[selected] = next;
@@ -114,29 +121,58 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
   }, []);
 
   const loadDetail = useCallback(async (runId) => {
-    const seq=++detailSeq.current;setDetail(null);setTrades(null);
+    const seq=++detailSeq.current;setDetail(null);setTrades(null);setTradeLoad(null);
     setError(null);
     try {
       const res = await api.deeptestRunGet(runId);
       if(seq!==detailSeq.current)return;
+      if (res.ok === false || !res.scenario) throw new Error(res.error || "Scenario unavailable");
       setDetail(res.scenario);
+      // In-flight populations are not final. Poll status, not an unstable full trade list.
+      if (["QUEUED", "FETCHING", "VALIDATING", "RUNNING"].includes(res.scenario.status)) return;
       // the complete saved trade list — the filter recalculation and the
       // visible list must both cover every trade of the scenario
-      const tr = await api.deeptestRunTrades(runId, { limit: 10000, offset: 0 });
+      const tr = await api.deeptestRunTrades(runId, { limit: 500, offset: 0 });
       if(seq!==detailSeq.current)return;
       const all=[...(tr.trades||[])];
+      setTradeLoad({loaded:all.length,total:tr.total,busy:true});
       while(all.length<(tr.total??all.length)){
-        const page=await api.deeptestRunTrades(runId,{limit:10000,offset:all.length});
+        const page=await api.deeptestRunTrades(runId,{limit:500,offset:all.length});
         if(seq!==detailSeq.current)return;
         if(!(page.trades||[]).length)throw new Error('Incomplete trade response: no partial list was substituted');
         all.push(...page.trades);
+        setTradeLoad({loaded:all.length,total:tr.total,busy:true});
+        await new Promise(resolve => setTimeout(resolve, 0));
+        if(seq!==detailSeq.current)return;
       }
+      if (all.length !== tr.total) throw new Error('Incomplete trade population; no truncated result was substituted');
       setTrades({...tr,trades:all});
+      setTradeLoad({loaded:all.length,total:tr.total,busy:false});
       setPage(0);
     } catch (e) {
-      if(seq===detailSeq.current)setError(e);
+      if(seq===detailSeq.current){setError(e);setTradeLoad(null);}
     }
   }, []);
+
+  useEffect(() => {
+    if (!selected || !["QUEUED", "FETCHING", "VALIDATING", "RUNNING"].includes(detail?.status)) return;
+    let stopped=false, timer;
+    const seq=detailSeq.current;
+    const tick=async () => {
+      try {
+        if (!document.hidden) {
+          const res=await api.deeptestRunGet(selected);
+          if(stopped || seq!==detailSeq.current)return;
+          if(res.ok===false || !res.scenario)throw new Error(res.error || "Scenario status unavailable");
+          setDetail(res.scenario);
+          if(!["QUEUED", "FETCHING", "VALIDATING", "RUNNING"].includes(res.scenario.status)) { await loadDetail(selected); return; }
+        }
+      } catch(e) { if(!stopped && seq===detailSeq.current)setError(e); }
+      if(!stopped)timer=setTimeout(tick,2500);
+    };
+    timer=setTimeout(tick,2500);
+    return () => {stopped=true;clearTimeout(timer);};
+  }, [selected, detail?.status, loadDetail]);
 
   // filters recalculating never refetches the scenario itself — only the
   // derived analysis of its saved trades.
@@ -197,17 +233,18 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scenarios]);
 
-  const tradeRows = (filtersActive && (!filt || filtBusy || filtError) ? [] : (trades?.trades || [])).filter((t) => {
+  const keptNumbers=useMemo(() => filt?.kept_trade_numbers ? new Set(filt.kept_trade_numbers) : null, [filt?.kept_trade_numbers]);
+  const tradeRows = useMemo(() => (filtersActive && (!filt || filtBusy || filtError) ? [] : (trades?.trades || [])).filter((t) => {
     // §6.2 — exclusion semantics: keep only trades matching NO active exclusion
-    if (filt?.kept_trade_numbers ? !filt.kept_trade_numbers.includes(t.trade_no) : !isKeptTrade(t, flt.days, flt.sessions)) return false;
+    if (keptNumbers ? !keptNumbers.has(t.trade_no) : !isKeptTrade(t, flt.days, flt.sessions)) return false;
     if (!search.trim()) return true;
     const q = search.trim().toLowerCase();
     return JSON.stringify(t).toLowerCase().includes(q);
-  });
+  }), [trades, filtersActive, filt, filtBusy, filtError, keptNumbers, flt.days, flt.sessions, search]);
   // V7.0 §3.3 — full-set sorting (the complete loaded scenario trades, never
   // just the visible page), numeric/chronological per column, missing values
   // last in both directions, stable canonical tie-break on trade_no.
-  const sorted = [...tradeRows].sort((a, b) => {
+  const sorted = useMemo(() => [...tradeRows].sort((a, b) => {
     const av = a[sortKey], bv = b[sortKey];
     if (av == null && bv == null) return (a.trade_no ?? 0) - (b.trade_no ?? 0);
     if (av == null) return 1;          // nulls always last
@@ -219,8 +256,9 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
     if (av < bv) return -sortDir;
     if (av > bv) return sortDir;
     return (a.trade_no ?? 0) - (b.trade_no ?? 0);
-  });
+  }), [tradeRows, sortKey, sortDir]);
   const pageSize = 10;
+  useEffect(() => {setPage(p => Math.min(p,Math.max(0,Math.ceil(sorted.length/pageSize)-1)));}, [sorted.length]);
   const pageRows = sorted.slice(page * pageSize, page * pageSize + pageSize);
 
   const sel = detail || (scenarios.find((s) => s.run_id === selected) || null);
@@ -243,8 +281,9 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
         metrics, trades). Preferred = latest valid initially; an explicit choice is never silently
         replaced; failed/cancelled runs never displace a valid one.
       </div>
-      {error && <div className="kit-inline-err">{String(error.message || error)}</div>}
-      {!scenarios.length && (
+      {error && <div role="alert" className="kit-inline-err">{String(error.message || error)}</div>}
+      {ownLoading && <div role="status">Loading saved scenarios…</div>}
+      {!scenarios.length && !ownLoading && !error && (
         <StateBlock empty emptyText="no DeepTest scenarios yet — pick a period and press DEEPTEST" />
       )}
       {!!scenarios.length && (
@@ -278,6 +317,7 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
       {sel && (
         <div style={{ marginTop: 8, fontSize: 11.5 }}>
           <div className="kit-strip" style={{ border: "none", padding: 0, flexWrap: "wrap" }}>
+            <div className="item"><span className="k">Selected pair</span><span className="v mono">{sel.symbol || "N/A"} / {sel.timeframe || "N/A"}</span></div>
             <div className="item"><span className="k">Status</span><span className="v mono">{sel.status}</span></div>
             <div className="item"><span className="k">Coverage</span>
               <span className="v mono">
@@ -299,6 +339,7 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
               <span className="v mono">{String(sel.dataset_fingerprint || "—").slice(0, 18)}</span></div>
             <div className="item"><span className="k">Gaps (listed, never filled)</span>
               <span className="v mono">{(sel.gaps || []).length}</span></div>
+            <div className="item"><span className="k">Processing counters</span><span className="v">{sel.progress?.bars_processed != null ? `${sel.progress.bars_processed} / ${sel.progress.eligible_bars ?? "N/A"} eligible bars` : "Per-scenario processed/eligible bar counters unavailable; batch counters are shown in the running batch panel."}</span></div>
             <div className="item"><span className="k">Started / finished</span>
               <span className="v mono">{when(sel.started_at)} / {when(sel.finished_at)}</span></div>
             <div className="item"><span className="k">Engine versions</span>
@@ -349,6 +390,7 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
                 {filtersActive ? " · FILTERED (kept trades)" : ""}
               </span>
               {filtersActive && <Badge tone="warn">FILTERED</Badge>}
+            {['COMPLETED','PARTIAL'].includes(sel.status) && <a style={{ marginLeft: 8 }} href={`/api/deeptest/run/${encodeURIComponent(sel.run_id)}/export.csv`}>export all saved trades</a>}
               <div className="grid cols-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(140px,1fr))", marginTop: 8 }}>
                 <Kpi label="Return %" value={pctOrNa(summary.net_return_pct)}
                      tone={numTone(summary.net_return_pct)}
@@ -536,12 +578,17 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
           )}
 
           <div style={{ marginTop: 10 }}>
+            <div role="status" aria-live="polite" style={{fontSize:12,marginBottom:6}}>
+              {tradeLoad?.busy ? `Loading complete saved history: ${tradeLoad.loaded.toLocaleString()} / ${tradeLoad.total?.toLocaleString() ?? "N/A"}. Filters and sorting wait for the complete population.` : trades ? `Complete saved history loaded: ${trades.total.toLocaleString()} trades. Pagination only changes the display; CSV exports the complete saved result.` : `Trade history not loaded. Status: ${sel.status || "N/A"}; running counts are not final.`}
+              <button className="btn btn-sm" disabled={tradeLoad?.busy} onClick={() => loadDetail(selected)}>Refresh scenario</button>
+            </div>
             <b>Trades ({shownTradeCounts
               ? `${shownTradeCounts.kept}${filtersActive ? ` of ${shownTradeCounts.original}` : ""}`
               : (trades?.total ?? "—")})</b>
             {filtersActive && <Badge tone="warn">FILTERED</Badge>}
+            {['COMPLETED','PARTIAL'].includes(sel.status) && <a style={{ marginLeft: 8 }} href={`/api/deeptest/run/${encodeURIComponent(sel.run_id)}/export.csv`}>export all saved trades</a>}
             <div style={{ display: "flex", gap: 8, alignItems: "center", margin: "6px 0", flexWrap: "wrap" }}>
-              <input placeholder="search trades" value={search}
+              <input aria-label="Search complete trade history" disabled={!trades} placeholder="search trades" value={search}
                      onChange={(e) => { setSearch(e.target.value); setPage(0); }} style={{ width: 180 }} />
               <span className="muted" style={{ fontSize: 10.5 }}>sort:</span>
               {[["trade_no", "#"], ["entry_ts", "entry"], ["exit_ts", "exit"],
@@ -593,7 +640,8 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
               <button disabled={page === 0} onClick={() => setPage(page - 1)}>prev</button>
               <span>page {page + 1} / {Math.max(1, Math.ceil(sorted.length / pageSize))}</span>
               <button disabled={(page + 1) * pageSize >= sorted.length} onClick={() => setPage(page + 1)}>next</button>
-              <span style={{ opacity: 0.7 }}>{sorted.length} row(s)</span>
+              <label>Jump to page <input aria-label="Trade page" type="number" min="1" max={Math.max(1,Math.ceil(sorted.length/pageSize))} value={page+1} style={{width:70}} onChange={e => {const n=Number(e.target.value);if(Number.isInteger(n)&&n>=1&&n<=Math.max(1,Math.ceil(sorted.length/pageSize)))setPage(n-1);}} /></label>
+              <span style={{ opacity: 0.7 }}>{sorted.length} matching row(s) / {trades?.total ?? "N/A"} saved · {pageRows.length} displayed</span>
             </div>
           </div>
         </div>

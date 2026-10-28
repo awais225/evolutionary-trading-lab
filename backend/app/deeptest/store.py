@@ -11,6 +11,9 @@ import json
 import threading
 import time
 import uuid
+import weakref
+
+_SCHEMA_READY = weakref.WeakKeyDictionary()
 from typing import Any, Dict, List, Optional
 
 SCHEMA_SQL = """
@@ -149,12 +152,26 @@ def _ensure_column(db: Any, table: str, col: str, ddl: str) -> None:
 
 
 def ensure_schema(db: Any) -> None:
-    # V6.7 §7.1 — effective scenario signature column (additive).
-    _ensure_column(db, "deeptest_scenarios", "signature",
-                   "signature TEXT")
-    """Create the V6.6 tables exactly once; safe to call repeatedly."""
-    for stmt in [s.strip() for s in SCHEMA_SQL.split(";") if s.strip()]:
-        db.x(stmt)
+    # No unchanged DDL/commits on every trade page or progress poll. A new
+    # connection or ANY external schema change invalidates this proof immediately.
+    from contextlib import nullcontext
+    # Fast proven reads need no scenario-writer lock: otherwise an HTTP
+    # cancellation could not signal while complete trade persistence holds it.
+    with (getattr(db, '_lock', None) or nullcontext()):
+        conn = getattr(db, '_conn', None)
+        token = (conn, conn.execute('PRAGMA schema_version').fetchone()[0]) if conn else None
+        if token is not None and _SCHEMA_READY.get(db) == token:return
+    with _WRITE_LOCK, (getattr(db, '_lock', None) or nullcontext()):
+        conn = getattr(db, '_conn', None)
+        token = (conn, conn.execute('PRAGMA schema_version').fetchone()[0]) if conn else None
+        if token is not None and _SCHEMA_READY.get(db) == token:
+            return
+        _ensure_column(db, "deeptest_scenarios", "signature", "signature TEXT")
+        for stmt in [s.strip() for s in SCHEMA_SQL.split(";") if s.strip()]:
+            db.x(stmt)
+        _ensure_column(db, 'deeptest_scenarios', 'signature', 'signature TEXT')
+        if conn is not None:
+            _SCHEMA_READY[db] = (conn, conn.execute('PRAGMA schema_version').fetchone()[0])
 
 
 def _jd(v: Any) -> Optional[str]:
@@ -268,8 +285,9 @@ def update_scenario(db: Any, run_id: str, **cols: Any) -> None:
         if k in cols:
             cols[k] = _jd(cols[k])
     sets = ", ".join(f"{k}=?" for k in cols)
+    terminal_guard = " AND status <> 'CANCELLED'" if cols.get('status') not in (None,'CANCELLED') else ''
     with _WRITE_LOCK:
-        db.x(f"UPDATE deeptest_scenarios SET {sets} WHERE run_id=?", (*cols.values(), run_id))
+        db.x(f"UPDATE deeptest_scenarios SET {sets} WHERE run_id=?{terminal_guard}", (*cols.values(), run_id))
 
 
 def get_scenario(db: Any, run_id: str) -> Optional[Dict[str, Any]]:
@@ -302,10 +320,13 @@ def list_scenarios(db: Any, node_id: Optional[int] = None,
     return [hydrate(dict(r)) for r in (db.q(sql, tuple(args)) or [])]
 
 
-def insert_trades(db: Any, run_id: str, trades: List[Dict[str, Any]]) -> None:
+def insert_trades(db: Any, run_id: str, trades: List[Dict[str, Any]], *, cancelled=None) -> None:
     ensure_schema(db)
     with _WRITE_LOCK:
         for i, t in enumerate(trades):
+            if cancelled is not None and cancelled():
+                from concurrent.futures import CancelledError
+                raise CancelledError('operator cancelled result persistence')
             db.x(
                 """INSERT INTO deeptest_trades
                    (run_id, trade_no, side, symbol, entry_ts, entry_price,
@@ -459,3 +480,22 @@ def save_node_config(db: Any, node_id: int, config: Dict[str, Any]) -> Dict[str,
                                                updated_at=excluded.updated_at""",
          (int(node_id), json.dumps(config, sort_keys=True, default=str), time.time()))
     return get_node_config(db, node_id)
+
+
+def cancel_if_active(db, run_id):
+    """SQLite-atomic terminal race, including another API process/connection."""
+    ensure_schema(db)
+    with _WRITE_LOCK:
+        db.x("UPDATE deeptest_scenarios SET status='CANCELLED',finished_at=?,notes=? "
+             "WHERE run_id=? AND status IN ('QUEUED','FETCHING','VALIDATING','RUNNING')",
+             (time.time(),'cancelled by operator or backend shutdown',run_id))
+        return db.one('SELECT status FROM deeptest_scenarios WHERE run_id=?',(run_id,))['status']=='CANCELLED'
+
+
+def finish_if_running(db, run_id, status):
+    if status not in ('COMPLETED','PARTIAL'):raise ValueError('Invalid successful terminal status')
+    ensure_schema(db)
+    with _WRITE_LOCK:
+        db.x("UPDATE deeptest_scenarios SET status=?,finished_at=? WHERE run_id=? AND status='RUNNING'",
+             (status,time.time(),run_id))
+        return db.one('SELECT status FROM deeptest_scenarios WHERE run_id=?',(run_id,))['status']==status

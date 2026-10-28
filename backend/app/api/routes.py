@@ -109,7 +109,7 @@ def _peek_node_data_summary() -> Optional[Dict[str, Any]]:
         from ..research.node_data import node_data_snapshot as _nd
         nd = _nd()
         try:
-            get_db().set_meta("node_data_revision", nd.get("revision"))
+            get_db().set_observed_node_revision(nd.get("revision"))
         except Exception:
             pass
         return {
@@ -288,7 +288,7 @@ def lab_recheck() -> Dict:
         node_data = _nd()
         errors.extend(node_data.get("errors") or [])
         try:
-            get_db().set_meta("node_data_revision", node_data.get("revision"))
+            get_db().set_observed_node_revision(node_data.get("revision"))
         except Exception:
             pass
     except Exception as exc:
@@ -317,7 +317,7 @@ def node_data_get(summary: bool = False) -> Dict[str, Any]:
     try:
         nd = _nd()
         try:
-            get_db().set_meta("node_data_revision", nd.get("revision"))
+            get_db().set_observed_node_revision(nd.get("revision"))
         except Exception:
             pass
         if summary:
@@ -1814,6 +1814,12 @@ def post_apply_settings(payload: Dict = Body(...)) -> Dict:
     from ..orchestrator.lab import get_lab
     from ..activity import activity
 
+    # Validate the opt-in field before applying any portion of the request.
+    from ..config import validate_resource_patch
+    try:
+        validate_resource_patch(payload.get("resources") or {})
+    except ValueError as e:
+        raise HTTPException(422, str(e))
     cfg = get_config()
     rm = get_resource_manager()
     changes = []
@@ -3103,7 +3109,7 @@ def get_system_status_row() -> Dict[str, Any]:
     cached_feats = len(list(P.FEATURES_DIR.glob("*.parquet"))) if P.FEATURES_DIR.exists() else 0
 
     # Honest GPU processing status (never fake utilization)
-    gpu_proc = "ACTIVE" if (res["gpu"]["enabled"] and res["gpu"]["available"] and res["gpu"]["utilization_pct"] > 0) else "IDLE"
+    gpu_proc = "VERIFIED" if res["gpu"].get("application_gpu_compute_verified") is True else "NOT VERIFIED"
 
     route_state = mm.compute_route_state()
 
@@ -3140,6 +3146,9 @@ def get_system_status_row() -> Dict[str, Any]:
             "available": res["gpu"]["available"],
             "name": res["gpu"]["name"],
             "processing_state": gpu_proc,
+            "application_gpu_compute_verified": res["gpu"].get("application_gpu_compute_verified", False),
+            "telemetry_scope": res["gpu"].get("telemetry_scope"),
+            "historical_compute_backend": res["gpu"].get("historical_compute_backend"),
             "utilization_pct": res["gpu"]["utilization_pct"],
             "vram_used_mb": res["gpu"]["vram_used_mb"],
             "vram_total_mb": res["gpu"]["vram_total_mb"],
@@ -5524,6 +5533,34 @@ def deeptest_run_trades(run_id: str, limit: int = 50, offset: int = 0):
     db = get_db()
     return {"ok": True, **S.list_trades(db, run_id, limit=max(1, min(int(limit), 500)),
                                         offset=max(0, int(offset)))}
+
+
+@router.get("/deeptest/run/{run_id}/export.csv")
+def deeptest_run_export(run_id: str):
+    """Stream the COMPLETE immutable persisted result, independent of UI pages."""
+    from fastapi.responses import StreamingResponse
+    from ..deeptest import store as S
+    import csv, io
+    db = get_db()
+    scenario = S.get_scenario(db, run_id)
+    if not scenario:raise HTTPException(404, 'Unknown historical run')
+    if scenario['status'] not in ('COMPLETED','PARTIAL'):
+        raise HTTPException(409, 'Only a completed/partial historical result can be exported')
+    total = S.list_trades(db, run_id, limit=0)['total']
+    fields = ['id','run_id','trade_no','side','symbol','entry_ts','entry_price','exit_ts','exit_price',
+              'volume','sl','tp','exit_reason','hold_seconds','gross_pnl','net_pnl','commission','spread_cost','slippage_cost','swap_cost','session','dow','meta']
+    def chunks():
+        output=io.StringIO();writer=csv.DictWriter(output,fieldnames=fields,extrasaction='ignore')
+        writer.writeheader();yield output.getvalue();output.seek(0);output.truncate(0)
+        offset=0
+        while offset < total:
+            page=S.list_trades(db,run_id,limit=500,offset=offset)
+            if page['total'] != total or not page['trades']:
+                raise RuntimeError('Persisted trade population changed during export; refusing silent truncation')
+            writer.writerows({**row,'meta':json.dumps(row.get('meta'),sort_keys=True)} for row in page['trades']);offset+=len(page['trades'])
+            yield output.getvalue();output.seek(0);output.truncate(0)
+    return StreamingResponse(chunks(),media_type='text/csv',headers={
+        'Content-Disposition':'attachment; filename="deeptest-trades.csv"','X-Trade-Count':str(total)})
 
 
 @router.post("/deeptest/run/{run_id}/cancel")

@@ -4,16 +4,17 @@ import BuildIdentityChip from "./BuildIdentityChip.jsx";
 
 export default function TopStatusRow({ onOpenMt5Modal, onToggleGpu }) {
   const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
   const [activePopover, setActivePopover] = useState(null);
   const popoverRef = useRef(null);
   const inFlightRef = useRef(false);
 
   const fetchStatus = () => {
-    if (inFlightRef.current) return;
+    if (inFlightRef.current || document.hidden) return;
     inFlightRef.current = true;
     api.systemStatusRow()
-      .then((d) => setData(d))
-      .catch(() => {})
+      .then((d) => { setData(d); setError(null); })
+      .catch(e => setError(e.message || String(e)))
       .finally(() => { inFlightRef.current = false; });
   };
 
@@ -34,7 +35,7 @@ export default function TopStatusRow({ onOpenMt5Modal, onToggleGpu }) {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  if (!data) return null;
+  if (!data) return error ? <div role="alert" className="kit-inline-err">System status unavailable: {error}</div> : null;
 
   const togglePopover = (name) => {
     setActivePopover((cur) => (cur === name ? null : name));
@@ -52,6 +53,7 @@ export default function TopStatusRow({ onOpenMt5Modal, onToggleGpu }) {
 
   return (
     <div style={{ position: "relative", marginBottom: "0.5rem" }}>
+      {error && <div role="alert" className="kit-inline-err">System status refresh failed; values may be stale: {error}</div>}
       <div
         className="top-status-row"
         style={{
@@ -108,9 +110,9 @@ export default function TopStatusRow({ onOpenMt5Modal, onToggleGpu }) {
         >
           <span>⚙️</span>
           <span style={{ fontWeight: 600 }}>CPU:</span>
-          <span>{cpu.percent ? `${cpu.percent.toFixed(0)}%` : "0%"}</span>
+          <span>{cpu.percent != null ? `${cpu.percent.toFixed(0)}%` : "N/A"}</span>
           <span className="muted" style={{ fontSize: "10px" }}>
-            ({cpu.active_workers || 0}/{cpu.effective_workers || 1}w @ {cpu.target_pct || 60}%)
+            ({cpu.active_workers ?? "N/A"}/{cpu.effective_workers ?? "N/A"}w @ {cpu.target_pct ?? "N/A"}%)
           </span>
         </button>
 
@@ -118,7 +120,7 @@ export default function TopStatusRow({ onOpenMt5Modal, onToggleGpu }) {
         <button
           className={`status-row-item ${activePopover === "gpu" ? "active" : ""}`}
           onClick={() => togglePopover("gpu")}
-          title="GPU Acceleration Status"
+          title="GPU device telemetry; application compute verification"
           style={itemBtnStyle(activePopover === "gpu")}
         >
           <span style={{ color: gpu.enabled ? "var(--green)" : "var(--muted)" }}>🎮</span>
@@ -127,7 +129,7 @@ export default function TopStatusRow({ onOpenMt5Modal, onToggleGpu }) {
             {gpu.enabled ? "ON" : "OFF"}
           </span>
           <span className="muted" style={{ fontSize: "10px" }}>
-            [{gpu.processing_state || "IDLE"}]
+            [{gpu.processing_state || "NOT VERIFIED"}]
           </span>
         </button>
 
@@ -268,13 +270,13 @@ export default function TopStatusRow({ onOpenMt5Modal, onToggleGpu }) {
 
           {activePopover === "cpu" && (
             <div>
-              <div className="flex justify-between py-1"><span>System CPU:</span><b>{cpu.percent}%</b></div>
-              <div className="flex justify-between py-1"><span>Application CPU:</span><b style={{ color: "var(--accent)" }}>{cpu.app_percent ?? 0}%</b></div>
+              <div className="flex justify-between py-1"><span>System CPU:</span><b>{cpu.percent ?? "N/A"}%</b></div>
+              <div className="flex justify-between py-1"><span>Application CPU:</span><b style={{ color: "var(--accent)" }}>{cpu.app_percent ?? "N/A"}%</b></div>
               <div className="flex justify-between py-1"><span>Target Utilization:</span><b>{cpu.target_pct}%</b></div>
               <div className="flex justify-between py-1"><span>Physical Cores:</span><b>{cpu.physical_cores}</b></div>
               <div className="flex justify-between py-1"><span>Logical Processors:</span><b>{cpu.logical_processors}</b></div>
               <div className="flex justify-between py-1"><span>Effective Workers:</span><b style={{ color: "var(--green)" }}>{cpu.effective_workers}</b></div>
-              <div className="flex justify-between py-1"><span>Active / Idle:</span><b>{cpu.active_workers} active / {cpu.idle_workers ?? Math.max(0, (cpu.effective_workers || 0) - (cpu.active_workers || 0))} idle</b></div>
+              <div className="flex justify-between py-1"><span>Active / Idle:</span><b>{cpu.active_workers ?? "N/A"} active / {cpu.idle_workers ?? "N/A"} idle</b></div>
               {Array.isArray(cpu.per_core) && cpu.per_core.length > 0 && (
                 <div style={{ marginTop: "6px", paddingTop: "4px", borderTop: "1px dashed var(--border)" }}>
                   <span style={{ fontSize: "11px", color: "var(--muted)" }}>Per-Core Utilization:</span>
@@ -295,12 +297,12 @@ export default function TopStatusRow({ onOpenMt5Modal, onToggleGpu }) {
 
           {activePopover === "gpu" && (
             <div>
-              <div className="flex justify-between py-1"><span>Hardware Acceleration:</span><b style={{ color: gpu.enabled ? "var(--green)" : "var(--muted)" }}>{gpu.enabled ? "ENABLED" : "DISABLED"}</b></div>
+              <div className="flex justify-between py-1"><span>GPU device probe:</span><b style={{ color: gpu.enabled ? "var(--green)" : "var(--muted)" }}>{gpu.enabled ? "ENABLED" : "DISABLED"}</b></div>
               <div className="flex justify-between py-1"><span>Device Model:</span><b>{gpu.name || "N/A"}</b></div>
               <div className="flex justify-between py-1"><span>GPU Available:</span><b>{gpu.available ? "YES" : "NO (CPU Fallback)"}</b></div>
-              <div className="flex justify-between py-1"><span>Processing State:</span><b style={{ color: gpu.processing_state === "ACTIVE" ? "var(--green)" : "var(--amber)" }}>{gpu.processing_state}</b></div>
-              <div className="flex justify-between py-1"><span>Utilization:</span><b>{gpu.utilization_pct || 0}%</b></div>
-              <div className="flex justify-between py-1"><span>VRAM Allocation:</span><b>{gpu.vram_used_mb || 0} / {gpu.vram_total_mb || 0} MB</b></div>
+              <div className="flex justify-between py-1"><span>App GPU compute:</span><b style={{ color: gpu.processing_state === "ACTIVE" ? "var(--green)" : "var(--amber)" }}>{gpu.processing_state || "NOT VERIFIED"}</b></div>
+              <div className="flex justify-between py-1"><span>Device utilization (not app CUDA):</span><b>{gpu.enabled && gpu.available ? `${gpu.utilization_pct ?? "N/A"}% device` : "N/A"}</b></div>
+              <div className="flex justify-between py-1"><span>VRAM Allocation:</span><b>{gpu.enabled && gpu.available ? `${gpu.vram_used_mb ?? "N/A"} / ${gpu.vram_total_mb ?? "N/A"} MB` : "N/A (device unavailable / disabled)"}</b></div>
               <div style={{ marginTop: "6px", fontSize: "11px", color: "var(--muted)" }}>
                 Note: Standard indicator precomputation runs on CPU; GPU processing is honestly reported.
               </div>
@@ -384,7 +386,7 @@ function popoverTitle(key) {
     wifi: "📶 Network Connectivity Details",
     mt5: "📊 MetaTrader 5 Terminal Status",
     cpu: "⚙️ CPU & Worker Thread Pool",
-    gpu: "🎮 Hardware Acceleration (GPU)",
+    gpu: "🎮 GPU device telemetry",
     ram: "💾 System Memory (RAM)",
     data: "📁 Persistent DATA Architecture",
     db: "🗄️ Database & Lineage Integrity",

@@ -31,6 +31,7 @@ class ResourceManager:
     def __init__(self):
         self._lock = threading.RLock()
         self._gpu_checked = False
+        self._gpu_checked_at = 0.0
         self._gpu_available = False
         self._gpu_name = "None"
         self._gpu_vram_total_mb = 0.0
@@ -42,6 +43,10 @@ class ResourceManager:
 
         # V3.5 Phase 2: Application Process & Task Telemetry
         self._proc: Optional[psutil.Process] = None
+        self._child_procs = {}
+        self._app_cpu_ready = False
+        self._process_sample_at = 0.0
+        self._process_sample = (None, None)
         self._peak_process_ram_mb = 0.0
         self._completed_tasks = 0
         self._failed_tasks = 0
@@ -49,27 +54,39 @@ class ResourceManager:
         self._recent_completions: List[float] = []
 
     # ---------- Process & Task Telemetry (V3.5 Phase 2) ----------
-    def _inspect_process_metrics(self) -> Tuple[float, float]:
-        """Measure current application process and worker subprocess CPU % and RSS RAM in MB."""
-        try:
-            if self._proc is None:
-                self._proc = psutil.Process()
-            cpu = self._proc.cpu_percent(interval=None)
-            mem_rss = self._proc.memory_info().rss
-            for child in self._proc.children(recursive=True):
-                try:
-                    cpu += child.cpu_percent(interval=None)
-                    mem_rss += child.memory_info().rss
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    pass
-            mem_mb = round(mem_rss / (1024 ** 2), 1)
-            cpu_pct = round(cpu, 1)
-            with self._lock:
-                if mem_mb > self._peak_process_ram_mb:
-                    self._peak_process_ram_mb = mem_mb
-            return cpu_pct, mem_mb
-        except Exception:
-            return 0.0, 0.0
+    def _inspect_process_metrics(self) -> Tuple[Optional[float], Optional[float]]:
+        """Retain child baselines; a first/failed sample is unavailable, not 0%."""
+        with self._lock:
+            now = time.monotonic()
+            if now - self._process_sample_at < 0.5:
+                return self._process_sample
+            self._process_sample_at = now
+            try:
+                if self._proc is None:
+                    self._proc = psutil.Process()
+                complete = self._app_cpu_ready
+                cpu = self._proc.cpu_percent(interval=None)
+                self._app_cpu_ready = True
+                mem = self._proc.memory_info().rss
+                children = {}
+                for child in self._proc.children(recursive=True):
+                    try:
+                        previous = self._child_procs.get(child.pid)
+                        if previous is None or previous.create_time() != child.create_time():
+                            previous = child
+                            complete = False
+                        children[child.pid] = previous
+                        cpu += previous.cpu_percent(interval=None)
+                        mem += previous.memory_info().rss
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        complete = False
+                self._child_procs = children
+                mem_mb = round(mem / (1024 ** 2), 1)
+                self._peak_process_ram_mb = max(self._peak_process_ram_mb, mem_mb)
+                self._process_sample = (round(cpu, 1) if complete else None, mem_mb)
+            except Exception:
+                self._process_sample = (None, None)
+            return self._process_sample
 
     def record_task_completion(self, duration_s: float, success: bool = True) -> None:
         """Record completed backtest task duration and status for throughput tracking."""
@@ -273,8 +290,10 @@ class ResourceManager:
     # ---------- GPU detection & fallback (spec §29, §30, §31) ----------
     def _inspect_gpu(self, force: bool = False) -> None:
         """Safely probe for NVIDIA GPU via nvidia-smi without crashing (spec §31)."""
-        if self._gpu_checked and not force:
+        if self._gpu_checked and not force and time.monotonic() - self._gpu_checked_at < 30:
             return
+        previously_available = self._gpu_available
+        self._gpu_checked_at = time.monotonic()
         self._gpu_checked = True
 
         cfg = get_config()
@@ -304,7 +323,8 @@ class ResourceManager:
                 self._gpu_vram_used_mb = float(parts[2]) if len(parts) > 2 else 0.0
                 self._gpu_utilization_pct = float(parts[3]) if len(parts) > 3 else 0.0
                 self._gpu_available = True
-                activity.success("GPU", f"GPU initialized: {self._gpu_name} ({int(self._gpu_vram_total_mb)}MB VRAM)")
+                if not previously_available:
+                    activity.success("GPU", f"GPU initialized: {self._gpu_name} ({int(self._gpu_vram_total_mb)}MB VRAM)")
             else:
                 self._gpu_available = False
                 self._gpu_name = "Unavailable (CPU fallback)"
@@ -342,7 +362,9 @@ class ResourceManager:
         active_workers=min(self._active_workers,eff_workers)+len(owned)
         idle_workers = max(0, eff_workers - active_workers)
 
+        from ..deeptest.parallel import telemetry_snapshot
         return {
+            "deep_test": telemetry_snapshot(),
             "cpu": {
                 "percent": round(psutil.cpu_percent(interval=None), 1),
                 "app_percent": app_cpu_pct,
@@ -377,6 +399,10 @@ class ResourceManager:
                 "vram_used_mb": round(self._gpu_vram_used_mb, 1) if (cfg.resources.gpu_enabled and self._gpu_available) else 0.0,
                 "vram_total_mb": round(self._gpu_vram_total_mb, 1) if (cfg.resources.gpu_enabled and self._gpu_available) else 0.0,
                 "workload_limit_pct": cfg.resources.gpu_workload_limit_pct,
+                "telemetry_scope": "device utilization, not application CUDA execution",
+                "sample_max_age_seconds": 30,
+                "application_gpu_compute_verified": False,
+                "historical_compute_backend": "NumPy/pandas CPU",
             },
             "workers": {
                 "configured": cfg.evolution.workers,

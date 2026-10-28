@@ -1,3 +1,5 @@
+import DeepScenarioPanel from "./DeepScenarioPanel.jsx";
+import HistoricalBacktestPanel from "./HistoricalBacktestPanel.jsx";
 import React, { useEffect, useState } from "react";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine,
@@ -11,8 +13,10 @@ export default function StrategyDrawer({ id, onClose, onOpen }) {
   const [tab, setTab] = useState("overview");
 
   useEffect(() => {
-    setData(null);
-    api.strategy(id).then(setData).catch((e) => setErr(e.message));
+    let cancelled = false;
+    setData(null); setErr(null); setTab("overview");
+    api.strategy(id).then(x => { if (!cancelled) setData(x); }).catch(e => { if (!cancelled) setErr(e.message); });
+    return () => { cancelled = true; };
   }, [id]);
 
   if (err) return <Shell onClose={onClose}><ErrorNote err={err} /></Shell>;
@@ -38,6 +42,21 @@ export default function StrategyDrawer({ id, onClose, onOpen }) {
       </div>
       <p className="muted mono" style={{ fontSize: 12 }}>{s.description}</p>
 
+      <div className="btn-row" style={{display:"flex",gap:6,flexWrap:"wrap",margin:"8px 0"}}>
+        <button className="btn btn-sm" onClick={() => setTab("backtests")}>View Results</button>
+        <button className="btn btn-sm" onClick={() => setTab("trades")}>View Trades (complete DeepTest)</button>
+        <button className="btn btn-sm" onClick={() => setTab("genome")}>View Genome</button>
+        <button className="btn btn-sm" onClick={() => setTab("history")}>Ancestry / children</button>
+        <button className="btn btn-sm" onClick={() => setTab("rerun")}>Rerun Backtest (configure)</button>
+        <button className="btn btn-sm" onClick={() => setTab("validation")}>View Validation</button>
+        <button className="btn btn-sm" disabled title="No standalone per-node validation endpoint is implemented">Run Validation — unavailable</button>
+        <button className="btn btn-sm" onClick={() => {
+          const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:"application/json"}));
+          const a=document.createElement("a"); a.href=url; a.download=`node-${id}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(url),1000);
+        }}>Export node JSON</button>
+      </div>
+      {tab === "trades" && <DeepScenarioPanel key={id} nodeId={id} />}
+      {tab === "rerun" && <HistoricalBacktestPanel key={id} strategyId={id} strategyLabel={`Node ${id}`} />}
       <div className="tabs">
         {[["overview", "Overview"], ["trading", "Trading Info"], ["genome", "Genome"],
           ["history", "Research History"],
@@ -372,8 +391,10 @@ export function TradingInfoTab({ id }) {
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
+    let cancelled=false;
     setInfo(null); setErr(null);
-    api.strategyTradingInfo(id).then(setInfo).catch((e) => setErr(e.message || String(e)));
+    api.strategyTradingInfo(id).then(x => { if (!cancelled) setInfo(x); }).catch(e => { if (!cancelled) setErr(e.message || String(e)); });
+    return () => { cancelled=true; };
   }, [id]);
 
   if (err) return <ErrorNote err={err} />;

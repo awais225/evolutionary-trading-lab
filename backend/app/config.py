@@ -201,6 +201,7 @@ class ResourcesConfig:
     pool sizing, the batch memory gate and the GPU init guard."""
     cpu_limit_enabled: bool = True
     cpu_target_pct: int = 60            # 10% to 100% in 10% steps (default 60%)
+    deep_test_workers: int = 1         # V10.2 opt-in CPU processes; 1 = established serial path
     cpu_workers_max: int = 0            # 0 = auto: dynamically calculated from cpu_target_pct
     memory_limit_enabled: bool = True
     memory_limit_mode: str = "pct"      # "pct" of total RAM | "gb" absolute
@@ -428,8 +429,18 @@ def get_config() -> LabConfig:
         return _config
 
 
+def validate_resource_patch(values: Dict[str, Any]) -> None:
+    """Reject invalid opt-in process widths before any settings are mutated."""
+    if "deep_test_workers" in values:
+        n = values["deep_test_workers"]
+        if isinstance(n, bool) or not isinstance(n, (int, float)) or not float(n).is_integer() or not 1 <= n <= 64:
+            raise ValueError("deep_test_workers must be an integer 1..64 (default 1)")
+
+
 def update_config(section: str, values: Dict[str, Any]) -> LabConfig:
     """Update one section at runtime (from Settings page) and persist."""
+    if section == "resources":
+        validate_resource_patch(values)
     cfg = get_config()
     with _lock:
         obj = getattr(cfg, section, None)

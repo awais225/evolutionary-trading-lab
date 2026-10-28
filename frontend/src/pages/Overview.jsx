@@ -1,3 +1,4 @@
+import ProcessingStatus from "../components/ProcessingStatus.jsx";
 import GenerationWindow from "../components/GenerationWindow.jsx";
 import {useStoredState} from "../lib/storedState.js";
 import HistoryLatest from "../components/HistoryLatest.jsx";
@@ -17,6 +18,11 @@ export default function Overview() {
   const topRequest = useRef(0);
   const topQuery = useRef(null);
   const [resources, setResources] = useState(null);
+  const [pollError, setPollError] = useState(null);
+  const pollLatest = useRef(null);
+  const slowPoll = useRef(0);
+  const authorityRevision = useRef(null);
+  const topRevision = useRef(null);
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState("");
   const [newRunOpen, setNewRunOpen] = useState(false);   // V4.1 START NEW RESEARCH RUN dialog
@@ -28,7 +34,10 @@ export default function Overview() {
     const res = await api.nodes({ filter: topFilter === "starred" ? "all" : topFilter,
       starred_only: topFilter === "starred", limit: 15, compact: true,
       sort_by: aliases[sortCol] || sortCol, sort_desc: sortDir === "desc" });
-    if (seq === topRequest.current) setTop(res.nodes || []);
+    if (seq === topRequest.current) {
+      setTop(res.nodes || []);
+      topRevision.current = status?.node_data?.revision || status?.inventory_revision || null;
+    }
     return res;
   };
   useEffect(() => { topQuery.current().catch((e) => setErr(e.message)); }, [sortCol, sortDir, topFilter]);
@@ -94,7 +103,7 @@ export default function Overview() {
         }
       }
     } catch (e) {
-      console.warn("Failed fetching runs", e);
+      setErr("Runs: " + e.message);
     }
   };
 
@@ -106,7 +115,7 @@ export default function Overview() {
         setPaperCandidates(res.candidates);
       }
     } catch (e) {
-      console.warn("Failed fetching paper candidates", e);
+      setErr("Paper candidates: " + e.message);
     } finally {
       setPaperLoading(false);
     }
@@ -176,7 +185,7 @@ export default function Overview() {
       });
       setShortlistData(res);
     } catch (e) {
-      console.error("Shortlist fetch failed", e);
+      setErr("Shortlist: " + e.message);
     } finally {
       setShortlistLoading(false);
     }
@@ -196,69 +205,38 @@ export default function Overview() {
     }
   };
 
+  // The ref uses the latest selection, without restarting timers on every event.
   useEffect(() => {
-    // V6.7 §4.3 — rankings come from the server's full-dataset sort (never a
-    // limited slice re-sorted locally); direction is part of the query.
-    const fetchTop = () => {
-      // V6.8 §3 — ranking over the SAME complete stored research history the
-      // node-data authority counts (include_legacy follows the established
-      // V4.5 /research/* pattern); server-side full-dataset sort, never a
-      // limited slice re-ranked locally.
-      topQuery.current()
-        .then(() => {})
-        .catch((e) => setErr(e.message));
+    let stopped = false, timer;
+    const tick = async (initial = false) => {
+      if (!document.hidden) await pollLatest.current(initial);
+      if (!stopped) timer = setTimeout(() => tick(false), 4000);
     };
-    const fetchRes = () => {
-      api.resources().then(setResources).catch(() => {});
-    };
-    const fetchInventory = () => {
-      api.dataInventory().then(setInventory).catch(() => {});
-    };
-    const fetchJobs = () => {
-      api.jobs().then(setJobsData).catch(() => {});
-    };
-    const fetchInitialSettings = () => {
-      api.settings().then((s) => {
-        if (s?.backtest?.min_trade_duration_seconds) {
-          const m = s.backtest.min_trade_duration_seconds / 60.0;
-          setMinTradeTimeInput(String(m));
-          setFilterParams((prev) => ({ ...prev, min_trade_duration_minutes: m }));
-        }
-      }).catch(() => {});
-    };
-
-    // Top view loads through its sort/filter effect; periodic refresh below uses latest query.
-    fetchRes();
-    fetchInventory();
-    fetchJobs();
-    fetchNodeInv();
-    fetchNodeData();
-    fetchInitialSettings();
-    fetchShortlist();
-    fetchRuns();
-    fetchPaperCandidates();
-
-    let inFlightOverview = false;
-    const t = setInterval(async () => {
-      if (inFlightOverview) return;
-      inFlightOverview = true;
-      try {
-        await Promise.all([
-          topQuery.current()
-            .then(() => {}).catch(() => {}),
-          api.resources().then(setResources).catch(() => {}),
-          api.dataInventory().then(setInventory).catch(() => {}),
-          api.jobs().then(setJobsData).catch(() => {}),
-          fetchNodeInv(),
-          fetchNodeData(),
-          fetchRuns(),
-        ]);
-      } finally {
-        inFlightOverview = false;
+    tick(true);
+    return () => { stopped = true; clearTimeout(timer); };
+  }, []);
+  useEffect(() => { if (status?.resources) setResources(status.resources); }, [status?.resources]);
+  pollLatest.current = async initial => {
+    const revision = status?.node_data?.revision || status?.inventory_revision || null;
+    const slow = initial || Date.now() - slowPoll.current >= 30000;
+    const work = [api.jobs().then(setJobsData)];
+    if (!status?.resources) work.push(api.resources().then(setResources));
+    if (initial) work.push(api.settings().then(s => {
+      if (s?.backtest?.min_trade_duration_seconds != null) {
+        const m = s.backtest.min_trade_duration_seconds / 60;
+        setMinTradeTimeInput(String(m));
+        setFilterParams(prev => ({ ...prev, min_trade_duration_minutes: m }));
       }
-    }, 4000);
-    return () => clearInterval(t);
-  }, [events.length]);
+    }), fetchShortlist(), fetchPaperCandidates());
+    if (slow) { slowPoll.current = Date.now(); work.push(api.dataInventory().then(setInventory), fetchRuns()); }
+    if (initial || !revision || authorityRevision.current !== revision) {
+      work.push(Promise.all([fetchNodeInv(), fetchNodeData()]).then(() => { authorityRevision.current = revision; }));
+    }
+    if (!initial && (!revision || topRevision.current !== revision)) work.push(topQuery.current());
+    const results = await Promise.allSettled(work);
+    const errors = results.filter(x => x.status === "rejected").map(x => x.reason?.message || String(x.reason));
+    setPollError(errors.length ? errors.join(" · ") : null);
+  };
 
   const handleToggleGpu = async () => {
     setHwBusy(true);
@@ -302,16 +280,18 @@ export default function Overview() {
     const seq = ++invSeq.current;
     try {
       const res = await api.inventorySnapshot();
-      if (seq === invSeq.current && res?.ok !== false) setNodeInv(res);
-    } catch (e) { /* non-fatal: RECHECK can still reconcile */ }
+      if (res?.ok === false) throw new Error(res.error || "Inventory unavailable");
+      if (seq === invSeq.current) setNodeInv(res);
+    } catch (e) { throw new Error("Inventory: " + e.message); }
   };
 
   const fetchNodeData = async () => {
     const seq = ++ndSeq.current;
     try {
       const res = await api.nodeData();
-      if (seq === ndSeq.current && res?.ok !== false && res?.node_data) setNodeData(res.node_data);
-    } catch (e) { /* non-fatal — RECHECK retries */ }
+      if (res?.ok === false || !res?.node_data) throw new Error(res.error || "Node-data snapshot unavailable");
+      if (seq === ndSeq.current) setNodeData(res.node_data);
+    } catch (e) { throw new Error("Node data: " + e.message); }
   };
 
   // V2.1 RECHECK: fast reconstruction from SQLite without rerun (spec §V2.1 G)
@@ -518,6 +498,8 @@ export default function Overview() {
       </div>
 
       <ErrorNote err={err} />
+      <ErrorNote err={pollError ? `Dashboard refresh failed; last values retained: ${pollError}` : null} />
+      <ProcessingStatus lab={lab} resources={resources || status?.resources} />
 
       {/* V6.8 §3 — node-data authority strip: the source every tab reads,
           its revision/timestamp/errors, and every competing formula labelled. */}
@@ -1013,7 +995,7 @@ export default function Overview() {
           <div>
             <h3 style={{ margin: 0, fontSize: "0.95rem" }}>⚙ COMPUTATIONAL RESOURCE & ACCELERATION CONTROL (V3.5)</h3>
             <span className="muted" style={{ fontSize: "0.75rem" }}>
-              Target CPU: <b>{cpu?.target_pct ?? 60}%</b> · Dynamic Worker Pool: <b style={{ color: "var(--green)" }}>{cpu?.effective_workers ?? 2} workers</b> · GPU: <b style={{ color: gpu?.enabled ? "var(--green)" : "var(--muted)" }}>{gpu?.enabled ? "ON" : "OFF"}</b>
+              Target CPU: <b>{cpu?.target_pct ?? "N/A"}%</b> · Dynamic Worker Pool: <b style={{ color: "var(--green)" }}>{cpu?.effective_workers ?? "N/A"} workers</b> · GPU: <b style={{ color: gpu?.enabled ? "var(--green)" : "var(--muted)" }}>{gpu?.enabled ? "ON" : "OFF"}</b>
             </span>
           </div>
 
@@ -1024,7 +1006,7 @@ export default function Overview() {
               disabled={hwBusy}
               onClick={handleToggleGpu}
             >
-              GPU: {gpu?.enabled ? "ON (Accelerated)" : "OFF (CPU Only)"}
+              GPU: {gpu?.enabled ? "DEVICE PROBE ON" : "OFF (CPU Only)"}
             </button>
           </div>
         </div>
@@ -1051,12 +1033,12 @@ export default function Overview() {
               max="100"
               step="5"
               disabled={hwBusy}
-              value={cpu?.target_pct ?? 60}
+              value={cpu?.target_pct ?? "N/A"}
               onChange={(e) => handleSetCpuTarget(Number(e.target.value))}
               style={{ width: "120px", cursor: "pointer", accentColor: "var(--blue)" }}
             />
             <span className="mono font-bold" style={{ fontSize: "0.88rem", color: "var(--blue)", minWidth: "36px" }}>
-              {cpu?.target_pct ?? 60}%
+              {cpu?.target_pct ?? "N/A"}%
             </span>
           </div>
 
@@ -1110,10 +1092,10 @@ export default function Overview() {
           <div style={{ padding: "8px 10px", background: "var(--bg-box)", borderRadius: "4px" }}>
             <div className="muted" style={{ fontSize: "0.75rem" }}>CPU UTILIZATION</div>
             <div style={{ fontSize: "1.2rem", fontWeight: 700, color: "var(--fg)" }}>
-              {cpu?.percent ?? 0}% <span style={{ fontSize: "0.75rem", fontWeight: 500, color: "var(--accent)" }}>({cpu?.app_percent ?? 0}% app)</span>
+              {cpu?.percent ?? "N/A"}% <span style={{ fontSize: "0.75rem", fontWeight: 500, color: "var(--accent)" }}>({cpu?.app_percent ?? "N/A"}% app)</span>
             </div>
             <div className="muted" style={{ fontSize: "0.72rem" }}>
-              Target: {cpu?.target_pct ?? 60}% · {cpu?.logical_processors ?? cpu?.physical_cores} logical cores
+              Target: {cpu?.target_pct ?? "N/A"}% · {cpu?.logical_processors ?? cpu?.physical_cores} logical cores
             </div>
           </div>
 
@@ -1121,16 +1103,16 @@ export default function Overview() {
           <div style={{ padding: "8px 10px", background: "var(--bg-box)", borderRadius: "4px" }}>
             <div className="muted" style={{ fontSize: "0.75rem" }}>RAM USAGE & RSS</div>
             <div style={{ fontSize: "1.2rem", fontWeight: 700, color: (mem?.percent > 85 ? "var(--red)" : "var(--fg)") }}>
-              {mem?.used_mb ? (mem.used_mb / 1024).toFixed(1) : "–"} GB <span style={{ fontSize: "0.75rem", fontWeight: 500, color: "var(--green)" }}>({mem?.app_used_mb ?? 0} MB app)</span>
+              {mem?.used_mb ? (mem.used_mb / 1024).toFixed(1) : "–"} GB <span style={{ fontSize: "0.75rem", fontWeight: 500, color: "var(--green)" }}>({mem?.app_used_mb ?? "N/A"} MB app)</span>
             </div>
             <div className="muted" style={{ fontSize: "0.72rem" }}>
-              Avail: {mem?.available_mb ? (mem.available_mb / 1024).toFixed(1) : "–"} GB · Peak: {mem?.app_peak_mb ?? 0} MB
+              Avail: {mem?.available_mb ? (mem.available_mb / 1024).toFixed(1) : "–"} GB · Peak: {mem?.app_peak_mb ?? "N/A"} MB
             </div>
           </div>
 
           {/* GPU Card */}
           <div style={{ padding: "8px 10px", background: "var(--bg-box)", borderRadius: "4px" }}>
-            <div className="muted" style={{ fontSize: "0.75rem" }}>GPU ACCELERATION</div>
+            <div className="muted" style={{ fontSize: "0.75rem" }}>GPU DEVICE UTILIZATION</div>
             <div style={{ fontSize: "1.2rem", fontWeight: 700, color: (gpu?.enabled && gpu?.available ? "var(--green)" : "var(--muted)") }}>
               {gpu?.enabled && gpu?.available ? `${gpu?.utilization_pct}%` : (gpu?.enabled ? "PROBING / CPU" : "OFF")}
             </div>
@@ -1143,10 +1125,10 @@ export default function Overview() {
           <div style={{ padding: "8px 10px", background: "var(--bg-box)", borderRadius: "4px" }}>
             <div className="muted" style={{ fontSize: "0.75rem" }}>DYNAMIC WORKERS & TASKS</div>
             <div style={{ fontSize: "1.2rem", fontWeight: 700, color: "var(--blue)" }}>
-              {cpu?.active_workers ?? 0} active / {cpu?.effective_workers ?? 2} max
+              {cpu?.active_workers ?? "N/A"} active / {cpu?.effective_workers ?? "N/A"} max
             </div>
             <div className="muted" style={{ fontSize: "0.72rem" }}>
-              Idle: {cpu?.idle_workers ?? Math.max(0, (cpu?.effective_workers || 0) - (cpu?.active_workers || 0))} · {tasks?.tasks_per_minute ?? 0}/min · {tasks?.avg_duration_ms ?? 0}ms avg
+              Reported idle: {cpu?.idle_workers ?? "N/A"} · {tasks?.tasks_per_minute ?? "N/A"}/min · {tasks?.avg_duration_ms ?? "N/A"}ms avg
             </div>
           </div>
         </div>

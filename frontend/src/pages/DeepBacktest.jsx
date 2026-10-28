@@ -78,6 +78,7 @@ export default function DeepBacktest() {
   const [selected, setSelected] = useStoredState("deep.selected", {});      // node_id -> true
   const [rowCfg, setRowCfg] = useState({});          // node_id -> per-node experimental settings
   const [fetchStates, setFetchStates] = useState({}); // "SYM|TF" -> job state
+  const pendingStarts = useRef(new Set());
   const [runBusy, setRunBusy] = useState({});        // node_id -> "queued"|"running"|error text
   const [inspectNode, setInspectNode] = useState(null);
   const [drawerId, setDrawerId] = useState(null);
@@ -160,14 +161,14 @@ export default function DeepBacktest() {
     try {
       const res = await api.deeptestNodes();
       setDtNodes(arr(res.nodes));
-    } catch { /* the DEEPTESTED section degrades to empty, never breaks the page */ }
+    } catch(e) { setError("Saved DeepTest results unavailable: " + (e.message || String(e))); }
   }, []);
 
   const loadSettings = useCallback(async () => {
     try {
       const res = await api.deeptestSettings();
       if (res && res.settings) setSettings({ ...DEFAULT_SETTINGS, ...res.settings });
-    } catch { /* defaults stay visible */ }
+    } catch(e) { setSettingsErr("Stored settings unavailable; displayed defaults are not confirmed: " + (e.message || String(e))); }
   }, []);
 
   const loadAuthority = useCallback(async () => {
@@ -191,12 +192,9 @@ export default function DeepBacktest() {
   useEffect(()=>()=>{coverageSeq.current++;},[loadCoverage]);
   useEffect(()=>{const refresh=()=>loadCoverage(nodes);window.addEventListener('history-store-changed',refresh);return()=>window.removeEventListener('history-store-changed',refresh);},[loadCoverage]);
 
-  // light polling while any job is active (fetch or run)
-  useEffect(() => {
-    const active = Object.keys(fetchStates).some((k) => fetchStates[k]?.status === "FETCHING")
-      || Object.keys(runBusy).length > 0;
-    if (!active) return undefined;
-    const t = setInterval(async () => {
+  const activePollRef=useRef(null);
+  const hasActiveJobs=Object.keys(fetchStates).some(k => fetchStates[k]?.status === "FETCHING") || Object.values(runBusy).some(v => v === "queued" || v === "running");
+  activePollRef.current=async () => {
       try {
         const pairs = Object.keys(fetchStates).filter((k) => fetchStates[k]?.status === "FETCHING");
         let fetchFinished = false;
@@ -224,7 +222,7 @@ export default function DeepBacktest() {
           const running = new Set(arr(res.scenarios).map((s) => String(s.node_id)));
           setRunBusy((m) => {
             const out = {};
-            for (const [nid, v] of Object.entries(m)) if (running.has(String(nid)) || v === "queued") out[nid] = v;
+            for (const [nid, v] of Object.entries(m)) if (running.has(String(nid)) || pendingStarts.current.has(String(nid))) out[nid] = v;
             return out;
           });
           if (inspectNode != null) {
@@ -232,10 +230,19 @@ export default function DeepBacktest() {
             setInspectNode((x) => x);
           }
         }
-      } catch { /* polling never crashes the page */ }
-    }, 4000);
-    return () => clearInterval(t);
-  }, [fetchStates, runBusy, loadDt, inspectNode, loadNodes, loadCoverage]);
+      } catch(e) { setError(`DeepTest refresh failed; last values retained: ${e.message || String(e)}`); }
+
+  };
+  useEffect(() => {
+    if(!hasActiveJobs)return;
+    let stopped=false,timer;
+    const tick=async () => {
+      if(!document.hidden)await activePollRef.current();
+      if(!stopped)timer=setTimeout(tick,4000);
+    };
+    timer=setTimeout(tick,4000);
+    return () => {stopped=true;clearTimeout(timer);};
+  }, [hasActiveJobs]);
 
   // ---- settings ------------------------------------------------------------
   const saveSettings = async () => {
@@ -284,13 +291,15 @@ export default function DeepBacktest() {
     risk_mode: c.risk_mode,
     risk_pct: c.risk_mode === "PERCENT" ? Number(c.risk_pct) : null,
     risk_amount: c.risk_mode === "AMOUNT" ? Number(c.risk_amount) : null,
-    max_trades: c.max_trades === "" ? null : Number(c.max_trades),
+    max_trades: null, // V10.2: all eligible bars; no per-node trade-count cutoff
     sl_offset_pips: Number(c.sl_offset_pips) || 0,
     tp_offset_pips: Number(c.tp_offset_pips) || 0,
   });
 
   const startDeeptest = async (node) => {
     const nid = node.node_id;
+    if (pendingStarts.current.has(String(nid))) return;
+    pendingStarts.current.add(String(nid));
     const c = cfgOf(nid);
     setRunBusy((m) => ({ ...m, [nid]: "queued" }));
     try {
@@ -301,7 +310,7 @@ export default function DeepBacktest() {
         node_settings: nodeSettingsOf(c),
       });
       if (!pre.ok && !pre.needs_confirmation) {
-        setRunBusy({ [nid]: pre.error || "preflight refused" });
+        setError(pre.error || "preflight refused"); setRunBusy(m => {const n={...m};delete n[nid];return n;});
         return;
       }
       if (pre.needs_confirmation) {
@@ -311,8 +320,8 @@ export default function DeepBacktest() {
       }
       await launchRun(node, c);
     } catch (e) {
-      setRunBusy({ [nid]: e.message || String(e) });
-    }
+      setError(e.message || String(e)); setRunBusy(m => {const n={...m};delete n[nid];return n;});
+    } finally { pendingStarts.current.delete(String(nid)); }
   };
 
   const launchRun = async (node, c) => {
@@ -331,7 +340,7 @@ export default function DeepBacktest() {
       setConfirmState({ pre: res, node, cfg: c });
       setRunBusy((m) => { const o = { ...m }; delete o[nid]; return o; });
     } else {
-      setRunBusy({ [nid]: res.error || "run refused" });
+      setError(res.error || "run refused"); setRunBusy(m => {const n={...m};delete n[nid];return n;});
     }
   };
 
@@ -359,7 +368,7 @@ export default function DeepBacktest() {
       }
     } catch (e) {
       setConfirmState(null);
-      setRunBusy({ [st.node.node_id]: e.message || String(e) });
+      setError(e.message || String(e)); setRunBusy(m => {const n={...m};delete n[st.node.node_id];return n;});
     }
   };
 
@@ -686,8 +695,7 @@ export default function DeepBacktest() {
                       )}
                     </td>
                     <td>
-                      <input style={{ width: 46, fontSize: 10 }} placeholder="0" value={c.max_trades}
-                             onChange={(e) => setCfgOf(n.node_id, { max_trades: e.target.value })} />
+                      <span title="All eligible bars in the selected historical range; no trade-count cap">all data</span>
                     </td>
                     <td>
                       <input style={{ width: 40, fontSize: 10 }} value={c.sl_offset_pips}

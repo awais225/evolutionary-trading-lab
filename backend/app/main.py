@@ -318,6 +318,13 @@ async def shutdown() -> None:
         get_live_testing_engine().stop(reason="backend shutdown - Live Testing stays INACTIVE")
     except Exception as e:  # never block shutdown
         log.warning("live testing shutdown notice: %s", e)
+    # Live safety shutdown above must never wait for historical CPU jobs.
+    from .deeptest.bulk import shutdown as shutdown_deep_batches
+    from .deeptest.parallel import shutdown as shutdown_deep_processes
+    from .deeptest.scenarios import _executor as deep_scenarios
+    shutdown_deep_batches()
+    deep_scenarios.shutdown()
+    shutdown_deep_processes()
     from .lease import get_lease_manager
     get_lease_manager().release()
     # V5 §10: keep the session record for the report, but mark it closed so a
