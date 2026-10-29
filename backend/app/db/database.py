@@ -565,27 +565,26 @@ class Database:
             data_source = "USER_RESEARCH"
 
         research_node_num = s.get("research_node_num")
+        alias_sql='?'
+        alias_value=research_node_num
         if research_node_num is None:
-            if rid:
-                cnt = self.one("SELECT COUNT(*) c FROM strategies WHERE run_id=?", (rid,))["c"]
-            else:
-                cnt = self.one("SELECT COUNT(*) c FROM strategies WHERE data_source=?", (data_source,))["c"]
-            research_node_num = cnt + 1
+            alias_sql='(SELECT COUNT(*)+1 FROM strategies WHERE run_id=?)' if rid else '(SELECT COUNT(*)+1 FROM strategies WHERE data_source=?)'
+            alias_value=rid if rid else data_source
 
         try:
             return self.x(
-                """INSERT INTO strategies
+                f"""INSERT INTO strategies
                    (hash,parent_id,generation,symbol,timeframe,direction,status,
                     creation_reason,mutation_type,species_key,genome,complexity,
                     fitness,created_at,updated_at,origin,hypothesis_id,run_id,
                     data_source,research_node_num)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,{alias_sql})""",
                 (s["hash"], s.get("parent_id"), s.get("generation", 0), s["symbol"],
                  s["timeframe"], s.get("direction", "both"), s.get("status", "BORN"),
                  s.get("creation_reason"), s.get("mutation_type"), s.get("species_key"),
                  json.dumps(s["genome"]), s.get("complexity", 0), s.get("fitness"),
                  now, now, s.get("origin", "seed"), s.get("hypothesis_id"),
-                 s.get("run_id"), data_source, research_node_num),
+                 s.get("run_id"), data_source, alias_value),
             )
         except sqlite3.IntegrityError:
             # duplicate genome hash -> caller handles dedupe

@@ -18,6 +18,8 @@ _SCHEMA_READY = weakref.WeakKeyDictionary()
 from typing import Any, Dict, List, Optional
 
 SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS deeptest_deleted_runs (run_id TEXT PRIMARY KEY, deleted_at REAL NOT NULL);
+
 CREATE TABLE IF NOT EXISTS deeptest_scenarios (
     run_id TEXT PRIMARY KEY,
     node_id INTEGER NOT NULL,
@@ -252,7 +254,10 @@ def new_run_id() -> str:
 def insert_scenario(db: Any, row: Dict[str, Any]) -> str:
     ensure_schema(db)
     run_id = row.get("run_id") or new_run_id()
-    with _WRITE_LOCK:
+    from .management import persistence_guard
+    with persistence_guard(db), _WRITE_LOCK:
+        if db.one('SELECT 1 present FROM deeptest_deleted_runs WHERE run_id=?',(run_id,)):
+            raise ValueError('Explicitly deleted scenario identity cannot be recreated')
         db.x(
             """INSERT INTO deeptest_scenarios
                (run_id, node_id, status, idempotency_key, duration_key,
@@ -324,19 +329,55 @@ def list_scenarios(db: Any, node_id: Optional[int] = None,
 @profiled('deeptest.persist_trades', hot=False)
 def insert_trades(db: Any, run_id: str, trades: List[Dict[str, Any]], *, cancelled=None) -> None:
     ensure_schema(db)
-    with _WRITE_LOCK:
-        for i, t in enumerate(trades):
-            if cancelled is not None and cancelled():
-                from concurrent.futures import CancelledError
-                raise CancelledError('operator cancelled result persistence')
-            db.x(
-                """INSERT INTO deeptest_trades
+    # Retry only a byte/value-equivalent prefix. Never duplicate a persisted trade.
+    import math
+    from concurrent.futures import CancelledError
+    columns=('run_id','trade_no','side','symbol','entry_ts','entry_price','exit_ts','exit_price',
+             'volume','sl','tp','exit_reason','hold_seconds','gross_pnl','commission','spread_cost',
+             'slippage_cost','swap_cost','net_pnl','session','dow','meta')
+    sql="""INSERT INTO deeptest_trades
                    (run_id, trade_no, side, symbol, entry_ts, entry_price,
                     exit_ts, exit_price, volume, sl, tp, exit_reason,
                     hold_seconds, gross_pnl, commission, spread_cost,
                     slippage_cost, swap_cost, net_pnl, session, dow, meta)
-                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (run_id, i + 1, t.get("side"), t.get("symbol"),
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"""
+    def canonical(value):
+        return None if isinstance(value,float) and math.isnan(value) else value
+    from .management import persistence_guard
+    with persistence_guard(db), _WRITE_LOCK:
+        if db.one('SELECT 1 present FROM deeptest_deleted_runs WHERE run_id=?',(run_id,)):
+            raise ValueError('Scenario was explicitly deleted; result recreation refused')
+        extra=db.one('SELECT 1 present FROM deeptest_trades WHERE run_id=? AND (trade_no IS NULL OR trade_no<1 OR trade_no>?) LIMIT 1',(run_id,len(trades)))
+        if extra:raise ValueError('Retry trade count differs from retained evidence')
+        pending=[]
+        def flush():
+            if not pending:return
+            previous=db.q('SELECT * FROM deeptest_trades WHERE run_id=? AND trade_no BETWEEN ? AND ? ORDER BY trade_no,id',
+                          (run_id,pending[0][1],pending[-1][1]))
+            by_number={}
+            for row in previous:
+                number=row['trade_no']
+                if number in by_number:raise ValueError('Duplicate historical trade evidence; refusing overwrite')
+                by_number[number]=tuple(row.get(k) for k in columns)
+            new=[]
+            for record in pending:
+                old=by_number.get(record[1])
+                if old is not None:
+                    if tuple(canonical(v) for v in record)!=old:raise ValueError('Retry differs from retained trade evidence')
+                else:new.append(record)
+            if new:
+                # transaction() rolls back this entire chunk on SQL failure. Earlier
+                # checkpoints remain durable; scenario success still requires all rows.
+                if len(new)==1 and new[0][1]==1:
+                    db.x(sql,new[0])  # immediate durable first-row progress/cancellation boundary
+                else:db.transaction([(sql,new)])
+            pending.clear()
+        try:
+            for i,t in enumerate(trades):
+                if cancelled is not None and cancelled():
+                    flush()  # preserve exactly the prepared prefix on explicit cancellation
+                    raise CancelledError('operator cancelled result persistence')
+                record=(run_id, i + 1, t.get("side"), t.get("symbol"),
                  t.get("entry_ts"), t.get("entry_price"), t.get("exit_ts"),
                  t.get("exit_price"), t.get("volume"), t.get("sl"), t.get("tp"),
                  t.get("exit_reason"), t.get("hold_seconds"),
@@ -348,7 +389,16 @@ def insert_trades(db: Any, run_id: str, trades: List[Dict[str, Any]], *, cancell
                                     "exit_ts", "exit_price", "volume", "sl", "tp",
                                     "exit_reason", "hold_seconds", "gross_pnl",
                                     "commission", "spread_cost", "slippage_cost",
-                                    "swap_cost", "net_pnl", "session", "dow")})))
+                                    "swap_cost", "net_pnl", "session", "dow")}))
+                pending.append(record)
+                if i==0 or len(pending)>=256:flush()
+            flush()
+            stored=db.one('SELECT COUNT(*) c FROM deeptest_trades WHERE run_id=?',(run_id,))['c']
+            if stored!=len(trades):raise RuntimeError('Persisted trade-count invariant failed; scenario cannot complete')
+        except CancelledError:raise
+        except Exception:
+            # Do not retry failed SQL implicitly or overwrite conflicting evidence.
+            raise
 
 
 @profiled('deeptest.read_trades', hot=True)
@@ -377,7 +427,10 @@ def get_pref(db: Any, node_id: int) -> Optional[Dict[str, Any]]:
 
 def set_pref(db: Any, node_id: int, run_id: str, explicit: bool = True) -> Dict[str, Any]:
     ensure_schema(db)
-    with _WRITE_LOCK:
+    from .management import persistence_guard
+    with persistence_guard(db), _WRITE_LOCK:
+        if db.one('SELECT 1 present FROM deeptest_deleted_runs WHERE run_id=?',(run_id,)):
+            raise ValueError('Deleted scenario cannot become preferred')
         db.x("""INSERT INTO deeptest_prefs(node_id, preferred_run_id, explicitly_selected, updated_at)
                 VALUES(?,?,?,?)
                 ON CONFLICT(node_id) DO UPDATE SET

@@ -7466,3 +7466,21 @@ def deep_batch_list():
     db=get_db();bulk.schema(db)
     rows=db.q('SELECT id FROM deeptest_batches ORDER BY updated_at DESC LIMIT 20')
     return {'ok':True,'batches':[bulk.get(db,r['id']) for r in rows]}
+
+
+@router.post('/deeptest/manage/delete')
+def deeptest_delete(payload: Dict = Body(...)):
+    from ..deeptest.management import delete, DeletionBusy
+    run=payload.get('run_id')
+    if not isinstance(run,str) or not run:raise HTTPException(422,'Selected run_id required')
+    try:return delete(get_db(),run_id=run,confirmation=payload.get('confirmation'))
+    except DeletionBusy as exc:raise HTTPException(409,str(exc))
+    except KeyError:raise HTTPException(404,'Scenario does not exist')
+    except ValueError as exc:raise HTTPException(422,str(exc))
+
+@router.post('/deeptest/manage/delete-all')
+def deeptest_delete_all(payload: Dict = Body(...)):
+    from ..deeptest.management import delete, DeletionBusy
+    try:return delete(get_db(),confirmation=payload.get('confirmation'))
+    except DeletionBusy as exc:raise HTTPException(409,str(exc))
+    except ValueError as exc:raise HTTPException(422,str(exc))

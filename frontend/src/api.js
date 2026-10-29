@@ -429,6 +429,8 @@ export const api = {
   deeptestRunGet: (runId) => req(`/api/deeptest/run/${encodeURIComponent(runId)}`),
   deeptestRunTrades: (runId, params = {}) => req(`/api/deeptest/run/${encodeURIComponent(runId)}/trades?${qs(params)}`),
   deeptestRunCancel: (runId) => req(`/api/deeptest/run/${encodeURIComponent(runId)}/cancel`, { method: "POST" }),
+  deeptestDelete: (body) => req('/api/deeptest/manage/delete', {method:'POST',body}),
+  deeptestDeleteAll: (body) => req('/api/deeptest/manage/delete-all', {method:'POST',body}),
   deeptestScenarios: (params = {}) => req(`/api/deeptest/scenarios?${qs(params)}`),
   deeptestCompare: (runIds) => req("/api/deeptest/compare", { method: "POST", body: { run_ids: runIds } }),
   deeptestPrefer: (body) => req("/api/deeptest/prefer", { method: "POST", body }),

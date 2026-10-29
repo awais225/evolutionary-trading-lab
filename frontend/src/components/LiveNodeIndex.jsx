@@ -36,6 +36,7 @@ import { ScheduleDialog } from "./LiveTestingPanels.jsx";
  * "qualified" is the default: qualified / alive / eligible, by construction of
  * the backend classifier (a node is only ever in one bucket). */
 const FILTERS = [
+  { value: "starred", label: "STARRED" },
   { value: "qualified", label: "Qualified research (QUALIFIED + PAPER)" },
   { value: "all", label: "All" },
   { value: "gate_passed", label: "Gate-passed / VALID tier" },
@@ -364,8 +365,8 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
       // V5.3 §2 — unset filters are OMITTED (never sent as the string "undefined",
       // which the API rejects with 422 and which left this table empty).
       const res = await api.nodes({
-        filter, search: search || undefined, timeframe: timeframe || undefined,
-        ...(starredOnly ? { starred_only: true } : {}),
+        filter: filter === "starred" ? "all" : filter, search: search || undefined, timeframe: timeframe || undefined,
+        ...((starredOnly || filter === "starred") ? { starred_only: true } : {}),
         sort_by: sortBy, sort_desc: sortDesc, metric_source:metricSource,
         limit: 0,
       });
@@ -395,11 +396,11 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
   useEffect(() => {
     const changed = (e) => {
       setRows((old) => old.map((r) => r.node_id === e.detail.strategy_id ? { ...r, starred: e.detail.starred } : r)
-        .filter((r) => !starredOnly || r.starred));
+        .filter((r) => !(starredOnly || filter === "starred") || r.starred));
     };
     window.addEventListener("candidate-star-changed", changed);
     return () => window.removeEventListener("candidate-star-changed", changed);
-  }, [starredOnly]);
+  }, [starredOnly, filter]);
 
   // §7 — the population authority is fetched whenever the table is empty (or the
   // index failed), so the explanation always carries real backend numbers.

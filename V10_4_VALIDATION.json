@@ -1,0 +1,1078 @@
+{
+  "feature": "V10.4 actual generation and DeepTesting throughput",
+  "base_sha": "8abf3042a34bd484cdbbf806af5dc00851a9a1be",
+  "measurement_date": "2026-10-29",
+  "scope": "Isolated SYNTHETIC real-engine fixtures; not native Windows, real-market performance, authoritative generation or an 800-node research campaign",
+  "benchmark_comparison": {
+    "light": {
+      "correctness": "MATCH settings, nodes, identities/genomes, RNG, full trades and non-observational metrics",
+      "generation": {
+        "before_nodes_per_minute": 47217.502111500464,
+        "after_nodes_per_minute": 46353.457692121774,
+        "gain_percent": -1.8299240339701095,
+        "raw_rounds": {
+          "before": [
+            {
+              "nodes": 100,
+              "nodes_per_minute": 47482.8708905963,
+              "candidate_attempts": 100,
+              "rejections": 0,
+              "duplicates": 0,
+              "process_cpu_seconds": 0.13837805799999991,
+              "sql": {
+                "SELECT": 603,
+                "BEGIN": 100,
+                "INSERT": 300,
+                "COMMIT": 100
+              }
+            },
+            {
+              "nodes": 100,
+              "nodes_per_minute": 43788.20265247907,
+              "candidate_attempts": 100,
+              "rejections": 0,
+              "duplicates": 0,
+              "process_cpu_seconds": 0.14158832999999993,
+              "sql": {
+                "SELECT": 603,
+                "BEGIN": 100,
+                "INSERT": 300,
+                "COMMIT": 100
+              }
+            },
+            {
+              "nodes": 100,
+              "nodes_per_minute": 47217.502111500464,
+              "candidate_attempts": 100,
+              "rejections": 0,
+              "duplicates": 0,
+              "process_cpu_seconds": 0.13324753200000006,
+              "sql": {
+                "SELECT": 603,
+                "BEGIN": 100,
+                "INSERT": 300,
+                "COMMIT": 100
+              }
+            }
+          ],
+          "after": [
+            {
+              "nodes": 100,
+              "nodes_per_minute": 50448.11759607475,
+              "candidate_attempts": 100,
+              "rejections": 0,
+              "duplicates": 0,
+              "process_cpu_seconds": 0.12799456999999992,
+              "sql": {
+                "SELECT": 503,
+                "BEGIN": 100,
+                "INSERT": 300,
+                "COMMIT": 100
+              }
+            },
+            {
+              "nodes": 100,
+              "nodes_per_minute": 46353.457692121774,
+              "candidate_attempts": 100,
+              "rejections": 0,
+              "duplicates": 0,
+              "process_cpu_seconds": 0.134505463,
+              "sql": {
+                "SELECT": 503,
+                "BEGIN": 100,
+                "INSERT": 300,
+                "COMMIT": 100
+              }
+            },
+            {
+              "nodes": 100,
+              "nodes_per_minute": 38742.45653697615,
+              "candidate_attempts": 100,
+              "rejections": 0,
+              "duplicates": 0,
+              "process_cpu_seconds": 0.161151382,
+              "sql": {
+                "SELECT": 503,
+                "BEGIN": 100,
+                "INSERT": 300,
+                "COMMIT": 100
+              }
+            }
+          ]
+        }
+      },
+      "deeptest": [
+        {
+          "requested_workers": 1,
+          "effective_workers": 1,
+          "before_seconds": 5.299761430999979,
+          "after_seconds": 2.0905166010002176,
+          "speedup": 2.5351443889344303,
+          "after_scenarios_per_minute": 114.80415887880099,
+          "before": {
+            "batch_seconds": [
+              5.516976956000008,
+              5.170493440999962,
+              5.299761430999979
+            ],
+            "median_task_compute_seconds_including_queue_and_worker_IPC": 0.3254009985000721,
+            "median_task_persistence_seconds": 0.9053028514999824,
+            "peak_observed_tree_rss_bytes": 173588480,
+            "median_sampled_tree_cpu_seconds": 5.23,
+            "median_input_bars_per_second": 9057.011457012542,
+            "median_persisted_trades_per_second": 9045.690192691278,
+            "trades_per_scenario": 11985,
+            "partial": 0,
+            "failed": 0
+          },
+          "after": {
+            "batch_seconds": [
+              2.1092665139999554,
+              2.022665519000384,
+              2.0905166010002176
+            ],
+            "median_task_compute_seconds_including_queue_and_worker_IPC": 0.33236952849983936,
+            "median_task_persistence_seconds": 0.11619405600004029,
+            "peak_observed_tree_rss_bytes": 173223936,
+            "median_sampled_tree_cpu_seconds": 2.09,
+            "median_input_bars_per_second": 22960.831775760198,
+            "median_persisted_trades_per_second": 22932.130736040497,
+            "trades_per_scenario": 11985,
+            "partial": 0,
+            "failed": 0
+          }
+        },
+        {
+          "requested_workers": 2,
+          "effective_workers": 2,
+          "before_seconds": 5.220148610000024,
+          "after_seconds": 1.6675727030001326,
+          "speedup": 3.130387419156266,
+          "after_scenarios_per_minute": 143.92176099321824,
+          "before": {
+            "batch_seconds": [
+              5.64987829100005,
+              4.9897519820001435,
+              5.220148610000024
+            ],
+            "median_task_compute_seconds_including_queue_and_worker_IPC": 0.5115877585001272,
+            "median_task_persistence_seconds": 0.9842133895000416,
+            "peak_observed_tree_rss_bytes": 512970752,
+            "median_sampled_tree_cpu_seconds": 5.939999999999996,
+            "median_input_bars_per_second": 9195.140519189123,
+            "median_persisted_trades_per_second": 9183.646593540137,
+            "trades_per_scenario": 11985,
+            "partial": 0,
+            "failed": 0
+          },
+          "after": {
+            "batch_seconds": [
+              2.1513525649997973,
+              1.6675727030001326,
+              1.42850693399987
+            ],
+            "median_task_compute_seconds_including_queue_and_worker_IPC": 0.4600479434998306,
+            "median_task_persistence_seconds": 0.13480562300014753,
+            "peak_observed_tree_rss_bytes": 513466368,
+            "median_sampled_tree_cpu_seconds": 2.6099999999999985,
+            "median_input_bars_per_second": 28784.35219864365,
+            "median_persisted_trades_per_second": 28748.371758395344,
+            "trades_per_scenario": 11985,
+            "partial": 0,
+            "failed": 0
+          }
+        },
+        {
+          "requested_workers": 4,
+          "effective_workers": 2,
+          "before_seconds": 5.454928980999966,
+          "after_seconds": 1.6531836170001952,
+          "speedup": 3.2996510036182642,
+          "after_scenarios_per_minute": 145.17443648243682,
+          "before": {
+            "batch_seconds": [
+              5.771208351000041,
+              5.274862442000085,
+              5.454928980999966
+            ],
+            "median_task_compute_seconds_including_queue_and_worker_IPC": 0.48767140249992735,
+            "median_task_persistence_seconds": 1.0666094125000427,
+            "peak_observed_tree_rss_bytes": 523935744,
+            "median_sampled_tree_cpu_seconds": 6.019999999999999,
+            "median_input_bars_per_second": 8799.381287490367,
+            "median_persisted_trades_per_second": 8788.382060881004,
+            "trades_per_scenario": 11985,
+            "partial": 0,
+            "failed": 0
+          },
+          "after": {
+            "batch_seconds": [
+              2.1110860769999817,
+              1.6531836170001952,
+              1.5662296860000424
+            ],
+            "median_task_compute_seconds_including_queue_and_worker_IPC": 0.4746722335000868,
+            "median_task_persistence_seconds": 0.12916233400005694,
+            "peak_observed_tree_rss_bytes": 526999552,
+            "median_sampled_tree_cpu_seconds": 2.55,
+            "median_input_bars_per_second": 29034.887296487363,
+            "median_persisted_trades_per_second": 28998.593687366756,
+            "trades_per_scenario": 11985,
+            "partial": 0,
+            "failed": 0
+          }
+        }
+      ],
+      "environment": {
+        "os": "Linux-6.1.158+-x86_64-with-glibc2.41",
+        "python": "3.13.16",
+        "logical_cpus": 2,
+        "gpu": {
+          "device_monitoring": "UNAVAILABLE",
+          "cuda_driver": "UNAVAILABLE",
+          "application_gpu_execution": "NOT IMPLEMENTED/UNVERIFIED",
+          "fallback": "existing CPU engine"
+        }
+      },
+      "settings": {
+        "bars": 12000,
+        "nodes_per_round": 100,
+        "rounds": 3,
+        "speed_profile": "light",
+        "resources": {
+          "cpu_limit_enabled": true,
+          "cpu_target_pct": 100,
+          "deep_test_workers": 1,
+          "cpu_workers_max": 0,
+          "memory_limit_enabled": true,
+          "memory_limit_mode": "pct",
+          "memory_limit_value": 50.0,
+          "gpu_enabled": false,
+          "gpu_workload_limit_pct": 50
+        },
+        "broker_policy": "explicit simulator/table specs; no MT5 connection or orders"
+      },
+      "provenance": {
+        "before": {
+          "source_sha": "8abf3042a34bd484cdbbf806af5dc00851a9a1be",
+          "source_worktree_dirty": false,
+          "source_fingerprint": "6e31866bea8568e215caa92c3d3fa63f30aa80341302630c7a7fb385d9b391c3"
+        },
+        "after": {
+          "source_sha": "8abf3042a34bd484cdbbf806af5dc00851a9a1be",
+          "source_worktree_dirty": true,
+          "source_fingerprint": "384a98b76caec869d6caae38050632a0349687e5e7e1972c624cd342654f47a0"
+        }
+      },
+      "evidence_sha256": {
+        "before": "29ce3f5fe0402beb331bb4cd7e5535dc183074b7b6b588cbabde8a9dd0e5f1f4",
+        "after": "6a64a4edb8353c90e856c220c981fcff2bfb6c663930c8956ca47e09f21539c9"
+      }
+    },
+    "off": {
+      "correctness": "MATCH settings, nodes, identities/genomes, RNG, full trades and non-observational metrics",
+      "generation": {
+        "before_nodes_per_minute": 53914.9544430648,
+        "after_nodes_per_minute": 58495.79524892858,
+        "gain_percent": 8.496419691314472,
+        "raw_rounds": {
+          "before": [
+            {
+              "nodes": 100,
+              "nodes_per_minute": 58148.25092344494,
+              "candidate_attempts": null,
+              "rejections": null,
+              "duplicates": null,
+              "process_cpu_seconds": 0.11321066199999996,
+              "sql": {
+                "SELECT": 603,
+                "BEGIN": 100,
+                "INSERT": 300,
+                "COMMIT": 100
+              }
+            },
+            {
+              "nodes": 100,
+              "nodes_per_minute": 53914.9544430648,
+              "candidate_attempts": null,
+              "rejections": null,
+              "duplicates": null,
+              "process_cpu_seconds": 0.11517242699999997,
+              "sql": {
+                "SELECT": 603,
+                "BEGIN": 100,
+                "INSERT": 300,
+                "COMMIT": 100
+              }
+            },
+            {
+              "nodes": 100,
+              "nodes_per_minute": 51750.16424851731,
+              "candidate_attempts": null,
+              "rejections": null,
+              "duplicates": null,
+              "process_cpu_seconds": 0.11965347100000001,
+              "sql": {
+                "SELECT": 603,
+                "BEGIN": 100,
+                "INSERT": 300,
+                "COMMIT": 100
+              }
+            }
+          ],
+          "after": [
+            {
+              "nodes": 100,
+              "nodes_per_minute": 59644.86493100283,
+              "candidate_attempts": null,
+              "rejections": null,
+              "duplicates": null,
+              "process_cpu_seconds": 0.110920456,
+              "sql": {
+                "SELECT": 503,
+                "BEGIN": 100,
+                "INSERT": 300,
+                "COMMIT": 100
+              }
+            },
+            {
+              "nodes": 100,
+              "nodes_per_minute": 53632.1094724056,
+              "candidate_attempts": null,
+              "rejections": null,
+              "duplicates": null,
+              "process_cpu_seconds": 0.11407264300000008,
+              "sql": {
+                "SELECT": 503,
+                "BEGIN": 100,
+                "INSERT": 300,
+                "COMMIT": 100
+              }
+            },
+            {
+              "nodes": 100,
+              "nodes_per_minute": 58495.79524892858,
+              "candidate_attempts": null,
+              "rejections": null,
+              "duplicates": null,
+              "process_cpu_seconds": 0.10576100300000002,
+              "sql": {
+                "SELECT": 503,
+                "BEGIN": 100,
+                "INSERT": 300,
+                "COMMIT": 100
+              }
+            }
+          ]
+        }
+      },
+      "deeptest": [
+        {
+          "requested_workers": 1,
+          "effective_workers": 1,
+          "before_seconds": 4.775736898000105,
+          "after_seconds": 2.091460780000034,
+          "speedup": 2.283445591554448,
+          "after_scenarios_per_minute": 114.75233114340116,
+          "before": {
+            "batch_seconds": [
+              4.81992830299987,
+              4.775736898000105,
+              4.653438864999998
+            ],
+            "median_task_compute_seconds_including_queue_and_worker_IPC": 0.3240991209999038,
+            "median_task_persistence_seconds": 0.7781682280000268,
+            "peak_observed_tree_rss_bytes": 171315200,
+            "median_sampled_tree_cpu_seconds": 4.589999999999999,
+            "median_input_bars_per_second": 10050.804938626447,
+            "median_persisted_trades_per_second": 10038.241432453164,
+            "trades_per_scenario": 11985,
+            "partial": 0,
+            "failed": 0
+          },
+          "after": {
+            "batch_seconds": [
+              2.114641256000141,
+              2.091460780000034,
+              2.01598946599961
+            ],
+            "median_task_compute_seconds_including_queue_and_worker_IPC": 0.32074803649993555,
+            "median_task_persistence_seconds": 0.11786486150003839,
+            "peak_observed_tree_rss_bytes": 172642304,
+            "median_sampled_tree_cpu_seconds": 2.09,
+            "median_input_bars_per_second": 22950.466228680234,
+            "median_persisted_trades_per_second": 22921.778145894383,
+            "trades_per_scenario": 11985,
+            "partial": 0,
+            "failed": 0
+          }
+        },
+        {
+          "requested_workers": 2,
+          "effective_workers": 2,
+          "before_seconds": 4.1207090679999965,
+          "after_seconds": 1.5313114399996266,
+          "speedup": 2.690967337121834,
+          "after_scenarios_per_minute": 156.72840529426105,
+          "before": {
+            "batch_seconds": [
+              4.770280967999952,
+              3.718815722000045,
+              4.1207090679999965
+            ],
+            "median_task_compute_seconds_including_queue_and_worker_IPC": 0.4589784080000072,
+            "median_task_persistence_seconds": 0.7833515744999886,
+            "peak_observed_tree_rss_bytes": 504774656,
+            "median_sampled_tree_cpu_seconds": 4.839999999999998,
+            "median_input_bars_per_second": 11648.480688129968,
+            "median_persisted_trades_per_second": 11633.920087269806,
+            "trades_per_scenario": 11985,
+            "partial": 0,
+            "failed": 0
+          },
+          "after": {
+            "batch_seconds": [
+              2.0214664619998075,
+              1.5300889690001895,
+              1.5313114399996266
+            ],
+            "median_task_compute_seconds_including_queue_and_worker_IPC": 0.4286375534998115,
+            "median_task_persistence_seconds": 0.1402871899999809,
+            "peak_observed_tree_rss_bytes": 514265088,
+            "median_sampled_tree_cpu_seconds": 2.4300000000000015,
+            "median_input_bars_per_second": 31345.681058852213,
+            "median_persisted_trades_per_second": 31306.498957528645,
+            "trades_per_scenario": 11985,
+            "partial": 0,
+            "failed": 0
+          }
+        },
+        {
+          "requested_workers": 4,
+          "effective_workers": 2,
+          "before_seconds": 4.040705340999921,
+          "after_seconds": 1.5682920859999285,
+          "speedup": 2.5765004982624804,
+          "after_scenarios_per_minute": 153.03271765665912,
+          "before": {
+            "batch_seconds": [
+              4.3443885579999915,
+              3.9930107060001774,
+              4.040705340999921
+            ],
+            "median_task_compute_seconds_including_queue_and_worker_IPC": 0.45737930850009434,
+            "median_task_persistence_seconds": 0.724904013000014,
+            "peak_observed_tree_rss_bytes": 515784704,
+            "median_sampled_tree_cpu_seconds": 4.740000000000002,
+            "median_input_bars_per_second": 11879.114151917305,
+            "median_persisted_trades_per_second": 11864.265259227408,
+            "trades_per_scenario": 11985,
+            "partial": 0,
+            "failed": 0
+          },
+          "after": {
+            "batch_seconds": [
+              1.9725417680001556,
+              1.5682920859999285,
+              1.5564514470001996
+            ],
+            "median_task_compute_seconds_including_queue_and_worker_IPC": 0.445391125499782,
+            "median_task_persistence_seconds": 0.16080928949986628,
+            "peak_observed_tree_rss_bytes": 532168704,
+            "median_sampled_tree_cpu_seconds": 2.5100000000000002,
+            "median_input_bars_per_second": 30606.54353133182,
+            "median_persisted_trades_per_second": 30568.285351917657,
+            "trades_per_scenario": 11985,
+            "partial": 0,
+            "failed": 0
+          }
+        }
+      ],
+      "environment": {
+        "os": "Linux-6.1.158+-x86_64-with-glibc2.41",
+        "python": "3.13.16",
+        "logical_cpus": 2,
+        "gpu": {
+          "device_monitoring": "UNAVAILABLE",
+          "cuda_driver": "UNAVAILABLE",
+          "application_gpu_execution": "NOT IMPLEMENTED/UNVERIFIED",
+          "fallback": "existing CPU engine"
+        }
+      },
+      "settings": {
+        "bars": 12000,
+        "nodes_per_round": 100,
+        "rounds": 3,
+        "speed_profile": "off",
+        "resources": {
+          "cpu_limit_enabled": true,
+          "cpu_target_pct": 100,
+          "deep_test_workers": 1,
+          "cpu_workers_max": 0,
+          "memory_limit_enabled": true,
+          "memory_limit_mode": "pct",
+          "memory_limit_value": 50.0,
+          "gpu_enabled": false,
+          "gpu_workload_limit_pct": 50
+        },
+        "broker_policy": "explicit simulator/table specs; no MT5 connection or orders"
+      },
+      "provenance": {
+        "before": {
+          "source_sha": "8abf3042a34bd484cdbbf806af5dc00851a9a1be",
+          "source_worktree_dirty": false,
+          "source_fingerprint": "6e31866bea8568e215caa92c3d3fa63f30aa80341302630c7a7fb385d9b391c3"
+        },
+        "after": {
+          "source_sha": "8abf3042a34bd484cdbbf806af5dc00851a9a1be",
+          "source_worktree_dirty": true,
+          "source_fingerprint": "384a98b76caec869d6caae38050632a0349687e5e7e1972c624cd342654f47a0"
+        }
+      },
+      "evidence_sha256": {
+        "before": "7a5fb5404b2418f302e899a9545fd48b21faa22882203c110bd42675129d550d",
+        "after": "c69bb8938eb9096e6108a961e20a02b97e805294854863d0240dc2d1e602c916"
+      }
+    }
+  },
+  "generation_repeated_validation": {
+    "light": {
+      "rounds_per_side": 24,
+      "design": "Three successive before/after pairs, 8 fresh 100-birth databases per process; no concurrent load from our tests/builds, no hardware/settings changes; not randomized or a confidence interval",
+      "before_nodes_per_minute": 44321.66017643151,
+      "after_nodes_per_minute": 49493.29092649147,
+      "gain_percent": 11.668404860001225,
+      "before_median_process_cpu_seconds": 0.1414760385,
+      "after_median_process_cpu_seconds": 0.12730020100000006,
+      "pairs": [
+        {
+          "pair": 1,
+          "comparison": {
+            "correctness": "MATCH settings, nodes, identities/genomes, RNG, full trades and non-observational metrics",
+            "generation": {
+              "before_nodes_per_minute": 44845.7742487853,
+              "after_nodes_per_minute": 50414.99952549282,
+              "gain_percent": 12.418617740462734
+            },
+            "deeptest": []
+          },
+          "evidence_sha256": {
+            "before": "9f246491c770e58064ffe856810dbae681bde636d3c4f9d7ec66eb9d4e26b3e3",
+            "after": "8040a2ead349c73841d741c11a481e08b30106d43d4d5a1ac16f928d823c83aa"
+          }
+        },
+        {
+          "pair": 2,
+          "comparison": {
+            "correctness": "MATCH settings, nodes, identities/genomes, RNG, full trades and non-observational metrics",
+            "generation": {
+              "before_nodes_per_minute": 43025.63764611915,
+              "after_nodes_per_minute": 50920.00715042454,
+              "gain_percent": 18.348059287896355
+            },
+            "deeptest": []
+          },
+          "evidence_sha256": {
+            "before": "e2ce5d8c95b8ad363e26023401f76cef23f988dd11cfa1b06556e7b374bdf6b5",
+            "after": "0d9e6bfda41eca53d65337bba6320f5320b068f3d7a215f41d1fa0fd352570aa"
+          }
+        },
+        {
+          "pair": 3,
+          "comparison": {
+            "correctness": "MATCH settings, nodes, identities/genomes, RNG, full trades and non-observational metrics",
+            "generation": {
+              "before_nodes_per_minute": 45376.83788933279,
+              "after_nodes_per_minute": 48638.15700638407,
+              "gain_percent": 7.1871890346461464
+            },
+            "deeptest": []
+          },
+          "evidence_sha256": {
+            "before": "dc97080a14a516760663579dbfe4c893ef2eb9b2b42f40b5aa21fba4e7262b44",
+            "after": "38a3931ffedea71bc98aa236432d38210e9ea38560cfed274f1137cd31180a35"
+          }
+        }
+      ],
+      "before_round_rates": [
+        46403.84257217992,
+        42857.9458314099,
+        46428.40014093174,
+        44475.103933910155,
+        43297.009235264006,
+        38985.14722422816,
+        48637.94422584574,
+        45216.44456366045,
+        48850.56891034481,
+        40969.92389008458,
+        42899.19878017476,
+        46722.80920948249,
+        44770.65604654679,
+        43152.07651206353,
+        42698.786781567775,
+        41328.50763298457,
+        44168.21641895287,
+        41057.9643818343,
+        42893.12222086066,
+        46585.45935971271,
+        47794.19247202533,
+        46943.21619475356,
+        46792.23842160705,
+        39018.38737605643
+      ],
+      "after_round_rates": [
+        52277.86826629187,
+        48830.19495839495,
+        51584.99230590308,
+        52437.04991149874,
+        52994.961680730994,
+        49245.00674508257,
+        47153.75939519484,
+        49000.80698625362,
+        50145.614925944115,
+        47839.72772685607,
+        50491.95574785583,
+        51348.05855299325,
+        56013.62460473136,
+        52236.48281106045,
+        53092.3943843041,
+        46375.28313643185,
+        50101.531170606875,
+        44066.164170425734,
+        45832.11703169382,
+        49053.242978526425,
+        48496.718914094556,
+        49741.57510790037,
+        44895.57278540041,
+        48779.595098673584
+      ]
+    },
+    "off": {
+      "rounds_per_side": 24,
+      "design": "Three successive before/after pairs, 8 fresh 100-birth databases per process; no concurrent load from our tests/builds, no hardware/settings changes; not randomized or a confidence interval",
+      "before_nodes_per_minute": 54445.440069423465,
+      "after_nodes_per_minute": 55617.86204535731,
+      "gain_percent": 2.1533887400650764,
+      "before_median_process_cpu_seconds": 0.11285289199999987,
+      "after_median_process_cpu_seconds": 0.11243587249999998,
+      "pairs": [
+        {
+          "pair": 1,
+          "comparison": {
+            "correctness": "MATCH settings, nodes, identities/genomes, RNG, full trades and non-observational metrics",
+            "generation": {
+              "before_nodes_per_minute": 52679.77577897205,
+              "after_nodes_per_minute": 52229.05313803849,
+              "gain_percent": -0.8555895203970598
+            },
+            "deeptest": []
+          },
+          "evidence_sha256": {
+            "before": "f6bc5e9ad15ec0ab853b743633e73ec312c3b86e672240e1f2c614d16131dbc8",
+            "after": "d56765eb4cfbb6f0fada90cba18eba586fde8af5859c1f1e74cf15544430541a"
+          }
+        },
+        {
+          "pair": 2,
+          "comparison": {
+            "correctness": "MATCH settings, nodes, identities/genomes, RNG, full trades and non-observational metrics",
+            "generation": {
+              "before_nodes_per_minute": 55686.01334227827,
+              "after_nodes_per_minute": 56003.20608124255,
+              "gain_percent": 0.5696093505825894
+            },
+            "deeptest": []
+          },
+          "evidence_sha256": {
+            "before": "878b955d104d3225b75d2902471258b9ce55b0ac590150ea378729a49852b0e6",
+            "after": "9ba2948b1f49331b38c5e8d80ce964b09b014c67d4fa6f69ef520be94252ce04"
+          }
+        },
+        {
+          "pair": 3,
+          "comparison": {
+            "correctness": "MATCH settings, nodes, identities/genomes, RNG, full trades and non-observational metrics",
+            "generation": {
+              "before_nodes_per_minute": 54028.47823694426,
+              "after_nodes_per_minute": 56027.02210888884,
+              "gain_percent": 3.6990563813029897
+            },
+            "deeptest": []
+          },
+          "evidence_sha256": {
+            "before": "d5b899b09392de55cc0dcfc8c491bee9f573fdb4a7afc76d0717e6b84b87df8a",
+            "after": "908da6a23e0d675e35d266805775a8fbacf3932eee5fa282a6ff56435859b504"
+          }
+        }
+      ],
+      "before_round_rates": [
+        58208.36740623559,
+        45797.40914595096,
+        44794.804853833215,
+        51549.19684374301,
+        49742.49264952818,
+        57968.79375583137,
+        55906.90665149021,
+        53810.35471420108,
+        62911.89268078819,
+        57287.841758414026,
+        57770.41440366332,
+        54461.535755323894,
+        55774.04884249814,
+        55597.97784205839,
+        54846.43883796046,
+        51235.23016403792,
+        50766.46360649715,
+        50755.430289787946,
+        54429.34438352304,
+        59418.346674027714,
+        55594.582952664976,
+        50062.71230822459,
+        54327.01401819005,
+        53729.942455698474
+      ],
+      "after_round_rates": [
+        59456.74785670695,
+        55471.307480109775,
+        57707.26663641463,
+        52548.11042250639,
+        49996.18237490347,
+        51193.5835190224,
+        51886.52665680461,
+        51909.9958535706,
+        58923.87503783196,
+        51733.837133589135,
+        56294.09762955366,
+        48768.36985631396,
+        52350.5798625598,
+        55712.314532931436,
+        56420.86087987922,
+        57202.66225385866,
+        55523.40955778319,
+        56284.79121243165,
+        55769.253005346036,
+        57412.94678236022,
+        56758.418320882905,
+        54451.16838736869,
+        51065.61903972691,
+        56953.813333556085
+      ]
+    }
+  },
+  "resource_scope": "20 ms process-tree sampler; RSS sums shared pages; short-lived/first CPU intervals may be missed. Whole-host RAM percentage is not attributable application memory. Requested 4 was effective 2 due to actual sandbox 2 logical CPUs, not a configured max=2. GPU monitoring/CUDA unavailable, app GPU execution not implemented/unverified.",
+  "tests": {
+    "baseline": {
+      "passed": 343,
+      "failed": 17,
+      "errors": 4,
+      "nonpassing": [
+        {
+          "classname": "tests.test_v6_6_deeptest.TestEngineDeeptestFields",
+          "name": "test_unset_fields_reproduce_the_default_behaviour",
+          "type": "error",
+          "message": "failed on setup with \"AssertionError: dataset error: 'dataset not found on disk or master store: XAUUSD_M15_20250930_20260925_SIMULATOR'\nassert False\n +  where False = BacktestResult(ok=False, metrics={}, trades=[], equity_curve=[], error=\"dataset error: 'dataset not found on disk or master store: XAUUSD_M15_20250930_20260925_SIMULATOR'\", runtime_ms=0.0).ok\""
+        },
+        {
+          "classname": "tests.test_v6_6_deeptest.TestEngineDeeptestFields",
+          "name": "test_max_active_one_equals_default_gate",
+          "type": "error",
+          "message": "failed on setup with \"AssertionError: dataset error: 'dataset not found on disk or master store: XAUUSD_M15_20250930_20260925_SIMULATOR'\nassert False\n +  where False = BacktestResult(ok=False, metrics={}, trades=[], equity_curve=[], error=\"dataset error: 'dataset not found on disk or master store: XAUUSD_M15_20250930_20260925_SIMULATOR'\", runtime_ms=0.0).ok\""
+        },
+        {
+          "classname": "tests.test_v6_6_deeptest.TestEngineDeeptestFields",
+          "name": "test_one_open_trade_at_a_time_is_enforced",
+          "type": "error",
+          "message": "failed on setup with \"AssertionError: dataset error: 'dataset not found on disk or master store: XAUUSD_M15_20250930_20260925_SIMULATOR'\nassert False\n +  where False = BacktestResult(ok=False, metrics={}, trades=[], equity_curve=[], error=\"dataset error: 'dataset not found on disk or master store: XAUUSD_M15_20250930_20260925_SIMULATOR'\", runtime_ms=0.0).ok\""
+        },
+        {
+          "classname": "tests.test_v6_6_deeptest.TestEngineDeeptestFields",
+          "name": "test_unlimited_concurrent_never_forces_early_exits",
+          "type": "failure",
+          "message": "assert False\n +  where False = BacktestResult(ok=False, metrics={}, trades=[], equity_curve=[], error=\"dataset error: 'dataset not found on disk or master store: XAUUSD_M15_20250930_20260925_SIMULATOR'\", runtime_ms=0.0).ok"
+        },
+        {
+          "classname": "tests.test_v6_6_deeptest.TestEngineDeeptestFields",
+          "name": "test_cap_of_n_entries_only",
+          "type": "failure",
+          "message": "assert False\n +  where False = BacktestResult(ok=False, metrics={}, trades=[], equity_curve=[], error=\"dataset error: 'dataset not found on disk or master store: XAUUSD_M15_20250930_20260925_SIMULATOR'\", runtime_ms=0.0).ok"
+        },
+        {
+          "classname": "tests.test_v6_6_deeptest.TestEngineDeeptestFields",
+          "name": "test_initial_balance_and_risk_pct_sizing",
+          "type": "failure",
+          "message": "assert (False)\n +  where False = BacktestResult(ok=False, metrics={}, trades=[], equity_curve=[], error=\"dataset error: 'dataset not found on disk or master store: XAUUSD_M15_20250930_20260925_SIMULATOR'\", runtime_ms=0.0).ok"
+        },
+        {
+          "classname": "tests.test_v6_6_deeptest.TestEngineDeeptestFields",
+          "name": "test_amount_mode_sizes_from_money_at_risk",
+          "type": "failure",
+          "message": "assert False\n +  where False = BacktestResult(ok=False, metrics={}, trades=[], equity_curve=[], error=\"dataset error: 'dataset not found on disk or master store: XAUUSD_M15_20250930_20260925_SIMULATOR'\", runtime_ms=0.0).ok"
+        },
+        {
+          "classname": "tests.test_v6_6_deeptest.TestEngineDeeptestFields",
+          "name": "test_offsets_follow_the_v65_convention",
+          "type": "failure",
+          "message": "assert (False)\n +  where False = BacktestResult(ok=False, metrics={}, trades=[], equity_curve=[], error=\"dataset error: 'dataset not found on disk or master store: XAUUSD_M15_20250930_20260925_SIMULATOR'\", runtime_ms=0.0).ok"
+        },
+        {
+          "classname": "tests.test_v6_6_deeptest.TestEngineDeeptestFields",
+          "name": "test_execution_model_and_schedule_meta_documented",
+          "type": "error",
+          "message": "failed on setup with \"AssertionError: dataset error: 'dataset not found on disk or master store: XAUUSD_M15_20250930_20260925_SIMULATOR'\nassert False\n +  where False = BacktestResult(ok=False, metrics={}, trades=[], equity_curve=[], error=\"dataset error: 'dataset not found on disk or master store: XAUUSD_M15_20250930_20260925_SIMULATOR'\", runtime_ms=0.0).ok\""
+        },
+        {
+          "classname": "tests.test_v6_6_deeptest.TestScenarios",
+          "name": "test_incomplete_history_requires_the_confirmation",
+          "type": "failure",
+          "message": "AssertionError: the scratch store needs bars for this test\nassert 0 > 10"
+        },
+        {
+          "classname": "tests.test_v6_6_deeptest.TestScenarios",
+          "name": "test_full_coverage_proceeds_without_the_popup",
+          "type": "failure",
+          "message": "AssertionError: the scratch store needs bars for this test\nassert 0 > 10"
+        },
+        {
+          "classname": "tests.test_v6_6_deeptest.TestScenarios",
+          "name": "test_idempotent_replay_returns_the_same_scenario",
+          "type": "failure",
+          "message": "AssertionError: the scratch store needs bars for this test\nassert 0 > 10"
+        },
+        {
+          "classname": "tests.test_v6_6_deeptest.TestScenarios",
+          "name": "test_partial_runs_are_marked_and_never_called_complete",
+          "type": "failure",
+          "message": "AssertionError: the scratch store needs bars for this test\nassert 0 > 10"
+        },
+        {
+          "classname": "tests.test_v6_6_deeptest.TestProjection",
+          "name": "test_node_index_carries_the_projection_fields",
+          "type": "failure",
+          "message": "AssertionError: the fixture inventory must have at least one row\nassert []"
+        },
+        {
+          "classname": "tests.test_v6_6_deeptest.TestApi",
+          "name": "test_preflight_run_flow_with_confirmation",
+          "type": "failure",
+          "message": "AssertionError: the scratch store needs bars for this test\nassert 0 > 10"
+        },
+        {
+          "classname": "tests.test_v6_7_deeptest_workflow.TestAuthoritativeInventory",
+          "name": "test_full_dataset_metric_sorting_missing_never_best",
+          "type": "failure",
+          "message": "AssertionError: top-return list must not be empty on real data\nassert []"
+        },
+        {
+          "classname": "tests.test_v6_7_deeptest_workflow.TestAuthoritativeInventory",
+          "name": "test_displayed_generation_metrics_equal_stored_record",
+          "type": "failure",
+          "message": "IndexError: list index out of range"
+        },
+        {
+          "classname": "tests.test_v6_7_deeptest_workflow.TestAuthoritativeInventory",
+          "name": "test_node_718_gen_values_come_from_the_stored_record",
+          "type": "failure",
+          "message": "AssertionError: Node #718 (canonical or research identity) must exist in this dataset\nassert []"
+        },
+        {
+          "classname": "tests.test_v6_8_authority_and_workflow.TestNodeDataAuthority",
+          "name": "test_node_718_identity_metrics_and_true_ranking",
+          "type": "failure",
+          "message": "AssertionError: the authority must rank the stored records\nassert []"
+        },
+        {
+          "classname": "tests.test_v5_1a_node_populations",
+          "name": "test_22_api_populations_endpoint_matches_the_module",
+          "type": "failure",
+          "message": "assert 0 > 0"
+        },
+        {
+          "classname": "tests.test_v5_1a_node_populations",
+          "name": "test_23_api_deep_plan_exposes_the_union_and_progress",
+          "type": "failure",
+          "message": "assert 0 >= 1"
+        }
+      ]
+    },
+    "modified": {
+      "passed": 369,
+      "failed": 17,
+      "errors": 4,
+      "nonpassing": [
+        {
+          "classname": "tests.test_v6_6_deeptest.TestEngineDeeptestFields",
+          "name": "test_unset_fields_reproduce_the_default_behaviour",
+          "type": "error",
+          "message": "failed on setup with \"AssertionError: dataset error: 'dataset not found on disk or master store: XAUUSD_M15_20250930_20260925_SIMULATOR'\nassert False\n +  where False = BacktestResult(ok=False, metrics={}, trades=[], equity_curve=[], error=\"dataset error: 'dataset not found on disk or master store: XAUUSD_M15_20250930_20260925_SIMULATOR'\", runtime_ms=0.0).ok\""
+        },
+        {
+          "classname": "tests.test_v6_6_deeptest.TestEngineDeeptestFields",
+          "name": "test_max_active_one_equals_default_gate",
+          "type": "error",
+          "message": "failed on setup with \"AssertionError: dataset error: 'dataset not found on disk or master store: XAUUSD_M15_20250930_20260925_SIMULATOR'\nassert False\n +  where False = BacktestResult(ok=False, metrics={}, trades=[], equity_curve=[], error=\"dataset error: 'dataset not found on disk or master store: XAUUSD_M15_20250930_20260925_SIMULATOR'\", runtime_ms=0.0).ok\""
+        },
+        {
+          "classname": "tests.test_v6_6_deeptest.TestEngineDeeptestFields",
+          "name": "test_one_open_trade_at_a_time_is_enforced",
+          "type": "error",
+          "message": "failed on setup with \"AssertionError: dataset error: 'dataset not found on disk or master store: XAUUSD_M15_20250930_20260925_SIMULATOR'\nassert False\n +  where False = BacktestResult(ok=False, metrics={}, trades=[], equity_curve=[], error=\"dataset error: 'dataset not found on disk or master store: XAUUSD_M15_20250930_20260925_SIMULATOR'\", runtime_ms=0.0).ok\""
+        },
+        {
+          "classname": "tests.test_v6_6_deeptest.TestEngineDeeptestFields",
+          "name": "test_unlimited_concurrent_never_forces_early_exits",
+          "type": "failure",
+          "message": "assert False\n +  where False = BacktestResult(ok=False, metrics={}, trades=[], equity_curve=[], error=\"dataset error: 'dataset not found on disk or master store: XAUUSD_M15_20250930_20260925_SIMULATOR'\", runtime_ms=0.0).ok"
+        },
+        {
+          "classname": "tests.test_v6_6_deeptest.TestEngineDeeptestFields",
+          "name": "test_cap_of_n_entries_only",
+          "type": "failure",
+          "message": "assert False\n +  where False = BacktestResult(ok=False, metrics={}, trades=[], equity_curve=[], error=\"dataset error: 'dataset not found on disk or master store: XAUUSD_M15_20250930_20260925_SIMULATOR'\", runtime_ms=0.0).ok"
+        },
+        {
+          "classname": "tests.test_v6_6_deeptest.TestEngineDeeptestFields",
+          "name": "test_initial_balance_and_risk_pct_sizing",
+          "type": "failure",
+          "message": "assert (False)\n +  where False = BacktestResult(ok=False, metrics={}, trades=[], equity_curve=[], error=\"dataset error: 'dataset not found on disk or master store: XAUUSD_M15_20250930_20260925_SIMULATOR'\", runtime_ms=0.0).ok"
+        },
+        {
+          "classname": "tests.test_v6_6_deeptest.TestEngineDeeptestFields",
+          "name": "test_amount_mode_sizes_from_money_at_risk",
+          "type": "failure",
+          "message": "assert False\n +  where False = BacktestResult(ok=False, metrics={}, trades=[], equity_curve=[], error=\"dataset error: 'dataset not found on disk or master store: XAUUSD_M15_20250930_20260925_SIMULATOR'\", runtime_ms=0.0).ok"
+        },
+        {
+          "classname": "tests.test_v6_6_deeptest.TestEngineDeeptestFields",
+          "name": "test_offsets_follow_the_v65_convention",
+          "type": "failure",
+          "message": "assert (False)\n +  where False = BacktestResult(ok=False, metrics={}, trades=[], equity_curve=[], error=\"dataset error: 'dataset not found on disk or master store: XAUUSD_M15_20250930_20260925_SIMULATOR'\", runtime_ms=0.0).ok"
+        },
+        {
+          "classname": "tests.test_v6_6_deeptest.TestEngineDeeptestFields",
+          "name": "test_execution_model_and_schedule_meta_documented",
+          "type": "error",
+          "message": "failed on setup with \"AssertionError: dataset error: 'dataset not found on disk or master store: XAUUSD_M15_20250930_20260925_SIMULATOR'\nassert False\n +  where False = BacktestResult(ok=False, metrics={}, trades=[], equity_curve=[], error=\"dataset error: 'dataset not found on disk or master store: XAUUSD_M15_20250930_20260925_SIMULATOR'\", runtime_ms=0.0).ok\""
+        },
+        {
+          "classname": "tests.test_v6_6_deeptest.TestScenarios",
+          "name": "test_incomplete_history_requires_the_confirmation",
+          "type": "failure",
+          "message": "AssertionError: the scratch store needs bars for this test\nassert 0 > 10"
+        },
+        {
+          "classname": "tests.test_v6_6_deeptest.TestScenarios",
+          "name": "test_full_coverage_proceeds_without_the_popup",
+          "type": "failure",
+          "message": "AssertionError: the scratch store needs bars for this test\nassert 0 > 10"
+        },
+        {
+          "classname": "tests.test_v6_6_deeptest.TestScenarios",
+          "name": "test_idempotent_replay_returns_the_same_scenario",
+          "type": "failure",
+          "message": "AssertionError: the scratch store needs bars for this test\nassert 0 > 10"
+        },
+        {
+          "classname": "tests.test_v6_6_deeptest.TestScenarios",
+          "name": "test_partial_runs_are_marked_and_never_called_complete",
+          "type": "failure",
+          "message": "AssertionError: the scratch store needs bars for this test\nassert 0 > 10"
+        },
+        {
+          "classname": "tests.test_v6_6_deeptest.TestProjection",
+          "name": "test_node_index_carries_the_projection_fields",
+          "type": "failure",
+          "message": "AssertionError: the fixture inventory must have at least one row\nassert []"
+        },
+        {
+          "classname": "tests.test_v6_6_deeptest.TestApi",
+          "name": "test_preflight_run_flow_with_confirmation",
+          "type": "failure",
+          "message": "AssertionError: the scratch store needs bars for this test\nassert 0 > 10"
+        },
+        {
+          "classname": "tests.test_v6_7_deeptest_workflow.TestAuthoritativeInventory",
+          "name": "test_full_dataset_metric_sorting_missing_never_best",
+          "type": "failure",
+          "message": "AssertionError: top-return list must not be empty on real data\nassert []"
+        },
+        {
+          "classname": "tests.test_v6_7_deeptest_workflow.TestAuthoritativeInventory",
+          "name": "test_displayed_generation_metrics_equal_stored_record",
+          "type": "failure",
+          "message": "IndexError: list index out of range"
+        },
+        {
+          "classname": "tests.test_v6_7_deeptest_workflow.TestAuthoritativeInventory",
+          "name": "test_node_718_gen_values_come_from_the_stored_record",
+          "type": "failure",
+          "message": "AssertionError: Node #718 (canonical or research identity) must exist in this dataset\nassert []"
+        },
+        {
+          "classname": "tests.test_v6_8_authority_and_workflow.TestNodeDataAuthority",
+          "name": "test_node_718_identity_metrics_and_true_ranking",
+          "type": "failure",
+          "message": "AssertionError: the authority must rank the stored records\nassert []"
+        },
+        {
+          "classname": "tests.test_v5_1a_node_populations",
+          "name": "test_22_api_populations_endpoint_matches_the_module",
+          "type": "failure",
+          "message": "assert 0 > 0"
+        },
+        {
+          "classname": "tests.test_v5_1a_node_populations",
+          "name": "test_23_api_deep_plan_exposes_the_union_and_progress",
+          "type": "failure",
+          "message": "assert 0 >= 1"
+        }
+      ]
+    },
+    "identical_failure_error_identities": true,
+    "new_backend_passed": 26,
+    "new_ui_behaviors_passed": 8,
+    "existing_v103_ui_behaviors_passed": 9,
+    "existing_v102_ui_behaviors_passed": 8,
+    "production_frontend_build": "PASS; existing >500kB chunk warning retained",
+    "existing_focused_suite_passed": 85,
+    "baseline_seconds": 48.88,
+    "modified_seconds": 49.26,
+    "not_full_green": "The identical 17 failures + 4 errors require unavailable real fixtures/nodes/market datasets; no dummy market/research replacement or weakened tests."
+  },
+  "preservation": {
+    "original_files_verified": 462,
+    "protected_files_verified": 61,
+    "mismatches": 0,
+    "original_root": "/home/user/v95-app",
+    "protected_root": "/home/user",
+    "unchanged_DATA_tree": "68225e768709dcd9fb9123642a5164e4e68e79ab",
+    "native_144424_database": "NOT AVAILABLE for certification; protected failed-preflight evidence untouched. No authoritative DATA opened or copied."
+  },
+  "attachment_findings": {
+    "completed_partial_scenarios": 155,
+    "median_per_scenario_persistence_seconds": 17.61,
+    "median_per_scenario_historical_compute_seconds": 1.2,
+    "source_bars": 101678,
+    "processed_bars": 70954,
+    "difference": 30724,
+    "exact_excluded_date_boundaries": "UNPROVEN: requested dates/window evidence absent",
+    "win10054_trace_times": [
+      "15:19:57.266",
+      "15:20:32.322",
+      "16:01:12.287"
+    ],
+    "socket_origin_and_affected_run_ids": "UNPROVEN: Proactor callbacks outside request context",
+    "partial_cause": "confirmed incomplete market coverage, not proven socket reset"
+  },
+  "safety": {
+    "default_deep_test_workers": 1,
+    "generation_parallelism": "not enabled; serial RNG/order preserved",
+    "trade_ceiling": "NONE introduced; 6200 regression and 11985/scenario benchmark, retrieval trade 3001 verified",
+    "durability": "Immediate first trade commit, then 256-row atomic checkpoints; matching retries idempotent, differing/duplicate/unmatched historical evidence refused; exact final row count required",
+    "deletion": "Typed backend confirmation; active/Future/foreign-owner/batch refusal; file guards and deleted-run tombstones; exclusively marked TEMP artifacts only; settings/shared data preserved",
+    "live_testing_projection": "Existing shared DeepTest projection unchanged; no remapping/rebuild",
+    "GPU": "Not implemented/unverified; existing CPU fallback, no CUDA dependencies or GPU utilization claims",
+    "native_procedure": "V10_4_WINDOWS_VALIDATION.md"
+  },
+  "primary_generation_estimate": "generation_repeated_validation: 24 rounds/side. Three-round generation results remain in benchmark_comparison for transparency; final three-round Light was -1.83%, prompting the longer paired validation, not omission of the adverse sample.",
+  "final_backend_source_fingerprint": "384a98b76caec869d6caae38050632a0349687e5e7e1972c624cd342654f47a0"
+}

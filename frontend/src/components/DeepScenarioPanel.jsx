@@ -233,6 +233,20 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scenarios]);
 
+  const deleteScenario=async all=>{
+    const phrase=all?'DELETE ALL DEEPTEST DATA':'DELETE '+selected;
+    const confirmation=window.prompt((all?'Delete ALL saved DeepTest scenarios, trades, preferences and completed DeepTest batch ledgers?':'Delete selected scenario '+selected+' and only its owned records?')+' Nodes, genomes, ancestry, stars, shared market data, caches, live/unrelated backtests and settings are preserved. Active writers cause refusal. Type: '+phrase);
+    if(confirmation!==phrase)return;
+    setBusy(true);setError(null);
+    try{
+      const res=all?await api.deeptestDeleteAll({confirmation}):await api.deeptestDelete({run_id:selected,confirmation});
+      if(!res.ok)throw new Error(res.error||'Deletion refused');
+      setSelected(null);setDetail(null);setTrades(null);setCompare(null);setCompareSel([]);
+      if(onChanged)onChanged();await reload();
+      if(res.artifact_cleanup_errors)throw new Error('Records deleted, but TEMP cleanup was incomplete; inspect retained diagnostics');
+    }catch(e){setError(e);}finally{setBusy(false);}
+  };
+
   const keptNumbers=useMemo(() => filt?.kept_trade_numbers ? new Set(filt.kept_trade_numbers) : null, [filt?.kept_trade_numbers]);
   const tradeRows = useMemo(() => (filtersActive && (!filt || filtBusy || filtError) ? [] : (trades?.trades || [])).filter((t) => {
     // §6.2 — exclusion semantics: keep only trades matching NO active exclusion
@@ -282,6 +296,11 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
         replaced; failed/cancelled runs never displace a valid one.
       </div>
       {error && <div role="alert" className="kit-inline-err">{String(error.message || error)}</div>}
+      <div className="btn-row" style={{marginTop:8}}>
+        <button disabled={busy||!selected} onClick={()=>deleteScenario(false)}>Delete selected scenario…</button>
+        <button disabled={busy} onClick={()=>deleteScenario(true)}>DELETE ALL DEEPTEST DATA…</button>
+        <small>Confirmed DeepTest scope only; active writers must stop first.</small>
+      </div>
       {ownLoading && <div role="status">Loading saved scenarios…</div>}
       {!scenarios.length && !ownLoading && !error && (
         <StateBlock empty emptyText="no DeepTest scenarios yet — pick a period and press DEEPTEST" />

@@ -1,5 +1,6 @@
 """Bounded diagnostics APIs. No database writes or user/market payload capture."""
 import time
+import re
 from fastapi import APIRouter, Body, HTTPException, Query
 from . import speed
 
@@ -56,4 +57,9 @@ class SpeedMiddleware:
             await send(message)
         with speed.span('api.request_through_stream'):
             try:return await self.app(scope,receive,measured_send)
+            except (ConnectionResetError,BrokenPipeError) as exc:
+                match=re.fullmatch(r'/api/deeptest/run/(dt-[A-Za-z0-9-]+)(?:/.*)?',scope.get('path',''))
+                speed.event('transport','client_disconnect','WARN',run_id=match.group(1) if match else None,
+                            fields={'error_type':type(exc).__name__,'operation':'asgi_stream_send'})
+                raise  # transport failure is not a worker cancellation/status mutation
             finally:speed.event('api','response',fields={'bytes':size,**({'status_code':status} if status is not None else {})})

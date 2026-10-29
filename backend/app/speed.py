@@ -23,11 +23,13 @@ import uuid
 _STACK = ContextVar('speed_stack', default=())
 _RUN = ContextVar('speed_run', default=None)
 _SUPPRESS = ContextVar('speed_suppressed', default=False)
-_NUMBERS = {'target','starting_count','persisted_count','persisted_delta','batch_size','eligible_bars','processed_bars','trades','bytes','queue_seconds','status_code','node_id','sample_ms','request_ms','render_ms','rows','worker_pid','configured_workers','effective_workers','parent_pid','dispatch_span_id','worker_cpu_seconds','compute_wall_seconds'}
+_NUMBERS = {'source_bars','excluded_before_window','excluded_after_window','requested_start_ts','requested_end_ts','actual_start_ts','actual_end_ts','target','starting_count','persisted_count','persisted_delta','batch_size','eligible_bars','processed_bars','trades','bytes','queue_seconds','status_code','node_id','sample_ms','request_ms','render_ms','rows','worker_pid','configured_workers','effective_workers','parent_pid','dispatch_span_id','worker_cpu_seconds','compute_wall_seconds'}
 _ENUMS = {'state','error_type','profile','operation','scope','dispatch_span_id'}
 
+_SAFE_NAME=re.compile(r'[A-Za-z0-9_.:-]{1,96}')
+_FORBIDDEN=re.compile(r'(ghp_|github_pat_|sk-|Bearer|password|secret|token)',re.I)
 def safe_id(value):
-    return value if isinstance(value,str) and re.fullmatch(r'[A-Za-z0-9_.:-]{1,96}',value) and not re.search(r'(ghp_|github_pat_|sk-|Bearer|password|secret|token)',value,re.I) else None
+    return value if isinstance(value,str) and _SAFE_NAME.fullmatch(value) and not _FORBIDDEN.search(value) else None
 
 def safe_fields(values):
     out={}
@@ -159,7 +161,7 @@ class Profiler:
                 rows.append(row)
             elapsed=max(0,now-self.started);c=dict(self.counters)
             rates={key:{'count':c.get(name,0),'per_second':c.get(name,0)/max(elapsed,1e-9),'unit':key+'/second'} for key,name in [('candidate_attempts','candidates.attempted'),('persisted_nodes','candidates.persisted'),('processed_bars','backtest.processed_bars'),('completed_trades','backtest.trades')]}
-            result={'schema_version':1,'profiler_version':'V10.3','snapshot_id':uuid.uuid4().hex,'generated_at':time.time(),'session_id':self.session,
+            result={'schema_version':1,'profiler_version':'V10.4','snapshot_id':uuid.uuid4().hex,'generated_at':time.time(),'session_id':self.session,
                 'window':{'started_at':self.wall_started,'elapsed_seconds':elapsed,'scope':'aggregate metrics since process session start; events bounded separately'},
                 'recording':{'profile':self.profile,'active':active,'detailed_remaining_seconds':max(0,self.deadline-now) if self.deadline else None,'sampling_interval_seconds':self.interval,'hot_stage_sample_every':1 if self.profile=='detailed' else self.sample_every,'retention_capacity':self.capacity},
                 'runtime':runtime,'counters':c,'errors_retries_cancellations':{'error_event_count':c.get('events.ERROR',0),'warning_event_count':c.get('events.WARN',0),'retry_reseeds':c.get('candidates.retry_reseeds',0),'cancellation_scope':'See deeptest CANCELLED phase events; observations are not asserted unique runs','failed_stage_calls_scope':'Stage failures are nested observations, not unique incidents'},'throughput':{**rates,'completed_tests_per_minute':{'count':c.get('backtest.completed_tests',0),'value':60*c.get('backtest.completed_tests',0)/max(elapsed,1e-9),'unit':'tests/minute'}},'stages':rows,'workers':copy.deepcopy(self.workers),
@@ -418,7 +420,8 @@ def install_logging():
         if _WARNING_HANDLER is not None:return
         class Warnings(logging.Handler):
             def emit(self,record):
-                event('logging','error' if record.levelno>=logging.ERROR else 'warning','ERROR' if record.levelno>=logging.ERROR else 'WARN')
+                fields={'error_type':record.exc_info[0].__name__} if record.exc_info and record.exc_info[0] else {}
+                event('logging','error' if record.levelno>=logging.ERROR else 'warning','ERROR' if record.levelno>=logging.ERROR else 'WARN',fields=fields)
                 count('logging.errors' if record.levelno>=logging.ERROR else 'logging.warnings')
         root=logging.getLogger()
         for handler in root.handlers:

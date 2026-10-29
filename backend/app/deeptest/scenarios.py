@@ -43,6 +43,7 @@ _executor = ScenarioExecutor()
 _CANCELS: set = set()
 _LOCK = threading.Lock()
 _REQUEST_LOCK=threading.RLock()
+_FUTURES={}
 
 
 def settings_fingerprint(settings: Dict[str, Any]) -> str:
@@ -406,8 +407,10 @@ def _start_run_locked(db: Any, payload: Dict[str, Any]) -> Dict[str, Any]:
     if payload.get('_progress_callback'):CALLBACKS[run_id]=payload['_progress_callback']
     try:
         future = _executor.submit(_execute, run_id)
+        with _LOCK:_FUTURES[run_id]=future
         if hasattr(future,'add_done_callback'):
             def queue_finished(future):
+                with _LOCK:_FUTURES.pop(run_id,None)
                 if future.cancelled():
                     CALLBACKS.pop(run_id,None)
                     S.update_scenario(db,run_id,status='CANCELLED',finished_at=time.time(),
@@ -523,11 +526,11 @@ def _execute_body(run_id: str) -> None:
                 import pyarrow.feather as feather
                 view = session.path / 'market.arrow'
                 feather.write_feather(frame, view, compression='uncompressed')
+                view_note=f'system TEMP Arrow IPC ({view.stat().st_size} bytes)'
             else:
-                view = session.path / 'source-view.parquet'
-                frame.to_parquet(view,index=False)
+                view_note='memory; redundant serial TEMP encoding omitted'
             execution['frame'] = frame
-            session.update('DATA_READY',f'Consistent single-timeframe view prepared in system TEMP ({view.stat().st_size} bytes)',node_id=node['node_id'])
+            session.update('DATA_READY',f'Consistent single-timeframe view prepared in {view_note}',node_id=node['node_id'])
             cov = pair_coverage(symbol,timeframe)
             session.update('VALIDATING_COVERAGE', f'{symbol}/{timeframe}: {len(frame)} source bars, stored coverage inspected', node_id=node['node_id'])
             if sc.get('dataset_fingerprint') and sc['dataset_fingerprint']!=cov.get('fingerprint'):
@@ -560,6 +563,8 @@ def _execute_body(run_id: str) -> None:
                               error=str(result.get("error"))[:500])
             return
 
+        from ..speed import event
+        event('deeptest','window_accounting',run_id=run_id,fields={'source_bars':len(frame),'eligible_bars':hi-lo,'processed_bars':result['metrics'].get('bars_processed',hi-lo),'excluded_before_window':lo,'excluded_after_window':len(frame)-hi,'requested_start_ts':req_start,'requested_end_ts':req_end,'actual_start_ts':float(ts[lo]),'actual_end_ts':float(ts[hi-1])})
         metrics = result["metrics"]
         trades = result["trades"]
         summary = A.summarize(trades, initial_capital=float(settings["total_capital"]))
@@ -624,6 +629,7 @@ def _execute_body(run_id: str) -> None:
                 return
             if not S.finish_if_running(db,run_id,status='PARTIAL' if coverage_state == 'PARTIAL' else 'COMPLETED'):
                 return
+        if coverage_state=='PARTIAL':event('deeptest','partial_coverage','WARN',run_id=run_id,fields={'operation':'confirmed_incomplete_coverage','eligible_bars':hi-lo,'trades':len(trades)})
         session.update('COMPLETED', f'Real metrics and {len(trades)} trades durably persisted ({coverage_state})', node_id=node['node_id'])
     except Exception as e:  # noqa: BLE001 — a failed run must persist its failure
         if was_cancelled():

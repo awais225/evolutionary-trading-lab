@@ -1,0 +1,8 @@
+{
+  "nodes_index": "3f88482ae2423bc1bdc59e43530d4d047bb106eff6a40136cc49ece119d4b282",
+  "files": {
+    "frontend/src/components/HistoricalStatistics.jsx": "ce8c618230f711d0a2263c71fd138a4f830aa987e93881d90d52dd48ec89a554",
+    "backend/app/live_testing/results.py": "f9f88f8c6ee242c2f95321cc7ff97fa4868f9266e60803a4b3b4504838303f10",
+    "frontend/src/pages/LiveTesting.jsx": "e247b2dfe696e4461998decc47ed714514d8f43bc308468fbd1fd56e3488fcf6"
+  }
+}
