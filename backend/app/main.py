@@ -62,6 +62,9 @@ class DashboardStaticFiles(StaticFiles):
 app = FastAPI(title="Evolutionary Trading Research Lab", version=APP_VERSION,
               # V4.7: no handler can ever return invalid JSON / NaN / a raw object
               default_response_class=SafeJSONResponse)
+from .speed_api import SpeedMiddleware, router as speed_router
+app.include_router(speed_router)
+app.add_middleware(SpeedMiddleware)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False,
                    allow_methods=["*"], allow_headers=["*"])
 app.include_router(router)
@@ -325,6 +328,9 @@ async def shutdown() -> None:
     shutdown_deep_batches()
     deep_scenarios.shutdown()
     shutdown_deep_processes()
+    from .speed import PROFILER
+    try:PROFILER.shutdown()
+    except Exception:pass
     from .lease import get_lease_manager
     get_lease_manager().release()
     # V5 §10: keep the session record for the report, but mark it closed so a
@@ -398,6 +404,17 @@ def _health_payload(api_style: bool = False) -> tuple[dict, int]:
         "data_feed": mon["data_feed"],
     })
     return body, http_code
+
+
+@app.on_event("startup")
+async def start_speed_sampler():
+    from .speed import PROFILER
+    from .speed import install_logging
+    try:
+        PROFILER.runtime()
+        install_logging()
+        PROFILER.start_sampler()
+    except Exception:pass
 
 
 @app.middleware('http')

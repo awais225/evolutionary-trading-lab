@@ -95,27 +95,45 @@ def capture(name):
         if allowed:_CAPTURE_COUNT+=1
     if not allowed:
         yield None;return
-    trace=Trace(name);token=_CURRENT.set(trace)
+    try:trace=Trace(name)
+    except Exception:
+        yield None;return
+    token=_CURRENT.set(trace)
     try:yield trace
     finally:
-        _CURRENT.reset(token);trace.close()
+        _CURRENT.reset(token)
+        try:trace.close()
+        except Exception:pass
 
 
 @contextmanager
 def _timed(trace, name):
     begun=time.perf_counter()
     try:yield
-    finally:trace.record(name,time.perf_counter()-begun)
+    finally:
+        try:trace.record(name,time.perf_counter()-begun)
+        except Exception:pass
 
 
+@contextmanager
 def measure(name):
+    from .speed import span
     trace=current()
-    return _timed(trace,name) if trace is not None else nullcontext()
+    with span(name, hot=True):
+        with (_timed(trace,name) if trace is not None else nullcontext()):
+            yield
+            if name in ("candidate.random_construction","candidate.mutation","candidate.crossover"):
+                from .speed import count as speed_count
+                speed_count("candidates.constructed")
 
 
 def count(name, amount=1):
     trace=current()
-    if trace is not None:trace.count(name,amount)
+    if trace is not None:
+        try:trace.count(name,amount)
+        except Exception:pass
+    from .speed import count as speed_count
+    speed_count(name,amount)
 
 
 def traced(name):
@@ -124,7 +142,10 @@ def traced(name):
     def decorate(function):
         @wraps(function)
         def invoke(*args,**kwargs):
-            if os.environ.get('LAB_V102_TRACE')!='1':return function(*args,**kwargs)
+            if os.environ.get('LAB_V102_TRACE')!='1':
+                from .speed import span
+                with span(name, run_id=getattr(args[0] if args else None,'active_run_id',None)):
+                    return function(*args,**kwargs)
             with capture(name):
                 with measure(name+'.total'):return function(*args,**kwargs)
         return invoke

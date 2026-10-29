@@ -18,6 +18,7 @@ V2 enhancements:
 """
 from __future__ import annotations
 
+from ..speed import profiled
 import itertools
 import json
 import logging
@@ -343,6 +344,8 @@ class Lab:
         }
 
     def _publish_state(self, action: str) -> None:
+        from ..speed import event
+        event("generation", "state_change", fields={"state": action, "operation": self.execution_state})
         bus.publish("lab_state", {"action": action, **self.status()})
         self.db.log_event("lab_" + action, {"mode": self.mode})
 
@@ -404,10 +407,13 @@ class Lab:
                 self._ensure_pool()
             return self._pool_workers
 
+    @profiled('backtest.batch', hot=False)
     def _run_batch(self, payloads: List[Dict], timeout: float = 240.0) -> List[Dict]:
         """Run backtests in parallel obeying configured CPU & memory limits."""
         if not payloads:
             return []
+        from ..speed import dispatch
+        payloads=[dispatch(p, getattr(self.evo,"active_run_id",None)) for p in payloads]
 
         rm = get_resource_manager()
         # Memory budget gate (spec §28) - scale to concurrent worker footprint
@@ -470,6 +476,8 @@ class Lab:
             finally:
                 rm.update_job_counts(running=0, queued=0, active_workers=0)
 
+        from ..speed import collect_result
+        results=[collect_result(r) for r in results]
         t_compute = time.perf_counter() - t0
 
         # Record task completion metrics for throughput and duration telemetry (V3.5 Phase 2)
@@ -740,6 +748,7 @@ class Lab:
             self.evo.emit_stop_diagnostic("NODE GENERATION STOPPED UNEXPECTEDLY", recovery_action="Click Start to resume research loop")
             activity.warning("SYSTEM", "NODE GENERATION STOPPED UNEXPECTEDLY")
 
+    @profiled('orchestration.tick', hot=True)
     def _tick(self) -> None:
         self._cycle += 1
         self.counters["cycles"] += 1
@@ -1373,6 +1382,7 @@ class Lab:
             log.exception("[FEATURE] Precompute %s failed: %s", dataset_id, e)
             activity.error("FEATURES", f"Precompute {dataset_id} failed: {e}", operation_id=op_id)
 
+    @profiled('generation.recovery', hot=True)
     def _recover_stuck_strategies(self, force: bool = False) -> None:
         """Idempotent recovery of crashed/interrupted strategies with distinct RECOVERY ID."""
         import uuid
@@ -1432,6 +1442,7 @@ class Lab:
         )
 
     # ---------------- population ----------------
+    @profiled('generation.controller', hot=False)
     def _ensure_population(self) -> None:
         if not self._datasets_ready or getattr(self, "_research_blocked", False):
             return
@@ -1441,6 +1452,8 @@ class Lab:
         target = self.evo.get_total_node_target()
 
         if self.evo.is_target_reached():
+            from ..speed import event
+            event("generation", "target_reached",run_id=self.evo.active_run_id,fields={"target":target,"persisted_count":cur_nodes})
             self.evo.emit_stop_diagnostic("NODE GENERATION STOPPED: TARGET REACHED", recovery_action="Increase TOTAL NODES target to continue")
             log.info("[RESEARCH] Node target ceiling reached (%d strategies). New strategy creation safely halted.",
                      target)
@@ -1461,6 +1474,8 @@ class Lab:
         eff_workers = rm.effective_workers()
         target_batch = max(30, getattr(cfg, "population_size", 30), eff_workers * 20)
         remaining_target = max(0, target - cur_nodes)
+        from ..speed import event
+        event("generation", "batch_requested", run_id=self.evo.active_run_id, fields={"target":target,"starting_count":cur_nodes,"batch_size":target_batch,"effective_workers":eff_workers})
 
         if cur_nodes == 0:
             seed_count = min(target_batch, remaining_target)

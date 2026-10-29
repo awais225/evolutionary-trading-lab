@@ -85,7 +85,12 @@ class ScenarioExecutor:
             if self.pending >= width * 2:
                 raise RuntimeError('DeepTest queue full; bounded to twice active worker capacity')
             self.pending += 1
-            try:future = self.pool.submit(function, *args)
+            submitted = time.perf_counter()
+            def measured_job():
+                from ..speed import duration, span
+                duration('queue.scheduling_delay',time.perf_counter()-submitted)
+                with span('queue.dispatched_task',run_id=args[0] if args and isinstance(args[0],str) else None):return function(*args)
+            try:future = self.pool.submit(measured_job)
             except BaseException:
                 self.pending -= 1
                 raise
@@ -128,7 +133,7 @@ def reserve_memory(frame=None, *, source_rows=None):
         with _LOCK:_RESERVED_BYTES -= estimate
 
 
-def _worker(req, source_path, result_path, cancel_path, progress_path, backtest_cfg, risk_cfg, submitted):
+def _worker(req, source_path, result_path, cancel_path, progress_path, backtest_cfg, risk_cfg, submitted, speed_config=None):
     """Small request + immutable IPC file; never pickle a full market frame."""
     from .runtime import scratch_backtest
     from ..config import LabConfig
@@ -136,9 +141,13 @@ def _worker(req, source_path, result_path, cancel_path, progress_path, backtest_
     import psutil
     cfg = LabConfig()
     cfg.backtest, cfg.risk = backtest_cfg, risk_cfg
+    from .. import speed
+    speed.prepare_worker(speed_config)
     begun = time.perf_counter()
     cpu_started = time.process_time()
-    frame = feather.read_feather(source_path, memory_map=True, use_threads=False)
+    speed.event('worker','started',fields={'worker_pid':os.getpid(),'parent_pid':(speed_config or {}).get('parent_pid'),'dispatch_span_id':(speed_config or {}).get('dispatch_span_id'),'queue_seconds':begun-submitted})
+    with speed.span('data.worker_ipc_read'):
+        frame = feather.read_feather(source_path, memory_map=True, use_threads=False)
     def update(processed, eligible, trades):
         temporary = Path(str(progress_path) + '.tmp')
         temporary.write_text(json.dumps(dict(bars_processed=processed, eligible_bars=eligible,
@@ -148,8 +157,9 @@ def _worker(req, source_path, result_path, cancel_path, progress_path, backtest_
                               configuration=cfg, cancelled=lambda:Path(cancel_path).exists(), progress=update)
     # Trusted owned scratch only; complete result stays on disk until the parent
     # consumes it. Large trade lists are not copied through the executor pipe.
-    with Path(result_path).open('xb') as stream:pickle.dump(result, stream, protocol=5)
-    return dict(worker_pid=os.getpid(), queue_wait_seconds=begun-submitted,
+    with speed.span('serialization.worker_ipc_write'):
+        with Path(result_path).open('xb') as stream:pickle.dump(result, stream, protocol=5)
+    return dict(speed_profile=speed.worker_report(),worker_pid=os.getpid(), queue_wait_seconds=begun-submitted,
                 compute_wall_seconds=time.perf_counter()-begun,
                 worker_cpu_seconds=time.process_time()-cpu_started,
                 worker_rss_bytes=psutil.Process().memory_info().rss,
@@ -160,6 +170,7 @@ def execute(req, frame, session, cancelled, phase):
     global _PROCESS_POOL, _POOL_SIZE
     import pyarrow.feather as feather
     from ..config import get_config
+    from ..speed import worker_config as speed_worker_config
     from ..backtest.symbol_specs import execution_params_for
     width = worker_limit()
     if width <= 1:raise RuntimeError('Process path requires explicit deep_test_workers > 1')
@@ -181,12 +192,18 @@ def execute(req, frame, session, cancelled, phase):
                 _PROCESS_POOL = ProcessPoolExecutor(max_workers=width, mp_context=multiprocessing.get_context('spawn'))
                 _POOL_SIZE = width
             future = _PROCESS_POOL.submit(_worker, req, str(source), str(result), str(cancel), str(progress),
-                                          copy.deepcopy(cfg.backtest), copy.deepcopy(cfg.risk), time.perf_counter())
+                                          copy.deepcopy(cfg.backtest), copy.deepcopy(cfg.risk), time.perf_counter(), speed_worker_config())
         latest = None
         while True:
             try:
                 details = future.result(timeout=0.2)
                 from ..performance import current
+                from ..speed import ingest_worker, duration
+                ingest_worker(details.pop("speed_profile",{}))
+                duration("worker.queue_delay",details["queue_wait_seconds"],pid=details["worker_pid"])
+                from ..speed import event as speed_event, count as speed_count
+                speed_count('worker.cpu_seconds',details.get('worker_cpu_seconds',0))
+                speed_event('worker','completed',fields={'worker_pid':details.get('worker_pid'),'worker_cpu_seconds':details.get('worker_cpu_seconds'),'compute_wall_seconds':details.get('compute_wall_seconds'),'queue_seconds':details.get('queue_wait_seconds')})
                 observer = current()
                 if observer is not None:
                     observer.record('worker.queue_wait',details['queue_wait_seconds'])

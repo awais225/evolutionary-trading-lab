@@ -16,6 +16,7 @@ creation_reason, origin, hypothesis_id).
 """
 from __future__ import annotations
 
+from ..speed import profiled
 import logging
 import os
 import random
@@ -507,6 +508,7 @@ class EvolutionEngine:
             else:
                 # Collision detected: inject dynamic entropy/salt to escape deterministic duplicate loop
                 self._entropy_counter += 1
+                count('candidates.retry_reseeds')
                 salt = (int(time.time() * 1000) ^ os.getpid() ^ (self._entropy_counter << 16)) & 0x7FFFFFFF
                 self._rng = random.Random(salt)
         return created
@@ -608,19 +610,23 @@ class EvolutionEngine:
         if sid is not None:count('candidates.persisted')
 
         # Invalidate cached node state so next poll gets fresh state
-        self._cached_node_state = None
-        self._cached_node_state_time = 0.0
-        self._cached_node_state_user = None
-        self._cached_node_state_user_time = 0.0
+        with measure("candidate.cache_invalidation"):
+            self._cached_node_state = None
+            self._cached_node_state_time = 0.0
+            self._cached_node_state_user = None
+            self._cached_node_state_user_time = 0.0
 
         # Mirror to RESEARCH/strategies/ (spec §10)
         try:
-            export.export_strategy(sid, {**record, "id": sid})
+            with measure("candidate.export"):
+                export.export_strategy(sid, {**record, "id": sid})
         except Exception as e:
             log.warning("failed to export strategy #%s: %s", sid, e)
 
         # Explicit node-generation state logging (User Spec §2)
         cur_after = cur_nodes + 1
+        from ..speed import event
+        if sid is not None:event("generation","node_persisted",run_id=record.get("run_id"),fields={"target":target,"starting_count":cur_nodes,"persisted_count":cur_after,"persisted_delta":1,"node_id":sid})
         rem_after = max(0, target - cur_after)
         parent_label = f"Node_{parent_id}" if parent_id else "None"
         log.info("[NODE] Target=%d Current=%d Remaining=%d Generation=%d", target, cur_after, rem_after, generation)
@@ -660,6 +666,7 @@ class EvolutionEngine:
                 break
         return chosen
 
+    @profiled('candidate.selection', hot=True)
     def _tournament_parent(self, pool: List[Dict]) -> Dict:
         cfg = get_config()
         k = min(cfg.evolution.tournament_size, len(pool))
@@ -779,6 +786,7 @@ class EvolutionEngine:
                 if sid is None:
                     counts["duplicate"] += 1
                     self._entropy_counter += 1
+                    count('candidates.retry_reseeds')
                     salt = (int(time.time() * 1000) ^ os.getpid() ^ (self._entropy_counter << 16)) & 0x7FFFFFFF
                     self._rng = random.Random(salt)
                 else:
@@ -803,6 +811,7 @@ class EvolutionEngine:
             if sid is None:
                 counts["duplicate"] += 1
                 self._entropy_counter += 1
+                count('candidates.retry_reseeds')
                 salt = (int(time.time() * 1000) ^ os.getpid() ^ (self._entropy_counter << 16)) & 0x7FFFFFFF
                 self._rng = random.Random(salt)
             else:
@@ -832,6 +841,7 @@ class EvolutionEngine:
                 if sid is None:
                     counts["duplicate"] += 1
                     self._entropy_counter += 1
+                    count('candidates.retry_reseeds')
                     salt = (int(time.time() * 1000) ^ os.getpid() ^ (self._entropy_counter << 16)) & 0x7FFFFFFF
                     self._rng = random.Random(salt)
                 else:

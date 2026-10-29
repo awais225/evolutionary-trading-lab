@@ -12,6 +12,7 @@ itself. Cache layers:
 """
 from __future__ import annotations
 
+from ..speed import profiled
 import logging
 import os
 import threading
@@ -151,6 +152,7 @@ class FeatureEngine:
         while len(self._cache) > MAX_CACHE_ENTRIES:
             self._cache.popitem(last=False)
 
+    @profiled('indicators.get', hot=True)
     def get(self, dataset_id: str, spec: str) -> np.ndarray:
         """Get one feature array by output name (e.g. 'rsi:14', 'ema:20')."""
         key = (dataset_id, spec)
@@ -227,6 +229,7 @@ class FeatureEngine:
             raise KeyError(f"unknown feature family {family}")
         return self._compute_spec(df, dataset_id, base)
 
+    @profiled('indicators.compute', hot=True)
     def _compute_spec(self, df: pd.DataFrame, dataset_id: str, spec: str) -> Dict[str, np.ndarray]:
         fn, args = library.parse_spec(spec)
         current_algo_hash = algo_hash(fn)
@@ -279,6 +282,7 @@ class FeatureEngine:
         self._persist(dataset_id, out, current_algo_hash)
         return out
 
+    @profiled('indicators.persist', hot=True)
     def _persist(self, dataset_id: str, out: Dict[str, np.ndarray], current_algo_hash: str, force: bool = False) -> None:
         """Append/update feature arrays and persist metadata in SQLite & DATA/features/."""
         if not force and os.environ.get("LAB_NO_FEATURE_PERSIST"):

@@ -13,6 +13,7 @@ Operational event stream for real-time dashboard visibility:
 """
 from __future__ import annotations
 
+from ..speed import profiled
 import logging
 import threading
 import time
@@ -79,6 +80,7 @@ class ActivityManager:
             }
         bus.publish("current_task", self.get_current_task())
 
+    @profiled('activity.emit', hot=True)
     def emit(
         self,
         level: str,

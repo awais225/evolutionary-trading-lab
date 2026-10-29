@@ -5523,7 +5523,9 @@ def deeptest_run_get(run_id: str, trades_sample: int = 20):
     sc = S.get_scenario(db, run_id)
     if not sc:
         raise HTTPException(status_code=404, detail=f"unknown run {run_id}")
-    sample = S.list_trades(db, run_id, limit=max(0, min(int(trades_sample), 500)))
+    from ..speed import span
+    with span("api.deeptest_detail_preparation",hot=True):
+        sample = S.list_trades(db, run_id, limit=max(0, min(int(trades_sample), 500)))
     return {"ok": True, "scenario": sc, "trades_sample": sample}
 
 
@@ -5550,6 +5552,12 @@ def deeptest_run_export(run_id: str):
     fields = ['id','run_id','trade_no','side','symbol','entry_ts','entry_price','exit_ts','exit_price',
               'volume','sl','tp','exit_reason','hold_seconds','gross_pnl','net_pnl','commission','spread_cost','slippage_cost','swap_cost','session','dow','meta']
     def chunks():
+        import time
+        from ..speed import duration
+        begin=time.perf_counter()
+        try:yield from csv_chunks()
+        finally:duration('serialization.csv_stream_wall',time.perf_counter()-begin)
+    def csv_chunks():
         output=io.StringIO();writer=csv.DictWriter(output,fieldnames=fields,extrasaction='ignore')
         writer.writeheader();yield output.getvalue();output.seek(0);output.truncate(0)
         offset=0

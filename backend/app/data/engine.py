@@ -13,6 +13,7 @@ V1 datasets are recognized and reused without re-download (spec §3, §45).
 """
 from __future__ import annotations
 
+from ..speed import profiled
 import logging
 import threading
 import time
@@ -799,6 +800,7 @@ class DataEngine:
                 while len(self._generation_views)>64: self._generation_views.pop(next(iter(self._generation_views)))
             return self._generation_views[key]
 
+    @profiled('data.load_frame', hot=True)
     def get_frame(self, dataset_id: str) -> pd.DataFrame:
         """Retrieve dataset DataFrame, checking memory -> disk -> master store -> legacy."""
         with self._lock:

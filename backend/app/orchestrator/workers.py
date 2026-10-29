@@ -6,6 +6,7 @@ initializer.
 """
 from __future__ import annotations
 
+from ..speed import profiled, worker_task
 import os
 from typing import Any, Dict
 
@@ -16,6 +17,8 @@ def init_worker() -> None:
     logging.getLogger("features.engine").setLevel(logging.WARNING)
 
 
+@worker_task
+@profiled('worker.backtest', hot=False)
 def bt_worker(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Run one backtest in a worker process. Payload mirrors BacktestRequest."""
     try:

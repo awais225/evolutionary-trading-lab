@@ -18,6 +18,7 @@ displaces a valid one; an explicit preference is never silently replaced.
 """
 from __future__ import annotations
 
+from ..speed import profiled
 import hashlib
 import json
 import threading
@@ -419,6 +420,7 @@ def _start_run_locked(db: Any, payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"ok": True, "run_id": run_id, "scenario": S.get_scenario(db, run_id)}
 
 
+@profiled('deeptest.cancel_request', hot=False)
 def cancel_run(db: Any, run_id: str) -> Dict[str, Any]:
     sc = S.get_scenario(db, run_id)
     if not sc:
@@ -435,6 +437,7 @@ def cancel_run(db: Any, run_id: str) -> Dict[str, Any]:
     return {"ok": True, "run_id": run_id, "status": "CANCELLED"}
 
 
+@profiled('deeptest.run', hot=False, run_arg=0)
 def _execute(run_id: str) -> None:
     from .runtime import Session, CURRENT, CALLBACKS, exception
     from ..db.database import get_db
@@ -738,6 +741,7 @@ def _run_strategy(db: Any, node: Dict[str, Any], dataset_id: str,
             "assumptions": assumptions, "engine_versions": engine_versions}
 
 
+@profiled('deeptest.normalize_trades', hot=False)
 def _normalize_trades(raw_trades: List[Dict[str, Any]], settings: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Map engine trades onto the §11 trade-level schema (costs broken out)."""
     out = []

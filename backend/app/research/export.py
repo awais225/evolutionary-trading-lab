@@ -19,6 +19,7 @@ RESEARCH/ contains human-readable exports and complete time-series Parquets:
 """
 from __future__ import annotations
 
+from ..speed import profiled
 import json
 import logging
 from pathlib import Path
@@ -40,6 +41,7 @@ def _safe_json_dump(obj: Any, path: Path) -> None:
     tmp.replace(path)
 
 
+@profiled('export.strategy', hot=True)
 def export_strategy(strategy_id: int, data: Dict[str, Any]) -> Path:
     """Export strategy record to RESEARCH/strategies/strategy_000001.json."""
     p = P.RESEARCH_DIR / "strategies" / f"strategy_{strategy_id:06d}.json"
@@ -61,6 +63,7 @@ def export_experiment(fingerprint: str, data: Dict[str, Any]) -> Path:
     return p
 
 
+@profiled('export.backtest', hot=False)
 def export_backtest(
     strategy_id: int,
     metrics: Dict[str, Any],
@@ -91,6 +94,7 @@ def export_backtest(
     return base
 
 
+@profiled('export.validation', hot=True)
 def export_validation(strategy_id: int, data: Dict[str, Any]) -> Path:
     """Export validation report to RESEARCH/validations/strategy_000001.json."""
     p = P.RESEARCH_DIR / "validations" / f"strategy_{strategy_id:06d}.json"

@@ -1,0 +1,152 @@
+{
+  "feature": "V10.3 SPEED LOG and complete one-click copy",
+  "base_sha": "f5935f335ad53ddc5d329a165821cf367f196000",
+  "environment": "Isolated Linux/Python 3.13, explicit external DATA_ROOT/TEMP; no authoritative generation, research campaign, broker or native Windows validation",
+  "focused_tests": {
+    "new_diagnostics": 19,
+    "existing_v102_processing": 48,
+    "existing_v102_dashboard": 18,
+    "total_passed": 85
+  },
+  "expanded_modified": {
+    "total": 364,
+    "passed": 343,
+    "failed": 17,
+    "errors": 4,
+    "skipped": 0,
+    "failure_ids": [
+      "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_unlimited_concurrent_never_forces_early_exits",
+      "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_cap_of_n_entries_only",
+      "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_initial_balance_and_risk_pct_sizing",
+      "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_amount_mode_sizes_from_money_at_risk",
+      "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_offsets_follow_the_v65_convention",
+      "tests.test_v6_6_deeptest.TestScenarios::test_incomplete_history_requires_the_confirmation",
+      "tests.test_v6_6_deeptest.TestScenarios::test_full_coverage_proceeds_without_the_popup",
+      "tests.test_v6_6_deeptest.TestScenarios::test_idempotent_replay_returns_the_same_scenario",
+      "tests.test_v6_6_deeptest.TestScenarios::test_partial_runs_are_marked_and_never_called_complete",
+      "tests.test_v6_6_deeptest.TestProjection::test_node_index_carries_the_projection_fields",
+      "tests.test_v6_6_deeptest.TestApi::test_preflight_run_flow_with_confirmation",
+      "tests.test_v6_7_deeptest_workflow.TestAuthoritativeInventory::test_full_dataset_metric_sorting_missing_never_best",
+      "tests.test_v6_7_deeptest_workflow.TestAuthoritativeInventory::test_displayed_generation_metrics_equal_stored_record",
+      "tests.test_v6_7_deeptest_workflow.TestAuthoritativeInventory::test_node_718_gen_values_come_from_the_stored_record",
+      "tests.test_v6_8_authority_and_workflow.TestNodeDataAuthority::test_node_718_identity_metrics_and_true_ranking",
+      "tests.test_v5_1a_node_populations::test_22_api_populations_endpoint_matches_the_module",
+      "tests.test_v5_1a_node_populations::test_23_api_deep_plan_exposes_the_union_and_progress"
+    ],
+    "error_ids": [
+      "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_unset_fields_reproduce_the_default_behaviour",
+      "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_max_active_one_equals_default_gate",
+      "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_one_open_trade_at_a_time_is_enforced",
+      "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_execution_model_and_schedule_meta_documented"
+    ]
+  },
+  "expanded_untouched_base": {
+    "total": 345,
+    "passed": 324,
+    "failed": 17,
+    "errors": 4,
+    "skipped": 0,
+    "failure_ids": [
+      "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_unlimited_concurrent_never_forces_early_exits",
+      "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_cap_of_n_entries_only",
+      "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_initial_balance_and_risk_pct_sizing",
+      "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_amount_mode_sizes_from_money_at_risk",
+      "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_offsets_follow_the_v65_convention",
+      "tests.test_v6_6_deeptest.TestScenarios::test_incomplete_history_requires_the_confirmation",
+      "tests.test_v6_6_deeptest.TestScenarios::test_full_coverage_proceeds_without_the_popup",
+      "tests.test_v6_6_deeptest.TestScenarios::test_idempotent_replay_returns_the_same_scenario",
+      "tests.test_v6_6_deeptest.TestScenarios::test_partial_runs_are_marked_and_never_called_complete",
+      "tests.test_v6_6_deeptest.TestProjection::test_node_index_carries_the_projection_fields",
+      "tests.test_v6_6_deeptest.TestApi::test_preflight_run_flow_with_confirmation",
+      "tests.test_v6_7_deeptest_workflow.TestAuthoritativeInventory::test_full_dataset_metric_sorting_missing_never_best",
+      "tests.test_v6_7_deeptest_workflow.TestAuthoritativeInventory::test_displayed_generation_metrics_equal_stored_record",
+      "tests.test_v6_7_deeptest_workflow.TestAuthoritativeInventory::test_node_718_gen_values_come_from_the_stored_record",
+      "tests.test_v6_8_authority_and_workflow.TestNodeDataAuthority::test_node_718_identity_metrics_and_true_ranking",
+      "tests.test_v5_1a_node_populations::test_22_api_populations_endpoint_matches_the_module",
+      "tests.test_v5_1a_node_populations::test_23_api_deep_plan_exposes_the_union_and_progress"
+    ],
+    "error_ids": [
+      "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_unset_fields_reproduce_the_default_behaviour",
+      "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_max_active_one_equals_default_gate",
+      "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_one_open_trade_at_a_time_is_enforced",
+      "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_execution_model_and_schedule_meta_documented"
+    ]
+  },
+  "expanded_failure_sets_identical": true,
+  "known_shutdown_scheduling_race": {
+    "unchanged_baseline_stress_passed": 18,
+    "unchanged_baseline_stress_failed": 2,
+    "stress": "20 calls to unchanged test/fixtures with isolated Python switch interval 1 microsecond; restored after each call",
+    "note": "Intermittent assertion also appeared during modified validation; final focused/expanded runs passed it. Production stopping logic and test assertions unchanged."
+  },
+  "frontend": {
+    "build": "PASS",
+    "build_seconds": 4.83,
+    "existing_large_bundle_warning": true,
+    "new_speed_ui_checks_passed": 9,
+    "existing_dashboard_ui_checks_passed": 8,
+    "existing_UI_contract_suites_in_expanded_regressions": "PASS"
+  },
+  "overhead": {
+    "scope": "isolated Linux synthetic 6200-bar real Backtester; >6000 trades; nine rotated repetitions; no database, resource sampler or real market; not speedup evidence",
+    "python": "3.13.16",
+    "times_seconds": {
+      "off": [
+        0.181159690999948,
+        0.2210664330000327,
+        0.18428090299994437,
+        0.22025812899983066,
+        0.18121466299999156,
+        0.19261226100002204,
+        0.18940681599997333,
+        0.20194052200008628,
+        0.17845744500004912
+      ],
+      "light": [
+        0.1855228790000183,
+        0.18607372500014208,
+        0.18712228999993386,
+        0.20814988500001164,
+        0.19630235800013907,
+        0.2019302900000639,
+        0.22242237800014664,
+        0.18990695899992716,
+        0.19596090100003494
+      ],
+      "detailed": [
+        0.18665575199997875,
+        0.18500102300004073,
+        0.19794072899981074,
+        0.19883546200003366,
+        0.2156929919999584,
+        0.21204134699996757,
+        0.23169024799994986,
+        0.24761846599994897,
+        0.19620385100006388
+      ]
+    },
+    "median_seconds": {
+      "off": 0.18940681599997333,
+      "light": 0.19596090100003494,
+      "detailed": 0.19883546200003366
+    },
+    "median_overhead_vs_off_percent": {
+      "off": 0.0,
+      "light": 3.4603216180258967,
+      "detailed": 4.97798664228728
+    },
+    "note": "Off still has fail-open wrapper dispatch, so this is incremental recorder overhead, not pre-V10.3 comparison. Detailed is intentionally higher cost."
+  },
+  "preservation": {
+    "original_source_files_verified_unchanged": 463,
+    "protected_evidence_files_verified_unchanged": 61
+  },
+  "unavailable": [
+    "Native Windows/Python 3.14.6",
+    "Real market/MT5",
+    "Verified application GPU computation",
+    "Useful-work CPU and idle thread seconds",
+    "Exact FastAPI JSON encoding and browser paint/chart time",
+    "Native/sampler/IPC/generation overhead benchmark"
+  ]
+}

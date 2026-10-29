@@ -1,4 +1,6 @@
 """V10 scoped historical scratch/progress; never changes global trading settings."""
+from ..speed import profiled as speed_profiled
+
 import json
 from contextvars import ContextVar
 import logging
@@ -120,6 +122,11 @@ class Session:
             raise
 
     def update(self, phase, message, node_id=None, **details):
+        from ..speed import event
+        fields={"state":phase,"node_id":node_id}
+        for old,new in [("bars_processed","processed_bars"),("eligible_bars","eligible_bars"),("completed_trades","trades")]:
+            if details.get(old) is not None:fields[new]=details[old]
+        event("deeptest","phase","ERROR" if phase=="FAILED" else "WARN" if phase in ("CANCELLED","INTERRUPTED") else "INFO",run_id=self.ident,fields=fields)
         self.phase, self.node, self.last_update = phase, node_id, time.time()
         self.log.info('job=%s phase=%s node=%s elapsed=%.2fs %s', self.ident, phase, node_id, self.last_update-self.started, message)
         if self.progress:
@@ -158,6 +165,7 @@ class Session:
         self.close()
 
 
+@speed_profiled("data.scratch_preparation")
 def scratch_backtest(req, frame, directory, phase, *, configuration=None, cancelled=None, progress=None):
     """Same engine and feature functions; one node's caches, no shared-cache writes.
 
@@ -165,6 +173,7 @@ def scratch_backtest(req, frame, directory, phase, *, configuration=None, cancel
     are identical. Each scenario owns its feature cache and transient result state.
     """
     import numpy as np
+    from ..speed import profiled as speed_profiled
     from types import SimpleNamespace
     from ..features.engine import FeatureEngine
     from ..features import library
@@ -174,6 +183,7 @@ def scratch_backtest(req, frame, directory, phase, *, configuration=None, cancel
         def _load_disk_cache(self, dataset_id, *args, **kwargs):
             self._disk_loaded.add(dataset_id)
 
+        @speed_profiled("indicators.scratch_compute",hot=True)
         def _compute_spec(self, df, dataset_id, spec):
             fn, args = library.parse_spec(spec)
             out = {name: np.asarray(arr, dtype=np.float64) for name, arr in fn(df, *args).items()}

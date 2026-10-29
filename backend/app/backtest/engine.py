@@ -15,6 +15,7 @@ Design:
 """
 from __future__ import annotations
 
+from ..speed import profiled, span as speed_span, count as speed_count
 import copy
 import heapq
 import hashlib
@@ -134,6 +135,7 @@ class Backtester:
             ctx.cache[name] = arr
         return arr
 
+    @profiled('backtest.signal_evaluation', hot=True)
     def _eval(self, node: Any, ctx: _Ctx) -> np.ndarray:
         if not isinstance(node, dict):
             return np.zeros(ctx.n, dtype=bool)
@@ -197,6 +199,7 @@ class Backtester:
         return g
 
     # ---------- main run ----------
+    @profiled('backtest.total', hot=False)
     def run(self, req: BacktestRequest) -> BacktestResult:
         t0 = time.perf_counter()
         cfg = getattr(self, "_configuration", None) or get_config()
@@ -204,10 +207,11 @@ class Backtester:
         progress = getattr(self, "_progress", None)
         cancelled = getattr(self, "_cancelled", None)
         ghash = genome_hash(genome)
-        try:
-            df_full = self._data.get_frame(req.dataset_id)
-        except Exception as e:
-            return BacktestResult(ok=False, error=f"dataset error: {e}")
+        with speed_span('backtest.market_data'):
+            try:
+                df_full = self._data.get_frame(req.dataset_id)
+            except Exception as e:
+                return BacktestResult(ok=False, error=f"dataset error: {e}")
 
         lo, hi = req.window if req.window else (0, len(df_full))
         lo = max(0, lo); hi = min(hi, len(df_full))
@@ -221,20 +225,21 @@ class Backtester:
         if req.perturb > 0:
             g = self._perturb_genome(genome, req.perturb, ghash + req.seed_salt + "perturb")
 
-        # ---- feature cache (sliced) ----
-        cache: Dict[str, np.ndarray] = {}
-        ctx = _Ctx(req.dataset_id, cache, n)
-        feats_needed = referenced_features(g) | {"close", "open", "high", "low"}
-        ex = g.get("exit") or {}
-        atr_spec = ex.get("atr_spec", "atr:14")
-        feats_needed.add(atr_spec)
-        feats_needed |= set(REGIME_FEATURES)
-        try:
-            for f in feats_needed:
-                arr = self._feat.get(req.dataset_id, f)
-                cache[f] = arr[lo:hi] if len(arr) >= hi else arr[-n:]
-        except Exception as e:
-            return BacktestResult(ok=False, error=f"feature error ({f}): {e}")
+        with speed_span('backtest.indicator_preparation'):
+            # ---- feature cache (sliced) ----
+            cache: Dict[str, np.ndarray] = {}
+            ctx = _Ctx(req.dataset_id, cache, n)
+            feats_needed = referenced_features(g) | {"close", "open", "high", "low"}
+            ex = g.get("exit") or {}
+            atr_spec = ex.get("atr_spec", "atr:14")
+            feats_needed.add(atr_spec)
+            feats_needed |= set(REGIME_FEATURES)
+            try:
+                for f in feats_needed:
+                    arr = self._feat.get(req.dataset_id, f)
+                    cache[f] = arr[lo:hi] if len(arr) >= hi else arr[-n:]
+            except Exception as e:
+                return BacktestResult(ok=False, error=f"feature error ({f}): {e}")
 
         max_hold = int(ex.get("max_hold_bars", cfg.backtest.max_hold_bars))
         min_hold = int(ex.get("min_hold_bars", 0))
@@ -275,13 +280,14 @@ class Backtester:
         direction = req.direction_override or g.get("direction", "both")
         sig_long = np.zeros(n, dtype=bool)
         sig_short = np.zeros(n, dtype=bool)
-        try:
-            if direction in ("both", "long") and g.get("entry_long"):
-                sig_long = self._eval(g["entry_long"], ctx) & allow
-            if direction in ("both", "short") and g.get("entry_short"):
-                sig_short = self._eval(g["entry_short"], ctx) & allow
-        except Exception as e:
-            return BacktestResult(ok=False, error=f"condition eval error: {e}")
+        with speed_span('backtest.entry_signals'):
+            try:
+                if direction in ("both", "long") and g.get("entry_long"):
+                    sig_long = self._eval(g["entry_long"], ctx) & allow
+                if direction in ("both", "short") and g.get("entry_short"):
+                    sig_short = self._eval(g["entry_short"], ctx) & allow
+            except Exception as e:
+                return BacktestResult(ok=False, error=f"condition eval error: {e}")
         finite_atr = np.isfinite(atr) & (atr > 0)
         sig_long &= finite_atr
         sig_short &= finite_atr
@@ -302,9 +308,10 @@ class Backtester:
             sig_short = np.zeros(n, dtype=bool)
         if conds.get("trailing_stop") is False:
             trailing = None
-        exit_cond = (self._eval(ex["exit_condition"], ctx)
-                     if (ex.get("exit_condition") and conds.get("exit_condition") is not False)
-                     else None)
+        with speed_span('backtest.exit_signals'):
+            exit_cond = (self._eval(ex["exit_condition"], ctx)
+                         if (ex.get("exit_condition") and conds.get("exit_condition") is not False)
+                         else None)
 
         # ---- execution model (V5 §5: driven by the symbol's broker specs) ----
         from .symbol_specs import execution_params_for
@@ -393,148 +400,149 @@ class Backtester:
 
         active_exits = []
         next_report = time.monotonic() + 0.5
-        for entry_number, idx in enumerate(entries):
-            if entry_number % 256 == 0:
-                if cancelled is not None and cancelled():
-                    return BacktestResult(ok=False, error="cancelled by operator")
-                if progress is not None and time.monotonic() >= next_report:
-                    progress(int(idx), int(n), len(trades))
-                    next_report = time.monotonic() + 0.5
-            if idx + 1 >= n:
-                continue
-            if concurrent:
-                # V6.6: count the simulated positions still open at this signal;
-                # 0 = unlimited
-                if mat_n > 0:
-                    # Entries are monotone; inclusive exit-bar occupancy is
-                    # identical to the old full-history scan, O(log open) now.
-                    while active_exits and active_exits[0] < idx + 1:
-                        heapq.heappop(active_exits)
-                    open_now = len(active_exits)
-                    if open_now >= mat_n:
-                        continue
-            elif idx < next_free:
-                continue
-            side = "buy" if sig_long[idx] else "sell"
-            e_i = idx + 1                      # execution delay: fill next bar open
-            a = atr[idx]
-            if not np.isfinite(a) or a <= 0:
-                continue
-            sp_in = slip_draws[s_i]; sp_out = slip_draws[s_i + 1]; s_i += 2
-            entry_price = entry_fill_price(side, o[e_i], half_spread[e_i], sp_in, ep.point)
-            sl_dist = sl_mult * a if sl_mult > 0 else 0.0
-            tp_dist = tp_mult * a if tp_mult > 0 else 0.0
-            # V6.6 §5 — experimental SL/TP offsets (V6.5 live convention): +SL
-            # moves the stop FARTHER from entry, +TP moves the target CLOSER.
-            # 0 = the strategy's own levels, unchanged.
-            if req.sl_offset_pips or req.tp_offset_pips:
-                from .symbol_specs import pip_size_from_digits, pips_to_price
-                _pip = pip_size_from_digits(getattr(symbol_specs, "digits", None), ep.point)
-                if not _pip:
-                    raise ValueError(
-                        "SL/TP offsets were requested but the pip size is unknown for "
-                        "this symbol (digits/point not established) — refusing to guess")
-                if req.sl_offset_pips:
-                    sl_dist = max(0.0, sl_dist + pips_to_price(float(req.sl_offset_pips), _pip))
-                if req.tp_offset_pips and tp_dist > 0:
-                    tp_dist = max(0.0, tp_dist - pips_to_price(float(req.tp_offset_pips), _pip))
-            if risk_mode == "AMOUNT" and risk_amount > 0:
-                from .execution import lots_for_amount
-                lots = lots_for_amount(risk_amount,
-                                       sl_dist if sl_dist > 0 else a * 1.5,
-                                       ep.contract_size, max_lots,
-                                       min_lots=ep.min_lots, lot_step=ep.lot_step)
-            else:
-                lots = lots_for_risk(equity, rpt, sl_dist if sl_dist > 0 else a * 1.5,
-                                     ep.contract_size, max_lots,
-                                     min_lots=ep.min_lots, lot_step=ep.lot_step)
-            if lots <= 0:
-                continue
-            if sl_dist > 0:
-                # V5 §5: the broker refuses stops closer than trade_stops_level.
-                # Such an order would be rejected live, so it is not filled here:
-                # it is counted and skipped (no invented fill, no widened stop).
-                if ep.stops_level_points > 0 and (sl_dist / ep.point) < ep.stops_level_points:
-                    stops_level_skips += 1
+        with speed_span('backtest.strategy_execution'):
+            for entry_number, idx in enumerate(entries):
+                if entry_number % 256 == 0:
+                    if cancelled is not None and cancelled():
+                        return BacktestResult(ok=False, error="cancelled by operator")
+                    if progress is not None and time.monotonic() >= next_report:
+                        progress(int(idx), int(n), len(trades))
+                        next_report = time.monotonic() + 0.5
+                if idx + 1 >= n:
                     continue
-                sl = entry_price - sl_dist if side == "buy" else entry_price + sl_dist
-            else:
-                sl = np.nan
-            if tp_dist > 0:
-                tp = entry_price + tp_dist if side == "buy" else entry_price - tp_dist
-            else:
-                tp = np.nan
+                if concurrent:
+                    # V6.6: count the simulated positions still open at this signal;
+                    # 0 = unlimited
+                    if mat_n > 0:
+                        # Entries are monotone; inclusive exit-bar occupancy is
+                        # identical to the old full-history scan, O(log open) now.
+                        while active_exits and active_exits[0] < idx + 1:
+                            heapq.heappop(active_exits)
+                        open_now = len(active_exits)
+                        if open_now >= mat_n:
+                            continue
+                elif idx < next_free:
+                    continue
+                side = "buy" if sig_long[idx] else "sell"
+                e_i = idx + 1                      # execution delay: fill next bar open
+                a = atr[idx]
+                if not np.isfinite(a) or a <= 0:
+                    continue
+                sp_in = slip_draws[s_i]; sp_out = slip_draws[s_i + 1]; s_i += 2
+                entry_price = entry_fill_price(side, o[e_i], half_spread[e_i], sp_in, ep.point)
+                sl_dist = sl_mult * a if sl_mult > 0 else 0.0
+                tp_dist = tp_mult * a if tp_mult > 0 else 0.0
+                # V6.6 §5 — experimental SL/TP offsets (V6.5 live convention): +SL
+                # moves the stop FARTHER from entry, +TP moves the target CLOSER.
+                # 0 = the strategy's own levels, unchanged.
+                if req.sl_offset_pips or req.tp_offset_pips:
+                    from .symbol_specs import pip_size_from_digits, pips_to_price
+                    _pip = pip_size_from_digits(getattr(symbol_specs, "digits", None), ep.point)
+                    if not _pip:
+                        raise ValueError(
+                            "SL/TP offsets were requested but the pip size is unknown for "
+                            "this symbol (digits/point not established) — refusing to guess")
+                    if req.sl_offset_pips:
+                        sl_dist = max(0.0, sl_dist + pips_to_price(float(req.sl_offset_pips), _pip))
+                    if req.tp_offset_pips and tp_dist > 0:
+                        tp_dist = max(0.0, tp_dist - pips_to_price(float(req.tp_offset_pips), _pip))
+                if risk_mode == "AMOUNT" and risk_amount > 0:
+                    from .execution import lots_for_amount
+                    lots = lots_for_amount(risk_amount,
+                                           sl_dist if sl_dist > 0 else a * 1.5,
+                                           ep.contract_size, max_lots,
+                                           min_lots=ep.min_lots, lot_step=ep.lot_step)
+                else:
+                    lots = lots_for_risk(equity, rpt, sl_dist if sl_dist > 0 else a * 1.5,
+                                         ep.contract_size, max_lots,
+                                         min_lots=ep.min_lots, lot_step=ep.lot_step)
+                if lots <= 0:
+                    continue
+                if sl_dist > 0:
+                    # V5 §5: the broker refuses stops closer than trade_stops_level.
+                    # Such an order would be rejected live, so it is not filled here:
+                    # it is counted and skipped (no invented fill, no widened stop).
+                    if ep.stops_level_points > 0 and (sl_dist / ep.point) < ep.stops_level_points:
+                        stops_level_skips += 1
+                        continue
+                    sl = entry_price - sl_dist if side == "buy" else entry_price + sl_dist
+                else:
+                    sl = np.nan
+                if tp_dist > 0:
+                    tp = entry_price + tp_dist if side == "buy" else entry_price - tp_dist
+                else:
+                    tp = np.nan
 
-            tr = Trade(side=side, entry_idx=e_i, entry_ts=float(ts[e_i]),
-                       entry_price=entry_price, lots=lots, sl=sl, tp=tp,
-                       spread_paid=2 * half_spread[e_i] * lots * ep.contract_size,
-                       slippage_points=float(sp_in), session=str(sess_arr[idx]),
-                       dow=int(dow_arr[idx]), regime=str(regime_labels[idx]))
+                tr = Trade(side=side, entry_idx=e_i, entry_ts=float(ts[e_i]),
+                           entry_price=entry_price, lots=lots, sl=sl, tp=tp,
+                           spread_paid=2 * half_spread[e_i] * lots * ep.contract_size,
+                           slippage_points=float(sp_in), session=str(sess_arr[idx]),
+                           dow=int(dow_arr[idx]), regime=str(regime_labels[idx]))
 
-            act_dist = (trailing or {}).get("activation_mult", 0.0) * a
-            trail_dist = (trailing or {}).get("atr_mult", 0.0) * a
-            activated = trailing is not None and act_dist <= 0
-            best_trail = entry_price
+                act_dist = (trailing or {}).get("activation_mult", 0.0) * a
+                trail_dist = (trailing or {}).get("atr_mult", 0.0) * a
+                activated = trailing is not None and act_dist <= 0
+                best_trail = entry_price
 
-            exit_i = -1; exit_price = np.nan; reason = ""
-            limit = min(n - 1, e_i + max_hold)
-            for j in range(e_i, limit + 1):
-                if cancelled is not None and j % 1024 == 0 and cancelled():
-                    return BacktestResult(ok=False, error="cancelled by operator")
-                held = j - e_i
-                if trailing:
-                    if not activated:
-                        if (side == "buy" and h[j] - entry_price >= act_dist) or \
-                           (side == "sell" and entry_price - l[j] >= act_dist):
-                            activated = True
-                    if activated:
-                        if side == "buy":
-                            best_trail = max(best_trail, h[j])
-                            tsl = best_trail - trail_dist
-                            if np.isnan(sl) or tsl > sl:
-                                sl = tsl
-                        else:
-                            best_trail = min(best_trail, l[j])
-                            tsl = best_trail + trail_dist
-                            if np.isnan(sl) or tsl < sl:
-                                sl = tsl
-                hit_sl = np.isfinite(sl) and (l[j] <= sl if side == "buy" else h[j] >= sl)
-                if hit_sl:                       # SL always armed (risk first)
-                    exit_i, exit_price, reason = j, sl, "SL"
-                    break
-                hit_tp = np.isfinite(tp) and (h[j] >= tp if side == "buy" else l[j] <= tp)
-                if hit_tp and held >= min_hold:
-                    exit_i, exit_price, reason = j, tp, "TP"
-                    break
-                if exit_cond is not None and j > e_i and exit_cond[j] and held >= min_hold:
-                    exit_i, exit_price, reason = j, c[j], "EXIT_COND"
-                    break
-                if j == limit:
-                    exit_i, exit_price, reason = j, c[j], "MAX_HOLD"
-                    break
-            if exit_i < 0:
-                next_free = e_i + 1
-                continue
+                exit_i = -1; exit_price = np.nan; reason = ""
+                limit = min(n - 1, e_i + max_hold)
+                for j in range(e_i, limit + 1):
+                    if cancelled is not None and j % 1024 == 0 and cancelled():
+                        return BacktestResult(ok=False, error="cancelled by operator")
+                    held = j - e_i
+                    if trailing:
+                        if not activated:
+                            if (side == "buy" and h[j] - entry_price >= act_dist) or \
+                               (side == "sell" and entry_price - l[j] >= act_dist):
+                                activated = True
+                        if activated:
+                            if side == "buy":
+                                best_trail = max(best_trail, h[j])
+                                tsl = best_trail - trail_dist
+                                if np.isnan(sl) or tsl > sl:
+                                    sl = tsl
+                            else:
+                                best_trail = min(best_trail, l[j])
+                                tsl = best_trail + trail_dist
+                                if np.isnan(sl) or tsl < sl:
+                                    sl = tsl
+                    hit_sl = np.isfinite(sl) and (l[j] <= sl if side == "buy" else h[j] >= sl)
+                    if hit_sl:                       # SL always armed (risk first)
+                        exit_i, exit_price, reason = j, sl, "SL"
+                        break
+                    hit_tp = np.isfinite(tp) and (h[j] >= tp if side == "buy" else l[j] <= tp)
+                    if hit_tp and held >= min_hold:
+                        exit_i, exit_price, reason = j, tp, "TP"
+                        break
+                    if exit_cond is not None and j > e_i and exit_cond[j] and held >= min_hold:
+                        exit_i, exit_price, reason = j, c[j], "EXIT_COND"
+                        break
+                    if j == limit:
+                        exit_i, exit_price, reason = j, c[j], "MAX_HOLD"
+                        break
+                if exit_i < 0:
+                    next_free = e_i + 1
+                    continue
 
-            fill = exit_fill_price(side, exit_price, half_spread[exit_i], sp_out, ep.point)
-            dirn = 1.0 if side == "buy" else -1.0
-            gross = dirn * (fill - tr.entry_price) * tr.lots * ep.contract_size
-            days_held = max(0.0, (ts[exit_i] - tr.entry_ts) / 86400.0)
-            costs = commission_cost(tr.lots, ep) + swap_cost(tr.lots, days_held, ep)
-            tr.pnl = float(gross - costs)
-            tr.exit_idx = exit_i; tr.exit_ts = float(ts[exit_i])
-            tr.exit_price = fill; tr.exit_reason = reason
-            equity = float(equity + tr.pnl)
-            peak = max(peak, equity)
-            if peak > 0:
-                max_dd = max(max_dd, (peak - equity) / peak)
-            trades.append(tr)
-            if concurrent and mat_n > 0:
-                heapq.heappush(active_exits, exit_i)
-            eq_curve.append([float(ts[exit_i]), round(equity, 2)])
-            next_free = exit_i + 1
-            if capped and len(trades) >= req.max_trades:
-                break
+                fill = exit_fill_price(side, exit_price, half_spread[exit_i], sp_out, ep.point)
+                dirn = 1.0 if side == "buy" else -1.0
+                gross = dirn * (fill - tr.entry_price) * tr.lots * ep.contract_size
+                days_held = max(0.0, (ts[exit_i] - tr.entry_ts) / 86400.0)
+                costs = commission_cost(tr.lots, ep) + swap_cost(tr.lots, days_held, ep)
+                tr.pnl = float(gross - costs)
+                tr.exit_idx = exit_i; tr.exit_ts = float(ts[exit_i])
+                tr.exit_price = fill; tr.exit_reason = reason
+                equity = float(equity + tr.pnl)
+                peak = max(peak, equity)
+                if peak > 0:
+                    max_dd = max(max_dd, (peak - equity) / peak)
+                trades.append(tr)
+                if concurrent and mat_n > 0:
+                    heapq.heappush(active_exits, exit_i)
+                eq_curve.append([float(ts[exit_i]), round(equity, 2)])
+                next_free = exit_i + 1
+                if capped and len(trades) >= req.max_trades:
+                    break
 
         metrics = self._metrics(trades, equity, balance, max_dd, req, ep, ghash, lo, hi,
                                 symbol_specs=symbol_specs, stops_level_skips=stops_level_skips,
@@ -550,12 +558,19 @@ class Backtester:
             return BacktestResult(ok=False, error="cancelled by operator")
         if progress is not None:
             progress(int(n), int(n), len(trades))
+        speed_count("backtest.completed_tests")
+        speed_count("backtest.processed_bars",n)
+        speed_count("backtest.trades",len(trades))
         # Complete trade history and equity curve (spec §11)
         return BacktestResult(ok=True, metrics=metrics,
-                              trades=[self._trade_json(t) for t in trades],
+                              trades=self._serialize_trades(trades),
                               equity_curve=eq_curve, runtime_ms=runtime)
 
     # ---------- metrics ----------
+    @profiled('serialization.trades')
+    def _serialize_trades(self,trades):
+        return [self._trade_json(t) for t in trades]
+
     @staticmethod
     def _trade_json(t: Trade) -> Dict:
         return {"side": t.side, "entry_ts": t.entry_ts, "entry_price": round(t.entry_price, 3),
@@ -569,6 +584,7 @@ class Backtester:
                 "tp": (round(float(t.tp), 3) if t.tp is not None else None),
                 "hold_bars": int(t.exit_idx - t.entry_idx)}
 
+    @profiled('backtest.aggregate', hot=False)
     def _metrics(self, trades: List[Trade], equity: float, balance: float,
                  max_dd: float, req: BacktestRequest, ep: ExecutionParams,
                  ghash: str, lo: int, hi: int, symbol_specs=None,

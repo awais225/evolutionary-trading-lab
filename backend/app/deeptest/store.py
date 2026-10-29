@@ -7,6 +7,7 @@ any existing table (strategies, backtests, validations, live_test_*, mt5_*).
 """
 from __future__ import annotations
 
+from ..speed import profiled
 import json
 import threading
 import time
@@ -320,6 +321,7 @@ def list_scenarios(db: Any, node_id: Optional[int] = None,
     return [hydrate(dict(r)) for r in (db.q(sql, tuple(args)) or [])]
 
 
+@profiled('deeptest.persist_trades', hot=False)
 def insert_trades(db: Any, run_id: str, trades: List[Dict[str, Any]], *, cancelled=None) -> None:
     ensure_schema(db)
     with _WRITE_LOCK:
@@ -349,6 +351,7 @@ def insert_trades(db: Any, run_id: str, trades: List[Dict[str, Any]], *, cancell
                                     "swap_cost", "net_pnl", "session", "dow")})))
 
 
+@profiled('deeptest.read_trades', hot=True)
 def list_trades(db: Any, run_id: str, limit: int = 50, offset: int = 0) -> Dict[str, Any]:
     ensure_schema(db)
     total = (db.one("SELECT COUNT(*) c FROM deeptest_trades WHERE run_id=?", (run_id,))
@@ -492,6 +495,7 @@ def cancel_if_active(db, run_id):
         return db.one('SELECT status FROM deeptest_scenarios WHERE run_id=?',(run_id,))['status']=='CANCELLED'
 
 
+@profiled('deeptest.finish', hot=False)
 def finish_if_running(db, run_id, status):
     if status not in ('COMPLETED','PARTIAL'):raise ValueError('Invalid successful terminal status')
     ensure_schema(db)

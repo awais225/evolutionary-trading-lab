@@ -1,3 +1,4 @@
+import SpeedLogPanel from "./SpeedLogPanel.jsx";
 import React, { useEffect, useState, useMemo, useRef } from "react";
 import { api, fmt } from "../api.js";
 import { useLabEvents } from "../ws.js";
@@ -346,6 +347,8 @@ export default function LiveActivitySidebar({ isOpen, onToggle, onOpenMt5Modal }
           </button>
         </div>
       </div>
+
+      <SpeedLogPanel />
 
       {/* Active Task Operational Diagnostic (User Spec §6, §25) */}
       {activeTaskObj && (

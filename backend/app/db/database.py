@@ -7,6 +7,7 @@ can be queried with DuckDB; this DB holds metadata & research state only.
 """
 from __future__ import annotations
 
+from ..speed import profiled
 import json
 import logging
 import os
@@ -491,40 +492,41 @@ class Database:
 
     # ---------- helpers ----------
     def q(self, sql: str, args: tuple = ()) -> List[Dict[str, Any]]:
-        from ..performance import current
-        observer = current()
-        begun = time.perf_counter() if observer is not None else 0
-        with self._lock:
-            if observer is not None:observer.record('db.lock_wait', time.perf_counter()-begun)
-            query = time.perf_counter() if observer is not None else 0
-            cur = self._conn.execute(sql, args)
-            rows = [dict(r) for r in cur.fetchall()]
-            if observer is not None:observer.record('db.query', time.perf_counter()-query)
-        return rows
+        from ..performance import measure
+        with measure('db.read_total'):
+            with measure('db.lock_wait'):
+                self._lock.acquire()
+            try:
+                with measure('db.query'):
+                    cur = self._conn.execute(sql, args)
+                    return [dict(r) for r in cur.fetchall()]
+            finally:self._lock.release()
 
     def one(self, sql: str, args: tuple = ()) -> Optional[Dict[str, Any]]:
         rows = self.q(sql, args)
         return rows[0] if rows else None
 
     def x(self, sql: str, args: tuple = ()) -> int:
-        from ..performance import current
-        observer = current()
-        begun = time.perf_counter() if observer is not None else 0
-        with self._lock:
-            if observer is not None:observer.record('db.lock_wait', time.perf_counter()-begun)
-            query = time.perf_counter() if observer is not None else 0
-            cur = self._conn.execute(sql, args)
-            if observer is not None:observer.record('db.write_sql', time.perf_counter()-query)
-            commit = time.perf_counter() if observer is not None else 0
-            self._conn.commit()
-            if observer is not None:observer.record('db.commit', time.perf_counter()-commit)
-            return cur.lastrowid or cur.rowcount
+        from ..performance import measure
+        with measure('db.write_total'):
+            with measure('db.lock_wait'):
+                self._lock.acquire()
+            try:
+                with measure('db.write_sql'):cur = self._conn.execute(sql, args)
+                with measure('db.commit'):self._conn.commit()
+                return cur.lastrowid or cur.rowcount
+            finally:self._lock.release()
 
     def xm(self, sql: str, seq: List[tuple]) -> None:
-        with self._lock:
-            self._conn.executemany(sql, seq)
-            self._conn.commit()
+        from ..performance import measure
+        with measure('db.bulk_total'):
+            with measure('db.lock_wait'):self._lock.acquire()
+            try:
+                with measure('db.bulk_sql'):self._conn.executemany(sql, seq)
+                with measure('db.commit'):self._conn.commit()
+            finally:self._lock.release()
 
+    @profiled('db.transaction', hot=True)
     def transaction(self, statements: List[tuple]) -> List[int]:
         """Execute (sql, args) statements atomically.
 
