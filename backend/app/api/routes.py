@@ -5520,7 +5520,8 @@ def deeptest_run_start(payload: Dict[str, Any] = Body(...)):
 def deeptest_run_get(run_id: str, trades_sample: int = 20):
     from ..deeptest import store as S
     db = get_db()
-    sc = S.get_scenario(db, run_id)
+    from ..deeptest.metric_service import enrich
+    sc = enrich(db,S.get_scenario(db, run_id))
     if not sc:
         raise HTTPException(status_code=404, detail=f"unknown run {run_id}")
     from ..speed import span
@@ -5688,151 +5689,10 @@ def deeptest_node_config_save(node_id: int, payload: Dict[str, Any] = Body(...))
 
 @router.post("/deeptest/run/{run_id}/filtered")
 def deeptest_filtered_stats(run_id: str, payload: Dict[str, Any] = Body(default_factory=dict)) -> Dict[str, Any]:
-    """V6.7 §10 — interactive performance EXCLUSION filters over saved trades.
-
-    Pure post-trade analysis: recomputes every recalculable statistic from the
-    scenario's persisted trades with the same accounting the summary uses.
-    NEVER creates a scenario, never alters stored trades, never touches live.
-    Filter semantics are OR-style independent exclusion dimensions: a trade is
-    excluded when its entry day-of-week is excluded OR its entry session is.
-    Timestamp convention: the ACTUAL ENTRY timestamp (UTC); day-of-week and
-    session come from the framework fields recorded with each trade.
-    """
-    from datetime import datetime, timezone
-
-    from ..deeptest import analytics as A
-    from ..deeptest import scenarios as SC
-    from ..deeptest import store as dstore
-    db = get_db()
-    dstore.ensure_schema(db)
-    sc = dstore.get_scenario(db, run_id)
-    if not sc:
-        raise HTTPException(404, f"scenario {run_id} not found")
-    # ALL saved trades of this scenario (never a page of them — filtering must
-    # recalculate over the complete persisted trade list).
-    try:
-        trades = [dict(r) for r in (db.q(
-            "SELECT * FROM deeptest_trades WHERE run_id=? ORDER BY trade_no", (run_id,)) or [])]
-    except Exception:
-        trades = []
-    excl_days = {str(d).strip().lower() for d in (payload.get("exclude_days") or [])
-                 if str(d).strip()}
-    excl_sessions = {str(x).strip().lower() for x in (payload.get("exclude_sessions") or [])
-                     if str(x).strip()}
-    _day_names = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
-
-    def _day_name(t):
-        dv = t.get("dow")
-        if dv is None:
-            try:
-                dv = datetime.fromtimestamp(float(t.get("entry_ts")), tz=timezone.utc).weekday()
-            except Exception:
-                return None
-        try:
-            return _day_names[int(dv) % 7]
-        except Exception:
-            return None
-
-    def _sess(t):
-        return str(t.get("session") or "").strip().lower() or None
-
-    from ..deeptest.filter_rules import normalize as normalize_filters,reason as filter_reason
-    entry_rules=normalize_filters(payload)
-    def _excluded(t):
-        # Existing unversioned clients retain their recorded-label contract.
-        # V9.2 UI explicitly sends schema_version=1: actual UTC entry time and
-        # DST-aware overlapping memberships, also used by Live scenario gates.
-        if payload.get('schema_version') is None:
-            d,sess=_day_name(t),_sess(t)
-            return 'day:'+d if d in excl_days else 'session:'+sess if sess in excl_sessions else None
-        return filter_reason(t,entry_rules)
-
-    kept, dropped = [], []
-    for t in trades:
-        reason = _excluded(t)
-        if reason:
-            dropped.append({"trade_no": t.get("trade_no"), "reason": reason})
-        else:
-            kept.append(t)
-
-    # the same accounting as the stored summary: same initial capital, same
-    # fee/slippage conventions (values live in the persisted trades).
-    init_cap = float((sc.get("metrics") or {}).get("initial_capital")
-                     or (sc.get("settings") or {}).get("initial_capital") or 10000.0)
-
-    def _side_block(rows):
-        from collections import defaultdict
-        months: Dict[str, float] = {}
-        exits: Dict[str, Dict[str, Any]] = {}
-        days: Dict[str, Dict[str, Any]] = {}
-        sessions: Dict[str, Dict[str, Any]] = {}
-        for t in rows:
-            pnl = float(t.get("net_pnl") if t.get("net_pnl") is not None
-                        else t.get("pnl") or 0.0)
-            try:
-                m = datetime.fromtimestamp(float(t.get("entry_ts")), tz=timezone.utc).strftime("%Y-%m")
-            except Exception:
-                m = "unknown"
-            months[m] = months.get(m, 0.0) + pnl
-            er = str(t.get("exit_reason") or "UNKNOWN")
-            e = exits.setdefault(er, {"count": 0, "net_pnl": 0.0})
-            e["count"] += 1
-            e["net_pnl"] += pnl
-            d = _day_name(t) or "unknown"
-            dd_ = days.setdefault(d, {"count": 0, "net_pnl": 0.0})
-            dd_["count"] += 1
-            dd_["net_pnl"] += pnl
-            sess = _sess(t) or "unknown"
-            ss = sessions.setdefault(sess, {"count": 0, "net_pnl": 0.0})
-            ss["count"] += 1
-            ss["net_pnl"] += pnl
-        return {
-            "monthly_pnl": {k: round(v, 2) for k, v in sorted(months.items())},
-            "exit_reasons": {k: {"count": v["count"], "net_pnl": round(v["net_pnl"], 2)}
-                             for k, v in sorted(exits.items())},
-            "by_day_of_week": {k: {"count": v["count"], "net_pnl": round(v["net_pnl"], 2)}
-                               for k, v in days.items()},
-            "by_session": {k: {"count": v["count"], "net_pnl": round(v["net_pnl"], 2)}
-                           for k, v in sessions.items()},
-        }
-
-    orig_summary = sc.get("metrics") or {}
-    try:
-        filt_full = A.summarize(kept, initial_capital=init_cap)
-        # summarize() returns {summary, breakdowns, unavailable, conventions} —
-        # the filtered statistics are its `summary`, computed from the kept
-        # trades with the same accounting as the stored scenario summary.
-        filt_summary = dict(filt_full.get("summary") or {})
-        filt_extra = {"breakdowns": filt_full.get("breakdowns"),
-                      "unavailable": filt_full.get("unavailable")}
-        if not filt_summary.get("trades"):
-            filt_summary["trades"] = len(kept)      # zero-trade state is explicit
-    except Exception as exc:
-        filt_summary = {"error": f"recalculation failed: {type(exc).__name__}: {exc}"}
-        filt_extra = {}
-    return {
-        "ok": True,
-        "run_id": run_id,
-        "timestamp_convention": "actual entry timestamp (UTC); day-of-week/session from framework trade fields",
-        "filter_semantics": ("OR-style independent exclusion dimensions: excluded when "
-                             "entry day-of-week is excluded OR entry session is excluded"),
-        "filters": {"exclude_days": sorted(excl_days),
-                    "exclude_sessions": sorted(excl_sessions)},
-        "entry_rules":entry_rules,
-        "calendar":__import__('app.deeptest.inspect_calendar',fromlist=['aggregate']).aggregate(trades,init_cap,entry_rules,sc.get('requested_start'),sc.get('requested_end')),
-        "active": bool(excl_days or excl_sessions or entry_rules.get('exclude_by_day') or entry_rules.get('include_sessions') or entry_rules.get('range_start') or entry_rules.get('range_end')),
-        "trade_counts": {"original": len(trades), "kept": len(kept),
-                         "excluded": len(dropped)},
-        "original": {"summary": orig_summary, **_side_block(trades)},
-        "filtered": {"summary": filt_summary, **_side_block(kept), **filt_extra},
-        "excluded_trades": dropped[:200],
-        "kept_trade_numbers":[t.get("trade_no") for t in kept],
-        "disclosure": ("post-trade exclusion analysis of saved results — NOT a "
-                       "re-simulation or re-backtest. Path-dependent metrics are "
-                       "rebuilt chronologically from the KEPT trades; values that "
-                       "cannot be recalculated from saved data are labelled "
-                       "unavailable, never shown as recalculated."),
-    }
+    from ..deeptest.metric_service import filtered
+    try:return filtered(get_db(),run_id,payload or {})
+    except KeyError:raise HTTPException(404,'Scenario not found')
+    except ValueError as exc:raise HTTPException(422,str(exc))
 
 
 @router.get("/deeptest/scenarios")
@@ -5841,7 +5701,8 @@ def deeptest_scenarios_list(node_id: Optional[int] = None,
     from ..deeptest import store as S
     db = get_db()
     st = [x.strip().upper() for x in (statuses or "").split(",") if x.strip()] or None
-    rows = S.list_scenarios(db, node_id=node_id, statuses=st)
+    from ..deeptest.metric_service import enrich_many
+    rows = enrich_many(db,S.list_scenarios(db, node_id=node_id, statuses=st))
     return {"ok": True, "scenarios": rows, "count": len(rows)}
 
 
@@ -6787,7 +6648,11 @@ def live_testing_schedule(sid: int) -> Dict[str, Any]:
     # the raw stored config is what the dialog edits: returning the engine's
     # normalised copy alone would make "never configured" indistinguishable from
     # "explicitly set to the defaults", and the operator must see which is which.
-    state["config"] = cfg
+    from ..deeptest.filter_scenarios import assignment, schedule_view, version
+    assigned=assignment(db,sid,"live")
+    state["assignment_version"]=assigned["configuration_version"] if assigned else None
+    state["assigned_filter"]=assigned
+    state["config"] = schedule_view(cfg,assigned["rules"]) if assigned else cfg
     state["session_hours_utc"] = SESSION_HOURS_UTC
     state["options"] = supported_options(_genome_of(strat))
     state["node"] = {
@@ -6820,6 +6685,13 @@ def live_testing_schedule_save(sid: int, payload: Dict = Body(...)) -> Dict[str,
                                          validate_config)
 
     db = get_db()
+    from ..deeptest.filter_scenarios import assignment
+    assigned=assignment(db,sid,'live')
+    current_version=assigned['configuration_version'] if assigned else None
+    if (assigned or 'expected_assignment_version' in payload) and payload.get('expected_assignment_version')!=current_version:
+        raise HTTPException(409,'Schedule assignment changed; reload before saving')
+    if assigned:
+        payload={k:v for k,v in payload.items() if k not in ('days','sessions')}
     strat = db.get_strategy(sid)
     if strat is None:
         raise HTTPException(status_code=404, detail={"ok": False, "message": f"node {sid} not found"})
@@ -6926,6 +6798,9 @@ def live_testing_schedule_save(sid: int, payload: Dict = Body(...)) -> Dict[str,
     db.set_live_test_config(sid, merged)
 
     stored = db.get_live_test_config(sid) or {}
+    if assigned:
+        from ..deeptest.filter_scenarios import schedule_view
+        stored=schedule_view(stored,assigned['rules'])
     eng = _live_engine()
     try:
         node = next((n for n in eng.eligible_nodes() if n.get("id") == sid), None)
@@ -7379,7 +7254,7 @@ def filter_scenario_assignment(node_id:int,target:str='live'):
 @router.post('/filter-scenarios/assignment/{node_id}')
 def filter_scenario_assign(node_id:int,payload:Dict[str,Any]=Body(...)):
     from ..deeptest.filter_scenarios import assign
-    try:return {'ok':True,'assignment':assign(get_db(),node_id,payload.get('scenario_id'),payload.get('target','live')),'note':'entry gate only; prior schedule/risk unchanged; no worker enabled or order submitted'}
+    try:return {'ok':True,'assignment':assign(get_db(),node_id,payload.get('scenario_id'),payload.get('target','live')),'note':'saved assignment is authoritative; unrelated risk/activation unchanged; no worker enabled or order submitted'}
     except (ValueError,TypeError) as exc:raise HTTPException(422,str(exc))
 
 
@@ -7420,7 +7295,7 @@ def daily_schedule_put(node_id:int,payload:ScheduleRequest):
         try:
             rules=normalize(payload.rules)
             if not rules.get('daily_schedule'):raise ValueError('daily_schedule is required')
-            sc=F.save(db,{'name':payload.name.strip() or 'Manual schedule · Node #'+str(node_id),'scope':'NODE','node_id':node_id,'rules':rules,'provenance':{'operation':'explicit manual schedule save; no worker start'}})
+            sc=F.save(db,{'name':payload.name.strip() or 'Manual schedule · Node #'+str(node_id),'scope':'NODE','node_id':node_id,'rules':rules,'provenance':{'operation':'explicit manual schedule save; no worker start'}},owner_target=payload.target)
             F.assign(db,node_id,sc['id'],payload.target)
         except (ValueError,TypeError,KeyError) as exc:raise HTTPException(422,str(exc))
         return daily_schedule_get(node_id,payload.target)
@@ -7484,3 +7359,32 @@ def deeptest_delete_all(payload: Dict = Body(...)):
     try:return delete(get_db(),confirmation=payload.get('confirmation'))
     except DeletionBusy as exc:raise HTTPException(409,str(exc))
     except ValueError as exc:raise HTTPException(422,str(exc))
+
+
+@router.get('/deeptest/run/{run_id}/metrics.json')
+def deeptest_metrics_export(run_id:str):
+    from ..deeptest import store as S
+    from ..deeptest.metric_service import enrich
+    db=get_db();sc=enrich(db,S.get_scenario(db,run_id))
+    if not sc:raise HTTPException(404,'Scenario not found')
+    return {'run_id':run_id,'analytics':sc['analytics']}
+
+
+@router.post('/deeptest/manage/bulk-preview')
+def deeptest_bulk_preview(payload:Dict=Body(...)):
+    from ..deeptest.management import preview
+    try:return {'ok':True,**preview(get_db(),payload.get('node_ids'))}
+    except (ValueError,TypeError) as exc:raise HTTPException(422,str(exc))
+
+
+@router.post('/deeptest/manage/bulk-delete')
+def deeptest_bulk_delete(payload:Dict=Body(...)):
+    import sqlite3
+    from ..deeptest.management import bulk_delete,DeletionBusy
+    try:return bulk_delete(get_db(),payload.get('node_ids'),payload.get('confirmation'))
+    except DeletionBusy as exc:raise HTTPException(409,str(exc))
+    except (ValueError,TypeError) as exc:raise HTTPException(422,str(exc))
+    except sqlite3.DatabaseError as exc:
+        from ..speed import event
+        event('deeptest','deletion_failed','ERROR',fields={'error_type':type(exc).__name__})
+        raise HTTPException(500,'DeepTest deletion transaction failed; no records deleted. Retained data must be inspected before retry')

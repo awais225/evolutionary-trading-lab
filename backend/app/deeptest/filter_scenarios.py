@@ -1,5 +1,6 @@
 """Durable named filter rules, deliberately separate from Deep run snapshots.
-Assignment adds an entry gate only; original schedules/risk/arming stay untouched.
+Assignment persists an authoritative replacement entry schedule snapshot.
+Base configuration/risk/arming are not rewritten by assignment.
 """
 import json,time,uuid,weakref,threading,hashlib
 _LOCK=threading.RLock()
@@ -34,14 +35,24 @@ def listing(db,node_id=None):
     rows=db.q('SELECT * FROM filter_scenarios WHERE scope=\'GLOBAL\' OR node_id=? ORDER BY created_at DESC',(node_id,))
     return [{**r,'rules':json.loads(r['rules']),'configuration_version':version(json.loads(r['rules'])),'provenance':json.loads(r['provenance'] or '{}')} for r in rows]
 
-def save(db,payload):
+def save(db,payload,*,owner_target=None):
     schema(db);name=str(payload.get('name') or '').strip();scope=payload.get('scope','GLOBAL')
     if not name or len(name)>120:raise ValueError('scenario name must contain 1..120 characters')
     if scope not in ('GLOBAL','NODE'):raise ValueError('scope must be GLOBAL or NODE')
     node_id=int(payload['node_id']) if scope=='NODE' else None
     if node_id is not None and not db.one('SELECT id FROM strategies WHERE id=?',(node_id,)):raise ValueError('canonical node does not exist')
+    provenance=dict(payload.get('provenance') or {})
+    # Ownership is assigned by trusted server call sites, never a client-supplied
+    # domain flag. Saved Inspect run provenance must match the canonical owner.
+    provenance.pop('domain',None)
+    if owner_target in ('live','deep'):provenance['domain']='deeptest' if owner_target=='deep' else 'live_testing'
+    elif provenance.get('run_id'):
+        from . import store as S
+        S.ensure_schema(db)
+        run=db.one('SELECT node_id FROM deeptest_scenarios WHERE run_id=?',(provenance['run_id'],))
+        if run and (scope=='GLOBAL' or run['node_id']==node_id):provenance['domain']='deeptest'
     rules=normalize(payload.get('rules'));ident='filters-'+uuid.uuid4().hex[:16]
-    db.x('INSERT INTO filter_scenarios VALUES (?,?,?,?,?,?,?)',(ident,name,scope,node_id,json.dumps(rules,sort_keys=True),json.dumps(payload.get('provenance') or {}),time.time()))
+    db.x('INSERT INTO filter_scenarios VALUES (?,?,?,?,?,?,?)',(ident,name,scope,node_id,json.dumps(rules,sort_keys=True),json.dumps(provenance),time.time()))
     return next(x for x in listing(db,node_id) if x['id']==ident)
 
 def version(rules):return hashlib.sha256(json.dumps(normalize(rules),sort_keys=True).encode()).hexdigest()[:16]
@@ -76,3 +87,19 @@ def _assign_locked(db,node_id,ident,target='live'):
     db.x('INSERT INTO filter_scenario_assignments(node_id,target,scenario_id,assigned_at,rules_snapshot,source_version) VALUES (?,?,?,?,?,?) ON CONFLICT(node_id,target) DO UPDATE SET scenario_id=excluded.scenario_id,assigned_at=excluded.assigned_at,rules_snapshot=excluded.rules_snapshot,source_version=excluded.source_version',(node_id,target,ident,time.time(),json.dumps(sc['rules'],sort_keys=True),version(sc['rules'])))
     _ASSIGNMENTS.pop(db,None)
     return assignment(db,node_id,target)
+
+
+def schedule_view(base,rules):
+    """Lossless assignment remains in rules; flat controls show its exact projection.
+    Per-day/overlap distinctions are retained in the separate matrix, never merged
+    into prior day/session gates. Removing assignment restores original config.
+    """
+    from .filter_rules import DAYS,SESSIONS
+    r=normalize(rules);matrix=r.get('daily_schedule')
+    if matrix:
+        days=[i for i,d in enumerate(DAYS) if any(matrix['days'][d].values())]
+        sessions=[s for s,v in matrix['global_sessions'].items() if v is not False]
+    else:
+        days=[i for i,d in enumerate(DAYS) if d not in r['exclude_days']]
+        sessions=[s for s in (r['include_sessions'] or SESSIONS) if s not in r['exclude_sessions']]
+    return {**base,'days':days,'sessions':sessions,'filter_rules':{**r,'_assigned_schedule':True}}

@@ -11,7 +11,7 @@ def aggregate(trades,initial_capital,rules=None,start=None,end=None):
     contexts={id(t):context(t) for t in valid}
     def ctx(t):return contexts[id(t)]
     kept=[t for t in valid if reason(t,r) is None]
-    def stats(rows):return {'state':'OBSERVED' if rows else 'NO_TRADES','metrics':summarize(rows,initial_capital=initial_capital)['summary']}
+    def stats(rows):return {'state':'OBSERVED' if rows else 'NO_TRADES','metrics':summarize(rows,initial_capital=initial_capital,_breakdowns=False)['summary']}
     dayrows=[]
     for d in DAYS:
         rows=[t for t in kept if ctx(t)[1]==d]

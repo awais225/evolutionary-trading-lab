@@ -1106,6 +1106,7 @@ export function ScheduleDialog({ nodeId, onClose, onSaved, loadFn, saveFn, subti
     setBusy(true); setErr(null); setFieldErrs({});
     try {
       const body = {
+        expected_assignment_version: state?.assignment_version ?? null,
         days: draft.days, sessions: draft.sessions, regimes: draft.regimes,
         timeframes: draft.timeframes, conditions: draft.conditions,
         windows: draft.windows, enabled: !!draft.enabled,
@@ -1197,7 +1198,7 @@ export function ScheduleDialog({ nodeId, onClose, onSaved, loadFn, saveFn, subti
                   confirmLabel={busy ? "Saving…" : (dirty ? "Save & enforce *" : "Save & enforce")}
                   busy={busy} onCancel={onClose} onConfirm={save}
                   result={err ? { ok: false, error: err.message || String(err) } : null}>
-      <ScenarioAssignment nodeId={nodeId} target={scenarioTarget}/>
+      <ScenarioAssignment nodeId={nodeId} target={scenarioTarget} onAssigned={load}/>
       {err && (
         <div className="kit-inline-err">
           {txt(objOrNull(err)?.message, "") || err.message || String(err)}

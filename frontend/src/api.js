@@ -429,6 +429,8 @@ export const api = {
   deeptestRunGet: (runId) => req(`/api/deeptest/run/${encodeURIComponent(runId)}`),
   deeptestRunTrades: (runId, params = {}) => req(`/api/deeptest/run/${encodeURIComponent(runId)}/trades?${qs(params)}`),
   deeptestRunCancel: (runId) => req(`/api/deeptest/run/${encodeURIComponent(runId)}/cancel`, { method: "POST" }),
+  deeptestBulkPreview: body=>req('/api/deeptest/manage/bulk-preview',{method:'POST',body}),
+  deeptestBulkDelete: body=>req('/api/deeptest/manage/bulk-delete',{method:'POST',body,signal:AbortSignal.timeout(30000)}),
   deeptestDelete: (body) => req('/api/deeptest/manage/delete', {method:'POST',body}),
   deeptestDeleteAll: (body) => req('/api/deeptest/manage/delete-all', {method:'POST',body}),
   deeptestScenarios: (params = {}) => req(`/api/deeptest/scenarios?${qs(params)}`),

@@ -245,8 +245,15 @@ class TestScenarioCompare:
         scs = summ["scenarios"]
         by_id = {x["run_id"]: x for x in scs}
         assert set(by_id) == {"v68sc0", "v68sc1"}, "every saved scenario is individually addressable"
-        assert by_id["v68sc0"]["headline"]["net_return_pct"] == pytest.approx(0.10)
-        assert by_id["v68sc1"]["headline"]["net_return_pct"] == pytest.approx(0.20)
+        # V10.5: these deliberately summary-only fixtures have NO saved trades,
+        # and their legacy return values disagree with their capital/P&L. The
+        # source records stay intact; the authoritative read must refuse invention.
+        assert by_id['v68sc0']['headline']['net_return_pct'] is None
+        assert by_id['v68sc1']['headline']['net_return_pct'] is None
+        assert all(row['metric_provenance']['integrity']=='MISSING_TRADE_RECORDS' for row in scs)
+        from app.deeptest import store as S
+        assert S.get_scenario(db,'v68sc0')['analytics']['summary']['net_return_pct']==.10
+        assert S.get_scenario(db,'v68sc1')['analytics']['summary']['net_return_pct']==.20
         assert by_id["v68sc0"]["is_preferred"] or by_id["v68sc1"]["is_preferred"]
         db.close()
 
@@ -262,8 +269,8 @@ class TestScenarioCompare:
         assert res["ok"]
         # each side carries its OWN saved metrics
         net = [m for m in res["metrics"] if m["metric"] == "net_profit"][0]
-        assert net["left"] == pytest.approx(100.0) and net["right"] == pytest.approx(200.0)
-        assert net["delta"] == pytest.approx(-100.0)
+        assert net['left'] is None and net['right'] is None and net['delta'] is None
+        assert not db.q('SELECT * FROM deeptest_trades'), 'Summary-only fixture intentionally has no calculable trade population'
         # monthly/exit blocks per side from each scenario's own trades
         assert set(res["monthly_pnl"]) == {"left", "right"}
         # non-equivalence warnings when ranges/coverage/fingerprints differ

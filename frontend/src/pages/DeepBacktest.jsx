@@ -1,3 +1,4 @@
+import DeepScenarioManagement from '../components/DeepScenarioManagement.jsx';
 import {HistoricalCells,HistoricalSource,useHistoricalSource,historicalRank} from '../components/HistoricalStatistics.jsx';
 import {SelectionControls,DeepBulk} from '../components/SelectionControls.jsx';
 import {useStoredState} from "../lib/storedState.js";
@@ -503,6 +504,7 @@ export default function DeepBacktest() {
   return (
     <div data-testid="deeptest-workspace" style={{ padding: 12, fontSize: 12 }}>
       <HistoryLatest />
+      <DeepScenarioManagement selectedIds={Object.keys(selected).filter(id=>selected[id]).map(Number)} onDeleted={async()=>{await loadDt();await loadNodes();}}/>
       <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
         <h2 style={{ margin: 0 }}>Deep Testing</h2>
         <span className="muted">
@@ -605,7 +607,7 @@ export default function DeepBacktest() {
 <NodeTable tableKey="deep" rows={sorted} style={{ width: "100%", fontSize: 10.8 }} resetKey={`${filter}|${search}|${sortKey}|${sortDir}`}>{(visibleRows) => (<>
             <thead>
               <tr>
-                <th>select / star</th>
+                <th><input type="checkbox" aria-label="Select all displayed nodes" checked={visibleRows.length>0&&visibleRows.every(n=>selected[n.node_id])} onChange={e=>{const checked=e.target.checked;setSelected(old=>({...old,...Object.fromEntries(visibleRows.map(n=>[n.node_id,checked]))}));}}/>select / star</th>
                 {sortTh("node_id", "node id (canonical · research)", "canonical database id; the study-local number is labelled 'research #'")}
                 {sortTh("status", "status", "stored classification (bucket)")}
                 {sortTh("generation", "gen", "generation number")}
@@ -622,7 +624,7 @@ export default function DeepBacktest() {
                 {sortTh("fitness", "fitness")}
                 {sortTh("dt_return", "DeepTest Ret", "Preferred DeepTest return — never mixed into the generation columns")}
                 {sortTh("dt_pf", "DT PF")}
-                {sortTh("dt_dd", "DT DD")}
+                {sortTh("dt_dd", "DT DD / initial", "Realised closed-trade drawdown divided by run initial capital")}
                 {sortTh("dt_trades", "DT Trades")}
                 <th>scenario + coverage</th>
                 <th>risk mode / value</th>

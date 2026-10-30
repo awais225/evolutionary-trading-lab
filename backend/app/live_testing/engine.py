@@ -657,7 +657,7 @@ class LiveTestingEngine:
             timeframe = (node.get("genome") or {}).get("timeframe")
         from ..deeptest.filter_scenarios import assignment
         assigned = assignment(db,sid,'live') if sid is not None else None
-        if assigned: cfg={**cfg,'filter_rules':assigned['rules']}
+        if assigned: cfg={**cfg,'filter_rules':{**assigned['rules'],'_assigned_schedule':True}}
         state = _eval(cfg, now=now, spread_points=spread_points,
                       trades_today=trades_today, open_positions=open_positions,
                       last_entry_ts=last_entry_ts, regime=regime, timeframe=timeframe)

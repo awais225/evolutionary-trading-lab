@@ -14,7 +14,7 @@ function f4(v) { return v == null ? "N/A" : (typeof v === "number" ? v.toFixed(4
 function when(ts) { return ts ? new Date(ts * 1000).toISOString().replace("T", " ").slice(0, 19) + "Z" : "—"; }
 function numOrNa(v, d = 3) { return v == null || !Number.isFinite(Number(v)) ? "N/A" : Number(v).toFixed(d); }
 function pctOrNa(v, d = 3) { return v == null || !Number.isFinite(Number(v)) ? "N/A" : `${(Number(v) * 100).toFixed(d)}%`; }
-function moneyOrNa(v) { return v == null || !Number.isFinite(Number(v)) ? "N/A" : `$${Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 })}`; }
+function moneyOrNa(v, currency) { return v == null || !Number.isFinite(Number(v)) ? "N/A" : currency ? new Intl.NumberFormat(undefined,{style:"currency",currency}).format(Number(v)) : `${Number(v).toLocaleString(undefined,{maximumFractionDigits:2})} (currency unavailable)`; }
 function numTone(v) { return v == null || !Number.isFinite(Number(v)) ? "mute" : (Number(v) >= 0 ? "pos" : "neg"); }
 
 const SUMMARY_ROWS = [
@@ -24,7 +24,8 @@ const SUMMARY_ROWS = [
   ["Gross profit / loss", (s) => `${f2(s.gross_profit)} / ${f2(s.gross_loss)}`],
   ["Total costs", (s) => f2(s.total_costs)],
   ["Return %", (s) => (s.net_return_pct == null ? "N/A" : `${(s.net_return_pct * 100).toFixed(3)}%`)],
-  ["Max drawdown %", (s) => (s.max_drawdown_pct == null ? "N/A" : `${(s.max_drawdown_pct * 100).toFixed(3)}%`)],
+  ["Max realised drawdown amount", (s) => moneyOrNa(s.max_drawdown,s.account_currency)],
+  ["Max drawdown % of initial capital", (s) => (s.max_drawdown_pct == null ? "N/A" : `${(s.max_drawdown_pct * 100).toFixed(3)}%`)],
   ["Sharpe", (s) => (s.sharpe == null ? "N/A" : Number(s.sharpe).toFixed(3))],
   ["Profit factor", (s) => (s.profit_factor == null ? "N/A" : Number(s.profit_factor).toFixed(3))],
   ["Trades", (s) => s.trades ?? "N/A"],
@@ -410,22 +411,24 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
               </span>
               {filtersActive && <Badge tone="warn">FILTERED</Badge>}
             {['COMPLETED','PARTIAL'].includes(sel.status) && <a style={{ marginLeft: 8 }} href={`/api/deeptest/run/${encodeURIComponent(sel.run_id)}/export.csv`}>export all saved trades</a>}
+            {selected&&<a style={{marginLeft:8}} href={`/api/deeptest/run/${encodeURIComponent(selected)}/metrics.json`}>export authoritative metrics · amount and %</a>}
               <div className="grid cols-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(140px,1fr))", marginTop: 8 }}>
+                <div role="note" style={{gridColumn:'1 / -1'}}>Run {selected} · {sel?.status} · available closed trades {summary.trades ?? 'N/A'} · processed bars {sel?.metric_provenance?.bars_processed ?? sel?.bars_used ?? 'N/A'} / expected {sel?.metric_provenance?.expected_bars ?? 'N/A'} · {sel?.metric_provenance?.metric_version || 'metric provenance unavailable'}{sel?.status==='PARTIAL'?' · PARTIAL DATASET — not complete coverage':''}{sel?.metric_provenance?.trade_count_matches_stored===false?' · WARNING: persisted trade count differs from saved snapshot':''}</div>
                 <Kpi label="Return %" value={pctOrNa(summary.net_return_pct)}
                      tone={numTone(summary.net_return_pct)}
                      sub={filtersActive ? "filtered trades" : "scenario result"} />
-                <Kpi label="Net P&L" value={moneyOrNa(summary.net_profit)}
+                <Kpi label="Net P&L" value={moneyOrNa(summary.net_profit,summary.account_currency)}
                      tone={numTone(summary.net_profit)}
                      sub={`initial ${f2(summary.initial_capital)}`} />
                 <Kpi label="Profit factor" value={numOrNa(summary.profit_factor, 3)}
                      sub="gross win / gross loss" />
-                <Kpi label="Max drawdown" value={pctOrNa(summary.max_drawdown_pct)}
-                     tone="neg" sub="max realised equity decline / initial capital" />
+                <Kpi label="Max drawdown" value={moneyOrNa(summary.max_drawdown,summary.account_currency)}
+                     tone="neg" sub={`${pctOrNa(summary.max_drawdown_pct)} of initial capital · realised equity; N/A requires valid exits/capital`} />
                 <Kpi label="Win rate" value={pctOrNa(summary.win_rate, 2)}
                      sub={`${summary.winning_trades ?? "—"}W / ${summary.losing_trades ?? "—"}L`} />
                 <Kpi label="Total trades" value={summary.trades ?? "N/A"}
                      sub={filtersActive ? `${shownTradeCounts?.excluded ?? 0} excluded by filters` : "closed trades"} />
-                <Kpi label="Avg trade" value={moneyOrNa(summary.avg_trade ?? summary.expectancy_per_trade)}
+                <Kpi label="Avg trade" value={moneyOrNa(summary.avg_trade ?? summary.expectancy_per_trade,summary.account_currency)}
                      sub="per closed trade" />
                 <Kpi label="Expectancy" value={numOrNa(summary.expectancy_per_trade, 4)}
                      sub="expected value per trade" />
@@ -606,6 +609,7 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
               : (trades?.total ?? "—")})</b>
             {filtersActive && <Badge tone="warn">FILTERED</Badge>}
             {['COMPLETED','PARTIAL'].includes(sel.status) && <a style={{ marginLeft: 8 }} href={`/api/deeptest/run/${encodeURIComponent(sel.run_id)}/export.csv`}>export all saved trades</a>}
+            {selected&&<a style={{marginLeft:8}} href={`/api/deeptest/run/${encodeURIComponent(selected)}/metrics.json`}>export authoritative metrics · amount and %</a>}
             <div style={{ display: "flex", gap: 8, alignItems: "center", margin: "6px 0", flexWrap: "wrap" }}>
               <input aria-label="Search complete trade history" disabled={!trades} placeholder="search trades" value={search}
                      onChange={(e) => { setSearch(e.target.value); setPage(0); }} style={{ width: 180 }} />

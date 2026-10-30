@@ -1,0 +1,202 @@
+{
+  "release": "V10.5",
+  "base_commit": "ea58dc9dad6592779c35a78f367bbb37631880d6",
+  "branch": "v10.4-throughput",
+  "backend": {
+    "baseline": {
+      "tests": 390,
+      "failed": 17,
+      "errors": 4,
+      "nonpassing": {
+        "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_unset_fields_reproduce_the_default_behaviour": "error",
+        "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_max_active_one_equals_default_gate": "error",
+        "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_one_open_trade_at_a_time_is_enforced": "error",
+        "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_unlimited_concurrent_never_forces_early_exits": "failure",
+        "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_cap_of_n_entries_only": "failure",
+        "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_initial_balance_and_risk_pct_sizing": "failure",
+        "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_amount_mode_sizes_from_money_at_risk": "failure",
+        "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_offsets_follow_the_v65_convention": "failure",
+        "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_execution_model_and_schedule_meta_documented": "error",
+        "tests.test_v6_6_deeptest.TestScenarios::test_incomplete_history_requires_the_confirmation": "failure",
+        "tests.test_v6_6_deeptest.TestScenarios::test_full_coverage_proceeds_without_the_popup": "failure",
+        "tests.test_v6_6_deeptest.TestScenarios::test_idempotent_replay_returns_the_same_scenario": "failure",
+        "tests.test_v6_6_deeptest.TestScenarios::test_partial_runs_are_marked_and_never_called_complete": "failure",
+        "tests.test_v6_6_deeptest.TestProjection::test_node_index_carries_the_projection_fields": "failure",
+        "tests.test_v6_6_deeptest.TestApi::test_preflight_run_flow_with_confirmation": "failure",
+        "tests.test_v6_7_deeptest_workflow.TestAuthoritativeInventory::test_full_dataset_metric_sorting_missing_never_best": "failure",
+        "tests.test_v6_7_deeptest_workflow.TestAuthoritativeInventory::test_displayed_generation_metrics_equal_stored_record": "failure",
+        "tests.test_v6_7_deeptest_workflow.TestAuthoritativeInventory::test_node_718_gen_values_come_from_the_stored_record": "failure",
+        "tests.test_v6_8_authority_and_workflow.TestNodeDataAuthority::test_node_718_identity_metrics_and_true_ranking": "failure",
+        "tests.test_v5_1a_node_populations::test_22_api_populations_endpoint_matches_the_module": "failure",
+        "tests.test_v5_1a_node_populations::test_23_api_deep_plan_exposes_the_union_and_progress": "failure"
+      },
+      "passed": 369
+    },
+    "modified": {
+      "tests": 424,
+      "failed": 17,
+      "errors": 4,
+      "nonpassing": {
+        "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_unset_fields_reproduce_the_default_behaviour": "error",
+        "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_max_active_one_equals_default_gate": "error",
+        "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_one_open_trade_at_a_time_is_enforced": "error",
+        "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_unlimited_concurrent_never_forces_early_exits": "failure",
+        "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_cap_of_n_entries_only": "failure",
+        "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_initial_balance_and_risk_pct_sizing": "failure",
+        "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_amount_mode_sizes_from_money_at_risk": "failure",
+        "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_offsets_follow_the_v65_convention": "failure",
+        "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_execution_model_and_schedule_meta_documented": "error",
+        "tests.test_v6_6_deeptest.TestScenarios::test_incomplete_history_requires_the_confirmation": "failure",
+        "tests.test_v6_6_deeptest.TestScenarios::test_full_coverage_proceeds_without_the_popup": "failure",
+        "tests.test_v6_6_deeptest.TestScenarios::test_idempotent_replay_returns_the_same_scenario": "failure",
+        "tests.test_v6_6_deeptest.TestScenarios::test_partial_runs_are_marked_and_never_called_complete": "failure",
+        "tests.test_v6_6_deeptest.TestProjection::test_node_index_carries_the_projection_fields": "failure",
+        "tests.test_v6_6_deeptest.TestApi::test_preflight_run_flow_with_confirmation": "failure",
+        "tests.test_v6_7_deeptest_workflow.TestAuthoritativeInventory::test_full_dataset_metric_sorting_missing_never_best": "failure",
+        "tests.test_v6_7_deeptest_workflow.TestAuthoritativeInventory::test_displayed_generation_metrics_equal_stored_record": "failure",
+        "tests.test_v6_7_deeptest_workflow.TestAuthoritativeInventory::test_node_718_gen_values_come_from_the_stored_record": "failure",
+        "tests.test_v6_8_authority_and_workflow.TestNodeDataAuthority::test_node_718_identity_metrics_and_true_ranking": "failure",
+        "tests.test_v5_1a_node_populations::test_22_api_populations_endpoint_matches_the_module": "failure",
+        "tests.test_v5_1a_node_populations::test_23_api_deep_plan_exposes_the_union_and_progress": "failure"
+      },
+      "passed": 403
+    },
+    "new_test_cases": 34,
+    "new_failing_identities": [],
+    "seconds": 48.47,
+    "warning": "httpx TestClient deprecation",
+    "test_selection": [
+      "tests/test_v10_5_integrity.py",
+      "tests/test_v10_4_throughput.py",
+      "tests/test_v10_2_processing.py",
+      "tests/test_v10_2_dashboard.py",
+      "tests/test_v10_3_speed.py",
+      "tests/test_v10_deeptest.py",
+      "tests/test_v10_ui.py",
+      "tests/test_v9_5_repairs.py",
+      "tests/test_v9_5_ui.py",
+      "tests/test_v9_3_contracts.py",
+      "tests/test_v9_3_ui.py",
+      "tests/test_v9_2_history.py",
+      "tests/test_v9_2_inspect_generation.py",
+      "tests/test_v9_2_ui.py",
+      "tests/test_v6_6_deeptest.py",
+      "tests/test_v6_7_deeptest_workflow.py",
+      "tests/test_v6_8_authority_and_workflow.py",
+      "tests/test_v5_1a_node_populations.py"
+    ],
+    "environment": "Linux sandbox, Python 3.13.16; not native Windows/Python 3.14.6"
+  },
+  "frontend": {
+    "production_build": "PASS, 5.85 seconds; existing bundle-size warning",
+    "harnesses": {
+      "v10_5_ui (6 behaviours)": "PASS",
+      "v10_4_ui": "PASS",
+      "v10_3_speed_ui": "PASS",
+      "v10_2_dashboard_ui (8 behaviours)": "PASS",
+      "v9_3_ui (11 behaviours)": "PASS"
+    },
+    "browser_native_visual_verification": "not performed"
+  },
+  "preservation": {
+    "manifests": [
+      {
+        "manifest": "original-hashes.json",
+        "files": 462,
+        "unchanged": true
+      },
+      {
+        "manifest": "protected.json",
+        "files": 61,
+        "unchanged": true
+      }
+    ],
+    "DATA_tree": "68225e768709dcd9fb9123642a5164e4e68e79ab",
+    "unchanged_source_paths": [
+      "backend/app/deeptest/store.py",
+      "backend/app/db/database.py",
+      "backend/app/backtest",
+      "backend/app/evolution",
+      "DATA"
+    ],
+    "authorized_compression": {
+      "user_authorized": true,
+      "lossless_verification": true,
+      "files": [
+        {
+          "original_name": "V10_INITIAL_GIT_STATUS.txt",
+          "compressed_name": "V10_INITIAL_GIT_STATUS.txt.gz",
+          "original_sha256": "d2175a652cb3ff6c1e425aaf258fef9fee55efe9633cd7f62499d1ef0dfdbb15",
+          "original_bytes": 1728988,
+          "compressed_bytes": 90287
+        },
+        {
+          "original_name": "V10_PRE_COMMIT_GIT_STATUS.txt",
+          "compressed_name": "V10_PRE_COMMIT_GIT_STATUS.txt.gz",
+          "original_sha256": "2d353494423dc4cff4613833da438ca23bec9a290d0f735200dde85381ff1d85",
+          "original_bytes": 1729443,
+          "compressed_bytes": 90490
+        },
+        {
+          "original_name": "V10_FINAL_GIT_STATUS.txt",
+          "compressed_name": "V10_FINAL_GIT_STATUS.txt.gz",
+          "original_sha256": "d2175a652cb3ff6c1e425aaf258fef9fee55efe9633cd7f62499d1ef0dfdbb15",
+          "original_bytes": 1728988,
+          "compressed_bytes": 90287
+        }
+      ]
+    }
+  },
+  "metrics_cache_benchmark": {
+    "scope": "SYNTHETIC isolated saved-trade metric-cache benchmark, not user example or real market",
+    "trades": 15277,
+    "cold_original_seconds": 0.6439895859998614,
+    "warm_original_median_seconds": 0.0003513734998250584,
+    "warm_original_full_trade_queries": 0,
+    "cold_filtered_calendar_seconds": 2.0160064859996965,
+    "warm_filtered_median_seconds": 0.004907388499987064,
+    "original_net_profit": -15286.0,
+    "included_net_profit": -14605.0,
+    "excluded_net_profit": -681.0
+  },
+  "engine_unchanged_output_benchmark": {
+    "rounds": 3,
+    "worker_count": 1,
+    "bars": 12000,
+    "births": 100,
+    "baseline_serial_median_seconds": 1.805153858,
+    "modified_serial_median_seconds": 1.745870402,
+    "settings_records_rng_complete_trades_and_metrics_digests": "all matched; synthetic only, not universal speed claim"
+  },
+  "limitations": {
+    "exact_example_run": "dt-9edaa1dcbd0d42e7 missing from available records",
+    "canonical_node": "4325 versus 4315 unresolved",
+    "native_Windows_Python_3_14_6_RTX4090_MT5": "not validated",
+    "campaigns_orders_native_authoritative_DB_writes": "not performed",
+    "GPU_implementation": "none"
+  },
+  "source_sha256": {
+    "backend/app/api/routes.py": "79d6e483b9d2a6812594eed6525ac6fdb1a48180db5ff6723009bc44112e567b",
+    "backend/app/deeptest/analytics.py": "fdc3e993acc0bd7416cb7cd619d98b20297ecf40ea483f0743907e5ea23fae4e",
+    "backend/app/deeptest/filter_scenarios.py": "b32011ab10146d44d8762895a3b63d592ce64c2921ef3781d14bf92a79808416",
+    "backend/app/deeptest/inspect_calendar.py": "7336b36f0892fe30d6cb383c0a54c0e168a8798a988a14e22e4796ea249fcfe2",
+    "backend/app/deeptest/management.py": "964611898ab42d4666286a41c5922191f3dfdb15af3eb8ee33ca34689475d46d",
+    "backend/app/deeptest/metric_service.py": "1556b9e3179307c8552069fc7eb575000b0f835fd154d23e64df210b2a30e591",
+    "backend/app/deeptest/scenarios.py": "2899be9f945fec00690e746687a4a2ffe8136b6b88f9274e779089c278971de2",
+    "backend/app/live_testing/engine.py": "9cf5ac1b97d639eb9b778b877bb9f916e22a889c2fb018ae5251b03416cce75b",
+    "backend/app/live_testing/schedule.py": "e7d0b43a6d0c8685ac4136f7e0574fb708844f4be37dd4fb4a452cfc4fdcff97",
+    "backend/app/stats/deeptest_projection.py": "1aea7bffd98febab398695853b96e4fdf127cafd2017980f6dcd66f037684e04",
+    "frontend/src/api.js": "f15f034ba4aee5b92c5e3c2760701e257db22113aa6e90537c0ea389e70344a2",
+    "frontend/src/components/DeepScenarioManagement.jsx": "7e8fa58a3be5343b282d930f90cecfd69816e82dc0d37a5171a259304f1a4849",
+    "frontend/src/components/DeepScenarioPanel.jsx": "8726669a422cf5614ae7d6fdb85a1372ff7761efa5029cac92753b4ff4d54f10",
+    "frontend/src/components/FilterScenarios.jsx": "4f6e92b2ebb2b656030efae9cb1dcead90f6d1504fd391d3a95fa2e3bf495c73",
+    "frontend/src/components/LiveNodeIndex.jsx": "833fd12f8634c79154dde923ed8189c2a4dc8894ee716258c5092badef1bfd19",
+    "frontend/src/components/LiveTestingPanels.jsx": "3575f490c9d25bd45147311053c84ad53c79ea5a9b4ab17b2c8ef9bb36600b36",
+    "frontend/src/pages/DeepBacktest.jsx": "6287adadbf5ed33da2a5f2e283d71e0f9aa544b3283882804fa98ea157709189",
+    "frontend/tests/v10_5_ui.jsx": "76bc6d1a0489af80ff139914348dfc32997f09ee4065692546788533eed16e32",
+    "frontend/tests/v10_5_ui.mjs": "10d528871d119ca4ecae3e90121e15b52569d99ba99852065b3a66af30ae6604",
+    "tests/test_v10_5_integrity.py": "1d0de57a461e044cd34968dc34a86af6d6b2b41699fb6181d6826ed0da97fc40",
+    "tests/test_v6_6_deeptest.py": "fe0aaa0e21e767320f090e0a9ff90367d48f16aeb0eab50afd4093a939f33a31",
+    "tests/test_v6_8_authority_and_workflow.py": "c92692212e2ae29acf79adae9dcfdb5883a180d4f4605caa78eac85f78683de4"
+  }
+}

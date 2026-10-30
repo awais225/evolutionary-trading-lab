@@ -789,7 +789,8 @@ def preferred_for(db: Any, node_id: int) -> Optional[Dict[str, Any]]:
         sc = S.get_scenario(db, pref["preferred_run_id"])
         if sc and sc["status"] in VALID_FOR_PREFERENCE and (sc.get("analytics") or {}).get("summary"):
             sc["preference_source"] = "explicit"
-            return sc
+            from .metric_service import enrich
+            return enrich(db,sc)
         if sc:
             # a stored explicit preference pointing at an invalid run is kept
             # as a record but never used silently
@@ -797,7 +798,8 @@ def preferred_for(db: Any, node_id: int) -> Optional[Dict[str, Any]]:
     valid = [r for r in S.list_scenarios(db, int(node_id)) if r["status"] in VALID_FOR_PREFERENCE and (r.get("analytics") or {}).get("summary")]
     if valid:
         valid[0]["preference_source"] = "latest_valid"
-        return valid[0]
+        from .metric_service import enrich
+        return enrich(db,valid[0])
     return None
 
 
@@ -812,15 +814,17 @@ def set_preferred(db: Any, node_id: int, run_id: str, explicit: bool = True) -> 
                 "error": f"a {sc['status']} run cannot be preferred — only COMPLETED or "
                          "PARTIAL scenarios hold valid results"}
     S.set_pref(db, node_id, run_id, explicit=explicit)
+    from .metric_service import enrich
     return {"ok": True, "preferred_run_id": run_id, "explicit": bool(explicit),
-            "scenario": S.get_scenario(db, run_id)}
+            "scenario": enrich(db,S.get_scenario(db, run_id))}
 
 
 def node_deeptest_summary(db: Any, node_id: int) -> Dict[str, Any]:
     """Everything the DEEPTESTED-NODES / stats projection needs for one node."""
-    rows = S.list_scenarios(db, int(node_id))
+    from .metric_service import enrich_many, enrich
+    rows = enrich_many(db,S.list_scenarios(db, int(node_id)))
     valid = [r for r in rows if r["status"] in VALID_FOR_PREFERENCE]
-    pref = preferred_for(db, node_id)
+    pref = enrich(db,preferred_for(db, node_id))
     return {
         "node_id": int(node_id),
         "scenario_count": len(rows),
@@ -829,6 +833,7 @@ def node_deeptest_summary(db: Any, node_id: int) -> Dict[str, Any]:
         "preferred": ({"run_id": pref["run_id"], "status": pref["status"],
                        "coverage_status": pref.get("coverage_status"),
                        "metrics": pref.get("metrics"), "analytics": pref.get("analytics"),
+                       "metric_provenance":pref.get("metric_provenance"),
                        "duration_key": pref.get("duration_key"),
                        "finished_at": pref.get("finished_at"),
                        "preference_source": pref.get("preference_source")}
@@ -849,6 +854,7 @@ def node_deeptest_summary(db: Any, node_id: int) -> Dict[str, Any]:
             "actual_end": r.get("actual_end"),
             "bars_used": r.get("bars_used"),
             "signature": r.get("signature"),
+            "metric_provenance":r.get("metric_provenance"),
             "headline": {
                 "net_profit": ((r.get("analytics") or {}).get("summary") or {}).get("net_profit"),
                 "net_return_pct": ((r.get("analytics") or {}).get("summary") or {}).get("net_return_pct"),
@@ -873,6 +879,8 @@ def compare(db: Any, run_ids: List[str]) -> Dict[str, Any]:
         if not sc:
             return {"ok": False, "error": f"unknown run {rid}"}
         rows.append(sc)
+    from .metric_service import enrich_many
+    rows=enrich_many(db,rows)
     node_ids = {int(r["node_id"]) for r in rows}
     if len(node_ids) > 1:
         return {"ok": False, "error": "scenarios of different nodes cannot be compared"}

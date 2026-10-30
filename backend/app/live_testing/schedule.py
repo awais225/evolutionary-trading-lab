@@ -466,7 +466,7 @@ def evaluate(schedule: Dict[str, Any], *, now: Optional[float] = None,
 
     # 1. days (evaluated in the schedule's timezone: a "Friday" belongs to the
     #    operator's day, not to UTC's)
-    if (s.get("filter_rules") or {}).get("daily_schedule"):
+    if (s.get("filter_rules") or {}).get("daily_schedule") or (s.get("filter_rules") or {}).get("_assigned_schedule"):
         s["days"]=list(range(7));s["sessions"]=[]
     days = s["days"] if s["days"] is not None else DEFAULT_DAYS
     weekday = local.weekday()
@@ -612,7 +612,7 @@ def bar_mask(schedule: Optional[Dict[str, Any]], *, ts, dow, session=None,
     else:
         shift = 0.0
     local_dow = ((np.floor((ts + shift) / 86400.0).astype(np.int64) + 3) % 7)  # 1970-01-01 = Thursday
-    if (s.get("filter_rules") or {}).get("daily_schedule"):
+    if (s.get("filter_rules") or {}).get("daily_schedule") or (s.get("filter_rules") or {}).get("_assigned_schedule"):
         s["days"]=list(range(7));s["sessions"]=[]
     days = s["days"] if s["days"] is not None else DEFAULT_DAYS
     if days:

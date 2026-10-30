@@ -659,7 +659,11 @@ class TestProjection:
                                           "expectancy_per_trade": 50}}})
         p3 = project_node(tdb, 3, generation_metrics=gen)
         assert p3["metrics_source"] == "deeptest_latest_valid"
-        assert p3["metrics"]["trades"] == 4
+        # V10.5: snapshot-only fixtures are not closed-trade evidence. Preserve
+        # the legacy record, but never advertise its unverified metrics as actual.
+        assert p3["metrics"]["trades"] is None
+        assert S.get_scenario(tdb,rid)['analytics']['summary']['trades']==4
+        assert SC.preferred_for(tdb,3)['metric_provenance']['integrity']=='MISSING_TRADE_RECORDS'
         assert p3["generation_metrics"]["trades"] == 10      # preserved separately
         # an explicit preference is labelled as such
         S.set_pref(tdb, 3, rid, explicit=True)

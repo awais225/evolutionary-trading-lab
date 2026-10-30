@@ -137,11 +137,13 @@ def build_index(db: Any) -> Dict[int, Dict[str, Any]]:
                        FROM deeptest_scenarios
                        WHERE status IN ('COMPLETED','PARTIAL')
                        ORDER BY node_id, created_at DESC, run_id DESC""") or []
+        from ..deeptest.metric_service import enrich_many
+        rows=enrich_many(db,[dict(r) for r in rows])
         by_node: Dict[int, List[Dict[str, Any]]] = {}
         for r in rows:
             d = dict(r)
             try:
-                d["analytics"] = json.loads(d["analytics"]) if d.get("analytics") else None
+                d["analytics"] = (json.loads(d["analytics"]) if isinstance(d.get("analytics"),str) else d.get("analytics"))
             except Exception:
                 d["analytics"] = None
             if not (d.get('analytics') or {}).get('summary'):continue

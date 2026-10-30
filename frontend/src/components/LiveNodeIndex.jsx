@@ -397,10 +397,11 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
     const changed = (e) => {
       setRows((old) => old.map((r) => r.node_id === e.detail.strategy_id ? { ...r, starred: e.detail.starred } : r)
         .filter((r) => !(starredOnly || filter === "starred") || r.starred));
+      if(e.detail.starred)load();
     };
     window.addEventListener("candidate-star-changed", changed);
     return () => window.removeEventListener("candidate-star-changed", changed);
-  }, [starredOnly, filter]);
+  }, [starredOnly, filter, load]);
 
   // §7 — the population authority is fetched whenever the table is empty (or the
   // index failed), so the explanation always carries real backend numbers.
@@ -582,8 +583,7 @@ export function LiveNodeTable({ onOpenNode, onToggleStar, globalRisk, onRiskChan
           {["M1", "M5", "M15", "M30", "H1", "H4", "D1"].map((t) => <option key={t} value={t}>{t}</option>)}
         </select>
         <label className="muted" style={{ fontSize: 12 }}>
-          <input type="checkbox" checked={starredOnly}
-                 onChange={(e) => { setStarredOnly(e.target.checked); }} /> starred only
+          <select aria-label="Node favourites" value={starredOnly?'starred':'all'} onChange={e=>setStarredOnly(e.target.value==='starred')}><option value="all">All Nodes</option><option value="starred">Starred Nodes</option></select>
         </label>
         <span className="muted" style={{ fontSize: 12 }}>sort</span>
         <select className="input" value={sortBy}
