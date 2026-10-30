@@ -5893,7 +5893,9 @@ def nodes_index(
     # degrades to generation metrics and never breaks the index.
     try:
         from ..stats.deeptest_projection import build_index as _dt_build_index
-        _dt_index = _dt_build_index(db)
+        # Overview renders generation records only. Do not turn its startup
+        # request into a cold all-history DeepTest trade calculation.
+        _dt_index = {} if metric_source == 'generation' else _dt_build_index(db)
     except Exception as _dt_e:                     # pragma: no cover - defensive
         log.warning("deeptest statistics index unavailable: %s", _dt_e)
         _dt_index = {}

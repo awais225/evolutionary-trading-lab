@@ -32,7 +32,7 @@ export default function Overview() {
     const seq = ++topRequest.current;
     const aliases = { id: "node_id", pf: "generation_pf", dd: "generation_dd", return_pct: "generation_return", trades: "generation_trades", win_rate: "generation_win_rate", net_profit: "generation_net_profit" };
     const res = await api.nodes({ filter: topFilter === "starred" ? "all" : topFilter,
-      starred_only: topFilter === "starred", limit: 15, compact: true,
+      starred_only: topFilter === "starred", limit: 15, compact: true, metric_source: "generation",
       sort_by: aliases[sortCol] || sortCol, sort_desc: sortDir === "desc" });
     if (seq === topRequest.current) {
       setTop(res.nodes || []);

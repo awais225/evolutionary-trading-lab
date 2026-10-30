@@ -1,0 +1,708 @@
+{
+  "release": "V10.5.1",
+  "target_branch": "main",
+  "original_main": "f5935f335ad53ddc5d329a165821cf367f196000",
+  "last_pre_v105_reference": "ea58dc9dad6592779c35a78f367bbb37631880d6",
+  "complete_v105_parent": "85b79b1c4097b026111262e300e442814664db31",
+  "production_files_changed": 3,
+  "source_and_test_sha256": {
+    "backend/app/api/routes.py": "461bdd243ef585f071cacc01f17daadc4d0ba230adeb6fd56041ac4fe79f028e",
+    "backend/app/stats/deeptest_projection.py": "0d341cd85a5bf691353676055aef51b07f64aec4b24fd8e4dc097a2361d35703",
+    "frontend/src/pages/Overview.jsx": "5d3a332f9a21b1d58b9ef0ea25aa5156b22d625bc8124a1004c99688b13703ab",
+    "frontend/tests/v10_5_1_dashboard_ui.jsx": "f9adec805eb5e59b114633a032065dfc8d4e3d54331d04d587e2100eb97a5475",
+    "frontend/tests/v10_5_1_dashboard_ui.mjs": "04319836ead1759c890703e783e7c8f0aeda5d02e4b85d9b3728d59cb1569729",
+    "tests/test_v10_4_throughput.py": "0dbc3b48594a94cc63e8a8fe976dacaad7e5e6fe07af72c7df7685bbe3ae82b2",
+    "tests/test_v10_5_1_dashboard_startup.py": "e5f1677dc03dc5d177d0d439adeb0cd90c99293ce28f232b91175dd8641ce01c"
+  },
+  "unchanged_v105_feature_status_and_lifecycle_files_sha256": {
+    "frontend/src/App.jsx": "315f93ed6e597ec5dde779ae2371ba93ec1a92381b88af3ea050a3b6bb65b317",
+    "frontend/src/components/TopStatusRow.jsx": "5c2c8fae371f145fc70179e1744198456ae18ecc78cb233c7e4abf26183ee3e8",
+    "backend/app/main.py": "e061c0f95d3f68b931c34ce0b9ce0ffa515d1fbc899ace06b16c581a7d71e82e",
+    "backend/app/deeptest/metric_service.py": "1556b9e3179307c8552069fc7eb575000b0f835fd154d23e64df210b2a30e591",
+    "backend/app/deeptest/analytics.py": "fdc3e993acc0bd7416cb7cd619d98b20297ecf40ea483f0743907e5ea23fae4e",
+    "backend/app/deeptest/filter_scenarios.py": "b32011ab10146d44d8762895a3b63d592ce64c2921ef3781d14bf92a79808416",
+    "backend/app/deeptest/management.py": "964611898ab42d4666286a41c5922191f3dfdb15af3eb8ee33ca34689475d46d",
+    "backend/app/deeptest/scenarios.py": "2899be9f945fec00690e746687a4a2ffe8136b6b88f9274e779089c278971de2",
+    "backend/app/deeptest/inspect_calendar.py": "7336b36f0892fe30d6cb383c0a54c0e168a8798a988a14e22e4796ea249fcfe2",
+    "backend/app/live_testing/engine.py": "9cf5ac1b97d639eb9b778b877bb9f916e22a889c2fb018ae5251b03416cce75b",
+    "backend/app/live_testing/schedule.py": "e7d0b43a6d0c8685ac4136f7e0574fb708844f4be37dd4fb4a452cfc4fdcff97",
+    "frontend/src/components/DeepScenarioManagement.jsx": "7e8fa58a3be5343b282d930f90cecfd69816e82dc0d37a5171a259304f1a4849",
+    "frontend/src/components/DeepScenarioPanel.jsx": "8726669a422cf5614ae7d6fdb85a1372ff7761efa5029cac92753b4ff4d54f10",
+    "frontend/src/components/FilterScenarios.jsx": "4f6e92b2ebb2b656030efae9cb1dcead90f6d1504fd391d3a95fa2e3bf495c73",
+    "frontend/src/components/LiveNodeIndex.jsx": "833fd12f8634c79154dde923ed8189c2a4dc8894ee716258c5092badef1bfd19",
+    "frontend/src/components/LiveTestingPanels.jsx": "3575f490c9d25bd45147311053c84ad53c79ea5a9b4ab17b2c8ef9bb36600b36",
+    "frontend/src/pages/DeepBacktest.jsx": "6287adadbf5ed33da2a5f2e283d71e0f9aa544b3283882804fa98ea157709189",
+    "frontend/src/api.js": "f15f034ba4aee5b92c5e3c2760701e257db22113aa6e90537c0ea389e70344a2"
+  },
+  "backend": {
+    "versions": {
+      "baseline": {
+        "passed": 369,
+        "failed": 17,
+        "errors": 4,
+        "nonpassing_identities": {
+          "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_unset_fields_reproduce_the_default_behaviour": "error",
+          "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_max_active_one_equals_default_gate": "error",
+          "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_one_open_trade_at_a_time_is_enforced": "error",
+          "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_unlimited_concurrent_never_forces_early_exits": "failure",
+          "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_cap_of_n_entries_only": "failure",
+          "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_initial_balance_and_risk_pct_sizing": "failure",
+          "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_amount_mode_sizes_from_money_at_risk": "failure",
+          "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_offsets_follow_the_v65_convention": "failure",
+          "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_execution_model_and_schedule_meta_documented": "error",
+          "tests.test_v6_6_deeptest.TestScenarios::test_incomplete_history_requires_the_confirmation": "failure",
+          "tests.test_v6_6_deeptest.TestScenarios::test_full_coverage_proceeds_without_the_popup": "failure",
+          "tests.test_v6_6_deeptest.TestScenarios::test_idempotent_replay_returns_the_same_scenario": "failure",
+          "tests.test_v6_6_deeptest.TestScenarios::test_partial_runs_are_marked_and_never_called_complete": "failure",
+          "tests.test_v6_6_deeptest.TestProjection::test_node_index_carries_the_projection_fields": "failure",
+          "tests.test_v6_6_deeptest.TestApi::test_preflight_run_flow_with_confirmation": "failure",
+          "tests.test_v6_7_deeptest_workflow.TestAuthoritativeInventory::test_full_dataset_metric_sorting_missing_never_best": "failure",
+          "tests.test_v6_7_deeptest_workflow.TestAuthoritativeInventory::test_displayed_generation_metrics_equal_stored_record": "failure",
+          "tests.test_v6_7_deeptest_workflow.TestAuthoritativeInventory::test_node_718_gen_values_come_from_the_stored_record": "failure",
+          "tests.test_v6_8_authority_and_workflow.TestNodeDataAuthority::test_node_718_identity_metrics_and_true_ranking": "failure",
+          "tests.test_v5_1a_node_populations::test_22_api_populations_endpoint_matches_the_module": "failure",
+          "tests.test_v5_1a_node_populations::test_23_api_deep_plan_exposes_the_union_and_progress": "failure"
+        }
+      },
+      "v105": {
+        "passed": 403,
+        "failed": 17,
+        "errors": 4,
+        "nonpassing_identities": {
+          "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_unset_fields_reproduce_the_default_behaviour": "error",
+          "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_max_active_one_equals_default_gate": "error",
+          "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_one_open_trade_at_a_time_is_enforced": "error",
+          "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_unlimited_concurrent_never_forces_early_exits": "failure",
+          "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_cap_of_n_entries_only": "failure",
+          "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_initial_balance_and_risk_pct_sizing": "failure",
+          "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_amount_mode_sizes_from_money_at_risk": "failure",
+          "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_offsets_follow_the_v65_convention": "failure",
+          "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_execution_model_and_schedule_meta_documented": "error",
+          "tests.test_v6_6_deeptest.TestScenarios::test_incomplete_history_requires_the_confirmation": "failure",
+          "tests.test_v6_6_deeptest.TestScenarios::test_full_coverage_proceeds_without_the_popup": "failure",
+          "tests.test_v6_6_deeptest.TestScenarios::test_idempotent_replay_returns_the_same_scenario": "failure",
+          "tests.test_v6_6_deeptest.TestScenarios::test_partial_runs_are_marked_and_never_called_complete": "failure",
+          "tests.test_v6_6_deeptest.TestProjection::test_node_index_carries_the_projection_fields": "failure",
+          "tests.test_v6_6_deeptest.TestApi::test_preflight_run_flow_with_confirmation": "failure",
+          "tests.test_v6_7_deeptest_workflow.TestAuthoritativeInventory::test_full_dataset_metric_sorting_missing_never_best": "failure",
+          "tests.test_v6_7_deeptest_workflow.TestAuthoritativeInventory::test_displayed_generation_metrics_equal_stored_record": "failure",
+          "tests.test_v6_7_deeptest_workflow.TestAuthoritativeInventory::test_node_718_gen_values_come_from_the_stored_record": "failure",
+          "tests.test_v6_8_authority_and_workflow.TestNodeDataAuthority::test_node_718_identity_metrics_and_true_ranking": "failure",
+          "tests.test_v5_1a_node_populations::test_22_api_populations_endpoint_matches_the_module": "failure",
+          "tests.test_v5_1a_node_populations::test_23_api_deep_plan_exposes_the_union_and_progress": "failure"
+        }
+      },
+      "repo": {
+        "passed": 411,
+        "failed": 17,
+        "errors": 4,
+        "nonpassing_identities": {
+          "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_unset_fields_reproduce_the_default_behaviour": "error",
+          "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_max_active_one_equals_default_gate": "error",
+          "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_one_open_trade_at_a_time_is_enforced": "error",
+          "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_unlimited_concurrent_never_forces_early_exits": "failure",
+          "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_cap_of_n_entries_only": "failure",
+          "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_initial_balance_and_risk_pct_sizing": "failure",
+          "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_amount_mode_sizes_from_money_at_risk": "failure",
+          "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_offsets_follow_the_v65_convention": "failure",
+          "tests.test_v6_6_deeptest.TestEngineDeeptestFields::test_execution_model_and_schedule_meta_documented": "error",
+          "tests.test_v6_6_deeptest.TestScenarios::test_incomplete_history_requires_the_confirmation": "failure",
+          "tests.test_v6_6_deeptest.TestScenarios::test_full_coverage_proceeds_without_the_popup": "failure",
+          "tests.test_v6_6_deeptest.TestScenarios::test_idempotent_replay_returns_the_same_scenario": "failure",
+          "tests.test_v6_6_deeptest.TestScenarios::test_partial_runs_are_marked_and_never_called_complete": "failure",
+          "tests.test_v6_6_deeptest.TestProjection::test_node_index_carries_the_projection_fields": "failure",
+          "tests.test_v6_6_deeptest.TestApi::test_preflight_run_flow_with_confirmation": "failure",
+          "tests.test_v6_7_deeptest_workflow.TestAuthoritativeInventory::test_full_dataset_metric_sorting_missing_never_best": "failure",
+          "tests.test_v6_7_deeptest_workflow.TestAuthoritativeInventory::test_displayed_generation_metrics_equal_stored_record": "failure",
+          "tests.test_v6_7_deeptest_workflow.TestAuthoritativeInventory::test_node_718_gen_values_come_from_the_stored_record": "failure",
+          "tests.test_v6_8_authority_and_workflow.TestNodeDataAuthority::test_node_718_identity_metrics_and_true_ranking": "failure",
+          "tests.test_v5_1a_node_populations::test_22_api_populations_endpoint_matches_the_module": "failure",
+          "tests.test_v5_1a_node_populations::test_23_api_deep_plan_exposes_the_union_and_progress": "failure"
+        }
+      }
+    },
+    "seconds": {
+      "baseline": 75.39,
+      "v105": 77.77,
+      "repo": 77.62
+    },
+    "new_tests_beforefix": {
+      "failed": 6,
+      "passed": 2
+    },
+    "new_tests_afterfix": {
+      "passed": 8
+    },
+    "combined_new_and_v105_focused_passed": 42,
+    "nonpassing_identities_identical": true,
+    "new_nonpassing_identities": [],
+    "selection": [
+      "tests/test_v10_5_integrity.py",
+      "tests/test_v10_4_throughput.py",
+      "tests/test_v10_2_processing.py",
+      "tests/test_v10_2_dashboard.py",
+      "tests/test_v10_3_speed.py",
+      "tests/test_v10_deeptest.py",
+      "tests/test_v10_ui.py",
+      "tests/test_v9_5_repairs.py",
+      "tests/test_v9_5_ui.py",
+      "tests/test_v9_3_contracts.py",
+      "tests/test_v9_3_ui.py",
+      "tests/test_v9_2_history.py",
+      "tests/test_v9_2_inspect_generation.py",
+      "tests/test_v9_2_ui.py",
+      "tests/test_v6_6_deeptest.py",
+      "tests/test_v6_7_deeptest_workflow.py",
+      "tests/test_v6_8_authority_and_workflow.py",
+      "tests/test_v5_1a_node_populations.py",
+      "tests/test_v10_5_1_dashboard_startup.py"
+    ],
+    "warning": "existing TestClient/httpx deprecation"
+  },
+  "frontend": {
+    "new_harness_beforefix": "7/8 passed; startup generation-only assertion fails",
+    "new_harness_afterfix": "8/8 passed",
+    "all_six_harnesses": [
+      "v10_5_1_dashboard_ui",
+      "v10_5_ui",
+      "v10_4_ui",
+      "v10_3_speed_ui",
+      "v10_2_dashboard_ui",
+      "v9_3_ui"
+    ],
+    "all_harnesses_passed": true,
+    "production_build": "passed in 8.01 seconds; existing >500kB bundle warning"
+  },
+  "isolated_route_comparison": {
+    "baseline": {
+      "side": "baseline",
+      "fixture": "SYNTHETIC, 32 archived partial runs for one node; not user run or native database",
+      "runs": 32,
+      "trades_per_run": 15277,
+      "total_trade_rows": 488864,
+      "overview_request": [
+        {
+          "seconds": 0.19568345400000453,
+          "full_trade_queries": 0,
+          "runs_calculated": 0
+        },
+        {
+          "seconds": 0.010277008000002752,
+          "full_trade_queries": 0,
+          "runs_calculated": 0
+        },
+        {
+          "seconds": 0.008808038999973178,
+          "full_trade_queries": 0,
+          "runs_calculated": 0
+        },
+        {
+          "seconds": 0.008366703999968195,
+          "full_trade_queries": 0,
+          "runs_calculated": 0
+        }
+      ],
+      "status_cycles": [
+        {
+          "/api/status": {
+            "seconds": 0.22550976299999093,
+            "http": 200
+          },
+          "/api/system/status_row": {
+            "seconds": 0.015024133999986589,
+            "http": 200
+          },
+          "/health": {
+            "seconds": 0.006008562000033635,
+            "http": 200
+          },
+          "/api/ready": {
+            "seconds": 0.005483424999965791,
+            "http": 503
+          }
+        },
+        {
+          "/api/status": {
+            "seconds": 0.012183029999960127,
+            "http": 200
+          },
+          "/api/system/status_row": {
+            "seconds": 0.013146603999985018,
+            "http": 200
+          },
+          "/health": {
+            "seconds": 0.005585920999919836,
+            "http": 200
+          },
+          "/api/ready": {
+            "seconds": 0.005099209000036353,
+            "http": 503
+          }
+        },
+        {
+          "/api/status": {
+            "seconds": 0.011589057000037428,
+            "http": 200
+          },
+          "/api/system/status_row": {
+            "seconds": 0.011007923999954983,
+            "http": 200
+          },
+          "/health": {
+            "seconds": 0.005925797000031707,
+            "http": 200
+          },
+          "/api/ready": {
+            "seconds": 0.005159017999972093,
+            "http": 503
+          }
+        }
+      ],
+      "selected_deep_projection": {
+        "seconds": 0.0005154469999979483,
+        "full_trade_queries": 0,
+        "runs_calculated": 0,
+        "chosen_run": "dt-startup-synthetic-31",
+        "amount": null
+      },
+      "trade_rows_and_legacy_snapshots_unchanged": true,
+      "native_lifespan": "not invoked in this route-level comparison; tested separately"
+    },
+    "v105": {
+      "side": "v105",
+      "fixture": "SYNTHETIC, 32 archived partial runs for one node; not user run or native database",
+      "runs": 32,
+      "trades_per_run": 15277,
+      "total_trade_rows": 488864,
+      "overview_request": [
+        {
+          "seconds": 31.60259742800008,
+          "full_trade_queries": 4,
+          "runs_calculated": 32
+        },
+        {
+          "seconds": 0.03239386400002786,
+          "full_trade_queries": 0,
+          "runs_calculated": 0
+        },
+        {
+          "seconds": 0.029944063000016286,
+          "full_trade_queries": 0,
+          "runs_calculated": 0
+        },
+        {
+          "seconds": 0.030602240999996866,
+          "full_trade_queries": 0,
+          "runs_calculated": 0
+        }
+      ],
+      "status_cycles": [
+        {
+          "/api/status": {
+            "seconds": 0.24340394900002593,
+            "http": 200
+          },
+          "/api/system/status_row": {
+            "seconds": 0.014724471999898014,
+            "http": 200
+          },
+          "/health": {
+            "seconds": 0.005984785000009651,
+            "http": 200
+          },
+          "/api/ready": {
+            "seconds": 0.005774889000008443,
+            "http": 503
+          }
+        },
+        {
+          "/api/status": {
+            "seconds": 0.012808190999976432,
+            "http": 200
+          },
+          "/api/system/status_row": {
+            "seconds": 0.01340791600000557,
+            "http": 200
+          },
+          "/health": {
+            "seconds": 0.005423941000003651,
+            "http": 200
+          },
+          "/api/ready": {
+            "seconds": 0.004869558999985202,
+            "http": 503
+          }
+        },
+        {
+          "/api/status": {
+            "seconds": 0.01150689799999327,
+            "http": 200
+          },
+          "/api/system/status_row": {
+            "seconds": 0.01070046999996066,
+            "http": 200
+          },
+          "/health": {
+            "seconds": 0.00508178699999462,
+            "http": 200
+          },
+          "/api/ready": {
+            "seconds": 0.004759591000038199,
+            "http": 503
+          }
+        }
+      ],
+      "selected_deep_projection": {
+        "seconds": 32.02139403399997,
+        "full_trade_queries": 4,
+        "runs_calculated": 32,
+        "chosen_run": "dt-startup-synthetic-31",
+        "amount": 15289.0
+      },
+      "trade_rows_and_legacy_snapshots_unchanged": true,
+      "native_lifespan": "not invoked in this route-level comparison; tested separately"
+    },
+    "repo": {
+      "side": "repo",
+      "fixture": "SYNTHETIC, 32 archived partial runs for one node; not user run or native database",
+      "runs": 32,
+      "trades_per_run": 15277,
+      "total_trade_rows": 488864,
+      "overview_request": [
+        {
+          "seconds": 0.17522760700001072,
+          "full_trade_queries": 0,
+          "runs_calculated": 0
+        },
+        {
+          "seconds": 0.012511830999983431,
+          "full_trade_queries": 0,
+          "runs_calculated": 0
+        },
+        {
+          "seconds": 0.00890950600000906,
+          "full_trade_queries": 0,
+          "runs_calculated": 0
+        },
+        {
+          "seconds": 0.00965276800002357,
+          "full_trade_queries": 0,
+          "runs_calculated": 0
+        }
+      ],
+      "status_cycles": [
+        {
+          "/api/status": {
+            "seconds": 0.27336468600003627,
+            "http": 200
+          },
+          "/api/system/status_row": {
+            "seconds": 0.014981624000029115,
+            "http": 200
+          },
+          "/health": {
+            "seconds": 0.007300455999939004,
+            "http": 200
+          },
+          "/api/ready": {
+            "seconds": 0.006444803000022148,
+            "http": 503
+          }
+        },
+        {
+          "/api/status": {
+            "seconds": 0.012345247999974163,
+            "http": 200
+          },
+          "/api/system/status_row": {
+            "seconds": 0.01281958099991698,
+            "http": 200
+          },
+          "/health": {
+            "seconds": 0.00622588699991411,
+            "http": 200
+          },
+          "/api/ready": {
+            "seconds": 0.005609848999938549,
+            "http": 503
+          }
+        },
+        {
+          "/api/status": {
+            "seconds": 0.013068730999975742,
+            "http": 200
+          },
+          "/api/system/status_row": {
+            "seconds": 0.012006784000050175,
+            "http": 200
+          },
+          "/health": {
+            "seconds": 0.007061008000050606,
+            "http": 200
+          },
+          "/api/ready": {
+            "seconds": 0.006077206999975715,
+            "http": 503
+          }
+        }
+      ],
+      "selected_deep_projection": {
+        "seconds": 1.0821852340000078,
+        "full_trade_queries": 1,
+        "runs_calculated": 1,
+        "chosen_run": "dt-startup-synthetic-31",
+        "amount": 15289.0
+      },
+      "trade_rows_and_legacy_snapshots_unchanged": true,
+      "native_lifespan": "not invoked in this route-level comparison; tested separately"
+    }
+  },
+  "normal_isolated_ASGI_lifespan": {
+    "baseline": {
+      "scope": "normal ASGI lifespan, isolated simulator-only synthetic profile; not Windows/MT5/native research validation",
+      "side": "baseline",
+      "startup_seconds": 0.08606741899995995,
+      "cycles": [
+        {
+          "/health": {
+            "http": 200,
+            "seconds": 0.13958766400003242
+          },
+          "/api/ready": {
+            "http": 200,
+            "seconds": 0.004891896000003726
+          },
+          "/api/status": {
+            "http": 200,
+            "seconds": 0.24692993399992247
+          },
+          "/api/system/status_row": {
+            "http": 200,
+            "seconds": 0.013559506999968107
+          },
+          "/api/nodes?filter=all&compact=true&limit=15&metric_source=generation": {
+            "http": 200,
+            "seconds": 0.015110215999925458
+          }
+        },
+        {
+          "/health": {
+            "http": 200,
+            "seconds": 0.004162771999972392
+          },
+          "/api/ready": {
+            "http": 200,
+            "seconds": 0.004276163999975324
+          },
+          "/api/status": {
+            "http": 200,
+            "seconds": 0.011289638999983254
+          },
+          "/api/system/status_row": {
+            "http": 200,
+            "seconds": 0.00964590799992493
+          },
+          "/api/nodes?filter=all&compact=true&limit=15&metric_source=generation": {
+            "http": 200,
+            "seconds": 0.006709879999903023
+          }
+        },
+        {
+          "/health": {
+            "http": 200,
+            "seconds": 0.004159641000001102
+          },
+          "/api/ready": {
+            "http": 200,
+            "seconds": 0.003770390999989104
+          },
+          "/api/status": {
+            "http": 200,
+            "seconds": 0.009626152999999249
+          },
+          "/api/system/status_row": {
+            "http": 200,
+            "seconds": 0.009024853000028088
+          },
+          "/api/nodes?filter=all&compact=true&limit=15&metric_source=generation": {
+            "http": 200,
+            "seconds": 0.00609253400000398
+          }
+        }
+      ],
+      "live_trades": 0,
+      "synthetic_nodes_preserved": 1,
+      "synthetic_closed_rows_preserved": 3,
+      "all_endpoints_200": true
+    },
+    "v105": {
+      "scope": "normal ASGI lifespan, isolated simulator-only synthetic profile; not Windows/MT5/native research validation",
+      "side": "v105",
+      "startup_seconds": 0.07893366400003288,
+      "cycles": [
+        {
+          "/health": {
+            "http": 200,
+            "seconds": 0.14181140799996683
+          },
+          "/api/ready": {
+            "http": 200,
+            "seconds": 0.006208012999991297
+          },
+          "/api/status": {
+            "http": 200,
+            "seconds": 0.22198391300003095
+          },
+          "/api/system/status_row": {
+            "http": 200,
+            "seconds": 0.014053571999966152
+          },
+          "/api/nodes?filter=all&compact=true&limit=15&metric_source=generation": {
+            "http": 200,
+            "seconds": 0.017511097000010523
+          }
+        },
+        {
+          "/health": {
+            "http": 200,
+            "seconds": 0.004576192000058654
+          },
+          "/api/ready": {
+            "http": 200,
+            "seconds": 0.0038888679999899978
+          },
+          "/api/status": {
+            "http": 200,
+            "seconds": 0.01195705000009184
+          },
+          "/api/system/status_row": {
+            "http": 200,
+            "seconds": 0.011110345000020061
+          },
+          "/api/nodes?filter=all&compact=true&limit=15&metric_source=generation": {
+            "http": 200,
+            "seconds": 0.00799250199997914
+          }
+        },
+        {
+          "/health": {
+            "http": 200,
+            "seconds": 0.0038926659999560798
+          },
+          "/api/ready": {
+            "http": 200,
+            "seconds": 0.0040574270000206525
+          },
+          "/api/status": {
+            "http": 200,
+            "seconds": 0.01164252800003851
+          },
+          "/api/system/status_row": {
+            "http": 200,
+            "seconds": 0.013712785000052463
+          },
+          "/api/nodes?filter=all&compact=true&limit=15&metric_source=generation": {
+            "http": 200,
+            "seconds": 0.008483267000087835
+          }
+        }
+      ],
+      "live_trades": 0,
+      "synthetic_nodes_preserved": 1,
+      "synthetic_closed_rows_preserved": 3,
+      "all_endpoints_200": true
+    },
+    "repo": {
+      "scope": "normal ASGI lifespan, isolated simulator-only synthetic profile; not Windows/MT5/native research validation",
+      "side": "repo",
+      "startup_seconds": 0.06919410900002276,
+      "cycles": [
+        {
+          "/health": {
+            "http": 200,
+            "seconds": 0.1381829239999206
+          },
+          "/api/ready": {
+            "http": 200,
+            "seconds": 0.0041933009999866044
+          },
+          "/api/status": {
+            "http": 200,
+            "seconds": 0.21237881299998662
+          },
+          "/api/system/status_row": {
+            "http": 200,
+            "seconds": 0.013896247000047879
+          },
+          "/api/nodes?filter=all&compact=true&limit=15&metric_source=generation": {
+            "http": 200,
+            "seconds": 0.013355185000023084
+          }
+        },
+        {
+          "/health": {
+            "http": 200,
+            "seconds": 0.004060809000066001
+          },
+          "/api/ready": {
+            "http": 200,
+            "seconds": 0.0042757280000387254
+          },
+          "/api/status": {
+            "http": 200,
+            "seconds": 0.010730160999969485
+          },
+          "/api/system/status_row": {
+            "http": 200,
+            "seconds": 0.009445065000022623
+          },
+          "/api/nodes?filter=all&compact=true&limit=15&metric_source=generation": {
+            "http": 200,
+            "seconds": 0.0062645320000456195
+          }
+        },
+        {
+          "/health": {
+            "http": 200,
+            "seconds": 0.004272228999980143
+          },
+          "/api/ready": {
+            "http": 200,
+            "seconds": 0.003987015999996402
+          },
+          "/api/status": {
+            "http": 200,
+            "seconds": 0.009615934000066773
+          },
+          "/api/system/status_row": {
+            "http": 200,
+            "seconds": 0.00922353999999359
+          },
+          "/api/nodes?filter=all&compact=true&limit=15&metric_source=generation": {
+            "http": 200,
+            "seconds": 0.005515371999990748
+          }
+        }
+      ],
+      "live_trades": 0,
+      "synthetic_nodes_preserved": 1,
+      "synthetic_closed_rows_preserved": 3,
+      "all_endpoints_200": true
+    }
+  },
+  "preservation": {
+    "inherited_workspace_files": 1785,
+    "sha256_unchanged": true,
+    "DATA_tree": "68225e768709dcd9fb9123642a5164e4e68e79ab",
+    "DATA_changes": 0,
+    "experimental_native_DB_writes": false,
+    "generated_artifacts": "external temporary root only; small reports/receipt persisted"
+  },
+  "limitations": {
+    "native_Windows_Python_3_14_MT5": "unavailable, not certified",
+    "standalone_System_Status_timeout": "not reproduced; no distinct status handler/poller change found",
+    "native_root_cause_attribution": "Overview cold all-history timeout mechanism reproduced synthetically; exact native System Status cause not independently established",
+    "original_example_run": "dt-9edaa1dcbd0d42e7 remains unavailable; no fabricated reconciliation",
+    "no_orders_campaigns_GPU_changes": "none performed"
+  }
+}

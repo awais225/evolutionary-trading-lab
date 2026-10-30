@@ -137,8 +137,6 @@ def build_index(db: Any) -> Dict[int, Dict[str, Any]]:
                        FROM deeptest_scenarios
                        WHERE status IN ('COMPLETED','PARTIAL')
                        ORDER BY node_id, created_at DESC, run_id DESC""") or []
-        from ..deeptest.metric_service import enrich_many
-        rows=enrich_many(db,[dict(r) for r in rows])
         by_node: Dict[int, List[Dict[str, Any]]] = {}
         for r in rows:
             d = dict(r)
@@ -146,7 +144,8 @@ def build_index(db: Any) -> Dict[int, Dict[str, Any]]:
                 d["analytics"] = (json.loads(d["analytics"]) if isinstance(d.get("analytics"),str) else d.get("analytics"))
             except Exception:
                 d["analytics"] = None
-            if not (d.get('analytics') or {}).get('summary'):continue
+            # V10.5 derives validity/financial evidence from persisted trades,
+            # not the presence of a legacy summary. Select headers first.
             by_node.setdefault(int(d["node_id"]), []).append(d)
         for nid, lst in by_node.items():
             pref = prefs.get(nid) or {}
@@ -164,6 +163,14 @@ def build_index(db: Any) -> Dict[int, Dict[str, Any]]:
                 "preference_source": source,
                 "valid_count": len(lst),
             }
+        # Restore the pre-V10.5 lightweight selection pass. Only chosen runs
+        # contribute to this projection; inspecting/comparing older runs still
+        # uses the same authoritative service on demand. Never recompute every
+        # archived scenario just to display one preferred/latest result.
+        from ..deeptest.metric_service import enrich_many
+        corrected = {r['run_id']: r for r in enrich_many(db, [v['preferred'] for v in index.values()])}
+        for entry in index.values():
+            entry['preferred'] = corrected[entry['preferred']['run_id']]
     except Exception:
         return {}
     return index
