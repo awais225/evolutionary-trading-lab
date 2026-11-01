@@ -56,6 +56,15 @@ const PERIOD_KEYS = ["1D", "7D", "14D", "1M", "3M", "6M", "1Y", "2Y", "3Y"];
 const fmtMoney = (v) => (v == null ? "N/A" : `$${Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 })}`);
 const fmtPct = (v) => (v == null ? "N/A" : `${(Number(v) * 100).toFixed(3)}%`);
 const fmtNum = (v, d = 3) => (v == null ? "N/A" : (typeof v === "number" ? Number(v).toFixed(d) : String(v)));
+function savedMetric(proof, key, value, format = fmtNum) {
+  if (proof?.availability === "UNAVAILABLE") {
+    return proof.validation_state === "HISTORICAL_UNAVAILABLE" ? "Unavailable" : "Unverified";
+  }
+  const field = proof?.field_states?.[key];
+  if (value == null && field?.state === "HISTORICAL_UNAVAILABLE") return "Unavailable";
+  return format(value);
+}
+
 const isoOf = (ts) => (ts == null ? "—" : new Date(Number(ts) * 1000).toISOString().replace("T", " ").slice(0, 16) + "Z");
 
 /* §4 — the default global settings (validated server-side, snapshotted per
@@ -661,10 +670,10 @@ export default function DeepBacktest() {
                         record ONLY; real zeros show as 0, missing stays N/A. */}
                     <HistoricalCells row={n}/><GenerationCells row={n} />
                     <td className="mono">{fmtNum(n.fitness, 4)}</td>
-                    <td className="mono">{pref ? fmtPct(pref.analytics?.summary?.net_return_pct) : <span className="muted">NOT DEEPTESTED</span>}</td>
-                    <td className="mono">{pref ? fmtNum(pref.analytics?.summary?.profit_factor, 3) : "—"}</td>
-                    <td className="mono">{pref ? fmtPct(pref.analytics?.summary?.max_drawdown_pct) : "—"}</td>
-                    <td className="mono">{pref ? (pref.analytics?.summary?.trades ?? "N/A") : "—"}
+                    <td className="mono">{pref ? savedMetric(pref.metric_provenance,"net_return_pct",pref.analytics?.summary?.net_return_pct,fmtPct) : <span className="muted">NOT DEEPTESTED</span>}</td>
+                    <td className="mono">{pref ? savedMetric(pref.metric_provenance,"profit_factor",pref.analytics?.summary?.profit_factor,fmtNum) : "—"}</td>
+                    <td className="mono">{pref ? savedMetric(pref.metric_provenance,"max_drawdown_pct",pref.analytics?.summary?.max_drawdown_pct,fmtPct) : "—"}</td>
+                    <td className="mono">{pref ? savedMetric(pref.metric_provenance,"trades",pref.analytics?.summary?.trades,v => v ?? "N/A") : "—"}
                       {pref && n.metrics_source ? (
                         <span className="muted" style={{ fontSize: 9.5 }}
                               title={`effective stats from ${n.metrics_source_label || n.metrics_source}`}>
@@ -780,6 +789,9 @@ export default function DeepBacktest() {
           preferred scenario, coverage (PARTIAL always marked), scenario count, last run.
           Sortable and searchable; Inspect opens the saved scenarios, trades and analysis.
         </div>
+        {dtNodes.some(d => d.scenarios?.some(s => s.metric_provenance?.availability === "UNAVAILABLE")) && (
+          <p className="muted" role="status">Unverified means no current saved-trade proof, not genuine N/A; no validation is queued automatically. Unavailable means saved evidence is missing or incomplete. N/A is reserved for a validated calculation that cannot support that metric. Inspect validates the selected scenario; PARTIAL remains PARTIAL.</p>
+        )}
         {!!dtNodes.length && (
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6, flexWrap: "wrap" }}>
             <input placeholder="search node id / research #" value={dtSearch}
@@ -833,12 +845,12 @@ export default function DeepBacktest() {
                       <td className="mono">{fmtNum(d.gen?.profit_factor, 3)}</td>
                       <td className="mono">{fmtPct(d.gen?.max_drawdown_pct)}</td>
                       <td className="mono">{d.gen?.trades ?? "N/A"}</td>
-                      <td className="mono">{fmtPct(sum.net_return_pct)}</td>
-                      <td className="mono">{fmtNum(sum.profit_factor, 3)}</td>
-                      <td className="mono">{fmtPct(sum.max_drawdown_pct)}</td>
-                      <td className="mono">{fmtPct(sum.win_rate)}</td>
-                      <td className="mono">{sum.trades ?? "N/A"}</td>
-                      <td className="mono">{fmtMoney(sum.net_profit)}</td>
+                      <td className="mono">{savedMetric(d.preferred?.metric_provenance,"net_return_pct",sum.net_return_pct,fmtPct)}</td>
+                      <td className="mono">{savedMetric(d.preferred?.metric_provenance,"profit_factor",sum.profit_factor,fmtNum)}</td>
+                      <td className="mono">{savedMetric(d.preferred?.metric_provenance,"max_drawdown_pct",sum.max_drawdown_pct,fmtPct)}</td>
+                      <td className="mono">{savedMetric(d.preferred?.metric_provenance,"win_rate",sum.win_rate,fmtPct)}</td>
+                      <td className="mono">{savedMetric(d.preferred?.metric_provenance,"trades",sum.trades,v => v ?? "N/A")}</td>
+                      <td className="mono">{savedMetric(d.preferred?.metric_provenance,"net_profit",sum.net_profit,fmtMoney)}</td>
                       <td>{txt(d.preferred?.duration_key || "—")}</td>
                       <td>
                         {d.preferred?.coverage_status === "PARTIAL"
@@ -876,12 +888,12 @@ export default function DeepBacktest() {
                           {isoOf(sc.requested_start)} → {isoOf(sc.requested_end)}
                           {sc.actual_start != null ? ` | actual ${isoOf(sc.actual_start)} → ${isoOf(sc.actual_end)}` : ""}
                         </td>
-                        <td className="mono">{fmtPct(sc.headline?.net_return_pct)}</td>
-                        <td className="mono">{sc.headline?.net_profit == null ? "N/A" : <span className={sc.headline.net_profit >= 0 ? "pos" : "neg"}>{fmtMoney(sc.headline.net_profit)}</span>}</td>
-                        <td className="mono">{fmtNum(sc.headline?.profit_factor, 3)}</td>
-                        <td className="mono neg">{fmtPct(sc.headline?.max_drawdown_pct)}</td>
-                        <td className="mono">{fmtPct(sc.headline?.win_rate)}</td>
-                        <td className="mono">{sc.headline?.trades ?? "N/A"}</td>
+                        <td className="mono">{savedMetric(sc.metric_provenance,"net_return_pct",sc.headline?.net_return_pct,fmtPct)}</td>
+                        <td className="mono">{sc.headline?.net_profit == null ? savedMetric(sc.metric_provenance,"net_profit",null,fmtMoney) : <span className={sc.headline.net_profit >= 0 ? "pos" : "neg"}>{fmtMoney(sc.headline.net_profit)}</span>}</td>
+                        <td className="mono">{savedMetric(sc.metric_provenance,"profit_factor",sc.headline?.profit_factor,fmtNum)}</td>
+                        <td className="mono neg">{savedMetric(sc.metric_provenance,"max_drawdown_pct",sc.headline?.max_drawdown_pct,fmtPct)}</td>
+                        <td className="mono">{savedMetric(sc.metric_provenance,"win_rate",sc.headline?.win_rate,fmtPct)}</td>
+                        <td className="mono">{savedMetric(sc.metric_provenance,"trades",sc.headline?.trades,v => v ?? "N/A")}</td>
                         <td className="mono">—</td>
                         <td>{txt(sc.duration_key || "—")}</td>
                         <td>{sc.coverage_status === "PARTIAL" ? <Badge tone="warn">PARTIAL COVERAGE</Badge> : txt(sc.coverage_status || "—")}</td>

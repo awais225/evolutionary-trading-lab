@@ -171,12 +171,12 @@ def test_live_historical_result_mapping_source_is_unchanged():
     # Baseline function body is pinned, not rewritten for the STARRED category.
     expected=json.loads((Path(__file__).parent/'fixtures/v104_preserved_live.json').read_text())
     source=inspect.getsource(nodes_index)
-    # V10.5.1 permits ONLY this generation-only startup guard. Keep the original
+    # V10.5.2 permits ONLY the generation guard and summary-only read boundary. Keep the original
     # V10.4 digest (rather than blessing a new function wholesale) and pin every
     # remaining byte of the Live/historical mapping exactly as before.
     guard=("        # Overview renders generation records only. Do not turn its startup\n"
            "        # request into a cold all-history DeepTest trade calculation.\n"
-           "        _dt_index = {} if metric_source == 'generation' else _dt_build_index(db)")
+           "        _dt_index = {} if metric_source == 'generation' else _dt_build_index(db, summary_only=True)")
     assert source.count(guard)==1
     source=source.replace(guard,"        _dt_index = _dt_build_index(db)")
     assert hashlib.sha256(source.encode()).hexdigest()==expected['nodes_index']

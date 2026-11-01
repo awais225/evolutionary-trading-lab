@@ -78,6 +78,7 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
   useEffect(() => { if (!scenariosProp) reload(); return () => {scenarioSeq.current++;}; }, [scenariosProp, reload]);
   const [selected, setSelected] = useState(null);
   const [detail, setDetail] = useState(null);
+  const [detailPending, setDetailPending] = useState(false);
   const [trades, setTrades] = useState(null);
   const [page, setPage] = useState(0);
   const [sortKey, setSortKey] = useState("trade_no");
@@ -122,13 +123,13 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
   }, []);
 
   const loadDetail = useCallback(async (runId) => {
-    const seq=++detailSeq.current;setDetail(null);setTrades(null);setTradeLoad(null);
+    const seq=++detailSeq.current;setDetail(null);setTrades(null);setTradeLoad(null);setDetailPending(true);
     setError(null);
     try {
       const res = await api.deeptestRunGet(runId);
       if(seq!==detailSeq.current)return;
       if (res.ok === false || !res.scenario) throw new Error(res.error || "Scenario unavailable");
-      setDetail(res.scenario);
+      setDetail(res.scenario);setDetailPending(false);
       // In-flight populations are not final. Poll status, not an unstable full trade list.
       if (["QUEUED", "FETCHING", "VALIDATING", "RUNNING"].includes(res.scenario.status)) return;
       // the complete saved trade list — the filter recalculation and the
@@ -151,7 +152,7 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
       setTradeLoad({loaded:all.length,total:tr.total,busy:false});
       setPage(0);
     } catch (e) {
-      if(seq===detailSeq.current){setError(e);setTradeLoad(null);}
+      if(seq===detailSeq.current){setError(e);setTradeLoad(null);setDetailPending(false);}
     }
   }, []);
 
@@ -193,7 +194,7 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
       setSelected(scenarios[0].run_id);
       loadDetail(scenarios[0].run_id);
     }
-    if (!scenarios.length) { setSelected(null); setDetail(null); setTrades(null); }
+    if (!scenarios.length) { setSelected(null); setDetail(null); setTrades(null); setDetailPending(false); }
   }, [scenarios, selected, loadDetail]);
 
   const prefer = async (runId, explicit = true) => {
@@ -242,7 +243,7 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
     try{
       const res=all?await api.deeptestDeleteAll({confirmation}):await api.deeptestDelete({run_id:selected,confirmation});
       if(!res.ok)throw new Error(res.error||'Deletion refused');
-      setSelected(null);setDetail(null);setTrades(null);setCompare(null);setCompareSel([]);
+      setSelected(null);setDetail(null);setTrades(null);setCompare(null);setCompareSel([]);setDetailPending(false);
       if(onChanged)onChanged();await reload();
       if(res.artifact_cleanup_errors)throw new Error('Records deleted, but TEMP cleanup was incomplete; inspect retained diagnostics');
     }catch(e){setError(e);}finally{setBusy(false);}
@@ -302,6 +303,16 @@ export default function DeepScenarioPanel({ nodeId, node = null, scenarios: scen
         <button disabled={busy} onClick={()=>deleteScenario(true)}>DELETE ALL DEEPTEST DATA…</button>
         <small>Confirmed DeepTest scope only; active writers must stop first.</small>
       </div>
+      {scenarios.some(s => s.metric_provenance?.availability === "UNAVAILABLE") && (
+        <p className="muted" role="status">Historical listing metrics are unverified, not genuine N/A; no automatic validation is queued. Inspect, View Trades and Compare use the authoritative saved trades.</p>
+      )}
+      {detailPending && <p role="status">Loading / validation pending for the selected scenario…</p>}
+      {!detailPending && detail?.metric_provenance?.validation_state === "AUTHORITATIVE" && (
+        <p role="status" className="muted">Authoritative saved-trade calculation available. N/A means this calculation cannot support that metric; capital, currency and coverage qualifications are retained. Filtered selections are calculated separately.</p>
+      )}
+      {!detailPending && detail?.metric_provenance?.validation_state === "HISTORICAL_UNAVAILABLE" && (
+        <p role="status" className="muted">Historical metric unavailable: saved trade evidence is missing or incomplete. Available-row details and coverage warnings are retained.</p>
+      )}
       {ownLoading && <div role="status">Loading saved scenarios…</div>}
       {!scenarios.length && !ownLoading && !error && (
         <StateBlock empty emptyText="no DeepTest scenarios yet — pick a period and press DEEPTEST" />

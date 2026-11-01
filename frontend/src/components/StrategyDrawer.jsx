@@ -483,6 +483,15 @@ export function TradingInfoTab({ id }) {
 // DeepTesting tab uses (preferred DeepTest → latest valid → generation → N/A),
 // never mixing scenarios. No DeepTest history shows an explicit NOT DEEPTESTED.
 // ---------------------------------------------------------------------------
+function savedMetric(proof, key, value, format) {
+  if (proof?.availability === "UNAVAILABLE") {
+    return proof.validation_state === "HISTORICAL_UNAVAILABLE" ? "Unavailable" : "Unverified";
+  }
+  const field = proof?.field_states?.[key];
+  if (value == null && field?.state === "HISTORICAL_UNAVAILABLE") return "Unavailable";
+  return format(value);
+}
+
 function DeepTestedTab({ id }) {
   const [state, setState] = React.useState({ loading: true, scenarios: [], error: null });
   const [inspectOpen, setInspectOpen] = React.useState(false);
@@ -523,6 +532,9 @@ function DeepTestedTab({ id }) {
         DeepTest history ({state.scenarios.length} scenario{state.scenarios.length === 1 ? "" : "s"}).
         Metrics below belong to the preferred scenario only — scenarios are never mixed.
       </p>
+      {preferred?.metric_provenance?.availability === "UNAVAILABLE" && (
+        <p className="muted" role="status">Historical metrics are unverified or unavailable, not mathematical N/A. Open Inspect to validate this scenario only; no automatic validation is queued.</p>
+      )}
       <table className="tbl"><tbody>
         <tr><td>status</td><td className="mono">{preferred ? preferred.status : "—"}
           {preferred && preferred.status === "PARTIAL" ? " (PARTIAL COVERAGE)" : ""}</td></tr>
@@ -534,12 +546,12 @@ function DeepTestedTab({ id }) {
           {preferred ? `${when(preferred.actual_start)} → ${when(preferred.actual_end)}` : "—"}</td></tr>
         <tr><td>coverage</td><td className="mono">{preferred ? (preferred.coverage_status || "—") : "—"}
           {preferred && preferred.coverage_status === "PARTIAL" ? " — results valid only for the actual tested range" : ""}</td></tr>
-        <tr><td>return %</td><td className="mono">{fmtPct(sum.net_return_pct)}</td></tr>
-        <tr><td>net profit</td><td className="mono">{sum.net_profit == null ? "N/A" : Number(sum.net_profit).toFixed(2)}</td></tr>
-        <tr><td>profit factor</td><td className="mono">{fmtNum(sum.profit_factor)}</td></tr>
-        <tr><td>max drawdown %</td><td className="mono">{fmtPct(sum.max_drawdown_pct)}</td></tr>
-        <tr><td>win rate</td><td className="mono">{fmtPct(sum.win_rate)}</td></tr>
-        <tr><td>trades</td><td className="mono">{sum.trades ?? "N/A"}</td></tr>
+        <tr><td>return %</td><td className="mono">{savedMetric(preferred?.metric_provenance,"net_return_pct",sum.net_return_pct,fmtPct)}</td></tr>
+        <tr><td>net profit</td><td className="mono">{savedMetric(preferred?.metric_provenance,"net_profit",sum.net_profit,v => v == null ? "N/A" : Number(v).toFixed(2))}</td></tr>
+        <tr><td>profit factor</td><td className="mono">{savedMetric(preferred?.metric_provenance,"profit_factor",sum.profit_factor,fmtNum)}</td></tr>
+        <tr><td>max drawdown %</td><td className="mono">{savedMetric(preferred?.metric_provenance,"max_drawdown_pct",sum.max_drawdown_pct,fmtPct)}</td></tr>
+        <tr><td>win rate</td><td className="mono">{savedMetric(preferred?.metric_provenance,"win_rate",sum.win_rate,fmtPct)}</td></tr>
+        <tr><td>trades</td><td className="mono">{savedMetric(preferred?.metric_provenance,"trades",sum.trades,v => v ?? "N/A")}</td></tr>
       </tbody></table>
       <button className="btn" style={{ marginTop: 8 }} onClick={() => setInspectOpen((v) => !v)}>
         {inspectOpen ? "hide INSPECT" : "open INSPECT (all scenarios, trades, filters)"}

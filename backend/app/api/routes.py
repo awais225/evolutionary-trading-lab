@@ -10,6 +10,7 @@ from pathlib import Path
 log = logging.getLogger("api.routes")
 
 from ..jsonutil import jd
+from ..read_diagnostics import timed as read_timed
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Body, HTTPException, Query, Request
@@ -142,6 +143,7 @@ def _peek_qualified_authoritative():
 
 
 @router.get("/status")
+@read_timed("status.total")
 def status() -> Dict:
     db = get_db()
     lab = get_lab()
@@ -3063,6 +3065,7 @@ def trigger_stall_check() -> Dict:
 
 # ---------------- top status row consolidated details ----------------
 @router.get("/system/status_row")
+@read_timed("status_row.total")
 def get_system_status_row() -> Dict[str, Any]:
     import socket
     import psutil
@@ -5701,8 +5704,8 @@ def deeptest_scenarios_list(node_id: Optional[int] = None,
     from ..deeptest import store as S
     db = get_db()
     st = [x.strip().upper() for x in (statuses or "").split(",") if x.strip()] or None
-    from ..deeptest.metric_service import enrich_many
-    rows = enrich_many(db,S.list_scenarios(db, node_id=node_id, statuses=st))
+    from ..deeptest.listing import scenarios
+    rows = scenarios(db, node_id=node_id, statuses=st)
     return {"ok": True, "scenarios": rows, "count": len(rows)}
 
 
@@ -5728,20 +5731,12 @@ def deeptest_prefer(payload: Dict[str, Any] = Body(...)):
 @router.get("/deeptest/nodes")
 def deeptest_nodes():
     """DEEPTESTED NODES — every node with at least one DeepTest scenario."""
-    from ..deeptest import store as S
-    from ..deeptest import scenarios as SC
-    db = get_db()
-    S.ensure_schema(db)
-    rows = db.q("SELECT DISTINCT node_id FROM deeptest_scenarios ORDER BY node_id") or []
-    out = []
-    for r in rows:
-        try:
-            out.append(SC.node_deeptest_summary(db, int(r["node_id"])))
-        except Exception as e:                    # one bad node hides nothing
-            out.append({"node_id": int(r["node_id"]), "error": f"{type(e).__name__}: {e}"[:200]})
+    from ..deeptest.listing import node_summaries
+    out = node_summaries(get_db())
     return {"ok": True, "nodes": out, "count": len(out),
             "statistics_priority": ("preferred DeepTest -> latest valid DeepTest -> "
-                                    "generation metrics -> N/A")}
+                                    "generation metrics -> N/A"),
+            "metric_summary_policy": "Revision-validated cached metrics only; unavailable values remain N/A. Open Inspect for authoritative calculation."}
 
 
 @router.get("/nodes")
@@ -5895,7 +5890,7 @@ def nodes_index(
         from ..stats.deeptest_projection import build_index as _dt_build_index
         # Overview renders generation records only. Do not turn its startup
         # request into a cold all-history DeepTest trade calculation.
-        _dt_index = {} if metric_source == 'generation' else _dt_build_index(db)
+        _dt_index = {} if metric_source == 'generation' else _dt_build_index(db, summary_only=True)
     except Exception as _dt_e:                     # pragma: no cover - defensive
         log.warning("deeptest statistics index unavailable: %s", _dt_e)
         _dt_index = {}

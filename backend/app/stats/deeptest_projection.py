@@ -75,7 +75,13 @@ def effective_metrics(deeptest: Optional[Dict[str, Any]],
         metrics = _deeptest_metrics(summary)
         src = (SOURCE_DEEPTEST_PREFERRED
                if deeptest.get("preference_source") == "explicit" else SOURCE_DEEPTEST_LATEST)
-        return metrics, src, SOURCE_LABELS[src]
+        unavailable = (deeptest.get('metric_provenance') or {}).get('availability') == 'UNAVAILABLE'
+        state = (deeptest.get('metric_provenance') or {}).get('validation_state')
+        suffix = (' — historical metrics unavailable; Inspect shows the saved evidence'
+                  if state == 'HISTORICAL_UNAVAILABLE' else
+                  ' — historical metrics unverified; Inspect validates selected saved trades')
+        label = SOURCE_LABELS[src] + (suffix if unavailable else '')
+        return metrics, src, label
     if generation and any(generation.get(k) is not None for k in STAT_FIELDS):
         return _generation_metrics(generation), SOURCE_GENERATION, SOURCE_LABELS[SOURCE_GENERATION]
     return empty_metrics(), "none", SOURCE_LABELS["none"]
@@ -121,11 +127,14 @@ def project_node(db: Any, node_id: int,
     }
 
 
-def build_index(db: Any) -> Dict[int, Dict[str, Any]]:
+def build_index(db: Any, *, summary_only: bool = False) -> Dict[int, Dict[str, Any]]:
     """ONE-pass index over the DeepTest tables, for endpoints that serve many
     nodes (``nodes_index``). Maps node_id -> {preferred, latest_valid} light
     blocks (no full analytics payload — full detail stays on /api/deeptest/*).
     """
+    if summary_only:
+        from ..deeptest.listing import index as summary_index
+        return summary_index(db)
     index: Dict[int, Dict[str, Any]] = {}
     try:
         from ..deeptest import store as S
@@ -188,7 +197,7 @@ def effective_for(index: Dict[int, Dict[str, Any]], node_id: int,
                           "duration_key": p.get("duration_key"),
                           "finished_at": p.get("finished_at"),
                           "preference_source": entry.get("preference_source"),
-                          "analytics": p.get("analytics"),**{k:p.get(k) for k in ("dataset_id","dataset_fingerprint","actual_start","actual_end","finished_at")}}
+                          "analytics": p.get("analytics"), "metric_provenance": p.get("metric_provenance"), **{k:p.get(k) for k in ("dataset_id","dataset_fingerprint","actual_start","actual_end","finished_at")}}
     metrics, src, label = effective_metrics(deeptest_block, generation_metrics)
     return {
         "metrics": metrics,

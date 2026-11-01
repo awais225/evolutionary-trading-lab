@@ -825,6 +825,11 @@ def node_deeptest_summary(db: Any, node_id: int) -> Dict[str, Any]:
     rows = enrich_many(db,S.list_scenarios(db, int(node_id)))
     valid = [r for r in rows if r["status"] in VALID_FOR_PREFERENCE]
     pref = enrich(db,preferred_for(db, node_id))
+    return _format_node_summary(node_id, rows, pref)
+
+
+def _format_node_summary(node_id, rows, pref):
+    valid = [r for r in rows if r["status"] in VALID_FOR_PREFERENCE]
     return {
         "node_id": int(node_id),
         "scenario_count": len(rows),

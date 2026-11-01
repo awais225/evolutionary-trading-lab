@@ -443,11 +443,17 @@ class Database:
     # ---------- meta key/value ----------
     @contextmanager
     def read_snapshot(self):
-        with self._lock:
-            name='population_read_'+uuid.uuid4().hex
-            self._conn.execute('SAVEPOINT '+name)
-            try:yield self
-            finally:self._conn.execute('RELEASE SAVEPOINT '+name)
+        from ..read_diagnostics import phase
+        with phase('db.lock_wait'):
+            self._lock.acquire()
+        try:
+            with phase('db.snapshot_hold'):
+                name='population_read_'+uuid.uuid4().hex
+                self._conn.execute('SAVEPOINT '+name)
+                try:yield self
+                finally:self._conn.execute('RELEASE SAVEPOINT '+name)
+        finally:
+            self._lock.release()
 
     def get_meta(self, key: str, default=None):
         row = self.one("SELECT value FROM meta WHERE key=?", (key,))
@@ -491,16 +497,40 @@ class Database:
                 pass
 
     # ---------- helpers ----------
-    def q(self, sql: str, args: tuple = ()) -> List[Dict[str, Any]]:
+    def q_rows(self, sql: str, args: tuple = ()) -> List[sqlite3.Row]:
         from ..performance import measure
         with measure('db.read_total'):
-            with measure('db.lock_wait'):
-                self._lock.acquire()
-            try:
-                with measure('db.query'):
+            return self._fetch_rows(sql, args)
+
+    def _fetch_rows(self, sql: str, args: tuple = ()) -> List[sqlite3.Row]:
+        """Detach immutable SQLite rows while protected; never return a cursor.
+
+        Dictionary conversion can then occur outside the connection gate. An
+        outer read_snapshot intentionally retains its own gate until release.
+        """
+        from ..performance import measure
+        from ..read_diagnostics import phase
+        with measure('db.lock_wait'), phase('db.lock_wait'):
+            self._lock.acquire()
+        try:
+            with phase('db.lock_hold'), measure('db.query'):
+                with phase('db.sql_execute'):
                     cur = self._conn.execute(sql, args)
-                    return [dict(r) for r in cur.fetchall()]
-            finally:self._lock.release()
+                try:
+                    with phase('db.fetch'):
+                        return cur.fetchall()
+                finally:
+                    cur.close()
+        finally:
+            self._lock.release()
+
+    def q(self, sql: str, args: tuple = ()) -> List[Dict[str, Any]]:
+        from ..performance import measure
+        from ..read_diagnostics import phase
+        with measure('db.read_total'):
+            rows = self._fetch_rows(sql, args)
+            with phase('db.materialize'):
+                return [dict(r) for r in rows]
 
     def one(self, sql: str, args: tuple = ()) -> Optional[Dict[str, Any]]:
         rows = self.q(sql, args)
@@ -1601,7 +1631,21 @@ def get_db(path: str | None = None) -> Database:
     global _db
     if _db is not None:
         try:
-            _db._conn.execute("SELECT 1")
+            # This native probe uses the SAME connection as q()/read_snapshot().
+            # Bypassing their gate permits concurrent SQLite calls (and can
+            # stall under Python trace callbacks). Keep the cursor local and
+            # close it while protected; no extra connection or lock is added.
+            from ..read_diagnostics import phase
+            existing = _db
+            with phase('db.lock_wait'):
+                existing._lock.acquire()
+            try:
+                with phase('db.probe_hold'):
+                    cursor = existing._conn.execute("SELECT 1")
+                    try:cursor.fetchone()
+                    finally:cursor.close()
+            finally:
+                existing._lock.release()
         except (sqlite3.ProgrammingError, sqlite3.OperationalError):
             _db = None
         else:

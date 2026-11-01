@@ -1,9 +1,49 @@
 """V9.5 persisted population accounting; no strategy decisions."""
 import hashlib,json,time
+import threading,weakref
+from ..db.read_revision import revision_snapshot
+from ..read_diagnostics import phase
+_CACHE = weakref.WeakKeyDictionary()
+# One current grouped population per live Database, <= 4 MiB estimate/8192 groups.
+_MAX_BYTES = 4 * 1024 * 1024
+_MAX_GROUPS = 8192
+_SQL = 'SELECT s.run_id,s.generation,s.status,s.data_source,COUNT(s.id) n,MAX(s.updated_at) updated,r.revision registry_version FROM node_registry_revision r LEFT JOIN strategies s ON 1=1 GROUP BY s.run_id,s.generation,s.status,s.data_source,r.revision'
+_CACHE_LOCK = threading.Lock()
+
+
+def _groups(db):
+ # Preserve the read-only adapter contract. Without the full Database snapshot
+ # API there is no safe revision proof: use the original uncached aggregate.
+ if not all(hasattr(db, name) for name in ('q_rows', '_lock', 'conn', 'read_snapshot')):
+  return db.q(_SQL)
+ with revision_snapshot(db, 'population-groups-v1') as revision:
+  with _CACHE_LOCK:
+   hit = _CACHE.get(db)
+  if revision is not None and hit is not None and hit[0] == revision:
+   rows = hit[1]
+  else:
+   with phase('population.sql'):
+    rows = tuple(db.q_rows(_SQL))
+   # Publish before releasing the database gate: competing cold readers reuse
+   # the same immutable grouped rows, rather than repeating the aggregate.
+   if revision is not None:
+    size = sum(128 * len(r) + sum(4 * len(v) for v in r if isinstance(v, (str, bytes))) for r in rows) if len(rows) <= _MAX_GROUPS else _MAX_BYTES + 1
+    with _CACHE_LOCK:
+     _CACHE.pop(db, None)
+     if size <= _MAX_BYTES:
+      _CACHE[db] = (revision, rows)
+ # Scope filtering, dictionaries, hashing and accounting are outside the gate.
+ return [dict(r) for r in rows]
+
 ACTIVE_SQL="UPPER(COALESCE(data_source,''))<>'LEGACY_TEST' AND UPPER(COALESCE(status,''))<>'EXCLUDED'"
 def snapshot(db,run_id=None,target=10000,include_excluded=False):
+ with phase('population.reconstruction'):
+  return _snapshot(db,run_id,target,include_excluded)
+
+
+def _snapshot(db,run_id=None,target=10000,include_excluded=False):
  from ..evolution.engine import IN_FLIGHT_STATES,QUALIFIED_STATES,TERMINAL_STATES
- rows=db.q('SELECT s.run_id,s.generation,s.status,s.data_source,COUNT(s.id) n,MAX(s.updated_at) updated,r.revision registry_version FROM node_registry_revision r LEFT JOIN strategies s ON 1=1 GROUP BY s.run_id,s.generation,s.status,s.data_source,r.revision')
+ rows=_groups(db)
  registry_version=rows[0]['registry_version'] if rows else 0;groups=[r for r in rows if r['n']]
  active=[r for r in groups if str(r.get('data_source') or '').upper()!='LEGACY_TEST' and str(r.get('status') or '').upper()!='EXCLUDED']
  scope_rows=groups if include_excluded else active;scoped=[r for r in scope_rows if r['run_id']==run_id] if run_id else scope_rows;counts={}
