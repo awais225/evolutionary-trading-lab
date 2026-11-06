@@ -5,6 +5,44 @@ exact commit SHA and tag. Claims only for what was implemented AND verified.
 
 ---
 
+## [HERO-V1.0.0] — 2026-11-06 — Phase 1.3 — HERO V1 (migration release)
+
+**Identity change:** Hero1 becomes the active project of the EXISTING GitHub
+repository `https://github.com/awais225/evolutionary-trading-lab` (PUBLIC, by
+owner decision 2026-11-06). `main` = HERO V1 (full Hero1 history preserved).
+Evolutionary Trading Lab preserved on branch **`legacy-archive`**
+(`d96ec4baae56054729b3dd961aea9b7f0b067114`, original legacy main; verified
+remotely). Legacy branches preserved: v10.2-dashboard-manual-testing,
+v10.3-speed-diagnostics, v10.4-throughput. Legacy tags preserved:
+archive-v5.4-line-d9ea8e7, V5.3.1-V6-BASELINE. Repository DATA and Git LFS
+objects were NOT deleted, migrated or regenerated.
+
+**Features introduced:** none (release/migration only). Release identity
+**HERO V1**.
+
+**Bugs fixed:** none. **ISSUE-010 resolved** (migration path replaced the
+new-repo publishing path).
+
+**Technical changes:** `main` replaced via lease-protected push
+(`git push --force-with-lease=main:d96ec4ba… origin main:main`); full Hero1
+history intact (840bf71 → ddce564 → 2471da6 → HERO V1 release commit); tags
+v0.1.0/v0.1.1/HERO-V1.0.0 pushed.
+
+**Tests performed:** `python3 -m pytest` → 27 passed, 1 skipped (local Ollama
+unavailable in this environment — integration test skips by design). Frontend
+unchanged since v0.1.0 (6/6 vitest, clean build).
+
+**Known limitations:** repository is PUBLIC (explicit owner decision);
+Windows/RTX 4090/MT5 still unverified; local Ollama currently unreachable
+(integration test skipped); Phase 2 not started; post-push verification record
+is a follow-up docs commit on top of HERO-V1.0.0 (tags immutable).
+
+**Commit:** (HERO V1 release commit — see git log; the post-push record commit
+carries this SHA)
+**Tag:** HERO-V1.0.0
+
+---
+
 ## [v0.1.1] — 2026-11-06 — Phase 1.1 — GitHub publishing & documentation handoff
 
 **Features introduced**

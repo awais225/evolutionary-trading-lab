@@ -128,3 +128,13 @@ if relevant) + archive prompt in PROMPTS/; run tests; inspect staged diff;
 verify no DATA/secrets staged. Docs ship in the SAME commit as the change.
 After every push: record SHA/branch/version in handoff docs; verify remote with
 git ls-remote/GitHub; if SHA-recording needs another commit, push that too.
+
+## Repository identity (2026-11-06, HERO V1)
+- Active project: `https://github.com/awais225/evolutionary-trading-lab`
+  (PUBLIC — explicit owner decision 2026-11-06). `main` = HERO V1, tag HERO-V1.0.0.
+- Legacy Evolutionary Trading Lab preserved on branch `legacy-archive` @
+  d96ec4baae56054729b3dd961aea9b7f0b067114 (verified remotely 2026-11-06);
+  legacy branches v10.2-dashboard-manual-testing / v10.3-speed-diagnostics /
+  v10.4-throughput and legacy tags (archive-v5.4-line-d9ea8e7,
+  V5.3.1-V6-BASELINE) untouched. No legacy DATA or LFS objects deleted.
+- Runtime architecture is unchanged: local-first FastAPI + Vite + SQLite.
