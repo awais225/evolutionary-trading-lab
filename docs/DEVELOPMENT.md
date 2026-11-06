@@ -29,6 +29,11 @@ python -m venv .venv; .\.venv\Scripts\Activate.ps1
 # same pip commands as above with backslashes
 ```
 
+## Running on Windows (two-file launcher)
+
+Double-click `PREREQUISITES.bat` (once) then `START.bat` (every session).
+Details and verification status: [WINDOWS_SETUP.md](WINDOWS_SETUP.md) §0.
+
 ## Running
 
 ```bash

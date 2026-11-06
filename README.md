@@ -47,6 +47,13 @@ data tree: [docs/DATA_LAYOUT.md](docs/DATA_LAYOUT.md)
 
 ## Quick start
 
+### Windows (two files, no manual commands)
+
+Double-click **`PREREQUISITES.bat`** once, then **`START.bat`** whenever you
+want Hero1 — backend (:8788) and frontend (:5173) open in their own windows and
+the browser opens automatically once both are healthy. Logs:
+`D:\Hero1\DATA\LOGS\*.log`. See [docs/WINDOWS_SETUP.md](docs/WINDOWS_SETUP.md).
+
 ### 1. Backend
 
 ```bash

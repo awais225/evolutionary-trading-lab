@@ -5,6 +5,31 @@ exact commit SHA and tag. Claims only for what was implemented AND verified.
 
 ---
 
+## [Unreleased] — 2026-11-06 — Windows two-file launcher
+
+**Added**
+- `PREREQUISITES.bat` — one-time Windows setup (detection, .venv reuse/create,
+  editable installs, import + build + DB verification; logs to
+  `D:\Hero1\DATA\LOGS\prerequisite.log`).
+- `START.bat` — everyday launcher (persistent visible backend/frontend
+  windows, real HTTP readiness polling, opens the dashboard automatically;
+  duplicate-instance safe; logs to startup/backend/frontend.log).
+
+**Changes:** none to app code, schema, compiler, UI or API. Docs: WINDOWS_SETUP
+(§0), README, DEVELOPMENT updated. Prompt archived as
+PROMPTS/WINDOWS_LAUNCHER.md.
+
+**Verification status:** underlying commands Linux-verified from scratch (clean
+venv, fresh DATA root, `npm ci` + production build). **The .bat files have not
+been executed on Windows** — first Windows run is a smoke test; see
+docs/WINDOWS_SETUP.md §0.
+
+**Commit:** this commit — exact SHA recorded in CHATGPT.txt (record commit
+follows, as in prior phases)
+**Tag:** none (no release)
+
+---
+
 ## [HERO-V1.1.0] — 2026-11-06 — Phase 2 — Strategy specification, validation & deterministic compiler
 
 **Features introduced**

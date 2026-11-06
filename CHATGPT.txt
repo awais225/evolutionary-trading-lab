@@ -400,3 +400,21 @@ Phase 2 per the authorized scope.
   see CHANGELOG.md [HERO-V1.1.0] and docs/{ARCHITECTURE,PHASE_ROADMAP,
   ISSUES_AND_FIXES}.md and PROMPTS/PHASE_2_STRATEGY_SPECIFICATION_COMPILER.md
   (OUTCOME). Phase 2 STOPPED; Phase 3 not authorized.
+
+
+2026-11-06 (unreleased follow-up to HERO-V1.1.0) — WINDOWS TWO-FILE LAUNCHER:
+- PREREQUISITES.bat (one-time setup: Windows/Python 3.11+/Node 20+ detection,
+  .venv create/reuse, pip upgrade, documented editable installs, pip check,
+  venv-interpreter import verification, npm ci, production build, idempotent
+  DB init + integrity check, DATA root default D:\Hero1\DATA override via
+  HERO1_DATA_ROOT, LOGS dir, MT5/Ollama report-only) and START.bat (everyday:
+  %~dp0 root, DB verify/init, duplicate-instance detection on :8788/:5173,
+  persistent visible cmd /k windows for backend and frontend, real HTTP
+  readiness polling, browser opens only after readiness) in the repo root.
+- Underlying commands ALL Linux-verified from scratch in a clean venv +
+  fresh DATA root (imports OK, pip check OK, init/check OK, npm ci/build OK).
+- The .bat files themselves are NOT executed on Windows yet (no Windows in
+  this environment) — treat first Windows run as smoke test (see
+  docs/WINDOWS_SETUP.md §0). No app/schema/UI/logic changes; no DATA touched.
+- Preview: actual Hero1 dashboard started in this LMS workspace instead
+  (see below in this log and the delivery report).

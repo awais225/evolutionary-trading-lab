@@ -1,5 +1,37 @@
 # Windows Setup (RTX 4090 Laptop Target)
 
+## 0. Two-file startup (recommended, zero manual commands)
+
+Two batch files live in the repository root — this is the supported way to run
+Hero1 on Windows:
+
+1. **`PREREQUISITES.bat`** — double-click it ONCE per machine. It detects
+   Windows/Python 3.11+/Node 20 LTS, creates (or reuses) `.venv`, upgrades pip,
+   installs the documented editable Python packages, runs `npm ci`, verifies
+   backend imports with the exact `.venv` interpreter, runs the production
+   frontend build, checks database integrity and prints a clear success/failure
+   report. MT5 is detected but optional; Ollama is optional.
+   Default DATA root: `D:\Hero1\DATA` (override by setting `HERO1_DATA_ROOT`
+   before double-clicking, e.g. `set HERO1_DATA_ROOT=E:\Hero1Data`).
+2. **`START.bat`** — double-click it whenever you want Hero1. It verifies the
+   database (initializing idempotently if needed), detects an already-running
+   instance (never launches duplicates), starts the backend in a persistent
+   visible window (`HERO1 Backend :8788`) and the frontend in another
+   (`HERO1 Frontend :5173`), polls real HTTP readiness, then opens
+   <http://127.0.0.1:5173/> in the default browser.
+
+Logs: `D:\Hero1\DATA\LOGS\{prerequisite,startup,backend,frontend}.log`
+(append-only; what it did, what failed, what to do next).
+
+**Verification status:** the files were written for Windows 10/11 and reviewed;
+the underlying commands (editable installs, `npm ci`, `npm run build`,
+`init_db.py --create/--check`, `doctor.py`, health polling) are all
+Linux-verified from scratch in a clean environment, but **the .bat files
+themselves have NOT been executed on a Windows machine yet** — treat first run
+on Windows as a smoke test and report any failure with the log file above.
+Never put DATA inside the repository checkout; production DATA at
+`D:\Hero1\DATA` is never deleted or reset by these scripts.
+
 This is the runbook for the intended production machine: Windows 11, Intel i9,
 RTX 4090 (Laptop, 16 GB VRAM), 32 GB RAM, MT5 installed via MetaTrader 5.
 
