@@ -32,8 +32,16 @@ exact commit SHA and tag. Claims only for what was implemented AND verified.
   exist locally only.
 - Windows / RTX 4090 / MT5 unverified (see CHATGPT.txt §12/§14).
 
-**Commit:** (Phase 1.1 commit — see git log; same commit carries this changelog entry)
+**Commit:** `ddce56450ed8e354e8a5e7e8a3ede89aaa5a7d81`
 **Tag:** v0.1.1 (local)
+
+**Publication attempt (Phase 1.2, 2026-11-06) — NOT published**
+- Owner supplied a fine-grained PAT for publishing. Verified: token authenticates
+  as `awais225` (GET /user → 200). Target repo does NOT exist (404).
+- Repo creation FORBIDDEN for this token: REST 403 and GraphQL FORBIDDEN —
+  "Resource not accessible by personal access token".
+- No repository was created or modified; nothing was pushed; no remote configured.
+- Tags remain local. See ISSUE-010 and PROMPTS/PHASE_1_2_GITHUB_PUBLISH.md.
 
 ---
 

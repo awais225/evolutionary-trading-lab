@@ -32,10 +32,13 @@ No trading capability exists. Phase 2 (strategy compiler) is NOT started.
 - Phase 1.1 (documentation handoff) commit: see git log (recorded in §19 below
   and in CHANGELOG.md; this file is committed in that same commit)
 - Tags (LOCAL ONLY — push blocked): v0.1.0 → 840bf71, v0.1.1 → Phase 1.1 commit
-- GitHub remote: NOT CONFIGURED. Push is BLOCKED — see §8 and §17.
-  Expected target when publishing: a NEW PRIVATE repository named
-  `hero1-trading-platform` (owner likely the same account as the legacy repo,
-  i.e. github.com/awais225/hero1-trading-platform — NOT verified, NOT created).
+- GitHub remote: NOT CONFIGURED. Push is BLOCKED — see §8 and §19.
+  Target: `awais225/hero1-trading-platform` (PRIVATE) — confirmed NOT EXISTS
+  (2026-11-06, authenticated check). A user-supplied fine-grained PAT
+  authenticates as `awais225` (GET /user → 200) but repository creation is
+  FORBIDDEN for this token (REST POST /user/repos → 403 "Resource not
+  accessible by personal access token"; GraphQL createRepository → FORBIDDEN,
+  same message). No repository was created; nothing was pushed.
 - Old repository status: UNCHANGED, untouched.
 - NEVER claim a push succeeded without git ls-remote/GitHub verification.
 
@@ -135,10 +138,18 @@ Unverified: Windows, RTX 4090, MT5 terminal (see §12/§14).
 
 8. KNOWN ISSUES AND UNRESOLVED PROBLEMS
 ---------------------------------------
-OPEN-001 (BLOCKER): GitHub push impossible from this environment — GitHub
-connector unsupported; no GITHUB_TOKEN; no gh CLI; no credential helpers.
-Local commit exists and is verified. Publish manually or connect a secure
-credential, then push and record SHA/URL here.
+OPEN-001 (BLOCKER): GitHub publishing impossible right now. GitHub connector
+is "unsupported"; gh CLI absent; no credential helpers. On 2026-11-06 the owner
+provided a fine-grained PAT: it AUTHENTICATES as awais225 (read: GET /user OK)
+but CANNOT CREATE REPOSITORIES — REST 403 and GraphQL FORBIDDEN, both
+"Resource not accessible by personal access token". The target repo
+awais225/hero1-trading-platform does not exist. Unblock options: (a) create
+the PRIVATE repo empty via the GitHub web UI, then any push with these token
+permissions works (repo-scoped write must be granted by the token for that
+repo); or (b) a fine-grained PAT with the account-level "Administration: write"
+permission; or (c) a classic PAT with the `repo` scope. After unblocking:
+configure origin, push main + tags v0.1.0/v0.1.1, verify with git ls-remote,
+and record URL+SHA here and in CHANGELOG.md.
 OPEN-002: RTX 4090 / Windows / MT5 end-to-end path never executed — machine
 not available in this environment. All hardware claims remain "unverified".
 OPEN-003: Ollama smoke used qwen2.5:0.5b (small); configured production model
@@ -284,8 +295,8 @@ explicit until their phase lands; never rewrite 840bf71.
 - Instrument identifier must always be EXPLICIT; never default silently.
 - Keep repository PRIVATE.
 
-19. PHASE 1.1 STAGE LOG (append-only)
--------------------------------------
+19. PHASE 1.1 / 1.2 STAGE LOG (append-only)
+------------------------------------------
 2026-11-06 — Auth re-check: GitHub connector "unsupported"; env GITHUB_TOKEN
 absent; gh CLI absent; no credential helpers/files → push BLOCKED (OPEN-001).
 Documentation system established: CHATGPT.txt (this file), CHANGELOG.md,
@@ -296,4 +307,18 @@ See CHANGELOG.md and git log for the exact Phase 1.1 commit SHA.
 NEXT: owner publishes repo (git remote add origin … && git push -u origin main
 && git push --tags) or provides secure auth; then record URL+SHA here and in
 CHANGELOG.md.
+
+2026-11-06 (Phase 1.2) — GitHub publishing attempted with owner-provided
+fine-grained PAT (used transiently, never persisted to any file/config/log):
+- AUTHENTICATED as awais225 (GET /user → HTTP 200)
+- Target repo awais225/hero1-trading-platform → HTTP 404 (does not exist)
+- Creation attempt #1 (REST POST /user/repos, private) → HTTP 403
+  "Resource not accessible by personal access token"
+- Creation attempt #2 (GraphQL createRepository) → FORBIDDEN, same message
+- CONCLUSION: token lacks repository-creation permission; push not possible
+  (no repo to push to). Local commits ddce564 (Phase 1.1) and 840bf71
+  (Phase 1) and tags v0.1.0/v0.1.1 remain intact locally. ISSUE-010 updated.
+  Temporary credential material kept only in /tmp during the attempt and
+  deleted afterwards. See PROMPTS/PHASE_1_2_GITHUB_PUBLISH.md and
+  docs/ISSUES_AND_FIXES.md.
 ================================================================================
