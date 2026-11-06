@@ -8,7 +8,8 @@ const renderNodes = () => render(<MemoryRouter initialEntries={['/manual-nodes']
 describe('Manual Nodes — spec workspace (Phase 2)', () => {
   it('loads the bullish engulfing example into the editor', async () => {
     renderNodes()
-    fireEvent.click(await screen.findByRole('button', { name: /load bullish engulfing example/i }))
+    fireEvent.click((await screen.findAllByRole('button', { name: /load bullish engulfing example/i }))[0])
+    fireEvent.click(screen.getByRole('tab', { name: /json editor/i }))
     const editor = screen.getByLabelText(/specification json/i) as HTMLTextAreaElement
     expect(editor.value).toContain('Bullish Engulfing')
     expect(editor.value).toContain('"next_bar_open"')
@@ -17,7 +18,7 @@ describe('Manual Nodes — spec workspace (Phase 2)', () => {
 
   it('validate → compile → save flow renders server verdicts (never fakes them)', async () => {
     renderNodes()
-    fireEvent.click(await screen.findByRole('button', { name: /load bullish engulfing example/i }))
+    fireEvent.click((await screen.findAllByRole('button', { name: /load bullish engulfing example/i }))[0])
 
     fireEvent.click(screen.getByRole('button', { name: /^validate$/i }))
     expect((await screen.findAllByText('NEEDS_METADATA')).length).toBeGreaterThan(0)
@@ -35,7 +36,7 @@ describe('Manual Nodes — spec workspace (Phase 2)', () => {
 
   it('compile of a pips-based spec without broker metadata surfaces the 422 as structured issues', async () => {
     renderNodes()
-    fireEvent.click(await screen.findByRole('button', { name: /load bullish engulfing example/i }))
+    fireEvent.click((await screen.findAllByRole('button', { name: /load bullish engulfing example/i }))[0])
     fireEvent.click(screen.getByRole('button', { name: /^compile$/i }))
     expect(await screen.findByRole('alert')).toHaveTextContent(/SPEC_NEEDS_METADATA/i)
   })

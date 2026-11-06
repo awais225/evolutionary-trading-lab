@@ -17,11 +17,19 @@ def test_doctor_check_passes(data_root, monkeypatch, tmp_path):
     assert out.returncode == 0, out.stdout + out.stderr
 
 
-def test_data_root_inside_repo_rejected():
+def test_data_root_canonical_repo_data_dir_accepted():
+    # Owner-mandated canonical DATA location (2026-11-06): <repo>/DATA, git-ignored.
+    from hero1_storage.engine import ensure_outside_repository
+    assert ensure_outside_repository(REPO_ROOT / "DATA") == (REPO_ROOT / "DATA").resolve()
+    assert ensure_outside_repository(REPO_ROOT / "data" / "nested") == (REPO_ROOT / "data" / "nested").resolve()
+
+
+def test_data_root_inside_repo_outside_canonical_rejected():
     from hero1_storage.engine import ensure_outside_repository, DataRootError
     import pytest
-    with pytest.raises(DataRootError):
-        ensure_outside_repository(REPO_ROOT / "DATA")
+    for path in (REPO_ROOT / "docs", REPO_ROOT / "packages" / "storage", REPO_ROOT / "xDATA"):
+        with pytest.raises(DataRootError):
+            ensure_outside_repository(path)
 
 
 def test_data_root_outside_repo_accepted(tmp_path):
@@ -37,3 +45,9 @@ def test_relative_data_root_rejected(monkeypatch):
         assert False, "expected DataRootError"
     except eng.DataRootError:
         pass
+
+
+def test_canonical_default_root_is_repo_data():
+    import hero1_storage.engine as eng
+    default = eng._canonical_default_root()
+    assert default == (REPO_ROOT / "DATA").resolve() or default == REPO_ROOT / "DATA"

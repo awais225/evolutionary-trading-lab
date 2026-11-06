@@ -1,13 +1,33 @@
 # DATA Layout
 
-The DATA root is chosen by `HERO1_DATA_ROOT` (environment variable). The
-default is `~/.hero1/data` — deliberately **outside** the repository — and the
-application refuses any DATA root located inside a repository checkout
-(`ensure_outside_repository`, `packages/storage/src/hero1_storage/engine.py`).
+The canonical DATA root (owner decision 2026-11-06) is `<PROJECT_ROOT>\DATA`
+— directly inside the project root that contains `PREREQUISITES.bat`,
+`START.bat`, `pyproject.toml`, `apps\`, `packages\`, `services\`. This is the
+single authoritative location for ALL application-generated data and logs.
 
-Production (Windows): `D:\Hero1\DATA`. Development: `~/.hero1/data` or any
-absolute path outside the repo. The repository `.gitignore` additionally blocks
-`DATA/`, `*.db*`, `*.sqlite*`, backups, logs and model files.
+`HERO1_DATA_ROOT` (environment variable) may override it. Any OTHER path inside
+a Git repository checkout is refused by `ensure_outside_repository`
+(`packages/storage/src/hero1_storage/engine.py`) — only `<repo>\DATA` (any
+nesting under it) is accepted from inside the checkout. When the variable is
+unset, the default is `<repo>\DATA` (found by walking up for `.git`), falling
+back to `~/.hero1/data` only when no checkout can be located.
+
+Required canonical subdirectories (created by `init_db.py --create` and
+`PREREQUISITES.bat`):
+
+```
+<PROJECT_ROOT>/DATA/
+├── DATABASE/      # registry + per-instrument DB storage root
+├── LOGS/          # prerequisite.log, startup.log, backend.log, frontend.log
+├── BACKUPS/       # manual or Phase 6 automated backups
+├── CACHE/         # transient computation cache
+├── MARKET_DATA/   # Phase 3+: candles/ticks (per instrument below repo root)
+├── RESEARCH/      # checkpoints and evidence bundles
+└── ARTIFACTS/     # exports, IR dumps, reports
+```
+
+The repository `.gitignore` hard-blocks `DATA/`, `*.db*`, `*.sqlite*`,
+backups, logs and model files — nothing under `DATA/` is ever committed.
 
 ## Required tree (managed by code — never by hand in production)
 
@@ -56,5 +76,7 @@ Composite indexes cover the hot paths: `(instrument, origin)`,
   `DATA/` tree or `*.db*` exists inside the repository and `.env` is not tracked.
 - **Backups** (user responsibility, Phase 6): copy `DATA/` while services are
   stopped; never partial-copy WAL files mid-write.
-- **Reset (dev only):** delete `~/.hero1/data` and rerun
+- **Reset (dev only):** stop services, delete ONLY the dev database files
+  under `<DATA_ROOT>\DATABASE` if a destructive reset is explicitly intended
+  (never the production DATA folder; prefer restoring from BACKUPS), then rerun
   `python scripts/init_db.py --create`.

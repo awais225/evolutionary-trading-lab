@@ -3,10 +3,11 @@ setlocal EnableExtensions EnableDelayedExpansion
 rem ==========================================================================
 rem  START.bat - HERO1 everyday launcher
 rem  Double-click to start Hero1. Starts:
-rem    - Backend  on http://127.0.0.1:8788  (persistent visible window)
-rem    - Frontend on http://127.0.0.1:5173  (persistent visible window)
-rem  Waits for REAL HTTP readiness, then opens the browser automatically.
-rem  Default DATA root: D:\Hero1\DATA  (override: set HERO1_DATA_ROOT first)
+rem    - Backend  on http://127.0.0.1:8788  (visible persistent window)
+rem    - Frontend on http://127.0.0.1:5173  (visible persistent window)
+rem  Waits for REAL HTTP readiness on both, then opens the browser.
+rem  Canonical DATA root: <PROJECT_ROOT>\DATA (folder containing this BAT).
+rem  Override only if you know what you are doing: set HERO1_DATA_ROOT first.
 rem  Logs: <DATA_ROOT>\LOGS\startup.log backend.log frontend.log
 rem  Never kills unrelated processes. Never deletes DATA.
 rem ==========================================================================
@@ -17,7 +18,7 @@ if "%ROOT:~-1%"=="\" set "ROOT=%ROOT:~0,-1%"
 if not "%HERO1_DATA_ROOT%"=="" (
   set "DATA_ROOT=%HERO1_DATA_ROOT%"
 ) else (
-  set "DATA_ROOT=D:\Hero1\DATA"
+  set "DATA_ROOT=%ROOT%\DATA"
 )
 set "LOG_DIR=%DATA_ROOT%\LOGS"
 set "STARTUP_LOG=%LOG_DIR%\startup.log"
@@ -30,6 +31,11 @@ if /i not "%OS%"=="Windows_NT" (
   exit /b 1
 )
 if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
+if not exist "%LOG_DIR%" (
+  echo ERROR: could not create log directory "%LOG_DIR%".
+  pause
+  exit /b 1
+)
 
 call :log "============================================================"
 call :log "START.bat launched  %DATE% %TIME%"
@@ -45,8 +51,8 @@ echo   DATA root    : %DATA_ROOT%
 echo ======================================================
 echo.
 
-rem ------------------------------------------------ Step 1: required files
-call :step "Checking required files and environment"
+rem ------------------------------------------------ Step 1: required files and prerequisites
+call :step "Checking required files and prerequisite installation"
 if not exist "%ROOT%\services\api\app\main.py" (
   set "FAIL_STEP=Required file: services\api\app\main.py"
   set "FAIL_DETAIL=This does not look like the Hero1 repository root. The two BAT files must live in the Hero1 source root."
@@ -55,6 +61,16 @@ if not exist "%ROOT%\services\api\app\main.py" (
 if not exist "%ROOT%\apps\web\package.json" (
   set "FAIL_STEP=Required file: apps\web\package.json"
   set "FAIL_DETAIL=Frontend source is missing."
+  goto :fail
+)
+if not exist "%ROOT%\scripts\run_backend.cmd" (
+  set "FAIL_STEP=Required file: scripts\run_backend.cmd"
+  set "FAIL_DETAIL=Service launcher is missing. Restore scripts\run_backend.cmd from the repository."
+  goto :fail
+)
+if not exist "%ROOT%\scripts\run_frontend.cmd" (
+  set "FAIL_STEP=Required file: scripts\run_frontend.cmd"
+  set "FAIL_DETAIL=Service launcher is missing. Restore scripts\run_frontend.cmd from the repository."
   goto :fail
 )
 if not exist "%ROOT%\.venv\Scripts\python.exe" (
@@ -72,11 +88,20 @@ if not exist "%ROOT%\apps\web\node_modules" (
   exit /b 1
 )
 set "VENV_PY=%ROOT%\.venv\Scripts\python.exe"
+set "HERO1_DATA_ROOT=%DATA_ROOT%"
+cd /d "%ROOT%" || (set "FAIL_STEP=Project root" & set "FAIL_DETAIL=Cannot enter %ROOT%" & goto :fail)
+call :step "Verifying the backend imports (read-only check)"
+set "PYTHONPATH=%ROOT%\services\api"
+"%VENV_PY%" -c "import sys; sys.path.insert(0, r'%ROOT%\services\api'); import app.main; print('backend import OK')" >> "%STARTUP_LOG%" 2>&1
+if errorlevel 1 (
+  set "FAIL_STEP=Backend import verification"
+  set "FAIL_DETAIL=The backend failed to import. Run PREREQUISITES.bat again, then see %STARTUP_LOG%."
+  goto :fail
+)
+call :log "backend import check OK"
 
 rem ------------------------------------------------ Step 2: database ready?
 call :step "Verifying the Hero1 database (read-only check)"
-set "HERO1_DATA_ROOT=%DATA_ROOT%"
-cd /d "%ROOT%" || (set "FAIL_STEP=Project root" & set "FAIL_DETAIL=Cannot enter %ROOT%" & goto :fail)
 "%VENV_PY%" "%ROOT%\scripts\init_db.py" --check >> "%STARTUP_LOG%" 2>&1
 if errorlevel 1 (
   call :log "database check FAILED - attempting idempotent initialization (init_db.py --create; never deletes data)"
@@ -101,9 +126,8 @@ if "!HTTP_CODE!"=="200" (
     set "FAIL_DETAIL=Port 8788 is in use by something that is NOT a healthy Hero1 backend. Free port 8788 yourself - START.bat will not kill unrelated processes."
     goto :fail
   )
-  call :log "launching backend window (HERO1 Backend :8788)"
-  set "BACKEND_CMD=cd /d "%ROOT%" && set "HERO1_DATA_ROOT=%DATA_ROOT%" && "%VENV_PY%" -m uvicorn services.api.app.main:app --host 127.0.0.1 --port 8788 2>&1 | powershell -NoProfile -Command "$input | Tee-Object -FilePath '%BACKEND_LOG%' -Append""
-  start "HERO1 Backend :8788" cmd /k %BACKEND_CMD%
+  call :log "launching backend window (HERO1 Backend :8788) via scripts\run_backend.cmd"
+  start "HERO1 Backend :8788" /D "%ROOT%" cmd /k call "%ROOT%\scripts\run_backend.cmd"
 )
 
 rem ------------------------------------------------ Step 4: backend readiness
@@ -142,19 +166,18 @@ if "!HTTP_CODE!"=="200" (
     set "FAIL_DETAIL=Port 5173 is in use by something that is NOT the Hero1 frontend. Free port 5173 yourself - START.bat will not kill unrelated processes. The backend IS running; fix the port and run START.bat again."
     goto :fail
   )
-  call :log "launching frontend window (HERO1 Frontend :5173)"
-  set "FRONTEND_CMD=cd /d "%ROOT%\apps\web" && set "HERO1_DATA_ROOT=%DATA_ROOT%" && call npm run dev 2>&1 | powershell -NoProfile -Command "$input | Tee-Object -FilePath '%FRONTEND_LOG%' -Append""
-  start "HERO1 Frontend :5173" cmd /k %FRONTEND_CMD%
+  call :log "launching frontend window (HERO1 Frontend :5173) via scripts\run_frontend.cmd"
+  start "HERO1 Frontend :5173" /D "%ROOT%\apps\web" cmd /k call "%ROOT%\scripts\run_frontend.cmd"
 )
 
 rem ------------------------------------------------ Step 6: frontend readiness
 if "%FRONTEND_ALREADY%"=="1" goto :frontend_ready
 call :step "Waiting for the frontend to answer"
 echo Waiting for the frontend at http://127.0.0.1:5173/ ...
-call :wait_http 5173 / 60
+call :wait_http 5173 / 90
 if errorlevel 1 (
   echo.
-  echo ERROR: the frontend did not become ready within 60 seconds.
+  echo ERROR: the frontend did not become ready within 90 seconds.
   echo The backend IS running and healthy in its own window - this is a partial startup.
   echo Recent frontend log output:
   echo ------------------------------------------------
@@ -162,7 +185,7 @@ if errorlevel 1 (
   echo ------------------------------------------------
   call :log "FRONTEND FAILED READINESS - backend left running by design; see %FRONTEND_LOG%"
   set "FAIL_STEP=Frontend readiness"
-  set "FAIL_DETAIL=Frontend did not answer within 60s. Backend is still running - see the HERO1 Frontend window and %FRONTEND_LOG%."
+  set "FAIL_DETAIL=Frontend did not answer within 90s. Backend is still running - see the HERO1 Frontend window and %FRONTEND_LOG%."
   goto :fail
 )
 :frontend_ready

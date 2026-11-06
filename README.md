@@ -52,7 +52,7 @@ data tree: [docs/DATA_LAYOUT.md](docs/DATA_LAYOUT.md)
 Double-click **`PREREQUISITES.bat`** once, then **`START.bat`** whenever you
 want Hero1 — backend (:8788) and frontend (:5173) open in their own windows and
 the browser opens automatically once both are healthy. Logs:
-`D:\Hero1\DATA\LOGS\*.log`. See [docs/WINDOWS_SETUP.md](docs/WINDOWS_SETUP.md).
+`<PROJECT_ROOT>\DATA\LOGS\*.log`. See [docs/WINDOWS_SETUP.md](docs/WINDOWS_SETUP.md).
 
 ### 1. Backend
 
@@ -65,8 +65,8 @@ pip install -e ./packages/storage -e ./packages/eventbus -e ./packages/ai_orches
             -e ./packages/research -e ./packages/mt5_adapter -e ./services/api
 pip install -r requirements-dev.txt
 
-# Point DATA at a directory OUTSIDE this repository (defaults to ~/.hero1/data):
-export HERO1_DATA_ROOT=/absolute/path/outside/repo/DATA   # Windows: $env:HERO1_DATA_ROOT="D:\Hero1\DATA"
+# Canonical DATA root is <repo>/DATA (git-ignored). Override if needed:
+export HERO1_DATA_ROOT=/absolute/path/to/DATA             # Windows: $env:HERO1_DATA_ROOT="D:\Hero1\app\DATA"
 
 python scripts/init_db.py --create     # create + migrate + seed registries
 python scripts/doctor.py               # read-only environment check
@@ -115,8 +115,8 @@ cd apps/web && npm test && npm run build
 
 ## Safety guarantees (by construction)
 
-- **DATA never lives in this repository.** `HERO1_DATA_ROOT` must point outside it;
-  the app refuses to run with a DATA root inside the repo.
+- **DATA lives only in the canonical, git-ignored `<PROJECT_ROOT>\DATA`.**
+  Any other in-repository path is refused; nothing under `DATA/` is ever committed.
 - Instruments are **never** silently defaulted. Every instrument-specific endpoint
   requires an explicit, validated identifier (`XAUUSD`/`EURUSD`/`BTCUSD`).
 - Live trading requires a separate `Approval` record. Nothing in this release can

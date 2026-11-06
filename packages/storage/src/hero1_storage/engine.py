@@ -1,10 +1,13 @@
 """Engine/session factory and DATA-root resolution.
 
 Rules (enforced, not aspirational):
-  * HERO1_DATA_ROOT, when set, must be an absolute path OUTSIDE the current
-    Git repository. It is never created silently if missing.
-  * When unset, the safe default is ``~/.hero1/data`` — outside the repo.
-  * No code path may place DATA inside the repository checkout.
+  * Canonical DATA root (owner decision 2026-11-06): ``<repo>/DATA`` — absolute,
+    git-ignored, inside the project root. ``HERO1_DATA_ROOT`` may override it.
+  * Any OTHER path inside a Git repository checkout is rejected.
+  * When unset, the default is ``<repo>/DATA`` (walk-up for ``.git``), falling
+    back to ``~/.hero1/data`` only when no repository root can be located.
+  * DATA contents are never created silently beyond the documented subdirs and
+    are never committed (``DATA/`` is hard-ignored).
 """
 from __future__ import annotations
 
@@ -26,7 +29,10 @@ INSTRUMENT_SUBDIRS = (
     "NODES/CUSTOM", "NODES/WWW", "NODES/INTERACTIVE", "NODES/FINE_TUNED",
     "DEEPTEST", "LIVE_TESTING", "RESEARCH", "DATABASE",
 )
-ROOT_SUBDIRS = ("DATABASE", "MT5/accounts", "MT5/symbols", "MT5/connection_logs")
+ROOT_SUBDIRS = (
+    "DATABASE", "LOGS", "BACKUPS", "CACHE", "MARKET_DATA", "RESEARCH", "ARTIFACTS",
+    "MT5/accounts", "MT5/symbols", "MT5/connection_logs",
+)
 
 KNOWN_INSTRUMENTS = ("XAUUSD", "EURUSD", "BTCUSD")
 
@@ -53,20 +59,49 @@ def _repo_root_candidates() -> list[Path]:
     return candidates
 
 
+def _is_canonical_data_dir(root: Path, repo: Path) -> bool:
+    """The owner-mandated canonical DATA location is ``<repo>/DATA`` itself.
+
+    It is git-ignored by the repository's hard rules, so research data there is
+    never committed. Anything ELSE inside the checkout remains forbidden.
+    """
+    try:
+        rel = root.relative_to(repo)
+    except ValueError:
+        return False
+    return len(rel.parts) >= 1 and rel.parts[0].lower() == "data"
+
+
 def ensure_outside_repository(root: Path) -> Path:
     root = root.expanduser().resolve()
     for repo in _repo_root_candidates():
+        if repo == Path("/"):  # paranoia: never treat filesystem root as a repo boundary
+            continue
+        if _is_canonical_data_dir(root, repo):
+            continue
         try:
             root.relative_to(repo)
         except ValueError:
             continue
-        if repo == Path("/"):  # paranoia: never treat filesystem root as a repo boundary
-            continue
         raise DataRootError(
-            f"HERO1_DATA_ROOT resolves inside a repository checkout: {root} (inside {repo}). "
-            "Point it at an external directory (e.g. D:\\Hero1\\DATA on Windows)."
+            f"HERO1_DATA_ROOT resolves inside a repository checkout but is not the "
+            f"canonical, git-ignored <repo>/DATA directory: {root} (inside {repo}). "
+            "Point it at an external directory or at <repo>/DATA."
         )
     return root
+
+
+def _canonical_default_root() -> Path:
+    """Default DATA root when HERO1_DATA_ROOT is unset: <repo>/DATA when a
+    repository checkout is detectable, else ~/.hero1/data."""
+    env_root = os.environ.get("HERO1_REPO_ROOT")
+    if env_root:
+        return Path(env_root).expanduser().resolve() / "DATA"
+    for repo in _repo_root_candidates():
+        if repo != Path.cwd().resolve() or (repo / ".git").exists():
+            if (repo / ".git").exists() or repo == Path.cwd().resolve():
+                return repo / "DATA"
+    return Path.home() / ".hero1" / "data"
 
 
 def data_root() -> Path:
@@ -76,9 +111,9 @@ def data_root() -> Path:
         if not root.is_absolute():
             raise DataRootError(f"HERO1_DATA_ROOT must be absolute, got: {configured!r}")
         return ensure_outside_repository(root)
-    default = Path.home() / ".hero1" / "data"
+    default = _canonical_default_root()
     log.warning(
-        "HERO1_DATA_ROOT is not set; using safe default outside the repository: %s", default
+        "HERO1_DATA_ROOT is not set; using default DATA root: %s", default
     )
     return default
 

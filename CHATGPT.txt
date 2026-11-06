@@ -425,3 +425,60 @@ NOT executed on Windows (none available here); underlying commands verified from
 scratch on Linux (clean venv + fresh DATA root). Preview of the actual dashboard in
 this workspace: see delivery report. No app/schema/UI changes; no DATA touched;
 legacy-archive untouched (d96ec4ba...).
+2026-11-06 — TASK: HERO1 dashboard completion (global instrument selector, visual
+strategy builder, canonical <PROJECT_ROOT>\DATA, BAT launcher repair, workspace preview).
+Prompt archived as PROMPTS/INSTRUMENT_SELECTOR_BUILDER_BATS.md BEFORE implementation.
+
+DELIVERED:
+- Global instrument selector: top-right of the top bar, visible on all 8 tabs;
+  backend-registry driven (GET /api/v1/instruments) with static seeded-registry
+  fallback; GBPUSD/USDJPY/ETHUSD shown disabled (not in registry); persisted via
+  localStorage hero1.instrument; default ALWAYS XAUUSD; selection reconciles
+  against the live registry; disabled options never selectable; unavailable
+  selection (if registry changes) falls back to XAUUSD with a warning badge;
+  build verified; app.test.tsx persistence tests green.
+- Manual Nodes: TWO modes (Visual Builder primary + JSON Editor) around ONE spec;
+  searchable library mirroring the backend indicator registry exactly (10 ids);
+  WMA/SMMA/CCI/StdDev/OBV/PSAR/Volume shown as not-supported (disabled, reasoned);
+  condition rows LHS/op/RHS with params (backend-mirrored client pre-check; backend
+  still authoritative), AND/OR groups + one Nested Group level (deeper JSON read-only,
+  never deleted), duplicate/remove/add, MAX limits guarded; exits explicit
+  (SL entry/signal_low/signal_high/atr; TP ratio|distance; max-holding; time-exit;
+  none invented); risk sizing fixed_risk/fixed_volume with ABSOLUTE/POINTS/TICKS/PIPS/
+  ATR_MULTIPLE units preserved and NEEDS_METADATA behavior untouched; sections 1-4;
+  indicator preview panel with explicit INDICATOR ENGINE NOT AVAILABLE (Phase 3
+  dependency) — no fake values anywhere; JSON<->visual round-trip with invalid-JSON
+  read-only + revert; save flows apply node name to identity.name at submit.
+- Naming: auto C1..Cn from the instrument registry (max+1, refresh-proof, no reuse);
+  manual override preserved; saved-node rename = metadata-only PATCH (hash/lineage
+  untouched); pre-save name feeds the fingerprint by design (documented).
+- Canonical DATA: storage engine now accepts ONLY <repo>\DATA in-checkout (all other
+  in-checkout paths still refused); default data_root() = <repo>\DATA (.git walk-up,
+  else ~/.hero1/data); ROOT_SUBDIRS now DATABASE,LOGS,BACKUPS,CACHE,MARKET_DATA,
+  RESEARCH,ARTIFACTS + MT5 dirs; init_db.py --create creates them; .gitignore unchanged
+  (DATA/ already hard-ignored); docs rewritten to the canonical policy; pytest 88/88
+  (1 skip) incl. updated environment tests. No DB schema change. No existing data touched
+  (no Windows D:\Hero1\DATA exists in this workspace; migration n/a, documented).
+- Windows launchers: PREREQUISITES.bat rewritten (canonical root, full subdir tree,
+  Python 3.11+/Node 20+ detection, .venv reuse, editable installs, npm ci, production
+  build, backend import verify, DB check, prerequisite.log, pause-on-failure) and
+  START.bat rewritten (%~dp0 root, canonical HERO1_DATA_ROOT, import+DB verification,
+  port availability + duplicate detection, starts backend+frontend each in a VISIBLE
+  PERSISTENT window via scripts/run_backend.cmd / scripts/run_frontend.cmd, real /health
+  polling, browser only after readiness, logs under <DATA_ROOT>\LOGS, launcher stays
+  open on failure). Root-cause of the flicker fixed (see docs/ISSUES_AND_FIXES.md
+  ISSUE-020) — Windows BAT execution NOT performed (no Windows available here);
+  every embedded command Linux-verified only.
+- LMS workspace preview: backend+frontend restarted on this workspace's DATA root
+  (/home/user/hero1-workspace-data, outside git) — see delivery report.
+
+KNOWN GAPS / HONEST NOTES:
+- Indicator VALUES are unavailable (Phase 3 engine not implemented); builder works
+  without them; no number is fabricated.
+- Windows BAT files are untested on Windows; first Windows run is a smoke test.
+- AST: placeholder tabs (WWW/Interactive/DeepTesting/FineTuning/LiveTesting/LOG)
+  still placeholders by plan; they now show the selected instrument.
+- identity.name (fingerprinted) follows the node name at save; saved-node renames
+  use PATCH and never affect hashes. Documented in UI copy + docs.
+- TASK 6 preview exposes via the LMS preview mechanism; e2b token gating remains
+  (owner-token only) — same constraint as TASK 5.

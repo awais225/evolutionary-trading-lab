@@ -5,7 +5,7 @@ Usage:
   python scripts/init_db.py --check     # read-only report; exits non-zero if unhealthy
   python scripts/init_db.py --create    # create dirs + run Alembic migrations + seed instruments
 
-Never creates anything without --create. Never touches a path inside the repository.
+Never creates anything without --create. The canonical DATA root is <repo>/DATA (git-ignored); any other in-repository path is refused.
 """
 from __future__ import annotations
 

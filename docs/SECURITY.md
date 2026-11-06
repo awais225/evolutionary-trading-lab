@@ -25,7 +25,8 @@ files match credential-shaped patterns (`ghp_`, `AKIA…`, `-----BEGIN … PRIVA
 - Settings PUT accepts a known key whitelist with type/range validation.
 
 ## Data protection
-- `HERO1_DATA_ROOT` must be outside the repository; the app refuses otherwise.
+- DATA lives only in the canonical, git-ignored `<repo>/DATA` (or an explicit
+  `HERO1_DATA_ROOT` override); any other in-checkout path is refused.
 - Backups: stop services, copy `DATA/` (registry + per-instrument DBs + MARKET_DATA).
   Test restores quarterly.
 

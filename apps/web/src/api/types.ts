@@ -1,4 +1,5 @@
-export type InstrumentSymbol = 'XAUUSD' | 'EURUSD' | 'BTCUSD'
+// Backend-driven (seeded registry: XAUUSD/EURUSD/BTCUSD today); widen to string.
+export type InstrumentSymbol = string
 export type NodeOrigin = 'CUSTOM' | 'WWW' | 'INTERACTIVE' | 'FINE_TUNED'
 
 export interface Instrument {

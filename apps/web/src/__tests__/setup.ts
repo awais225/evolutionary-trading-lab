@@ -57,9 +57,17 @@ function route(url: string, method: string, bodyText?: string): Response {
       const hasSpec = typeof body?.spec_json === 'string'
       return json({ ...baseNode, spec_hash: hasSpec ? SPEC_FINGERPRINT : null, spec_json: hasSpec ? body.spec_json : null }, 201)
     }
-    return json({ instrument: 'XAUUSD', total: 0, items: [] })
+    const items = (globalThis as { __hero1NodeItems?: unknown[] }).__hero1NodeItems ?? []
+    return json({ instrument: 'XAUUSD', total: items.length, items })
   }
-  if (url.includes('/api/v1/instruments')) return json({ instruments: [{ symbol: 'XAUUSD', display_name: 'Gold Spot vs US Dollar', asset_class: 'METAL', enabled: true, default_timeframe: 'M15', digits: 2, contract_size: 100 }] })
+  if (url.includes('/api/v1/instruments')) {
+    const override = (globalThis as { __hero1Instruments?: unknown[] }).__hero1Instruments
+    return json({ instruments: override ?? [
+      { symbol: 'XAUUSD', display_name: 'Gold Spot vs US Dollar', asset_class: 'METAL', enabled: true, default_timeframe: 'M15', digits: 2, contract_size: 100 },
+      { symbol: 'EURUSD', display_name: 'Euro vs US Dollar', asset_class: 'FX', enabled: true, default_timeframe: 'M15', digits: 5, contract_size: 100000 },
+      { symbol: 'BTCUSD', display_name: 'Bitcoin vs US Dollar', asset_class: 'CRYPTO', enabled: true, default_timeframe: 'H1', digits: 2, contract_size: 1 },
+    ] })
+  }
   if (url.includes('/api/v1/settings')) return json(SETTINGS)
   if (url.includes('/api/v1/events')) return json(method === 'POST' ? { id: 42 } : { limit: 50, count: 0, events: [] })
   return json({ detail: 'not found' }, 404)
@@ -67,6 +75,8 @@ function route(url: string, method: string, bodyText?: string): Response {
 
 beforeEach(() => {
   localStorage.clear()
+  delete (globalThis as { __hero1NodeItems?: unknown[] }).__hero1NodeItems
+  delete (globalThis as { __hero1Instruments?: unknown[] }).__hero1Instruments
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
     route(String(input), init?.method ?? 'GET', typeof init?.body === 'string' ? init.body : undefined)))
   // Deterministic WS that never opens: feed stays in connecting state, no timers storm

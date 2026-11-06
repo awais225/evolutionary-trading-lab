@@ -80,6 +80,10 @@ export const api = {
     }) => request<Node>('POST', `/api/v1/instruments/${instrument}/nodes/${id}/versions`, body),
     lineage: (instrument: string, id: number) =>
       request<NodeVersionList>('GET', `/api/v1/instruments/${instrument}/nodes/${id}/lineage`),
+    // Metadata-only rename (name/description/status/approval). Never touches spec_json,
+    // so it cannot change the semantic hash or fork a version.
+    rename: (instrument: string, id: number, name: string) =>
+      request<Node>('PATCH', `/api/v1/instruments/${instrument}/nodes/${id}`, { name }),
   },
   settings: {
     get: () => request<SettingsOut>('GET', '/api/v1/settings'),

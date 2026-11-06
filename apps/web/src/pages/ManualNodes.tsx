@@ -2,7 +2,20 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useInstrument } from '../state/instrument'
 import { api, ApiError } from '../api/client'
 import { bullishEngulfingSpec } from '../lib/exampleSpec'
+import { StrategyBuilder } from '../components/StrategyBuilder'
+import { emptyComparison } from '../builder/specTree'
 import type { Node, NodeOrigin, ValidationIssue, ValidationReport, CompileResult, NodeVersionList, BrokerMeta } from '../api/types'
+
+const AUTO_NAME_RE = /^C(\d+)$/i
+/** Next C-number from the registry for THIS instrument — refresh-proof (registry is the source of truth). */
+function nextAutoName(nodes: Node[]): string {
+  let max = 0
+  for (const n of nodes) {
+    const m = AUTO_NAME_RE.exec(n.name.trim())
+    if (m) max = Math.max(max, parseInt(m[1], 10))
+  }
+  return `C${max + 1}`
+}
 
 const ORIGINS: NodeOrigin[] = ['CUSTOM', 'WWW', 'INTERACTIVE', 'FINE_TUNED']
 const TIMEFRAMES = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1'] as const
@@ -40,6 +53,12 @@ export function ManualNodes() {
   const [formError, setFormError] = useState<string | null>(null)
 
   // ---- Phase 2: strategy spec workspace state
+  type SpecObject = Record<string, unknown>
+  const [spec, setSpec] = useState<SpecObject | null>(null)   // last valid parsed spec (JSON editor may temporarily diverge)
+  const [mode, setMode] = useState<'visual' | 'json'>('visual')
+  const [nameDirty, setNameDirty] = useState(false)            // user typed a custom Node Name
+  const [autoName, setAutoName] = useState('C1')
+  const [renaming, setRenaming] = useState(false)
   const [specText, setSpecText] = useState('')
   const [timeframe, setTimeframe] = useState<string>('M15')
   const [nodeName, setNodeName] = useState('')
@@ -71,7 +90,18 @@ export function ManualNodes() {
   }, [instrument])
 
   useEffect(() => { load() }, [load])
-  useEffect(() => { setValidation(null); setCompiled(null); setActionError(null); setNotice(null); setLineage(null) }, [instrument])
+  useEffect(() => {
+    setValidation(null); setCompiled(null); setActionError(null); setNotice(null); setLineage(null)
+    // instrument switch = a different database; never mix specs or naming across instruments
+    setSpec(null); setSpecText(''); setSpecParseError(null); setNameDirty(false); setNodeName('C1')
+  }, [instrument])
+
+  // auto-name from the registry (max C-number + 1, per instrument, refresh-proof)
+  useEffect(() => {
+    const next = nextAutoName(nodes)
+    setAutoName(next)
+    if (!nameDirty) setNodeName(next)
+  }, [nodes, nameDirty])
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -115,10 +145,57 @@ export function ManualNodes() {
     }
   }
 
+  // Node name is applied to the spec at submit time: one visible source of truth.
+  // (identity.name is fingerprinted only at save; renaming a SAVED node is a metadata-only PATCH.)
+  const resolveNodeName = () => (nodeName.trim() || autoName).slice(0, 160)
+  const resolveSpec = (): Record<string, unknown> | null => {
+    const parsed = parseEditor()
+    if (!parsed) return null
+    const finalName = resolveNodeName()
+    const identity = parsed.identity
+    if (identity && typeof identity === 'object' && !Array.isArray(identity)) {
+      return { ...parsed, identity: { ...identity, name: finalName } }
+    }
+    return parsed // backend will report the missing identity with exact issues
+  }
+  const syncFromVisual = (next: SpecObject) => {
+    setSpec(next)
+    setSpecText(JSON.stringify(next, null, 2))
+    setSpecParseError(null)
+    setValidation(null); setCompiled(null); setActionError(null); setNotice(null)
+  }
+  const syncFromJson = (text: string) => {
+    setSpecText(text)
+    try {
+      const parsed = JSON.parse(text)
+      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        setSpecParseError('Spec must be a JSON object.')
+        return
+      }
+      setSpec(parsed as SpecObject)
+      setSpecParseError(null)
+    } catch (err) {
+      setSpecParseError(err instanceof Error ? err.message : 'invalid JSON')
+    }
+  }
+  const startBlankSpec = () => {
+    const blank = {
+      schema_version: '1.0.0',
+      identity: { name: resolveNodeName(), description: '', instrument, timeframe, direction: 'LONG', origin: 'CUSTOM', tags: [], metadata: {} },
+      execution: { entry_timing: 'next_bar_open', candle: 'completed', permit_forming_candle: false, order_type: 'market', position_handling: 'single' },
+      entry: { type: 'and', children: [emptyComparison()] },
+      exits: {},
+      risk: { sizing: { mode: 'fixed_risk', risk_pct: 1.0 } },
+    }
+    setSpec(blank)
+    setSpecText(JSON.stringify(blank, null, 2))
+    setSpecParseError(null); setValidation(null); setCompiled(null); setActionError(null); setNotice(null)
+  }
+
   const loadExample = () => {
-    const spec = bullishEngulfingSpec(instrument, timeframe)
-    setSpecText(JSON.stringify(spec, null, 2))
-    setNodeName((spec.identity as { name: string }).name)
+    const example = bullishEngulfingSpec(instrument, timeframe) as SpecObject
+    setSpec(example)
+    setSpecText(JSON.stringify(example, null, 2))
     setValidation(null); setCompiled(null); setActionError(null); setNotice(null); setSpecParseError(null)
   }
 
@@ -131,7 +208,7 @@ export function ManualNodes() {
     Array.isArray(err.issues) ? (err.issues as ValidationIssue[]) : undefined
 
   const doValidate = async () => {
-    const spec = parseEditor(); if (!spec) return
+    const spec = resolveSpec(); if (!spec) return
     setBusy('validate'); setActionError(null); setNotice(null)
     try {
       setValidation(await api.nodes.validate(instrument, spec, buildBrokerMeta()))
@@ -143,7 +220,7 @@ export function ManualNodes() {
   }
 
   const doCompile = async () => {
-    const spec = parseEditor(); if (!spec) return
+    const spec = resolveSpec(); if (!spec) return
     setBusy('compile'); setActionError(null); setNotice(null)
     try {
       const result = await api.nodes.compile(instrument, spec, buildBrokerMeta())
@@ -156,11 +233,11 @@ export function ManualNodes() {
   }
 
   const saveNewNode = async () => {
-    const spec = parseEditor(); if (!spec) return
+    const spec = resolveSpec(); if (!spec) return
     setBusy('save'); setActionError(null); setNotice(null)
     try {
       const created = await api.nodes.create(instrument, {
-        name: nodeName.trim() || 'Untitled strategy',
+        name: resolveNodeName(),
         origin: 'CUSTOM',
         description: 'Saved from the spec workspace (server-validated + compiled).',
         spec_json: JSON.stringify(spec),
@@ -168,6 +245,7 @@ export function ManualNodes() {
       })
       setNotice(`Saved as node #${created.id} · v${created.version} · fingerprint ${created.spec_hash?.slice(0, 12)}…`)
       setSelectedId(created.id)
+      setNameDirty(false) // registry refresh recomputes the next auto C-number
       await load()
     } catch (err) {
       if (err instanceof ApiError) setActionError({ message: err.message, code: err.code, issues: asIssues(err) })
@@ -177,12 +255,12 @@ export function ManualNodes() {
 
   const saveNewVersion = async () => {
     if (!selected) return
-    const spec = parseEditor(); if (!spec) return
+    const spec = resolveSpec(); if (!spec) return
     setBusy('version'); setActionError(null); setNotice(null)
     try {
       const created = await api.nodes.versions(instrument, selected.id, {
         spec, broker_meta: buildBrokerMeta(),
-        name: nodeName.trim() || undefined,
+        name: resolveNodeName(),
       })
       setNotice(`Created v${created.version} of the lineage as node #${created.id} (parent #${selected.id}) · fingerprint ${created.spec_hash?.slice(0, 12)}…`)
       setSelectedId(created.id)
@@ -206,8 +284,32 @@ export function ManualNodes() {
   const loadIntoEditor = () => {
     if (!selected?.spec_json) return
     setSpecText(selected.spec_json)
+    try {
+      const parsed = JSON.parse(selected.spec_json)
+      setSpec(parsed && typeof parsed === 'object' ? (parsed as SpecObject) : null)
+      setSpecParseError(null)
+    } catch (err) {
+      setSpec(null)
+      setSpecParseError(err instanceof Error ? err.message : 'invalid JSON')
+    }
     setNodeName(selected.name)
-    setValidation(null); setCompiled(null); setActionError(null); setNotice(null); setSpecParseError(null)
+    setNameDirty(true)
+    setValidation(null); setCompiled(null); setActionError(null); setNotice(null)
+  }
+
+  // Metadata-only rename of the SAVED node — never touches the spec or its hash.
+  const renameSelected = async () => {
+    if (!selected) return
+    const finalName = resolveNodeName()
+    setRenaming(true); setActionError(null); setNotice(null)
+    try {
+      await api.nodes.rename(instrument, selected.id, finalName)
+      setNotice(`Renamed node #${selected.id} to "${finalName}" (display only — spec hash unchanged)`)
+      setNameDirty(false)
+      await load()
+    } catch (err) {
+      setActionError({ message: err instanceof ApiError ? err.message : 'rename failed' })
+    } finally { setRenaming(false) }
   }
 
   return (
@@ -231,25 +333,51 @@ export function ManualNodes() {
             <span className="faint" style={{ fontWeight: 400, fontSize: 11, marginLeft: 10 }}>validation &amp; compilation happen server-side</span>
           </div>
 
-          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 10 }}>
-            <div className="field">
+          <div className="builder-toolbar">
+            <div className="segmented" role="tablist" aria-label="Editor mode">
+              <button type="button" role="tab" aria-selected={mode === 'visual'} className={mode === 'visual' ? 'active' : ''} onClick={() => setMode('visual')}>Visual Builder</button>
+              <button type="button" role="tab" aria-selected={mode === 'json'} className={mode === 'json' ? 'active' : ''} onClick={() => setMode('json')}>JSON Editor</button>
+            </div>
+            <div className="field" style={{ marginBottom: 0 }}>
               <label htmlFor="spec-tf">Timeframe</label>
               <select id="spec-tf" className="input" value={timeframe} onChange={(e) => setTimeframe(e.target.value)}>
                 {TIMEFRAMES.map((tf) => <option key={tf} value={tf}>{tf}</option>)}
               </select>
             </div>
+            <button className="btn btn-ghost btn-sm" type="button" onClick={startBlankSpec}>New blank strategy</button>
             <button className="btn btn-ghost btn-sm" type="button" onClick={loadExample}>Load bullish engulfing example</button>
-            <button className="btn btn-ghost btn-sm" type="button" onClick={formatEditor} disabled={!specText.trim()}>Format JSON</button>
+            {mode === 'json' && <button className="btn btn-ghost btn-sm" type="button" onClick={formatEditor} disabled={!specText.trim()}>Format JSON</button>}
+            <span className="faint" style={{ fontSize: 10.5, marginLeft: 'auto' }}>Both modes edit ONE spec — the backend remains authoritative</span>
           </div>
 
-          <div className="field">
-            <label htmlFor="spec-json">Specification JSON</label>
-            <textarea id="spec-json" className="input mono" spellCheck={false}
-                      style={{ minHeight: 220, fontSize: 11.5, lineHeight: 1.5, whiteSpace: 'pre' }}
-                      value={specText} onChange={(e) => setSpecText(e.target.value)}
-                      placeholder='{"schema_version": "1.0.0", "identity": { … }, "entry": …, "exits": …, "risk": …, "execution": …}' />
-          </div>
-          {specParseError && <div className="field-error" role="alert" style={{ marginTop: 6 }}>JSON: {specParseError}</div>}
+          {mode === 'visual' ? (
+            spec === null ? (
+              <div className="builder-empty">
+                <p>No strategy loaded. Start a blank strategy and build it visually, or load the example.</p>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button className="btn btn-primary btn-sm" type="button" onClick={startBlankSpec}>New blank strategy</button>
+                  <button className="btn btn-ghost btn-sm" type="button" onClick={loadExample}>Load bullish engulfing example</button>
+                </div>
+                <p className="faint" style={{ fontSize: 11 }}>The underlying spec is created with identity, execution defaults, an empty AND entry group and 1% fixed risk. No exits are invented — add them explicitly in section 2.</p>
+              </div>
+            ) : (
+              <StrategyBuilder spec={spec} onChange={syncFromVisual} jsonError={specParseError}
+                               onRevertJson={() => { if (spec) { setSpecText(JSON.stringify(spec, null, 2)); setSpecParseError(null) } }}
+                               instrument={instrument} />
+            )
+          ) : (
+            <>
+              <div className="field">
+                <label htmlFor="spec-json">Specification JSON</label>
+                <textarea id="spec-json" className="input mono" spellCheck={false}
+                          style={{ minHeight: 220, fontSize: 11.5, lineHeight: 1.5, whiteSpace: 'pre' }}
+                          value={specText} onChange={(e) => syncFromJson(e.target.value)}
+                          placeholder='{"schema_version": "1.0.0", "identity": { … }, "entry": …, "exits": …, "risk": …, "execution": …}' />
+              </div>
+              {specParseError && <div className="field-error" role="alert" style={{ marginTop: 6 }}>JSON: {specParseError} — the visual builder keeps the last valid spec; nothing is deleted.</div>}
+              {!specParseError && !specText.trim() && <div className="faint" style={{ fontSize: 11, marginTop: 6 }}>Empty editor — start with “New blank strategy”.</div>}
+            </>
+          )}
 
           <div className="field" style={{ marginTop: 10 }}>
             <label htmlFor="broker-pip">Broker metadata <span className="faint">(per {instrument} — resolved externally, NEVER assumed; leave blank to see NEEDS_METADATA)</span></label>
@@ -260,10 +388,27 @@ export function ManualNodes() {
             </div>
           </div>
 
-          <div className="field" style={{ marginTop: 10 }}>
-            <label htmlFor="spec-node-name">Node name</label>
-            <input id="spec-node-name" className="input" maxLength={160} value={nodeName} onChange={(e) => setNodeName(e.target.value)} placeholder="e.g. Bullish Engulfing · XAUUSD M15" />
+          <div className="node-name-row">
+            <label htmlFor="spec-node-name">Node name <span className="faint">auto → {autoName}</span></label>
+            <input id="spec-node-name" className="input mono" maxLength={160} value={nodeName}
+                   onChange={(e) => { setNodeName(e.target.value); setNameDirty(true) }}
+                   placeholder={autoName} aria-label="Node name" />
+            {nameDirty ? (
+              <>
+                <button className="btn btn-ghost btn-sm" type="button" onClick={() => { setNameDirty(false); setNodeName(autoName) }}>Reset to auto ({autoName})</button>
+                <span className="faint" style={{ fontSize: 11 }}>custom name will be preserved</span>
+              </>
+            ) : (
+              <span className="faint" style={{ fontSize: 11 }}>left unchanged → saved as {autoName}</span>
+            )}
+            {selected?.spec_json && (
+              <button className="btn btn-ghost btn-sm" type="button" disabled={renaming} onClick={renameSelected}
+                      title="Metadata-only rename of the saved node — never changes the spec hash or forks a version">
+                {renaming ? 'Renaming…' : `Rename #${selected.id} only (hash unchanged)`}
+              </button>
+            )}
           </div>
+          <p className="faint" style={{ fontSize: 10.5, marginTop: 4 }}>Node naming is registry metadata, not strategy semantics: it is applied at save time, and renaming an existing node uses metadata-only PATCH — the spec fingerprint and version lineage are never affected by a display rename. Auto names come from the registry for <strong>{instrument}</strong> (C1, C2, …; never reused while names exist).</p>
 
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 12 }}>
             <button className="btn btn-primary" type="button" onClick={doValidate} disabled={busy !== null || !specText.trim()}>{busy === 'validate' ? 'Validating…' : 'Validate'}</button>

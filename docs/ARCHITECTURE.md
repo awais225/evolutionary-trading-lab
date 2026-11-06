@@ -153,14 +153,14 @@ Domain errors → `{"detail": "…"}`; unhandled → 500 `{"error":{"code":"inte
 ## Testing infrastructure — IMPLEMENTED
 - Backend pytest (**86 passed, 1 skipped** at HERO-V1.1.0) incl. synthetic-data
   spec/validation/compiler/API suites + alembic parity + repo hygiene.
-- Frontend vitest (**9 passed**) with mocked fetch + stub WS; jsdom.
+- Frontend vitest (**24 passed**) with mocked fetch + stub WS; jsdom.
 - CI (.github/workflows/ci.yml): pytest; npm build+vitest on ubuntu-latest.
 - NOT DONE: browser E2E (Playwright), load testing, Windows CI.
 
 ## DATA layout — IMPLEMENTED (see docs/DATA_LAYOUT.md)
-HERO1_DATA_ROOT (default ~/.hero1/data) validated outside-repo; tree created by
-scripts/init_db.py --create (idempotent). Production target D:\Hero1\DATA —
-NOT created here; code manages, humans verify on Windows (docs/WINDOWS_SETUP.md).
+HERO1_DATA_ROOT (canonical default <repo>/DATA, git-ignored; any other
+in-checkout path refused); the required subdirectories are created by
+scripts/init_db.py --create (idempotent) and PREREQUISITES.bat.
 
 ## Deviations from the original brief (documented per spec)
 1. Backend port default is **8788** (not 8787) to avoid legacy-service clash.

@@ -19,11 +19,24 @@ describe('Hero1 shell', () => {
     expect(screen.getByRole('heading', { name: /manual nodes/i })).toBeInTheDocument()
   })
 
-  it('switches instrument via the top-bar selector', () => {
+  it('instrument selector defaults to XAUUSD and syncs across tabs', () => {
     renderAt('/manual-nodes')
-    const eur = screen.getByRole('tab', { name: 'EURUSD' })
-    fireEvent.click(eur)
-    expect(eur).toHaveAttribute('aria-selected', 'true')
+    const select = screen.getByLabelText(/^instrument$/i) as HTMLSelectElement
+    expect(select.value).toBe('XAUUSD') // default is ALWAYS XAUUSD with empty storage
+    fireEvent.change(select, { target: { value: 'BTCUSD' } })
+    expect(select.value).toBe('BTCUSD')
+    // switch to EURUSD, navigate to settings — the shared state travels with us
+    fireEvent.change(select, { target: { value: 'EURUSD' } })
+    fireEvent.click(screen.getByRole('link', { name: /settings/i }))
+    expect((screen.getByLabelText(/^instrument$/i) as HTMLSelectElement).value).toBe('EURUSD')
+    // refresh persistence: persisted selection wins on next mount
+    expect(localStorage.getItem('hero1.instrument')).toBe('EURUSD')
+  })
+
+  it('restores the persisted instrument on refresh', () => {
+    localStorage.setItem('hero1.instrument', 'BTCUSD')
+    renderAt('/manual-nodes')
+    expect((screen.getByLabelText(/^instrument$/i) as HTMLSelectElement).value).toBe('BTCUSD')
   })
 
   it('navigates to settings and renders persisted values', async () => {

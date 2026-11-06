@@ -5,6 +5,55 @@ exact commit SHA and tag. Claims only for what was implemented AND verified.
 
 ---
 
+## [Unreleased] — 2026-11-06 — Hero1 dashboard completion: global instrument selector, visual strategy builder, canonical DATA, launcher repair
+
+**Added**
+- Global instrument selector in the top-right status cluster of every tab
+  (backend-registry list, disabled/greyed entries for symbols the registry does
+  not enable, `GBPUSD/USDJPY/ETHUSD` shown as not-in-registry; persisted via
+  `hero1.instrument`, default always XAUUSD; selection passed explicitly to all
+  instrument-scoped API calls; instrument context shown on all placeholder tabs).
+- Manual Nodes: Visual Builder as a first-class mode beside the JSON editor —
+  searchable indicator library MIRRORING the backend registry exactly (SMA, EMA,
+  RSI, MACD, BBANDS, ATR, VWAP, ROC, STOCH, ADX; WMA/SMMA/CCI/StdDev/OBV/PSAR
+  shown disabled as not supported), condition rows with LHS/operator/RHS,
+  AND/OR groups, one nesting level + read-only fallback for deeper JSON,
+  duplicate/remove/add, backend-limit guards, exits (SL/TP/max-hold/time-exit,
+  never invented), risk sizing with explicit distance units (NEEDS_METADATA
+  preserved), sections 1–4, indicator preview panel with explicit
+  `INDICATOR ENGINE NOT AVAILABLE` (Phase 3 dependency; no fake values),
+  one-line node summary, full visual↔JSON round-trip with invalid-JSON safety
+  (read-only + revert).
+- Registry-driven auto naming `C1…Cn` per instrument (refresh-proof, max+1,
+  no reuse), manual override, metadata-only PATCH rename for saved nodes.
+- `scripts/run_backend.cmd` / `scripts/run_frontend.cmd` — persistent visible
+  service windows with pause-on-exit and tee logging to canonical logs.
+- PROMPTS/INSTRUMENT_SELECTOR_BUILDER_BATS.md (task prompt archive).
+
+**Changed**
+- Canonical DATA root is now `<PROJECT_ROOT>\DATA` (git-ignored): storage
+  engine accepts exactly `<repo>\DATA` in-checkout (others still refused),
+  creates DATABASE/LOGS/BACKUPS/CACHE/MARKET_DATA/RESEARCH/ARTIFACTS, and the
+  default `HERO1_DATA_ROOT`= unset falls back to `<repo>\DATA`.
+- PREREQUISITES.bat / START.bat rewritten around the canonical root (single
+  DATA_ROOT variable, all subdirectories + logs, %~dp0, CRLF/ASCII, nested-quote
+  defect fixed, service windows launched via the static wrappers, readiness
+  polling + browser-after-ready preserved, duplicate-instance detection kept).
+- web tests 9 → 24 (builder suite, selector persistence, auto-naming,
+  JSON↔visual sync, no-fake-values); environment test updated to the canonical
+  DATA policy (docs/ISSUES_AND_FIXES.md ISSUE-020..024).
+
+**Verification status**
+- pytest 88 passed / 1 skipped (.venv); web vitest 24/24; production build clean.
+- **Windows .bat files NOT executed on Windows** (none available here). Static
+  audit + Linux verification of every embedded command only; see CHATGPT.txt.
+- Live dashboard re-verified in the LMS workspace with
+  HERO1_DATA_ROOT=/home/user/hero1-workspace-data (outside git) — see delivery
+  report for the actual preview URL.
+
+**Commit:** this commit — exact SHA in CHATGPT.txt (record commit follows).
+**Tag:** none (no release)
+
 ## [Unreleased] — 2026-11-06 — Windows two-file launcher
 
 **Added**
