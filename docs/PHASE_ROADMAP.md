@@ -2,21 +2,28 @@
 
 Legend: ✅ done & verified · 🟡 partial/foundation only · ⛔ not started
 
-## Phase 1 — Foundation ✅ (this milestone)
+## Phase 1 — Foundation ✅ (HERO-V1.0.0, 2026-11-06)
 Repo structure, storage layer (registry + per-instrument SQLite + Alembic),
 FastAPI surface (/health, instruments, settings, events, nodes), durable event
 log + WS LIVE FEED (replay, no polling), web shell with the new visual
 identity (8 tabs, instrument switcher, collapsible feed), `doctor`, CI
-workflow, 34 automated tests, docs. No trading capability.
+workflow, tests, docs. No trading capability.
 
-## Phase 2 — Strategy compiler & node editing ⛔
-Typed strategy spec (entry/exit/filters/session/risk), JSON-Schema validation,
-natural-language → spec draft generation (AI-assisted, never executed), spec
-hashing + lineage, manual editor UI. Deliverable: editable, validatable node specs.
+## Phase 2 — Strategy specification, validation & deterministic compiler ✅ (HERO-V1.1.0, 2026-11-06)
+Typed strategy spec DSL (never executable code): JSON-typed entry/exit/risk/
+execution models, layered validator (structural → semantic → instrument →
+timeframe → indicator → risk → execution → safety) with structured issues and
+VALID/WARNING/NEEDS_METADATA/INVALID severities, deterministic compiler to
+declarative IR with SHA-256 fingerprint, immutable node versioning with
+parent-linked lineage, Manual Nodes spec workspace UI. NOT included (by design):
+natural-language → spec generation (Phase 7/WWW), backtesting (Phase 4),
+execution (Phase 5), indicator math (Phase 3).
 
 ## Phase 3 — Market data & indicator engine ⛔
 MT5 history sync to MARKET_DATA (Parquet), candle store, indicator library with
 unit-verified formulas, timeframe handling, synthetic-data test fixtures.
+(packages/exec_semantics + packages/indicators remain inert skeletons; the
+Phase-2 spec already carries warmed-up indicator refs + candle semantics.)
 
 ## Phase 4 — DeepTesting & backtesting ⛔
 Single execution engine behind every mode: initial backtest, OOS, walk-forward,

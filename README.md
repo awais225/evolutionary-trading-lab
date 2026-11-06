@@ -1,6 +1,6 @@
 # Hero1 — Trading Research Workstation
 
-> **HERO V1** — canonical repository: <https://github.com/awais225/evolutionary-trading-lab> (`main`).
+> **HERO V1.1.0** — canonical repository: <https://github.com/awais225/evolutionary-trading-lab> (`main`).
 > The original Evolutionary Trading Lab project is preserved on the `legacy-archive` branch.
 
 Hero1 is a local-first research and execution platform for algorithmic trading.
@@ -9,8 +9,10 @@ data universes end-to-end) and a strict **research → test → qualify → appr
 live** pipeline. No strategy reaches live trading without an explicit, separate
 approval record.
 
-> **Status: Phase 1 — Foundation.** Storage, API, event system, web shell, docs
-> and tests are in place. Strategy compilation, backtesting, research agents,
+> **Status: Phase 2 — Strategy specification, validation & deterministic compiler.**
+> Storage, API, event system, web shell, docs and tests are in place; strategies
+> are now typed, versioned JSON specs that pass server-side validation and a
+> deterministic SHA-256 fingerprinting compiler. Backtesting, research agents,
 > fine-tuning and live execution are **not implemented yet** — see
 > [docs/PHASE_ROADMAP.md](docs/PHASE_ROADMAP.md). The WWW Research / Interactive
 > WWW / DeepTesting / Fine Tuning / Live Testing / LOG tabs are clearly marked
@@ -35,7 +37,8 @@ apps/web (React + TS + Vite)          services/api (FastAPI)
 packages/                                   ▼
   storage (SQLAlchemy 2 + Alembic) ── registry DB (global) + 1 SQLite per instrument
   eventbus (durable events + replay)      XAUUSD · EURUSD · BTCUSD
-  strategy_spec · exec_semantics · indicators · research (Phase 1 skeletons)
+  strategy_spec (Phase 2: DSL · validator · compiler) · exec_semantics
+  · indicators · research (Phase 3+ skeletons)
   ai_orchestrator (provider interface + Ollama) · mt5_adapter (safe probe only)
 ```
 
@@ -85,13 +88,15 @@ python -m pytest
 cd apps/web && npm test && npm run build
 ```
 
-## What is implemented (Phase 1) vs pending
+## What is implemented (through Phase 2) vs pending
 
 | Area | Status |
 |---|---|
 | Repo, structure, CI workflow, `.gitignore` hard rules | ✅ implemented |
 | Registry DB + per-instrument SQLite + Alembic migrations | ✅ implemented |
-| Nodes (origin taxonomy CUSTOM/WWW/INTERACTIVE/FINE_TUNED), CRUD, lineage schema | ✅ API + DB (compiler in Phase 2) |
+| Nodes (origin taxonomy CUSTOM/WWW/INTERACTIVE/FINE_TUNED), CRUD | ✅ API + DB |
+| Strategy spec DSL + validator + deterministic compiler (IR, SHA-256 fingerprint) | ✅ packages/strategy_spec (Phase 2) |
+| Immutable node versioning (parent links, server-computed fingerprints, lineage) | ✅ API + DB (Phase 2) |
 | Settings (persisted, validated) | ✅ implemented |
 | Global event log + WebSocket feed + since_id replay | ✅ implemented |
 | `doctor` environment checker | ✅ implemented |
@@ -99,7 +104,7 @@ cd apps/web && npm test && npm run build
 | MT5 adapter | ⚠️ safe availability probe only — **no orders, no execution** (Phase 5, Windows) |
 | Manual Nodes UI, Settings UI, navigation shell, LIVE FEED | ✅ implemented |
 | WWW Research / Interactive WWW / DeepTesting / Fine Tuning / Live Testing / LOG | ⛔ placeholders, phases 4–8 |
-| Strategy compiler, backtester, testing engine, approvals, live trading | ⛔ not started — see roadmap |
+| Backtester, testing engine, approvals, live trading | ⛔ not started — see roadmap |
 
 ## Safety guarantees (by construction)
 
@@ -107,7 +112,7 @@ cd apps/web && npm test && npm run build
   the app refuses to run with a DATA root inside the repo.
 - Instruments are **never** silently defaulted. Every instrument-specific endpoint
   requires an explicit, validated identifier (`XAUUSD`/`EURUSD`/`BTCUSD`).
-- Live trading requires a separate `Approval` record. Nothing in Phase 1 can
+- Live trading requires a separate `Approval` record. Nothing in this release can
   activate, arm, or place orders. The MT5 adapter contains no order code at all.
 - AI output is never executed as Python. Provider interface is vendor-neutral.
 - Secrets: `.env` is git-ignored; `.env.example` contains dummies only;
@@ -126,4 +131,4 @@ cd apps/web && npm test && npm run build
 
 ## License / ownership
 
-Owner: awais225. Release identity HERO V1 (2026-11-06). Repository is public by explicit owner decision.
+Owner: awais225. Release identity HERO V1.1.0 (2026-11-06). Repository is public by explicit owner decision.

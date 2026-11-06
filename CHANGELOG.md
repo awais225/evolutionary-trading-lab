@@ -5,6 +5,99 @@ exact commit SHA and tag. Claims only for what was implemented AND verified.
 
 ---
 
+## [HERO-V1.1.0] — 2026-11-06 — Phase 2 — Strategy specification, validation & deterministic compiler
+
+**Features introduced**
+- `packages/strategy_spec` (new, version 1.1.0): principle — a strategy is
+  structured DATA, never executable Python. SCHEMA_VERSION 1.0.0; typed
+  expression trees (AND/OR/NOT, comparisons gt/gte/lt/lte/eq/neq/cross_above/
+  cross_below; candle / forming-candle / indicator / constant operands;
+  discriminated unions); 10 indicators (metadata + parameter constraints ONLY —
+  no math); explicit exits (stop-loss / take-profit / explicit exit /
+  max-holding candles / UTC time exit — required; never silently invented);
+  risk config with explicit distance units (absolute/points/ticks/pips/ATR-
+  multiple; ATR-multiple requires atr_period) and fixed-risk OR fixed-volume
+  sizing; per-direction overrides; execution intent (entry timing,
+  completed-vs-forming candle with default completed + forming forbidden
+  unless explicitly permitted, market/pending intent, position handling) —
+  declarative ONLY, no execution semantics.
+- Validator: layered checks (structural → identity/instrument/timeframe →
+  expression tree/safety → indicators → risk → execution); severities
+  VALID/WARNING/NEEDS_METADATA/INVALID; structured issues
+  {code,path,message,severity,remediation}; warm-up = max(indicator warmups +
+  offset, 1); XAUUSD/EURUSD/BTCUSD instrument scoping; unknown schema versions
+  rejected; unbounded trees rejected (depth ≤ 8, nodes ≤ 64).
+  Missing broker metadata (pip/tick/point sizes) ⇒ NEEDS_METADATA — NEVER
+  assumed or defaulted; absolute/ATR distances need no metadata.
+- Compiler: canonical JSON (sorted keys, compact separators, NaN refused) →
+  deterministic IR (IR_VERSION 1.0.0) with SHA-256 fingerprint; insertion-order
+  independent; identical specs ⇒ identical fingerprints; distinct ⇒ distinct;
+  records schema/compiler/IR versions; refuses INVALID and NEEDS_METADATA
+  (WARNING compiles); NO eval/exec/dynamic imports anywhere in the package.
+- Reference fixture `bullish_engulfing(instrument, timeframe)` + XAUUSD
+  M1/M5/M15 example specs: bearish prev candle → bullish current → body
+  engulf → high/low break; entry next bar open after signal close; SL below
+  signal low (10 pips via EXTERNAL broker metadata); TP 2R; completed candles.
+- Node versioning (immutability fix): semantic spec change ⇒ validate →
+  compile → NEW node version linked via parent_node_id (+ node_lineage row);
+  parent never modified; next_version = max(lineage component)+1;
+  cross-instrument parents rejected (422); lineage component is instrument-
+  scoped (root recursion + BFS descendants, 1000-hop cap).
+- API: POST /nodes/validate (no persistence), POST /nodes/compile, GET
+  /nodes/{id}/lineage, POST /nodes/{id}/versions; NodeOut gains `spec_json`;
+  NodePatch is metadata-only (extra=forbid); NodeCreate `spec_hash` kept as
+  documented-ignored compat shim; server is the ONLY fingerprint authority
+  (canonical JSON persisted, fingerprint recomputed); broker_meta accepted
+  for validation only, never persisted; duplicate (instrument, spec_hash,
+  version) → 409 SPEC_DUPLICATE. EventBus NODE events for
+  validate/compile/create/version/validation-failure.
+- Frontend (Manual Nodes): spec workspace — timeframe select, bullish
+  engulfing loader, JSON editor, broker metadata inputs (never assumed; blank
+  ⇒ server NEEDS_METADATA), Validate/Compile/Save/Save-as-new-version,
+  structured issue panel (severity/code/path/remediation), IR + fingerprint
+  display, registry version/hash columns, lineage viewer; structured 422/409
+  error bodies rendered with server issue details. No redesign; no fake
+  results — nothing claims to be backtested.
+- Tests: +59 backend (34 spec/validator + 12 compiler/fingerprint/security +
+  15 API integration) and +3 frontend workspace tests. Full suites:
+  **backend 86 passed, 1 skipped** (Ollama unreachable, by design);
+  **frontend 9 passed**; production build OK (`tsc --noEmit && vite build`).
+- Live smoke (2026-11-06, temp data root, uvicorn :8799): validate w/o meta →
+  NEEDS_METADATA; validate w/ meta → VALID (warmup 1); compile → fingerprint
+  eb132930ec… (== unit-test value); create → 201 server-hashed; new version →
+  v2 parent 1; lineage → [v1, v2].
+
+**Bugs fixed** (details: docs/ISSUES_AND_FIXES.md ISSUE-012…019)
+- NodeOut omitted spec_json (ISSUE-014) — saved specs were unreadable
+- PATCH could rewrite spec_json/version in place — semantic edits bypassed
+  validation/fingerprinting (ISSUE-015)
+- Client-supplied spec_hash was persisted verbatim — now server-recomputed
+  (ISSUE-016)
+- Duplicate identical spec → sqlite IntegrityError → 500; now 409 SPEC_DUPLICATE
+  (ISSUE-013)
+- Undiscriminated LogicNode union → exponential backtracking (DoS); now
+  discriminated (ISSUE-012)
+- API client flattened structured FastAPI errors to `HTTP 422` (ISSUE-018)
+
+**Known limitations / honest scope**
+- Unit tests ≠ trading performance, ≠ Windows/RTX 4090/MT5 verification.
+- Frontend↔backend covered by mocked-fetch vitest + manual smoke; no browser E2E.
+- Node DB schema unchanged by design (immutability is application-level);
+  UNIQUE(instrument_id, spec_hash, version) kept — duplicates are conflicts.
+- Fingerprint covers the full spec including identity (name/description/
+  metadata) — cosmetic-only edits DO produce a new fingerprint; clients must
+  route semantic edits through /versions regardless.
+- Push depends on owner-configured secure auth; CHATGPT.txt records remote
+  verification status honestly.
+- Phase 3 (indicator math, candle store) NOT started.
+
+**Baseline:** `396a71e4de7ff96994da2342a38157a53a24a7d0` (HERO-V1.0.0 record commit)
+**Commit:** this commit — exact SHA recorded in CHATGPT.txt OUTCOME and the
+annotated tag `HERO-V1.1.0` (record commit follows the tag, as in Phase 1.3)
+**Tag:** HERO-V1.1.0 (created after tests/build/verification pass)
+
+---
+
 ## [HERO-V1.0.0] — 2026-11-06 — Phase 1.3 — HERO V1 (migration release)
 
 **Identity change:** Hero1 becomes the active project of the EXISTING GitHub

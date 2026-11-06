@@ -40,9 +40,16 @@ class NodeCreate(BaseModel):
     origin: NodeOrigin
     description: Optional[str] = Field(default=None, max_length=4000)
     spec_json: Optional[str] = None
-    spec_hash: Optional[str] = None
+    spec_hash: Optional[str] = Field(
+        default=None,
+        description="DEPRECATED compat field: format-checked only. The server ALWAYS "
+                    "recomputes the canonical fingerprint; a client-supplied hash is never persisted.")
     parent_node_id: Optional[int] = None
     created_by: str = Field(default="user", max_length=60)
+    broker_meta: Optional[dict] = Field(
+        default=None,
+        description="Optional per-instrument broker metadata used ONLY to validate the spec "
+                    "(e.g. {'XAUUSD': {'pip_size': 0.1}}). Never persisted; never trusted blindly.")
 
     _check_spec = field_validator("spec_json")(_validate_spec_json)
 
@@ -55,13 +62,16 @@ class NodeCreate(BaseModel):
 
 
 class NodePatch(BaseModel):
+    """Metadata-only edits. Strategy semantics (spec_json) are IMMUTABLE for a
+    saved node — extra keys are rejected with 422. To change a strategy, call
+    POST /api/v1/instruments/{instrument}/nodes/{node_id}/versions instead."""
+
+    model_config = {"extra": "forbid"}
+
     name: Optional[str] = Field(default=None, min_length=1, max_length=160)
     description: Optional[str] = Field(default=None, max_length=4000)
     status: Optional[NodeStatus] = None
     approval_state: Optional[ApprovalState] = None
-    spec_json: Optional[str] = None
-
-    _check_spec = field_validator("spec_json")(_validate_spec_json)
 
 
 class NodeOut(BaseModel):
@@ -75,6 +85,7 @@ class NodeOut(BaseModel):
     version: int
     parent_node_id: Optional[int]
     spec_hash: Optional[str]
+    spec_json: Optional[str]
     created_by: str
     created_at: float
     updated_at: float
@@ -160,3 +171,59 @@ class HealthOut(BaseModel):
 
 class ErrorOut(BaseModel):
     error: dict
+
+
+# --------------------------------------------------------------- Phase 2
+class SpecValidationRequest(BaseModel):
+    spec: dict
+    broker_meta: Optional[dict] = Field(
+        default=None,
+        description="Per-instrument broker metadata, e.g. {'XAUUSD': {'pip_size': 0.1, 'tick_size': 0.01}}. "
+                    "Never invented by the server; missing metadata => NEEDS_METADATA.")
+
+
+class ValidationIssueOut(BaseModel):
+    code: str
+    path: str
+    message: str
+    severity: str
+    remediation: Optional[str] = None
+
+
+class ValidationReportOut(BaseModel):
+    instrument: str
+    status: str
+    issues: List[ValidationIssueOut]
+    required_warmup_candles: Optional[int] = None
+    schema_version: Optional[str] = None
+    summary: dict
+
+
+class SpecCompileRequest(BaseModel):
+    spec: dict
+    broker_meta: Optional[dict] = None
+
+
+class CompileResultOut(BaseModel):
+    fingerprint: str
+    canonical_json: str
+    schema_version: str
+    compiler_version: str
+    ir_version: str
+    ir: dict
+    required_warmup_candles: int
+    warnings: List[str]
+
+
+class NewVersionRequest(BaseModel):
+    spec: dict
+    name: Optional[str] = Field(default=None, min_length=1, max_length=160)
+    description: Optional[str] = Field(default=None, max_length=4000)
+    created_by: str = Field(default="user", max_length=60)
+    broker_meta: Optional[dict] = None
+
+
+class NodeVersionListOut(BaseModel):
+    instrument: str
+    lineage_root_id: Optional[int]
+    items: List[NodeOut]

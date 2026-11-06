@@ -1,9 +1,25 @@
-import type { EventListOut, HealthOut, Instrument, Node, NodeListOut, NodeOrigin, SettingsOut } from './types'
+import type { BrokerMeta, CompileResult, EventListOut, HealthOut, Instrument, Node, NodeListOut, NodeOrigin, NodeVersionList, SettingsOut, ValidationReport } from './types'
 
 class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(public status: number, message: string,
+              public code?: string, public issues?: unknown) {
     super(message)
   }
+}
+
+// FastAPI error bodies may carry `detail` as a plain string OR as a structured
+// object ({code, message, status?, issues?}) — surface both faithfully.
+function parseDetail(data: unknown): { message: string; code?: string; issues?: unknown } {
+  const d = (data as { detail?: unknown } | undefined)?.detail
+  if (typeof d === 'string') return { message: d }
+  if (d && typeof d === 'object') {
+    const obj = d as { message?: string; code?: string; issues?: unknown }
+    if (typeof obj.message === 'string') {
+      return { message: obj.message, code: obj.code, issues: obj.issues }
+    }
+  }
+  const errMsg = (data as { error?: { message?: string } } | undefined)?.error?.message
+  return { message: errMsg ?? 'request failed' }
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -23,9 +39,8 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     try { data = JSON.parse(text) } catch { /* non-JSON body */ }
   }
   if (!res.ok) {
-    const detail = (data as { detail?: unknown; error?: { message?: string } } | undefined)?.detail
-      ?? (data as { error?: { message?: string } } | undefined)?.error?.message
-    throw new ApiError(res.status, typeof detail === 'string' ? detail : `HTTP ${res.status}`)
+    const { message, code, issues } = parseDetail(data)
+    throw new ApiError(res.status, message, code, issues)
   }
   return data as T
 }
@@ -49,8 +64,22 @@ export const api = {
       if (params.origin) q.set('origin', params.origin)
       return request<NodeListOut>('GET', `/api/v1/instruments/${instrument}/nodes?${q}`)
     },
-    create: (instrument: string, body: { name: string; origin: NodeOrigin; description?: string }) =>
-      request<Node>('POST', `/api/v1/instruments/${instrument}/nodes`, body),
+    get: (instrument: string, id: number) =>
+      request<Node>('GET', `/api/v1/instruments/${instrument}/nodes/${id}`),
+    create: (instrument: string, body: {
+      name: string; origin: NodeOrigin; description?: string;
+      spec_json?: string; broker_meta?: BrokerMeta; parent_node_id?: number;
+    }) => request<Node>('POST', `/api/v1/instruments/${instrument}/nodes`, body),
+    validate: (instrument: string, spec: Record<string, unknown>, broker_meta?: BrokerMeta) =>
+      request<ValidationReport>('POST', `/api/v1/instruments/${instrument}/nodes/validate`, { spec, broker_meta }),
+    compile: (instrument: string, spec: Record<string, unknown>, broker_meta?: BrokerMeta) =>
+      request<CompileResult>('POST', `/api/v1/instruments/${instrument}/nodes/compile`, { spec, broker_meta }),
+    versions: (instrument: string, id: number, body: {
+      spec: Record<string, unknown>; broker_meta?: BrokerMeta;
+      name?: string; description?: string; created_by?: string;
+    }) => request<Node>('POST', `/api/v1/instruments/${instrument}/nodes/${id}/versions`, body),
+    lineage: (instrument: string, id: number) =>
+      request<NodeVersionList>('GET', `/api/v1/instruments/${instrument}/nodes/${id}/lineage`),
   },
   settings: {
     get: () => request<SettingsOut>('GET', '/api/v1/settings'),

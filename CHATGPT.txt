@@ -344,3 +344,45 @@ fine-grained PAT (used transiently, never persisted to any file/config/log):
   deleted afterwards. See PROMPTS/PHASE_1_2_GITHUB_PUBLISH.md and
   docs/ISSUES_AND_FIXES.md.
 ================================================================================
+
+2026-11-06 (HERO V1.1.0, Phase 2) — STRATEGY SPECIFICATION, VALIDATION &
+DETERMINISTIC COMPILER — implemented and locally verified:
+- Baseline: main == origin/main == 396a71e4de7ff96994da2342a38157a53a24a7d0
+  (HERO-V1.0.0 record commit). legacy-archive NOT touched.
+- New package packages/strategy_spec (v1.1.0): typed strategy DSL as DATA
+  (never executable Python). Schema 1.0.0; AND/OR/NOT expression trees with
+  discriminated unions; 10 indicators metadata-only; explicit exits (never
+  silently invented); explicit distance units (absolute/points/ticks/pips/ATR);
+  missing broker metadata ⇒ NEEDS_METADATA (never assumed); execution intent
+  declarative; lookahead-safe completed-candle indexing; warm-up explicit.
+- Validator: layered; issues {code,path,message,severity,remediation};
+  severities VALID/WARNING/NEEDS_METADATA/INVALID; safety caps (depth ≤ 8,
+  nodes ≤ 64). Compiler: canonical JSON → declarative IR (1.0.0); SHA-256
+  fingerprint; insertion-order independent; refuses INVALID/NEEDS_METADATA;
+  no eval/exec/dynamic imports anywhere. Fingerprint example (M15 engulfing,
+  broker meta supplied): eb132930ec461848abb54173d50cdeda6f812581e39f7cefac1f4155935a689c.
+- Server is the ONLY fingerprint authority. spec_json stored canonical;
+  client-supplied spec_hash documented-ignored (compat shim). Node PATCH =
+  metadata only (extra=forbid). Immutable versions: POST /nodes/{id}/versions
+  → parent-linked new version; lineage component endpoint; cross-instrument
+  parents rejected; UNIQUE(instrument_id,spec_hash,version) → 409 SPEC_DUPLICATE.
+- API: /nodes/validate (no persist), /nodes/compile, /nodes/{id}/versions,
+  /nodes/{id}/lineage. NodeOut gains spec_json. EventBus NODE events.
+- Frontend Manual Nodes: spec workspace (timeframe select, example loader,
+  editor, broker-metadata inputs, validate/compile/save/save-as-version,
+  structured issue panel, IR+fingerprint, lineage viewer). No redesign.
+- TESTS (all synthetic data, tmp roots; no DATA touched):
+  backend 86 passed, 1 skipped (Ollama unreachable — by design) [was 27/1];
+  frontend 9 passed; production build OK (tsc --noEmit && vite build).
+- LIVE SMOKE (uvicorn :8799, temp data root): validate w/o meta → 200
+  NEEDS_METADATA; validate w/ meta → VALID, warmup 1; compile → fp eb132930ec…;
+  create → 201 server-hashed; version → v2 parent 1; lineage [v1,v2]. PASS.
+- Docs updated in the same commit (README, CHANGELOG, ARCHITECTURE,
+  ISSUES_AND_FIXES ISSUE-012…019, PHASE_ROADMAP, PROMPTS/README).
+- OUTCOME note: exact release commit/tag SHAs are appended in the record
+  commit AFTER the release commit and annotated tag are created (same pattern
+  as Phase 1.3), because a commit cannot contain its own SHA. Push requires
+  owner-configured secure auth — NO secure auth exists in this environment
+  (verified again 2026-11-06); push NOT attempted with chat tokens.
+NEXT (NOT authorized): Phase 3 — market data & indicator engine. STOP after
+Phase 2 per the authorized scope.
