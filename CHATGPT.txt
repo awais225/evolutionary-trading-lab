@@ -418,3 +418,10 @@ Phase 2 per the authorized scope.
   docs/WINDOWS_SETUP.md §0). No app/schema/UI/logic changes; no DATA touched.
 - Preview: actual Hero1 dashboard started in this LMS workspace instead
   (see below in this log and the delivery report).
+
+2026-11-06 — OUTCOME (Windows launcher): commit a778869111c5e931fb1b3d79872853991b40d086
+pushed to main (remote main == a7788691...; verified after push). Windows BAT files
+NOT executed on Windows (none available here); underlying commands verified from
+scratch on Linux (clean venv + fresh DATA root). Preview of the actual dashboard in
+this workspace: see delivery report. No app/schema/UI changes; no DATA touched;
+legacy-archive untouched (d96ec4ba...).

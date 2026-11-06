@@ -178,3 +178,21 @@ Acceptance criteria — the task is complete only when:
 7. The actual Hero1 dashboard is also started in the LMS workspace and made available through its supported preview mechanism so I can inspect it immediately.
 
 **Two BAT files for Windows. One actual running dashboard preview in the LMS workspace. No unnecessary manual setup.**
+
+---
+
+## OUTCOME (2026-11-06 — append-only; implementation + push)
+
+- PREREQUISITES.bat and START.bat implemented in the repo root (CRLF, ASCII,
+  %~dp0 root detection, quoted paths, CMD-compatible, persistent cmd /k service
+  windows, real HTTP readiness polling, append-only logs under
+  D:\Hero1\DATA\LOGS\).
+- Linux-verified from scratch (clean venv /tmp/prereq_venv, fresh DATA root
+  /tmp/hero1_fresh_data): editable installs of all 9 packages, pip check,
+  core-package imports, backend app.main import, npm ci, production build,
+  init_db --create + --check, doctor. ALL PASS.
+- The .bat files were NOT executed on Windows (no Windows in this
+  environment) — first Windows run is a smoke test; see docs/WINDOWS_SETUP.md §0.
+- Commit: a778869111c5e931fb1b3d79872853991b40d086 (pushed: remote main =
+  a77886911; legacy-archive untouched d96ec4ba...; HERO-V1.1.0 intact).
+- LMS workspace dashboard preview: see the delivery report / CHATGPT.txt log.
