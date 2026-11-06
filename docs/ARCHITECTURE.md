@@ -7,7 +7,7 @@
 - **Unverified** — code exists but has never run on the required environment.
 - **Not supported** — intentionally absent or refused (by design).
 
-Last synchronized: 2026-11-06 (HERO-V1.1.0). Keep in sync with source on every change.
+Last synchronized: 2026-11-06 (HERO-V1.3.0 · graphical-theme consistency fix). Keep in sync with source on every change.
 
 ## Layers
 
@@ -130,7 +130,10 @@ Domain errors → `{"detail": "…"}`; unhandled → 500 `{"error":{"code":"inte
   version, structured issue panel (severity+code+path+remediation), IR +
   fingerprint display, registry rows with version/hash, lineage viewer.
 - Build: `tsc --noEmit && vite build` (ISSUE-007/008). Design tokens in
-  `src/styles/theme.css` (mission-control slate + signal amber).
+  `src/styles/theme.css` (mission-control slate + signal amber) — the
+  binding graphical-theme standard lives in **`docs/DESIGN_SYSTEM.md`**
+  (tokens, tier rules, state matrix, shared components incl. the custom
+  `InstrumentSelect` listbox). All 8 tabs follow it.
 - Tabs: Manual Nodes + SETTINGS implemented; WWW Research / Interactive WWW /
   DeepTesting / Fine Tuning / Live Testing / LOG = explicit Placeholder
   components (PLANNED features, NOT AVAILABLE) — no fake data by design.

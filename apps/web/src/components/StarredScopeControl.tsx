@@ -22,7 +22,7 @@ export function StarredScopeControl({ total, starredTotal, mini }: Props) {
         </button>
         <button type="button" className={scope === 'starred' ? 'active' : ''}
                 onClick={() => setScope('starred')} aria-pressed={scope === 'starred'}>
-          Starred Only{starredTotal != null ? ` (${s})` : ''}
+          Starred Only{starredTotal != null && <span className="scope-count" aria-label={`${s} starred nodes`}>{s}</span>}
         </button>
       </div>
       <div className="scope-line">

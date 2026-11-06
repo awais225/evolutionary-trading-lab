@@ -19,24 +19,60 @@ describe('Hero1 shell', () => {
     expect(screen.getByRole('heading', { name: /manual nodes/i })).toBeInTheDocument()
   })
 
-  it('instrument selector defaults to XAUUSD and syncs across tabs', () => {
+  it('instrument listbox defaults to XAUUSD and syncs across tabs', () => {
     renderAt('/manual-nodes')
-    const select = screen.getByLabelText(/^instrument$/i) as HTMLSelectElement
-    expect(select.value).toBe('XAUUSD') // default is ALWAYS XAUUSD with empty storage
-    fireEvent.change(select, { target: { value: 'BTCUSD' } })
-    expect(select.value).toBe('BTCUSD')
+    const trigger = screen.getByRole('button', { name: /instrument — current: XAUUSD/i })
+    expect(trigger).toBeInTheDocument() // default is ALWAYS XAUUSD with empty storage
+    fireEvent.click(trigger)
+    fireEvent.click(screen.getByRole('option', { name: /BTCUSD Bitcoin vs US Dollar/i }))
+    expect(screen.getByRole('button', { name: /instrument — current: BTCUSD/i })).toBeInTheDocument()
     // switch to EURUSD, navigate to settings — the shared state travels with us
-    fireEvent.change(select, { target: { value: 'EURUSD' } })
+    fireEvent.click(screen.getByRole('button', { name: /instrument — current: BTCUSD/i }))
+    fireEvent.click(screen.getByRole('option', { name: /EURUSD Euro vs US Dollar/i }))
     fireEvent.click(screen.getByRole('link', { name: /settings/i }))
-    expect((screen.getByLabelText(/^instrument$/i) as HTMLSelectElement).value).toBe('EURUSD')
+    expect(screen.getByRole('button', { name: /instrument — current: EURUSD/i })).toBeInTheDocument()
     // refresh persistence: persisted selection wins on next mount
     expect(localStorage.getItem('hero1.instrument')).toBe('EURUSD')
+  })
+
+  it('instrument listbox keyboard navigation (ArrowDown/Enter/Escape/Home/End)', () => {
+    renderAt('/manual-nodes')
+    const trigger = screen.getByRole('button', { name: /instrument — current/i })
+    trigger.focus()
+    fireEvent.keyDown(trigger, { key: 'ArrowDown' })          // opens, active = current (XAUUSD)
+    expect(screen.getByRole('listbox')).toBeInTheDocument()
+    fireEvent.keyDown(trigger, { key: 'ArrowDown' })          // move to EURUSD
+    fireEvent.keyDown(trigger, { key: 'ArrowDown' })          // move to BTCUSD
+    fireEvent.keyDown(trigger, { key: 'ArrowUp' })            // back to EURUSD
+    fireEvent.keyDown(trigger, { key: 'Enter' })              // select
+    expect(screen.getByRole('button', { name: /instrument — current: EURUSD/i })).toBeInTheDocument()
+    expect(localStorage.getItem('hero1.instrument')).toBe('EURUSD')
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+    // Escape closes without changing the selection
+    fireEvent.keyDown(trigger, { key: 'ArrowDown' })
+    fireEvent.keyDown(trigger, { key: 'Escape' })
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /instrument — current: EURUSD/i })).toBeInTheDocument()
+  })
+
+  it('instrument listbox never selects unavailable instruments (click or keyboard)', () => {
+    renderAt('/manual-nodes')
+    const trigger = screen.getByRole('button', { name: /instrument — current: XAUUSD/i })
+    fireEvent.click(trigger)
+    const gbp = screen.getByRole('option', { name: /GBPUSD not in registry/i })
+    expect(gbp).toHaveAttribute('aria-disabled', 'true')
+    fireEvent.click(gbp)
+    expect(screen.getByRole('button', { name: /instrument — current: XAUUSD/i })).toBeInTheDocument()
+    expect(screen.getByRole('listbox')).toBeInTheDocument()  // stays open; nothing was selected
+    fireEvent.keyDown(trigger, { key: 'End' })               // End jumps past disabled entries
+    fireEvent.keyDown(trigger, { key: 'Enter' })
+    expect(screen.getByRole('button', { name: /instrument — current: BTCUSD/i })).toBeInTheDocument()
   })
 
   it('restores the persisted instrument on refresh', () => {
     localStorage.setItem('hero1.instrument', 'BTCUSD')
     renderAt('/manual-nodes')
-    expect((screen.getByLabelText(/^instrument$/i) as HTMLSelectElement).value).toBe('BTCUSD')
+    expect(screen.getByRole('button', { name: /instrument — current: BTCUSD/i })).toBeInTheDocument()
   })
 
   it('navigates to settings and renders persisted values', async () => {

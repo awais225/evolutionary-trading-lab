@@ -55,11 +55,34 @@ exact commit SHA and tag. Claims only for what was implemented AND verified.
   module identity; theme regression on Visual Builder/JSON Editor native controls;
   scope-line test-unfriendly split text nodes.
 
+- Graphical-theme consistency fix (ISSUE-033): the last three grey/white,
+  non-themed controls are now on the graphical tier. Global instrument selector
+  is a themed custom listbox (`components/InstrumentSelect.tsx`) — trigger +
+  `role=listbox`/`option`, `aria-expanded`/`aria-controls`/`aria-activedescendant`,
+  ArrowUp/Down/Home/End/Enter/Space/Escape, outside-click close, disabled
+  unavailable options never selectable; amber gradient chevron panel, grouped
+  Available / Not available sections — **no native OS dropdown popup remains**.
+  Data/persistence unchanged (state/instrument.tsx: registry, `hero1.instrument`,
+  XAUUSD default). `.segmented` (Visual Builder/JSON Editor + All Nodes/Starred
+  Only + AND/OR + exit/risk toggles) is the shared graphical recipe: amber
+  gradient active + glow + inset highlight + dark text; themed hover for
+  inactive; focus-visible/active/disabled matrix. Starred count is the
+  `.scope-count` amber-soft badge (flips dark-on-amber on the active segment).
+  Permanent standard documented in **docs/DESIGN_SYSTEM.md** (tokens, tier
+  rules, state matrix, shared components) — binding for all future UI work.
+- vitest rewritten instrument specs (listbox keyboard/selection/persistence/
+  disabled-option) + builder spec interaction; tests: pytest 91/1-skip,
+  vitest 30/30.
+
 **Verified**
 - Linux (LMS): backend + frontend run against the REAL code; `/health` ok; proxy
   connectivity verified; identity checks rc-tested (reuse, fresh, wrong-token);
   preview DATA migrated 0001→0002 (additive; data untouched); all 8 tabs serve;
-  pytest 91/1-skip, vitest 28/28, tsc+vite build green.
+  pytest 91/1-skip, vitest 30/30, tsc+vite build green; new modules served 200
+  via the preview (theme.css contains .instrument-panel/.scope-count).
+  NOTE: no pixel-level browser screenshot was captured in this environment —
+  see ISSUE-033 / CHATGPT.txt; theme verification = jsdom interaction tests +
+  served-module/CSS audit, not visual proof.
 
 **Limitations / honest status**
 - Windows execution of the .bat files remains UNPROVEN (no Windows environment here);

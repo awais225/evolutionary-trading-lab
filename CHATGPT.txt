@@ -565,3 +565,88 @@ PUBLISHED (TASK 7)
 - This record commit follows; remote main verified via ls-remote after push.
 - TASK 6 SHAs: 8ba81bf20 (feature) · f1498fc00 (record). TASK 5: ef6742e91 →
   fba446b5. TASK 7: 07876697f.
+
+================================================================================
+TASK 8 — GRAPHICAL THEME CONSISTENCY FIX (2026-11-06)
+================================================================================
+Owner mandate (PROMPTS/GRAPHICAL_THEME_CONSISTENCY.md, archived verbatim):
+the three grey/white, non-themed controls had to become indistinguishable
+from the rest of the graphical interface. All three are fixed:
+
+1) GLOBAL INSTRUMENT DROPDOWN (top bar, every tab)
+   - Native <select class="instrument-select"> REMOVED (it rendered a grey
+     OS arrow + OS-rendered popup — white on Windows; only partially
+     styleable, so the popup could never match the theme).
+   - NEW components/InstrumentSelect.tsx — custom themed listbox:
+     * trigger button + role=listbox panel; role=option rows; grouped
+       "Available (backend registry)" / "Not available / not in registry"
+     * ARIA: aria-haspopup=listbox, aria-expanded, aria-controls,
+       aria-activedescendant; option aria-selected; disabled aria-disabled
+     * Keyboard: ArrowUp/ArrowDown (open from trigger; move active), Home,
+       End, Enter/Space (select), Escape (close, refocus trigger), Tab (close)
+     * outside-mousedown closes; active option follows mouse hover; disabled
+       options are never selectable (click or keyboard); selection closes
+     * chevron rotates 180deg while open; wrap glows (accent-soft/border)
+   - DATA & PERSISTENCE UNCHANGED: state/instrument.tsx remains the single
+     source of truth — instruments registry fetch, hero1.instrument
+     localStorage, XAUUSD default, reconcile-on-load, FALLBACK mirror.
+   - Accessible name: "Instrument — current: <SYMBOL>".
+
+2) VISUAL BUILDER / JSON EDITOR SEGMENTED CONTROL (Manual Nodes)
+   - .segmented is now the SHARED GRAPHICAL recipe: active = linear-gradient
+     (accent-strong→accent→#d4a62e), #171106 text, amber glow
+     (0 0 16px rgba(230,185,61,.35)) + inset highlights, 1px border; hover on
+     inactive = --bg-3 + --text; :focus-visible = 2px accent outline;
+     :active translateY(1px); :disabled dimmed. Affects every segmented
+     control in the app (builder/editor tabs AND condition AND/OR AND
+     exit/risk toggles) — consistent everywhere by construction.
+
+3) ALL NODES / STARRED ONLY (shared StarredScopeControl)
+   - Same graphical .segmented.mini recipe at compact size.
+   - Starred count is now the .scope-count amber-soft badge (accent-soft bg +
+     accent-strong text + amber-soft border); on the ACTIVE segment it flips
+     to a dark translucent chip with #171106 text. Filter/count-semantics
+     unchanged (server ?starred= filter; N starred out of M).
+
+PERMANENT STANDARD
+- docs/DESIGN_SYSTEM.md is NEW: graphical vs utility tier definition, token
+  table (verbatim from theme.css), shared component inventory, the 6-state
+  interactive matrix, the 8 permanent rules (reuse tokens, no generic
+  grey/white or OS-native widgets, token-only values, full state matrix,
+  8-tab consistency, create-reusable-components), a11y contract for the
+  listbox. Linked from docs/ARCHITECTURE.md. Future Hero1 UI work MUST follow
+  it; AGENTS/contributors extend theme.css rather than add one-off styles.
+
+FILES CHANGED (TASK 8)
+- apps/web/src/components/InstrumentSelect.tsx (new)
+- apps/web/src/components/TopBar.tsx (native select removed; uses InstrumentSelect)
+- apps/web/src/components/StarredScopeControl.tsx (.scope-count badge)
+- apps/web/src/styles/theme.css (graphical .segmented recipe; .scope-count;
+  .instrument-trigger/.instrument-panel/.instrument-option/.instrument-chevron;
+  native .instrument-select CSS deleted; panel-in keyframes)
+- apps/web/src/__tests__/app.test.tsx (instrument specs rewritten: open/select/
+  cross-tab sync/persist/keyboard Arrow+Home+End+Enter+Escape/disabled-never-
+  selectable/unavailable-stays-open)
+- apps/web/src/__tests__/builder.test.tsx (instrument switch uses listbox)
+- docs/DESIGN_SYSTEM.md (new) · docs/ARCHITECTURE.md (link + sync note)
+- CHANGELOG.md (V1.3.0 entry extended) · docs/ISSUES_AND_FIXES.md (ISSUE-033)
+- PROMPTS/GRAPHICAL_THEME_CONSISTENCY.md (prompt archive)
+
+VERIFIED (LMS Linux)
+- pytest 91 passed / 1 skipped; vitest 30/30; tsc --noEmit && vite build GREEN.
+- Preview (vite dev on 5173, backend on 8788) serves all NEW modules 200;
+  /src/styles/theme.css served contains .instrument-panel/.instrument-trigger/
+  .scope-count/.segmented button.active/panel-in; /src/components/InstrumentSelect.tsx
+  transforms with the listbox ARIA contract.
+
+HONEST VISUAL STATUS
+- NO pixel-level browser screenshot was captured: this environment has no
+  screenshot/browser tool wired into the agent. Verification = jsdom
+  interaction tests (open/select/keyboard/disabled/persist — all green) +
+  production build + served-module/CSS audit through the live preview.
+  Owner should open https://5173-<sandbox>.e2b.app (or local preview) and
+  eyeball the top-right INSTRUMENT control, Visual Builder | JSON Editor
+  tabs, and All Nodes | Starred Only before calling it visually perfect.
+
+PUBLISHED
+- See git log after push; remote main verified via ls-remote.

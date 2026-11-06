@@ -194,7 +194,8 @@ describe('Manual Nodes — visual strategy builder', () => {
     renderNodes()
     await startBlank()
     fireEvent.click(screen.getByRole('button', { name: /^EMA / }))
-    fireEvent.change(screen.getByLabelText(/^instrument$/i), { target: { value: 'EURUSD' } })
+    fireEvent.click(screen.getByRole('button', { name: /instrument — current/i }))
+    fireEvent.click(screen.getByRole('option', { name: /EURUSD Euro vs US Dollar/i }))
     // workspace cleared; EURUSD registry is empty → auto name back to C1
     const field = await screen.findByLabelText(/^node name$/i)
     await waitFor(() => expect((field as HTMLInputElement).value).toBe('C1'))

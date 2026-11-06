@@ -107,16 +107,60 @@ body {
 .topbar-spacer { flex: 1; }
 
 .instrument-select-wrap {
-  display: inline-flex; align-items: center; gap: 8px; border: 1px solid rgba(230,185,61,.45);
-  background: var(--bg-2); border-radius: 10px; padding: 3px 10px 3px 12px;
+  position: relative; display: inline-flex; align-items: center; gap: 4px;
+  border: 1px solid rgba(230,185,61,.45);
+  background: linear-gradient(180deg, var(--bg-2), #131a24);
+  border-radius: 10px; padding: 3px 6px 3px 12px;
+  transition: border-color .15s ease, box-shadow .15s ease;
 }
-.instrument-select-label { font-family: var(--mono); font-size: 9px; letter-spacing: 1.4px; color: var(--accent); }
-.instrument-select {
+.instrument-select-wrap:hover { border-color: rgba(230,185,61,.75); box-shadow: 0 0 14px rgba(230,185,61,.18); }
+.instrument-select-wrap.open { border-color: var(--accent); box-shadow: 0 0 18px rgba(230,185,61,.28); }
+.instrument-select-label { font-family: var(--mono); font-size: 9px; letter-spacing: 1.4px; color: var(--accent); pointer-events: none; }
+.instrument-trigger {
+  display: inline-flex; align-items: center; gap: 8px; background: transparent; border: none;
   font-family: var(--mono); font-size: 12px; font-weight: 700; letter-spacing: .4px;
-  color: var(--text); background: transparent; border: none; outline: none;
-  padding: 5px 2px; max-width: 210px; cursor: pointer;
+  color: var(--text); padding: 5px 6px; border-radius: 7px; cursor: pointer; transition: all .15s ease;
 }
-.instrument-select option, .instrument-select optgroup { color: #e8e4d8; background: #141b26; }
+.instrument-trigger:hover { background: var(--accent-soft); color: var(--accent-strong); }
+.instrument-trigger:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.instrument-trigger-value { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.instrument-chevron { width: 12px; height: 12px; color: var(--muted); transition: transform .18s ease, color .18s ease; flex: 0 0 12px; }
+.instrument-select-wrap:hover .instrument-chevron { color: var(--accent-strong); }
+.instrument-select-wrap.open .instrument-chevron { transform: rotate(180deg); color: var(--accent); }
+
+/* Themed listbox panel — this is what the native <select> popup used to be;
+   it is fully ours, so it can actually match the theme. */
+.instrument-panel {
+  position: absolute; top: calc(100% + 8px); right: 0; z-index: 80;
+  min-width: 320px; max-width: 420px; max-height: 340px; overflow-y: auto;
+  background: linear-gradient(180deg, var(--bg-1), #0e141d);
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lg), inset 0 1px 0 rgba(148, 184, 220, 0.08);
+  padding: 6px; animation: panel-in .14s ease-out;
+}
+@keyframes panel-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+.instrument-panel-group {
+  font-family: var(--mono); font-size: 8.5px; font-weight: 800; letter-spacing: 1.6px;
+  text-transform: uppercase; color: var(--faint);
+  padding: 8px 8px 5px; border-top: 1px solid var(--border); margin-top: 4px;
+}
+.instrument-panel-group:first-child { border-top: none; margin-top: 0; }
+.instrument-option {
+  display: grid; grid-template-columns: 64px 1fr auto; align-items: center; gap: 10px;
+  padding: 8px 10px; border-radius: 7px; cursor: pointer; border: 1px solid transparent;
+  transition: background .12s ease, border-color .12s ease;
+}
+.instrument-option.active { background: var(--bg-3); border-color: var(--border); }
+.instrument-option-symbol { font-family: var(--mono); font-size: 11.5px; font-weight: 700; letter-spacing: .5px; color: var(--text); }
+.instrument-option-detail { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.instrument-option-check { width: 14px; height: 14px; color: var(--accent); }
+.instrument-option.selected { background: var(--accent-soft); border-color: rgba(230,185,61,.35); }
+.instrument-option.selected .instrument-option-symbol,
+.instrument-option.selected .instrument-option-detail { color: var(--accent-strong); }
+.instrument-option.disabled { cursor: not-allowed; opacity: .45; }
+.instrument-option.disabled .instrument-option-symbol,
+.instrument-option.disabled .instrument-option-detail { color: var(--faint); }
+.instrument-option.disabled:hover, .instrument-option.disabled.active { background: transparent; border-color: transparent; }
 .instrument-warn { font-size: 10px; color: var(--err); max-width: 220px; line-height: 1.35; }
 @media (max-width: 900px) { .instrument-select-label { display: none; } .instrument-select { max-width: 130px; } .instrument-warn { display: none; } }
 
@@ -264,10 +308,38 @@ textarea.input { resize: vertical; min-height: 64px; }
 .builder-toolbar { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 12px; }
 .builder-empty { border: 1px dashed var(--border-strong); border-radius: 12px; padding: 22px; display: grid; gap: 10px; justify-items: start; }
 
-.segmented { display: inline-flex; background: var(--bg-2); border: 1px solid var(--border); border-radius: 10px; padding: 3px; gap: 3px; }
-.segmented button { font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: .5px; color: var(--muted); background: transparent; border: none; border-radius: 8px; padding: 7px 16px; cursor: pointer; transition: all .15s; }
-.segmented button.active { background: var(--accent); color: #171106; }
+/* Graphical segmented control — shared by Visual Builder/JSON Editor,
+   All Nodes/Starred Only, condition combiners and exit/risk toggles.
+   Graphical tier (amber gradient + glow), not flat utility fills. */
+.segmented { display: inline-flex; background: linear-gradient(180deg, var(--bg-2), #121820); border: 1px solid var(--border); border-radius: 10px; padding: 3px; gap: 3px; box-shadow: inset 0 1px 0 rgba(148,184,220,.06), inset 0 2px 6px rgba(0,0,0,.35); }
+.segmented button {
+  font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: .5px;
+  color: var(--muted); background: transparent; border: 1px solid transparent; border-radius: 8px;
+  padding: 7px 16px; cursor: pointer; transition: all .15s ease;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.segmented button:hover { background: var(--bg-3); color: var(--text); }
+.segmented button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.segmented button:active { transform: translateY(1px); }
+.segmented button.active {
+  background: linear-gradient(180deg, var(--accent-strong) 0%, var(--accent) 60%, #d4a62e 100%);
+  color: #171106; border-color: rgba(245,205,94,.8);
+  box-shadow: 0 0 16px rgba(230,185,61,.35), inset 0 1px 0 rgba(255,255,255,.5), inset 0 -2px 3px rgba(90,60,0,.28);
+  text-shadow: 0 1px 0 rgba(255,255,255,.35);
+}
+.segmented button.active:hover { background: linear-gradient(180deg, #ffe07a 0%, var(--accent-strong) 60%, var(--accent) 100%); color: #171106; }
+.segmented button:disabled { opacity: .45; cursor: not-allowed; }
 .segmented.mini button { padding: 4px 12px; font-size: 10.5px; }
+
+/* Starred/favorite count badge inside the scope control */
+.scope-count {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 20px; height: 16px; padding: 0 6px; border-radius: 999px;
+  background: var(--accent-soft); color: var(--accent-strong);
+  border: 1px solid rgba(230,185,61,.3);
+  font-size: 9px; font-weight: 800; letter-spacing: .3px; line-height: 1;
+}
+.segmented button.active .scope-count { background: rgba(23,17,6,.3); color: #171106; border-color: rgba(23,17,6,.35); }
 
 .strategy-builder { display: grid; gap: 14px; }
 .builder-section { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; background: rgba(255,255,255,.015); }
