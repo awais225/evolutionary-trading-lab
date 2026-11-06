@@ -560,3 +560,8 @@ KNOWN LIMITS
 - Windows BAT execution unproven; MT5/Phases 4–8 not implemented (by design);
   browser E2E absent (ISSUE-011); first Windows run = smoke test with
   cmd /k START.bat and LOGS\startup.log.
+PUBLISHED (TASK 7)
+- HERO V1.3.0 commit: 07876697f (36 files, +1597/-311) pushed to origin main.
+- This record commit follows; remote main verified via ls-remote after push.
+- TASK 6 SHAs: 8ba81bf20 (feature) · f1498fc00 (record). TASK 5: ef6742e91 →
+  fba446b5. TASK 7: 07876697f.
