@@ -482,3 +482,10 @@ KNOWN GAPS / HONEST NOTES:
   use PATCH and never affect hashes. Documented in UI copy + docs.
 - TASK 6 preview exposes via the LMS preview mechanism; e2b token gating remains
   (owner-token only) — same constraint as TASK 5.
+2026-11-06 — OUTCOME (HERO V1.2.0): commit 8ba81bf20b4956f1dafd8c116eded927957c5372
+pushed to main (remote main == 8ba81bf20b4956f1dafd8c116eded927957c5372; verified via
+git ls-remote after push). Windows .bat files NOT executed on Windows (none available
+here); underlying commands Linux-verified only. Preview services running in this
+workspace on /home/user/hero1-workspace-data (outside git): backend :8788 (health ok),
+frontend :5173 (HTTP 200). Indicator values remain unavailable (Phase 3 dependency).
+Fixes recorded in docs/ISSUES_AND_FIXES.md ISSUE-020..024. legacy-archive untouched.
