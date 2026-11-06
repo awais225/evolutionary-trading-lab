@@ -648,5 +648,10 @@ HONEST VISUAL STATUS
   eyeball the top-right INSTRUMENT control, Visual Builder | JSON Editor
   tabs, and All Nodes | Starred Only before calling it visually perfect.
 
-PUBLISHED
-- See git log after push; remote main verified via ls-remote.
+PUBLISHED (TASK 8)
+- HERO V1.3.0 commit: 39129a67 5eed78ef79b212b3ab79cbad18593ba
+  (12 files, +623/-58) pushed to origin main.
+- Remote main verified via ls-remote after push:
+  39129a6735eed78ef79b212b3ab79cbad18593ba refs/heads/main
+- TASK lineage: 07876697f (TASK 7) · efa403cd7 (TASK 7 record) →
+  39129a673 (TASK 8).
