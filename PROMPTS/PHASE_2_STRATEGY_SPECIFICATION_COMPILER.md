@@ -637,7 +637,32 @@ Be completely honest about test coverage and verification. A passing unit test d
 
 ---
 
-## OUTCOME (filled in after execution)
+## OUTCOME (2026-11-06 — HERO-V1.1.0)
 
-Filled in at the end of the Phase 2 stage — see the delivery report in the
-conversation and `CHANGELOG.md` (HERO-V1.1.0).
+Executed as authorized, stopped at Phase 2 scope. Verified results:
+
+- Baseline: `396a71e4de7ff96994da2342a38157a53a24a7d0` (main == origin/main at
+  start; HERO-V1.0.0 record commit).
+- Release commit: `ef6742e916a02e9fdf938cbb2fea531523f507fe`
+- Tag: `HERO-V1.1.0` → ef6742e91 (annotated tag object
+  `f64bb18be15cba16b7550fdfb40631cc7da3dd72`)
+- Tests: backend 86 passed / 1 skipped (Ollama unreachable — by design);
+  frontend 9 passed; production build OK (`tsc --noEmit && vite build`).
+- Live smoke (uvicorn, temp data root :8799): validate w/o broker meta →
+  NEEDS_METADATA; validate w/ meta → VALID (warmup 1); compile → fingerprint
+  eb132930ec… (matches unit tests); create → 201 server-hashed; new version →
+  v2 parent #1; lineage [v1, v2]. PASS.
+- Missing broker metadata never guessed → NEEDS_METADATA;
+  client-supplied fingerprints never authoritative (server recomputes);
+  semantic spec changes create immutable parent-linked versions; PATCH is
+  metadata-only; duplicate spec at same version → 409 SPEC_DUPLICATE;
+  cross-instrument versioning rejected.
+- Database: NO schema change, NO migration (Node/NodeLineage reused;
+  immutability is application-level). Production DATA untouched.
+- Push: BLOCKED — no securely configured GitHub authentication exists in this
+  environment; per protocol, no chat-pasted token was used. Remote remains at
+  the Phase 1.3 state until the owner configures secure auth.
+- Windows / RTX 4090 / MT5 / Ollama: NOT verified here. Unit tests ≠ trading
+  performance or hardware compatibility.
+- Phase 3 (market data & indicator engine) NOT started — awaits explicit
+  authorization.

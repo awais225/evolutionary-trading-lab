@@ -92,9 +92,10 @@ exact commit SHA and tag. Claims only for what was implemented AND verified.
 - Phase 3 (indicator math, candle store) NOT started.
 
 **Baseline:** `396a71e4de7ff96994da2342a38157a53a24a7d0` (HERO-V1.0.0 record commit)
-**Commit:** this commit — exact SHA recorded in CHATGPT.txt OUTCOME and the
-annotated tag `HERO-V1.1.0` (record commit follows the tag, as in Phase 1.3)
-**Tag:** HERO-V1.1.0 (created after tests/build/verification pass)
+**Commit:** `ef6742e916a02e9fdf938cbb2fea531523f507fe` (this release commit)
+**Tag:** HERO-V1.1.0 → ef6742e91 (annotated tag object `f64bb18be15cba16b7550fdfb40631cc7da3dd72`)
+Record commit (this file's SHA pin) follows on main, as in Phase 1.3; the tag
+stays on the release commit.
 
 ---
 
