@@ -93,3 +93,13 @@ tests/              pytest suite (28 tests) · apps/web src/__tests__ (6 tests)
   tree (eventbus uses `attach_loop` + `call_soon_threadsafe`).
 - **pip Permission denied (websockets/uvicorn script)** → use `pip install --user`.
 - **vite preview/dev proxy errors** → backend must be on `127.0.0.1:8788`.
+
+## Documentation & commit protocol (permanent)
+
+Every commit follows the Phase 1.1 rule (see `CHATGPT.txt` §17–19):
+1. Update `CHATGPT.txt` (append/revise — never wholesale-replace) and `CHANGELOG.md`.
+2. Update `docs/ISSUES_AND_FIXES.md` when an issue is found/fixed/deferred.
+3. Archive the exact task prompt in `PROMPTS/` before executing it.
+4. Update `docs/ARCHITECTURE.md` when architecture changes.
+5. Run relevant tests, inspect the staged diff, verify no DATA/secrets staged.
+The docs travel **in the same commit** as the change they describe.

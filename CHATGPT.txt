@@ -1,0 +1,299 @@
+================================================================================
+HERO1 — PROJECT HANDOFF (LMS Agent → ChatGPT)
+================================================================================
+Last updated: 2026-11-06 (Phase 1.1 — GitHub publishing & documentation stage)
+Document owner: Hero1 project
+Rule: This file is the PRIMARY handoff. Update it at EVERY development stage.
+      Never replace the whole file with a summary — append/revise in place,
+      preserving history. See §17 and §18.
+================================================================================
+
+1. PROJECT IDENTITY AND OBJECTIVE
+--------------------------------
+Hero1 is a local-first algorithmic-trading research and execution workstation.
+Pipeline: find/invent a strategy → prove it out-of-sample (one shared testing
+engine) → grant an EXPLICIT, SEPARATE approval → only then live trading (demo
+first, Windows + MT5). Instrument universe: XAUUSD, EURUSD, BTCUSD — isolated
+end-to-end (separate DATA trees and SQLite DBs). The old repository
+awais225/evolutionary-trading-lab is LEGACY REFERENCE ONLY — never modified,
+never a remote of this project.
+
+2. CURRENT VERSION AND DEVELOPMENT PHASE
+----------------------------------------
+Version: v0.1.1 (documentation/handoff release). Phase: PHASE 1 COMPLETE.
+Phase 1 = project foundation (storage, API, events, web shell, docs, tests).
+No trading capability exists. Phase 2 (strategy compiler) is NOT started.
+
+3. CURRENT GITHUB REPOSITORY, BRANCH AND COMMITS
+-----------------------------------------------
+- Local repo:  /home/user/hero1-trading-platform (Linux dev box, this machine)
+- Branch:      main
+- Original Phase 1 (foundation) commit:  840bf71d9d3adbb556be1bf19771b63d98ae3e57
+- Phase 1.1 (documentation handoff) commit: see git log (recorded in §19 below
+  and in CHANGELOG.md; this file is committed in that same commit)
+- Tags (LOCAL ONLY — push blocked): v0.1.0 → 840bf71, v0.1.1 → Phase 1.1 commit
+- GitHub remote: NOT CONFIGURED. Push is BLOCKED — see §8 and §17.
+  Expected target when publishing: a NEW PRIVATE repository named
+  `hero1-trading-platform` (owner likely the same account as the legacy repo,
+  i.e. github.com/awais225/hero1-trading-platform — NOT verified, NOT created).
+- Old repository status: UNCHANGED, untouched.
+- NEVER claim a push succeeded without git ls-remote/GitHub verification.
+
+4. ARCHITECTURE AND TECHNOLOGY STACK
+------------------------------------
+Backend:  Python 3.11+ (3.13 verified) · FastAPI · Pydantic v2 · SQLAlchemy 2.x ·
+          Alembic · SQLite · uvicorn · structured JSON logging · pytest
+Frontend: React 18 · TypeScript · Vite 5 · react-router-dom 6 · Vitest + RTL
+AI:       provider-agnostic AIProvider interface · OllamaProvider (local)
+Broker:   MetaTrader5 (Phase 5, Windows only) — probe-only today
+CI:       GitHub Actions workflow (.github/workflows/ci.yml: backend + frontend)
+
+Layers (see docs/ARCHITECTURE.md for the authoritative, status-tagged map):
+apps/web (shell + LIVE FEED) → services/api (routers: health, instruments,
+settings, events, nodes · WS /ws/v1/events) → packages/storage (models,
+repositories, Alembic) + packages/eventbus (durable events + in-memory WS
+fanout, since_id replay, no DB polling).
+
+5. FOLDER STRUCTURE (important files; full tree = git ls-files)
+---------------------------------------------------------------
+repo root
+├── README.md                  quick start, status tables, reading order
+├── CHATGPT.txt                THIS FILE — primary handoff
+├── CHANGELOG.md               release history (v0.1.0, v0.1.1)
+├── .env.example               dummy-only env template (git-ignored .env)
+├── .gitignore/.gitattributes  hard data/secret exclusions
+├── pyproject.toml             shared tool config (pytest)
+├── requirements-dev.txt
+├── .github/workflows/ci.yml
+├── PROMPTS/                   exact development prompt archive (see §11/§19)
+├── docs/                      ARCHITECTURE, DATA_LAYOUT, DEVELOPMENT,
+│                              WINDOWS_SETUP, PHASE_ROADMAP, SECURITY,
+│                              ISSUES_AND_FIXES, (WINDOWS/DEVELOPMENT guides)
+├── scripts/                   init_db.py (--create/--check), doctor.py
+├── services/api/              FastAPI app (app/main.py, routers/, schemas.py,
+│                              deps.py, config.py, logging_setup.py)
+├── services/worker/           placeholder (Phase 4+)
+├── packages/storage/          engine/session/repositories/init, models,
+│                              alembic/{registry,instrument}
+├── packages/eventbus/         bus (attach_loop + call_soon_threadsafe),
+│                              events, publisher
+├── packages/ai_orchestrator/  AIProvider ABC + OllamaProvider + JSON helpers
+├── packages/strategy_spec/    Phase-2 skeleton (typed spec enums)
+├── packages/exec_semantics/   Phase-4 skeleton (backtest semantics)
+├── packages/indicators/       Phase-3 skeleton
+├── packages/research/         Phase-7 skeleton
+├── packages/mt5_adapter/      read-only availability probe (no orders)
+├── tests/                     28 pytest tests (synthetic tmp DATA roots)
+└── apps/web/                  React+TS+Vite app; src/{api,components,pages,
+                               state,styles,ws}; src/__tests__ (6 vitest tests)
+
+6. DATABASE ARCHITECTURE AND INSTRUMENT ISOLATION
+-------------------------------------------------
+Two namespaces:
+(a) Global registry  DATABASE/hero1_registry.db
+    tables: instruments, application_settings, global_events (+alembic_version)
+(b) Per-instrument   <SYMBOL>/DATABASE/hero1.db  (XAUUSD, EURUSD, BTCUSD)
+    tables: nodes, node_lineage, backtest_runs, deeptest_scenarios,
+    deeptest_trades, research_tasks, research_findings, research_sources,
+    live_sessions, live_configs, live_trades, approvals, activity_events
+    (+alembic_version)
+Rules: every instrument-scoped repository/route takes an explicit
+`instrument`; unknown symbol → 404/422 before any file opened; NO silent
+default anywhere; FK enforced; composite indexes on hot paths; ids repeat
+across instrument DBs BY DESIGN (never assert on bare ids — see §9 / ISSUES-004).
+Migrations: two independent Alembic setups inside packages/storage/alembic/;
+parity test (create_all vs upgrade head) must pass.
+
+DATA root: HERO1_DATA_ROOT (env). Default ~/.hero1/data (outside repo).
+Inside-repo DATA root → hard refusal (ensure_outside_repository, engine.py).
+Windows production target: D:\Hero1\DATA (see docs/WINDOWS_SETUP.md).
+Tests NEVER touch real DATA (pytest tmp_path). .gitignore blocks DATA/, *.db*.
+
+7. CURRENT FEATURES AND STATUS
+------------------------------
+Implemented & verified (v0.1.x):
+- DB layer + Alembic + seed of 3 instruments; FK/scoping/indexes
+- FastAPI: /health (5s-cached registry check; 30s-cached Ollama/MT5/GPU probes),
+  /api/v1/instruments (+/{symbol}), /api/v1/settings (GET merge-defaults / PUT
+  validated known keys), /api/v1/events (GET filters category/severity/
+  instrument/since_id/limit, POST, /categories), /api/v1/nodes CRUD per
+  instrument (list/filter origin, create, get, PATCH), structured logs,
+  central error mapping (500{error:{code,message}}, 404→KeyError)
+- Events: durable GlobalEvent + since_id replay over WS /ws/v1/events
+- Web: 8-tab shell (Manual Nodes + SETTINGS functional; WWW Research,
+  Interactive WWW, DeepTesting, Fine Tuning, Live Testing, LOG = EXPLICIT
+  placeholders, no fake data), instrument switcher (localStorage-persisted),
+  collapsible global LIVE FEED (WS reconnect + since_id backoff, category
+  filter chips, auto-scroll), design tokens (mission-control slate + amber),
+  error/loading/empty states, responsive sidebar
+- scripts/init_db.py, scripts/doctor.py (read-only report, exit 0/1)
+- Ollama integration test (skips cleanly when absent)
+Partially implemented: settings UI (persists research budgets only), node CRUD
+(no compiler/spec validation beyond JSON+hash), LOG UI (placeholder).
+Planned: everything in docs/PHASE_ROADMAP.md phases 2–9.
+Unverified: Windows, RTX 4090, MT5 terminal (see §12/§14).
+
+8. KNOWN ISSUES AND UNRESOLVED PROBLEMS
+---------------------------------------
+OPEN-001 (BLOCKER): GitHub push impossible from this environment — GitHub
+connector unsupported; no GITHUB_TOKEN; no gh CLI; no credential helpers.
+Local commit exists and is verified. Publish manually or connect a secure
+credential, then push and record SHA/URL here.
+OPEN-002: RTX 4090 / Windows / MT5 end-to-end path never executed — machine
+not available in this environment. All hardware claims remain "unverified".
+OPEN-003: Ollama smoke used qwen2.5:0.5b (small); configured production model
+qwen2.5-coder:14b-instruct-q5_K_M NOT pulled/benchmarked — see §13.
+OPEN-004 (cosmetic, deferred): init_db.py --create prints one stderr log line
+mixed with its JSON report; parse JSON from the first '{' if scripting against it.
+Note: the dev DATA root ~/.hero1/data was wiped and re-created clean on
+2026-11-06 after manual HTTP smoke tests (seed instruments + alembic heads only).
+
+9. ISSUES RESOLVED IN EACH VERSION (with real solutions)
+--------------------------------------------------------
+v0.1.0 (840bf71) — all discovered/fixed pre-commit, verified:
+- ISSUE-001 Init hung forever at seed: threading.Lock non-reentrant re-acquired
+  via get_session_factory→get_engine. FIX: threading.RLock in engine.py.
+  Verified: init_db --create completes; fault-handler trace captured.
+- ISSUE-002 Instrument Alembic baseline create_all'd REGISTRY tables into each
+  instrument DB. FIX: 0001_initial.py filters instruments/application_settings/
+  global_events; dev DBs rebuilt & verified (registry 4 tables; instrument DBs
+  clean). Parity test added.
+- ISSUE-003 WS clients never received events from sync endpoints
+  (get_running_loop fails in threadpool). FIX: EventBus.attach_loop() called
+  from lifespan; publish_nowait via loop.call_soon_threadsafe; drop-oldest on
+  full queue. Verified: live uvicorn + python WS client received replay then
+  live event frame.
+- ISSUE-004 test_cross_instrument_isolation false positive (per-instrument DBs
+  share id space). FIX: assert on instrument_id/name sets, never bare ids.
+- ISSUE-005 test_doctor_check_passes invoked non-existent --check flag.
+  FIX: doctor default invocation IS the read-only check.
+- ISSUE-006 pip refused /usr/local/bin scripts (websockets). FIX: --user installs.
+- ISSUE-007 App.tsx/main.tsx written into pages/ by path mistake; vitest
+  import failure; wrong import depth; unused RTL import; `tsc -b` on
+  non-composite tsconfig. FIX: moved files, corrected imports, removed import,
+  build script now `tsc --noEmit && vite build`. Verified: 6/6 vitest, build OK.
+- ISSUE-008 (Docs) README initially omitted port reality → backend port is 8788
+  (deliberate, avoids legacy clash) — documented everywhere.
+Full register with IDs: docs/ISSUES_AND_FIXES.md.
+
+10. IMPORTANT ARCHITECTURAL DECISIONS AND REASONS
+-------------------------------------------------
+- Instrument isolation via separate SQLite files (not shared-table scoping):
+  hard guarantee against cross-contamination; mirrors prod per-DATA-tree plan.
+- Global registry DB separate from instrument DBs: cross-instrument queries
+  (events, settings) stay possible; FK discipline per file.
+- Durable-first events, WS fanout best-effort with replay: simple correctness;
+  consumers use since_id — no DB polling, no lost ordering within a file.
+- Live approval as separate `approvals` rows: AI/testing can never silently
+  authorize live trading; enforced by schema + docs (Phase 5 contract).
+- Provider-agnostic AI interface: Ollama first for local-first privacy; no
+  cloud dependency required to develop.
+- Explicit instrument on every scoped route/query; no ambient defaults.
+- Phase-gated feature work: placeholder tabs shipped INSTEAD of fake demos.
+- DATA outside repo, enforced at runtime, not just by convention/gitignore.
+- Alembic inside packages/storage (single install unit), programmatic env.
+
+11. TESTS PERFORMED, COMMANDS, RESULTS, LIMITATIONS
+---------------------------------------------------
+Backend (Linux dev box, python 3.13.13):
+  $ python3 -m pytest                              → 28 passed (1 harmless
+  StarletteDeprecationWarning). ~4s. Includes DB creation, cross-instrument
+  isolation, alembic parity, repo hygiene, Ollama probe (ran, PASS),
+  doctor read-only run.
+Frontend:
+  $ cd apps/web && npm test                        → 6 passed (jsdom)
+  $ npm run build                                  → tsc --noEmit OK; vite OK
+     dist: index.html 0.88kB, css 12.77kB (gzip 3.6), js 190.33kB (gzip 61.9)
+Live smoke (manual, local):
+  uvicorn on 127.0.0.1:8788 → /health ok; create node/event OK;
+  invalid instrument → 404; WS replay(2 events)+live event delivery OK.
+Frontend build reproducible; CI runs pytest + build + vitest on push.
+LIMITATIONS: no Windows run; no RTX 4090; no MT5 terminal; Ollama probe tiny
+model only; no load/concurrency testing; frontend↔backend integration tested
+via mocked fetch in vitest + manual smoke, not a browser E2E suite.
+
+12. WINDOWS AND RTX 4090 VERIFICATION STATUS
+--------------------------------------------
+NONE. Not run — no access to the target laptop from this environment.
+Unverified: MetaTrader5 wheel install, terminal attach, D:\Hero1\DATA paths,
+RTX 4090 inference throughput (any model), firewall prompts, DEMO order
+round-trip (Phase 5 anyway). See docs/WINDOWS_SETUP.md for the runbook.
+Claims policy: until measured ON the target machine, docs say "unverified".
+
+13. OLLAMA AND AI MODEL INTEGRATION STATUS
+------------------------------------------
+- Endpoint: http://127.0.0.1:11434 — reachable from this box (LMS).
+- Version probe: Ollama 0.40.15. Models pulled: qwen2.5:0.5b ONLY.
+- Integration test (tests/test_ollama.py) RAN and PASSED — structured JSON
+  probe validated; proves pipeline plumbing, NOT model quality or speed.
+- Configured model (.env.example / HERO1_OLLAMA_MODEL):
+  qwen2.5-coder:14b-instruct-q5_K_M — NOT pulled, NOT benchmarked.
+- AI output never executed as Python; provider returns parsed/validated JSON;
+  token/context budget settings persisted (research_max_tokens etc.).
+
+14. MT5 INTEGRATION STATUS
+--------------------------
+- Package MetaTrader5 NOT installed here (Linux). Import probe → "unavailable"
+  (correct status; doctor exits 0 with notes).
+- NO order-capable code exists anywhere in this repo (by design until Phase 5).
+- doctor --mt5 deep probe (import + terminal attach + account READ) implemented
+  but UNRUN — Windows-only.
+- Live-testing approval flow: schema exists; enforcement logic = Phase 5.
+
+15. DATA PROTECTION AND STORAGE RULES
+-------------------------------------
+- HERO1_DATA_ROOT outside repo REQUIRED; default ~/.hero1/data; inside-repo →
+  hard error (engine.py ensure_outside_repository).
+- .gitignore blocks DATA/, *.db*, *.sqlite*, backups, logs, models, .env,
+  build artifacts, venvs.
+- Repo hygiene test fails build on any tracked DATA DB/credential-shaped text.
+- Windows prod path D:\Hero1\DATA is NEVER created or modified from here.
+- Secrets: .env.example dummies only; logs redact (Phase 6); UI shows
+  configured/not-configured only, never values.
+- Tests use tmp_path fixtures; they NEVER read/write the dev DATA root.
+- Dev root was wiped/recreated clean 2026-11-06; contains seed instruments +
+  alembic heads only (no business data).
+
+16. CURRENT DEVELOPMENT PRIORITIES
+----------------------------------
+1. Publish Phase 1: create PRIVATE GitHub repo hero1-trading-platform, push
+   main + tags v0.1.0/v0.1.1 (BLOCKED pending secure auth — see §8 OPEN-001).
+2. Preserve the documentation protocol established in Phase 1.1 (this file,
+   CHANGELOG, ISSUES_AND_FIXES, PROMPTS/) on EVERY future commit.
+3. Await explicit authorization for Phase 2 (strategy compiler). Do NOT start.
+
+17. NEXT AUTHORIZED TASK AND PHASE BOUNDARY
+-------------------------------------------
+Authorized now (Phase 1.1): publishing docs + local commit only. Phase 2 or
+ANY application functionality is NOT authorized. Next candidate task after
+publication: Phase 2 — strategy spec & node editing (single execution engine
+unchanged; see docs/PHASE_ROADMAP.md). Requires explicit user go-ahead.
+Phase boundary rules: no MT5 orders before Phase 4 verification; no live
+capability without the Approval ledger (Phase 5); placeholder tabs stay
+explicit until their phase lands; never rewrite 840bf71.
+
+18. IMPORTANT WARNINGS — DO NOT CHANGE
+--------------------------------------
+- Do NOT modify/rename/delete the old repo awais225/evolutionary-trading-lab.
+- Do NOT rewrite history (root commit 840bf71 stays); no force-push to main.
+- Do NOT commit DATA, .env, DBs, logs, models, or real credentials — ever.
+- Do NOT paste/echo PATs; previously pasted PATs are compromised — revoke them.
+- Do NOT claim Windows/MT5/GPU verification without hardware tests.
+- Do NOT start Phase 2+ work without explicit authorization.
+- Do NOT add order-placing MT5 code before Phase 5 approval.
+- Instrument identifier must always be EXPLICIT; never default silently.
+- Keep repository PRIVATE.
+
+19. PHASE 1.1 STAGE LOG (append-only)
+-------------------------------------
+2026-11-06 — Auth re-check: GitHub connector "unsupported"; env GITHUB_TOKEN
+absent; gh CLI absent; no credential helpers/files → push BLOCKED (OPEN-001).
+Documentation system established: CHATGPT.txt (this file), CHANGELOG.md,
+docs/ISSUES_AND_FIXES.md, PROMPTS/PHASE_1_FOUNDATION.md (reconstructed scope,
+flagged as such), PROMPTS/PHASE_1_1_GITHUB_HANDOFF.md (verbatim task prompt),
+docs/ARCHITECTURE.md status-tag pass. Tags created locally: v0.1.0 → 840bf71.
+See CHANGELOG.md and git log for the exact Phase 1.1 commit SHA.
+NEXT: owner publishes repo (git remote add origin … && git push -u origin main
+&& git push --tags) or provides secure auth; then record URL+SHA here and in
+CHANGELOG.md.
+================================================================================

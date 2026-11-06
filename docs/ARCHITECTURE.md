@@ -1,98 +1,130 @@
-# Architecture
+# Architecture — implementation truth
+
+**Status legend** (applies to every section):
+- **Implemented** — code exists in this repo and is verified (tests/smoke).
+- **Partially implemented** — usable but incomplete; gaps listed explicitly.
+- **Planned** — designed/documented; no code or placeholder only.
+- **Unverified** — code exists but has never run on the required environment.
+- **Not supported** — intentionally absent or refused (by design).
+
+Last synchronized: 2026-11-06 (v0.1.1). Keep in sync with source on every change.
 
 ## Layers
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │ apps/web  React 18 · TypeScript · Vite · react-router-dom     │
-│  shell · sidebar · instrument context · LIVE FEED (WS)         │
+│  IMPLEMENTED: shell, sidebar, topbar, instrument context,      │
+│  LIVE FEED (WS), Manual Nodes page, Settings page              │
 └───────────────┬──────────────────────────────────────────────┘
                 │  HTTP /api/v1/*, /health, WS /ws/v1/events
 ┌───────────────▼──────────────────────────────────────────────┐
 │ services/api  FastAPI · Pydantic v2 · structured JSON logs     │
-│  routers: health, instruments, settings, events, nodes         │
-│  central exception mapping · DI for sessions/repositories      │
+│  IMPLEMENTED: routers health/instruments/settings/events/nodes │
+│  CENTRAL: 500{error:{code,message}} · KeyError→404 · DI        │
 └───────────────┬──────────────────────────────────────────────┘
                 │
 ┌───────────────▼──────────────────────────────────────────────┐
 │ packages/storage  SQLAlchemy 2.x · Alembic · SQLite            │
-│  hero1_registry.db (global) + <INSTRUMENT>/DATABASE/hero1.db   │
-│  explicit instrument scoping · FK enforced · composite indexes  │
+│  IMPLEMENTED: registry + per-instrument DBs, FK, indexes,      │
+│  RLock engine, inside-repo DATA refusal, migration parity      │
 ├───────────────────────────────────────────────────────────────┤
 │ packages/eventbus  durable events · in-memory fanout            │
-│  publish() persists → call_soon_threadsafe to WS subscribers    │
-│  WS clients replay history via since_id (no DB polling)         │
+│  IMPLEMENTED: publish→persist→call_soon_threadsafe fanout;     │
+│  since_id replay over WS; drop-oldest on full consumer queue    │
 ├───────────────────────────────────────────────────────────────┤
 │ packages/strategy_spec · exec_semantics · indicators · research │
-│  Phase-1 typed skeletons/enums — compile/backtest in later phases│
-│ packages/ai_orchestrator  AIProvider interface · OllamaProvider  │
-│ packages/mt5_adapter      safe availability probe ONLY (no orders)│
+│  PARTIALLY IMPLEMENTED (typed Phase-1 skeletons/enums only)    │
+│ packages/ai_orchestrator  AIProvider interface                 │
+│  PARTIALLY IMPLEMENTED: interface + OllamaProvider + JSON probe │
+│ packages/mt5_adapter      availability probe                    │
+│  PARTIALLY IMPLEMENTED / UNVERIFIED: import-level probe only    │
+│  NOT SUPPORTED: order placement of any kind (until Phase 5)     │
 └───────────────────────────────────────────────────────────────┘
 ```
 
-## Instrument isolation model
-
-- Global **registry** DB (`DATABASE/hero1_registry.db`): `instruments`,
-  `application_settings`, `global_events`. No per-instrument tables here.
-- Per-instrument DB (`<INSTRUMENT>/DATABASE/hero1.db`): `nodes`,
-  `node_lineage`, `backtest_runs`, `deeptest_*`, `research_*`,
-  `live_sessions/config/trades`, `approvals`, `activity_events`.
-- Every instrument-scoped repository call takes `instrument=` explicitly.
-  Path routes are `/api/v1/instruments/{instrument}/...`; an unknown symbol
-  is rejected with 404 before any DB is opened. There is no implicit default.
+## Instrument isolation model — IMPLEMENTED & VERIFIED
+- Global **registry** DB (`DATABASE/hero1_registry.db`): instruments,
+  application_settings, global_events (+alembic_version). No instrument tables.
+- Per-instrument DB (`<INSTRUMENT>/DATABASE/hero1.db`): nodes, node_lineage,
+  backtest_runs, deeptest_scenarios, deeptest_trades, research_tasks/findings/
+  sources, live_sessions, live_configs, live_trades, approvals, activity_events
+  (+alembic_version).
+- Every instrument-scoped repository call and route takes `instrument=`
+  explicitly; unknown symbol → 404/422 before any file opened; no defaults.
 - Cross-test proof: `tests/test_nodes.py::test_cross_instrument_isolation`.
+  IDs repeat across DBs BY DESIGN — never assert isolation on bare ids
+  (ISSUE-004).
 
-## Events
+## Events — IMPLEMENTED & VERIFIED
+- Design: durable first, live second. `publish_event()` inserts into
+  `global_events` (mirrors to `activity_events` for instrument-scoped events),
+  then fans out via `loop.call_soon_threadsafe` to WS subscribers — safe from
+  sync endpoints in the threadpool (ISSUE-003 fix).
+- Replay: `GET /ws/v1/events?since_id=N` → `{type:'replay', events:[…≤200]}`
+  then `{type:'event'}` frames. Filters: `instrument`, `category`, `severity`.
+  Client reconnects with backoff and resends last since_id — nothing polls.
 
-- Design: **durable first, live second.** `publish_event()` inserts a row into
-  `global_events` (and mirrors to `activity_events` when instrument-scoped),
-  then fans out in memory to WebSocket subscribers on the app event loop via
-  `loop.call_soon_threadsafe` — safe from sync endpoints running in the
-  threadpool. Full queues drop the oldest pending frame rather than blocking.
-- Replay: `GET /ws/v1/events?since_id=N` → server sends `{type:'replay', events:[…]}`
-  with up to 200 rows id>N, then live `{type:'event'}` frames. Filterable by
-  `instrument`, `category`, `severity`. Frontend reconnects with exponential
-  backoff and re-sends its last `since_id`; nothing is lost and nothing polls.
-
-## API surface (Phase 1)
-
-| Method | Path | Notes |
+## API surface (Phase 1) — IMPLEMENTED & VERIFIED (live smoke)
+| Method | Path | Status |
 |---|---|---|
-| GET | `/health` | registry DB check; 5 s cached; Ollama/MT5/GPU probes 30 s cached |
-| GET | `/api/v1/instruments` | seeded set (XAUUSD/EURUSD/BTCUSD) |
-| GET | `/api/v1/instruments/{instrument}` | 404 when unknown |
-| GET | `/api/v1/settings` | effective settings + read-only environment |
-| PUT | `/api/v1/settings` | validated known keys; writes SYSTEM event |
-| GET | `/api/v1/events` | filters: `category severity instrument since_id limit` |
-| POST | `/api/v1/events` | manual event ingestion (used by tests/tools) |
-| GET | `/api/v1/events/categories` | taxonomy + severities |
-| GET | `/api/v1/instruments/{instrument}/nodes` | optional `origin` filter |
-| POST | `/api/v1/instruments/{instrument}/nodes` | validates `origin`, `spec_hash` |
-| GET | `/api/v1/instruments/{instrument}/nodes/{id}` | 404 cross-instrument |
-| PATCH | `/api/v1/instruments/{instrument}/nodes/{id}` | name/description/status |
-| WS | `/ws/v1/events` | replay + live (see above) |
+| GET | /health | IMPLEMENTED (5s registry cache; 30s Ollama/MT5/GPU caches) |
+| GET | /api/v1/instruments · /instruments/{symbol} | IMPLEMENTED |
+| GET | /api/v1/settings | IMPLEMENTED (defaults merge) |
+| PUT | /api/v1/settings | IMPLEMENTED (known-key whitelist + range validators) |
+| GET/POST | /api/v1/events · /events/categories | IMPLEMENTED |
+| GET/POST | /api/v1/instruments/{s}/nodes · /nodes/{id} (GET/PATCH) | IMPLEMENTED |
+| WS | /ws/v1/events | IMPLEMENTED (replay+live, 25s heartbeat) |
 
-OpenAPI: `/docs` (Swagger) and `/openapi.json` are always exposed.
+## Error model — IMPLEMENTED
+Domain errors → `{"detail": "…"}`; unhandled → 500 `{"error":{"code":"internal_error","message":…}}`; stack traces never leak to clients.
 
-## Error model
+## Frontend shell — IMPLEMENTED (verified via vitest + build; browser E2E NOT DONE)
+- `InstrumentProvider` (context + localStorage) drives top-bar switcher + all
+  instrument-scoped API calls; `FeedProvider` controls collapsible LIVE FEED.
+- Build: `tsc --noEmit && vite build` (ISSUE-007/008). Design tokens in
+  `src/styles/theme.css` (mission-control slate + signal amber).
+- Tabs: Manual Nodes + SETTINGS implemented; WWW Research / Interactive WWW /
+  DeepTesting / Fine Tuning / Live Testing / LOG = explicit Placeholder
+  components (PLANNED features, NOT AVAILABLE) — no fake data by design.
 
-- Domain errors → `{"detail": "…"}` with proper status codes.
-- Unhandled exceptions → 500 `{"error": {"code": "internal_error", "message": "…"}}`
-  and a structured log line; stack traces never leak to clients.
+## AI — PARTIALLY IMPLEMENTED / UNVERIFIED at production scale
+- AIProvider ABC + OllamaProvider (health check, structured JSON probe,
+  schema validation helpers, timeout/budget config). IMPLEMENTED & smoke-tested
+  with qwen2.5:0.5b on the LMS host (PASS).
+- NOT VERIFIED: configured model qwen2.5-coder:14b-instruct-q5_K_M on RTX 4090
+  (not pulled, not benchmarked). No performance claims may be made.
+- NOT SUPPORTED: executing AI output as code; AI granting approvals.
 
-## Frontend shell
+## MT5 — PARTIALLY IMPLEMENTED / UNVERIFIED (Windows)
+- IMPLEMENTED: read-only availability probe (package import, platform check);
+  `doctor --mt5` deep probe code path (import + terminal init + account READ).
+- UNVERIFIED: everything on Windows; MetaTrader5 not installable on Linux.
+- NOT SUPPORTED (by design): any order placement, modification, cancellation;
+  live execution; approval issuance. Phase 5 only, after Phase 4.
 
-- Design tokens in `src/styles/theme.css` (mission-control slate + signal amber).
-- `InstrumentProvider` (context + localStorage) drives the top-bar switcher and
-  every instrument-scoped API call; `FeedProvider` controls the collapsible
-  global LIVE FEED; both are covered by Vitest + Testing Library tests.
-- Unimplemented tabs render `Placeholder` components — never fake data.
+## Testing infrastructure — IMPLEMENTED
+- Backend pytest (28) with tmp_path DATA roots + alembic parity + repo hygiene.
+- Frontend vitest (6) with mocked fetch + stub WS; jsdom.
+- CI (.github/workflows/ci.yml): pytest; npm build+vitest on ubuntu-latest.
+- NOT DONE: browser E2E (Playwright), load testing, Windows CI.
+
+## DATA layout — IMPLEMENTED (see docs/DATA_LAYOUT.md)
+HERO1_DATA_ROOT (default ~/.hero1/data) validated outside-repo; tree created by
+scripts/init_db.py --create (idempotent). Production target D:\Hero1\DATA —
+NOT created here; code manages, humans verify on Windows (docs/WINDOWS_SETUP.md).
 
 ## Deviations from the original brief (documented per spec)
+1. Backend port default is **8788** (not 8787) to avoid legacy-service clash.
+2. Alembic lives **inside** packages/storage (single installable unit); env
+   files are imported programmatically (no alembic.ini).
+3. Event categories include **WARNING** as first-class (matches severity axis).
+4. Tags are local-only until GitHub publishing is unblocked (push requires
+   secure auth — see docs/ISSUES_AND_FIXES.md ISSUE-010).
 
-1. Backend port default is **8788** (not 8787) to avoid colliding with any
-   legacy service during migration.
-2. Alembic lives **inside** `packages/storage` (single installable unit) rather
-   than repo root — keeps migrations versioned with the models they create.
-3. Event categories include **WARNING** as a first-class category (the brief
-   listed ERROR) to match the severity axis used by the UI.
+## Permanent commit/push protocol (condensed — full rule in CHATGPT.txt §17–19)
+Before every commit: update CHATGPT.txt + CHANGELOG.md (+ ISSUES_AND_FIXES.md
+if relevant) + archive prompt in PROMPTS/; run tests; inspect staged diff;
+verify no DATA/secrets staged. Docs ship in the SAME commit as the change.
+After every push: record SHA/branch/version in handoff docs; verify remote with
+git ls-remote/GitHub; if SHA-recording needs another commit, push that too.

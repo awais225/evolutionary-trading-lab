@@ -112,6 +112,8 @@ cd apps/web && npm test && npm run build
 
 ## Documentation
 
+- [CHATGPT.txt](CHATGPT.txt) — primary project handoff (start here)
+- [CHANGELOG.md](CHANGELOG.md) — version history · [docs/ISSUES_AND_FIXES.md](docs/ISSUES_AND_FIXES.md) — issue register · [PROMPTS/](PROMPTS/) — prompt archive
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — modules, layers, event flow, API surface
 - [docs/DATA_LAYOUT.md](docs/DATA_LAYOUT.md) — DATA tree, registry vs instrument DBs, path validation
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — dev setup, tests, migrations, troubleshooting

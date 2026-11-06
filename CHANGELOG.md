@@ -1,0 +1,84 @@
+# Changelog — Hero1
+All notable stages of this project are recorded here. Rule (permanent):
+every release lists version, date, phase, features, fixes, tests, limitations,
+exact commit SHA and tag. Claims only for what was implemented AND verified.
+
+---
+
+## [v0.1.1] — 2026-11-06 — Phase 1.1 — GitHub publishing & documentation handoff
+
+**Features introduced**
+- Mandatory documentation system established:
+  - `CHATGPT.txt` — primary LMS→ChatGPT handoff (18 sections + append-only log)
+  - `docs/ISSUES_AND_FIXES.md` — structured issue register (preserved history)
+  - `PROMPTS/` — permanent prompt archive (exact task prompts + outcome sections)
+  - `CHANGELOG.md` — this file (versioning convention established: v0.1.x until Phase 2)
+- `docs/ARCHITECTURE.md` — converted to status-tagged implementation truth
+  (Implemented / Partial / Planned / Unverified / Not supported)
+- Permanent commit/push protocol codified (see CHATGPT.txt §17–19 and this file):
+  CHATGPT.txt + CHANGELOG (+ISSUES_AND_FIXES when relevant) updated and committed
+  in the SAME commit as the code; docs-only changes still follow the protocol.
+
+**Bugs fixed:** none (documentation release).
+
+**Tests performed**
+- `python3 -m pytest` → 28 passed (re-verified at this stage)
+- Frontend build/tests unchanged since v0.1.0 (6 vitest passed, tsc+vite build OK)
+- Repo hygiene test re-run as part of the suite (no DATA/credentials tracked)
+
+**Known limitations**
+- GitHub push BLOCKED (no secure auth available in this environment) — repository
+  not yet published. All v0.1.1 work is committed locally; tags v0.1.0/v0.1.1
+  exist locally only.
+- Windows / RTX 4090 / MT5 unverified (see CHATGPT.txt §12/§14).
+
+**Commit:** (Phase 1.1 commit — see git log; same commit carries this changelog entry)
+**Tag:** v0.1.1 (local)
+
+---
+
+## [v0.1.0] — 2026-11-06 — Phase 1 — Foundation
+
+**Features introduced**
+- Monorepo structure: apps/web (React 18+TS+Vite, new visual identity, 8 tabs,
+  instrument switcher, collapsible global LIVE FEED with WS replay),
+  services/api (FastAPI: /health, /api/v1/instruments|settings|events|nodes,
+  WS /ws/v1/events), services/worker (placeholder), packages/{storage, eventbus,
+  strategy_spec, exec_semantics, indicators, ai_orchestrator, research, mt5_adapter}
+- Storage: global registry DB + per-instrument SQLite DBs; Alembic baselines;
+  FK enforcement; composite indexes; explicit instrument scoping; runtime
+  refusal of inside-repo DATA roots
+- Events: durable GlobalEvent records; WS live delivery + since_id replay;
+  no database polling by consumers
+- Safety: `doctor` environment report; origin taxonomy
+  (CUSTOM/WWW/INTERACTIVE/FINE_TUNED); approvals schema (separate from testing
+  qualification); .env.example dummies only; strict .gitignore
+- CI: GitHub Actions (backend pytest; frontend build + vitest)
+
+**Bugs fixed (all verified, see docs/ISSUES_AND_FIXES.md)**
+- ISSUE-001 init hang: storage engine deadlock (Lock→RLock)
+- ISSUE-002 instrument Alembic baseline created registry tables per instrument
+- ISSUE-003 WS event fanout dead from sync endpoints (attach_loop +
+  call_soon_threadsafe; drop-oldest queue policy)
+- ISSUE-004 false-positive isolation test (id-space collision) — assert on
+  instrument_id/name instead
+- ISSUE-005 test invoked non-existent doctor --check flag
+- ISSUE-006 pip system-install permission failure → --user installs
+- ISSUE-007 frontend files misplaced (pages/) + wrong import + tsc -b on
+  non-composite tsconfig → moved/corrected/build script adjusted
+
+**Tests performed & results**
+- `python3 -m pytest` → **28 passed**
+- `apps/web`: `npm test` → **6 passed**; `npm run build` → OK (dist ~190 kB JS)
+- Live smoke vs uvicorn 127.0.0.1:8788: /health OK; node & event creation OK;
+  invalid instrument → 404; WS replay + live delivery OK
+- Ollama structured-output probe (qwen2.5:0.5b) → PASS (pipeline check only)
+
+**Known limitations**
+- No strategy compiler, backtester, research agents, fine-tuning or live
+  execution (Phases 2–9 — see docs/PHASE_ROADMAP.md)
+- Windows/MT5/RTX 4090 unverified; MT5 = availability probe only, no order code
+- Frontend↔backend covered by mocked-fetch vitest + manual smoke (no browser E2E)
+
+**Commit:** `840bf71d9d3adbb556be1bf19771b63d98ae3e57`
+**Tag:** v0.1.0 (local; remote push blocked at tag creation time)
