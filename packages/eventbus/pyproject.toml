@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hero1-eventbus"
+version = "1.0.0"
+description = "Hero1 event bus: durable event records + in-process pub/sub for the global LIVE FEED"
+requires-python = ">=3.11"
+dependencies = ["hero1-storage>=1.0.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]

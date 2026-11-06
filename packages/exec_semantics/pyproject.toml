@@ -1,0 +1,11 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+[project]
+name = "hero1-exec-semantics"
+version = "0.1.0"
+description = "Hero1 shared execution semantics (fills, sizing, SL/TP) — Phase 3"
+requires-python = ">=3.11"
+dependencies = []
+[tool.setuptools.packages.find]
+where = ["src"]

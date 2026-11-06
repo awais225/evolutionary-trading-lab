@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hero1-storage"
+version = "1.0.0"
+description = "Hero1 storage layer: registry DB, per-instrument DBs, models, repositories, Alembic migrations"
+requires-python = ">=3.11"
+license = {text = "Proprietary"}
+dependencies = [
+    "SQLAlchemy>=2.0.30",
+    "alembic>=1.13",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

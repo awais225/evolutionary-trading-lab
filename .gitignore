@@ -1,0 +1,62 @@
+# ---- Hero1 hard rules: never commit data, databases, logs, secrets ----
+DATA/
+data/
+.env
+.env.*
+!.env.example
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+*.bak
+*.backup
+backups/
+logs/
+LOGS/
+*.log
+*.gguf
+*.ggml
+*.safetensors
+*.bin
+models/
+checkpoints/
+temp/
+tmp/
+.tmp/
+*.tmp
+*.parquet
+
+# ---- Python ----
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage/
+htmlcov/
+build/
+dist/
+
+# ---- Node / frontend ----
+node_modules/
+apps/web/dist/
+apps/web/.vite/
+
+# ---- OS / editor ----
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# ---- Local hero1 runtime (safe dev default lives outside the repo, but never inside it) ----
+.hero1/

@@ -1,0 +1,11 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+[project]
+name = "hero1-research"
+version = "0.1.0"
+description = "Hero1 WWW research pipeline (search/fetch/extract/checkpoints) — Phase 7"
+requires-python = ">=3.11"
+dependencies = []
+[tool.setuptools.packages.find]
+where = ["src"]

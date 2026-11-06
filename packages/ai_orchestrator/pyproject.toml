@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hero1-ai-orchestrator"
+version = "1.0.0"
+description = "Hero1 provider-independent AI layer with structured JSON outputs (Ollama first)"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.27",
+    "jsonschema>=4.21",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

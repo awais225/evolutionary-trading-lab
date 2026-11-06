@@ -1,0 +1,16 @@
+# Root project file: tooling + monorepo metadata. Each installable unit lives in
+# its own package under packages/ or services/ (see scripts/dev_install.sh).
+[project]
+name = "hero1"
+version = "1.0.0"
+description = "Hero1 — clean-architecture trading research platform (Phase 1 foundation)"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
