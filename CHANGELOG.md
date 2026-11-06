@@ -5,6 +5,63 @@ exact commit SHA and tag. Claims only for what was implemented AND verified.
 
 ---
 
+## [Unreleased] — 2026-11-06 — Hero1 multi-timeframe strategy nodes (HERO V1.4.0)
+
+**Added**
+- Fingerprint definition 1.0.0 → 1.1.0: `identity.name`/`identity.description` are
+  presentation and EXCLUDED from the semantic fingerprint; `identity.timeframe` +
+  `identity.instrument` remain IN it (`semantic_canonical` / `semantic_fingerprint`).
+- `nodes.timeframe` (instrument DBs; migration `0003_timeframe_unique_name`, additive,
+  idempotent, spec-backfilled only — never guessed; drafts keep NULL) + unique index
+  `uq_nodes_instr_name (instrument_id, name)` + index `ix_nodes_instr_timeframe`.
+  Upgrade REFUSES on pre-existing duplicate names (lists them; nothing renamed).
+- `POST /api/v1/instruments/{id}/nodes/generate` — one validated strategy → N
+  independent node rows (one per selected timeframe), all-or-nothing, server-side
+  sequential first-available C-names with gap reuse; explicit name only for
+  single-timeframe saves; race-safe via the unique index (one retry, else 409).
+- `GET .../nodes?timeframe=M1,M15` (unknown → 422 TIMEFRAME_UNSUPPORTED; duplicates →
+  422 TIMEFRAME_DUPLICATE); list response gains `timeframe_counts` (starred-scope
+  aware) + `unassigned_timeframe_total`.
+- Fingerprint migration: `hero1_storage.fingerprint_migrate` +
+  `scripts/migrate_fingerprints.py` (dry-run default, collision-refuses,
+  backup-then-apply, idempotent).
+- Frontend: `TimeframeMultiSelect` (themed multi-select listbox; supported-registry
+  values only; Select All / Clear All / counts / readable summary / no-timeframe
+  validation; full keyboard + ARIA contract) — replaces the single-timeframe
+  selector in the node strategy creation flow; default = registry default else M15.
+  TF badge column, per-TF timeframe filter chips (server-side filter) with per-TF
+  counts, "Group by timeframe" registry view, `TIMEFRAME UNASSIGNED` draft treatment,
+  inspector TF badge + `AWAITING MARKET DATA · Phase 4` honesty line (no market-data
+  store exists). Inline rename of saved nodes (click name → Enter/Escape) — renames
+  are metadata-only PATCH and never touch spec_hash/versions/lineage.
+- Shared persisted timeframe scope (`TimeframeScopeProvider`,
+  localStorage `hero1.timeframeScope`) across Manual Nodes, DeepTesting, Fine Tuning
+  and Live Testing batch-scope panels.
+- vitest: `src/__tests__/multitimeframe.test.tsx` (10 tests) + mock `/nodes/generate`.
+  pytest: `tests/test_multitimeframe.py` (12 tests). Test counts:
+  pytest 103 passed / 1 skipped · vitest 40/40 · tsc clean · vite build green.
+
+**Changed**
+- Manual Nodes save button: `Generate N nodes` in multi-TF mode (names allocated
+  server-side, sequential; single-TF keeps the explicit name input).
+- Select-All in the registry applies only to the currently visible (filtered) set.
+
+**Migration / DATA**
+- Live preview DATA root migrated 2026-11-06 (alembic 0002 → 0003 ×3 instrument DBs;
+  registry unchanged at 0001; 1 legacy draft row kept NULL timeframe).
+  Fingerprint migration dry-run = nothing to rewrite (single spec-less draft);
+  backups in `BACKUPS/pre-0003-2026-11-06/`. Databases with real specs must run
+  `scripts/migrate_fingerprints.py` (dry-run first) after upgrading.
+
+**Known limits**
+- Windows .bat files remain UNTESTED on Windows (no Windows in this environment);
+  first Windows run is a smoke test (`cmd /k START.bat`, LOGS\startup.log).
+- No market data exists: multi-timeframe nodes are DRAFT/PENDING; nothing anywhere
+  claims backtest/validation readiness. W1/MN1 are not supported (not selectable).
+- Indicator VALUES remain unavailable (Phase 3). Browser E2E absent (ISSUE-011).
+
+---
+
 ## [Unreleased] — 2026-11-06 — Hero1 critical recovery: proven legacy launcher, theme consistency, starred nodes, pipeline audit (HERO V1.3.0)
 
 **Added**

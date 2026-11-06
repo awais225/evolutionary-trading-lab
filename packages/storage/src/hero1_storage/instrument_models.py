@@ -21,10 +21,12 @@ class Node(Base):
     __tablename__ = "nodes"
     __table_args__ = (
         UniqueConstraint("instrument_id", "spec_hash", "version", name="uq_nodes_spec"),
+        UniqueConstraint("instrument_id", "name", name="uq_nodes_instr_name"),
         Index("ix_nodes_instr_origin", "instrument_id", "origin"),
         Index("ix_nodes_instr_status", "instrument_id", "status"),
         Index("ix_nodes_instr_approval", "instrument_id", "approval_state"),
         Index("ix_nodes_instr_parent", "instrument_id", "parent_node_id"),
+        Index("ix_nodes_instr_timeframe", "instrument_id", "timeframe"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -43,6 +45,9 @@ class Node(Base):
     # Research metadata ONLY (favorite toggle). Never consulted by the spec compiler,
     # semantic hashing, validation or any trading decision. See docs/ISSUES_AND_FIXES.md ISSUE-027.
     starred: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
+    # Timeframe is NODE identity, assigned at creation from the spec's identity.timeframe.
+    # NULL = no spec yet (draft) or a legacy row whose spec could not be parsed.
+    timeframe: Mapped[str | None] = mapped_column(String(4), nullable=True)
     created_by: Mapped[str] = mapped_column(String(60), nullable=False, default="user")
     created_at: Mapped[float] = mapped_column(Float, nullable=False, default=utcnow)
     updated_at: Mapped[float] = mapped_column(Float, nullable=False, default=utcnow, onupdate=utcnow)

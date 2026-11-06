@@ -14,14 +14,21 @@ EUR_META = {"EURUSD": {"pip_size": 0.0001, "point_size": 0.00001, "tick_size": 0
 
 def _fresh_spec(tf="M15", name="Bullish Engulfing (example)"):
     spec = bullish_engulfing("XAUUSD", tf)
-    spec["identity"]["name"] = name     # unique identity ⇒ unique fingerprint per test
+    spec = json.loads(json.dumps(spec))
+    # Fingerprints exclude DISPLAY identity since compiler 1.1.0 — mint a unique
+    # SEMANTIC difference (tag) per test instead of relying on the name.
+    spec["identity"]["name"] = name
+    spec["identity"]["tags"] = [*spec["identity"].get("tags", []), f"test-{next(_COUNTER)}"]
     return spec
 
 
 def _create_spec_node(client, spec, meta=None, name="engulfing-test"):
     spec = json.loads(json.dumps(spec))
-    spec["identity"]["name"] = f"{spec['identity']['name']} — {name} #{next(_COUNTER)}"
-    body = {"name": name, "origin": "CUSTOM",
+    counter = next(_COUNTER)
+    spec["identity"]["name"] = f"{spec['identity']['name']} — {name} #{counter}"
+    spec["identity"]["tags"] = [*spec["identity"].get("tags", []), f"unique-{counter}-{name}"]
+    # names are unique per instrument since uq_nodes_instr_name — mint a unique name too
+    body = {"name": f"{name} #{next(_COUNTER)}", "origin": "CUSTOM",
             "spec_json": json.dumps(spec)}
     if meta is not None:
         body["broker_meta"] = meta
@@ -56,7 +63,7 @@ def test_compile_endpoint_valid(client):
     assert r.status_code == 200
     body = r.json()
     assert len(body["fingerprint"]) == 64
-    assert body["schema_version"] == "1.0.0" and body["compiler_version"] == "1.0.0"
+    assert body["schema_version"] == "1.0.0" and body["compiler_version"] == "1.1.0"
     assert body["ir"]["strategy"]["instrument"] == "XAUUSD"
     assert body["ir"]["execution"]["entry_timing"] == "next_bar_open"
 
@@ -94,7 +101,8 @@ def test_create_node_with_spec_needs_metadata_rejected(client):
 
 def test_client_supplied_hash_is_never_authoritative(client):
     spec = bullish_engulfing("XAUUSD", "M15")
-    body = {"name": "hash-test", "origin": "CUSTOM",
+    spec = json.loads(json.dumps(spec)); spec["identity"]["tags"] = [*spec["identity"].get("tags", []), f"hash-test-{next(_COUNTER)}"]
+    body = {"name": f"hash-test #{next(_COUNTER)}", "origin": "CUSTOM",
             "spec_json": json.dumps(spec),
             "spec_hash": "f" * 64,                # client claim — must be ignored
             "broker_meta": XAU_META}

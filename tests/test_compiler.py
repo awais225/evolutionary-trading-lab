@@ -26,7 +26,12 @@ def test_identical_specs_identical_fingerprint():
     assert a.fingerprint == b.fingerprint
     assert a.canonical_json == b.canonical_json
     assert len(a.fingerprint) == 64 and all(c in "0123456789abcdef" for c in a.fingerprint)
-    assert hashlib.sha256(a.canonical_json.encode()).hexdigest() == a.fingerprint
+    # fingerprint = sha256 of the SEMANTIC canonical JSON (presentation identity excluded)
+    from hero1_strategy_spec import semantic_canonical
+    from hero1_strategy_spec.spec import StrategySpec
+    spec_obj = bullish_engulfing("XAUUSD", "M15")
+    spec_obj = StrategySpec.model_validate(spec_obj)
+    assert hashlib.sha256(semantic_canonical(spec_obj.model_dump(mode="json")).encode()).hexdigest() == a.fingerprint
 
 
 def test_dictionary_insertion_order_does_not_matter():
@@ -58,7 +63,7 @@ def test_different_meaningful_specs_differ():
 def test_compiler_records_versions_and_warmup():
     r = compile_spec(_spec(), expected_instrument="XAUUSD", broker_meta=XAU_META)
     assert r.schema_version == SCHEMA_VERSION == "1.0.0"
-    assert r.compiler_version == COMPILER_VERSION == "1.0.0"
+    assert r.compiler_version == COMPILER_VERSION == "1.1.0"
     assert r.ir["ir_version"] == "1.0.0"
     assert r.ir["strategy"]["instrument"] == "XAUUSD"
     assert r.ir["strategy"]["origin"] == "CUSTOM"

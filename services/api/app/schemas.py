@@ -7,6 +7,7 @@ from typing import Any, List, Literal, Optional
 from pydantic import BaseModel, Field, field_validator
 
 from hero1_storage.enums import ApprovalState, EventCategory, EventSeverity, NodeOrigin, NodeStatus
+from hero1_strategy_spec import SUPPORTED_TIMEFRAMES
 
 _SPEC_HASH_RE = re.compile(r"^[a-f0-9]{64}$")
 
@@ -93,6 +94,8 @@ class NodeOut(BaseModel):
     created_at: float
     updated_at: float
     starred: bool = False
+    # Node identity (assigned from the spec at creation). NULL = draft / legacy-unparseable.
+    timeframe: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -103,6 +106,9 @@ class NodeListOut(BaseModel):
     starred_total: int = 0        # nodes currently starred (unfiltered)
     filtered_total: int = 0       # rows matching the ACTIVE filter (== total when none)
     items: List[NodeOut]
+    # Per-timeframe node counts (within the ACTIVE starred scope, ignoring the timeframe filter).
+    timeframe_counts: dict = Field(default_factory=dict)
+    unassigned_timeframe_total: int = 0
 
 
 class EventCreate(BaseModel):
@@ -238,3 +244,40 @@ class NodeVersionListOut(BaseModel):
     instrument: str
     lineage_root_id: Optional[int]
     items: List[NodeOut]
+
+
+class NodeGenerateRequest(BaseModel):
+    """Generate ONE NODE PER selected timeframe from a single strategy definition.
+
+    Names: when len(timeframes) == 1 an optional explicit ``name`` is honoured
+    (conflict ⇒ 409 NAME_DUPLICATE). When multiple timeframes are selected the
+    server allocates the first available sequential C-names, in the order of the
+    timeframes list, atomically — never duplicates.
+    """
+    spec: dict
+    timeframes: List[str] = Field(min_length=1, max_length=len(SUPPORTED_TIMEFRAMES))
+    name: Optional[str] = Field(default=None, min_length=1, max_length=160)
+    description: Optional[str] = Field(default=None, max_length=4000)
+    broker_meta: Optional[dict] = None
+    created_by: str = Field(default="user", max_length=60)
+
+    @field_validator("timeframes")
+    @classmethod
+    def _check_timeframes(cls, v: List[str]) -> List[str]:
+        seen, out = set(), []
+        for tf in v:
+            t = str(tf).upper()
+            if t not in SUPPORTED_TIMEFRAMES:
+                raise ValueError(f"unsupported timeframe {tf!r}; supported: {list(SUPPORTED_TIMEFRAMES)}")
+            if t in seen:
+                raise ValueError(f"duplicate timeframe {t!r}")
+            seen.add(t)
+            out.append(t)
+        return out
+
+
+class NodeGenerateOut(BaseModel):
+    instrument: str
+    requested: List[str]
+    count: int
+    created: List[NodeOut]

@@ -1,4 +1,4 @@
-import type { BrokerMeta, CompileResult, EventListOut, HealthOut, Instrument, Node, NodeListOut, NodeOrigin, NodeVersionList, SettingsOut, ValidationReport } from './types'
+import type { BrokerMeta, CompileResult, EventListOut, HealthOut, Instrument, Node, NodeGenerateOut, NodeListOut, NodeOrigin, NodeVersionList, SettingsOut, ValidationReport } from './types'
 
 class ApiError extends Error {
   constructor(public status: number, message: string,
@@ -59,11 +59,12 @@ export const api = {
   postEvent: (body: { category: string; severity?: string; instrument?: string; subsystem?: string; message: string }) =>
     request<HeroEventCreated>('POST', '/api/v1/events', body),
   nodes: {
-    list: (instrument: string, params: { origin?: string; starred?: boolean; limit?: number } = {}) => {
+    list: (instrument: string, params: { origin?: string; starred?: boolean; limit?: number; timeframe?: string[] } = {}) => {
       const q = new URLSearchParams()
       if (params.origin) q.set('origin', params.origin)
       if (params.starred === true) q.set('starred', 'true')
       else if (params.starred === false) q.set('starred', 'false')
+      if (params.timeframe && params.timeframe.length > 0) q.set('timeframe', params.timeframe.join(','))
       if (params.limit) q.set('limit', String(params.limit))
       return request<NodeListOut>('GET', `/api/v1/instruments/${instrument}/nodes?${q}`)
     },
@@ -73,6 +74,13 @@ export const api = {
       name: string; origin: NodeOrigin; description?: string;
       spec_json?: string; broker_meta?: BrokerMeta; parent_node_id?: number;
     }) => request<Node>('POST', `/api/v1/instruments/${instrument}/nodes`, body),
+    // Multi-timeframe generation — one independent node PER timeframe (all-or-nothing).
+    // `name` is honoured ONLY for a single timeframe; multiple timeframes allocate
+    // sequential first-available C-names server-side.
+    generate: (instrument: string, body: {
+      spec: Record<string, unknown>; timeframes: string[];
+      name?: string; description?: string; broker_meta?: BrokerMeta; created_by?: string;
+    }) => request<NodeGenerateOut>('POST', `/api/v1/instruments/${instrument}/nodes/generate`, body),
     validate: (instrument: string, spec: Record<string, unknown>, broker_meta?: BrokerMeta) =>
       request<ValidationReport>('POST', `/api/v1/instruments/${instrument}/nodes/validate`, { spec, broker_meta }),
     compile: (instrument: string, spec: Record<string, unknown>, broker_meta?: BrokerMeta) =>

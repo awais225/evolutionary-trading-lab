@@ -655,3 +655,88 @@ PUBLISHED (TASK 8)
   39129a6735eed78ef79b212b3ab79cbad18593ba refs/heads/main
 - TASK lineage: 07876697f (TASK 7) · efa403cd7 (TASK 7 record) →
   39129a673 (TASK 8).
+
+================================================================================
+TASK 9 — HERO V1.4.0 — TIMEFRAME ARCHITECTURE: NODE-IDENTITY TIMEFRAME,
+MULTI-TIMEFRAME NODE GENERATION, TF REGISTRY UX, START.BAT STATUS (2026-11-06)
+================================================================================
+PROMPT: PROMPTS/TIMEFRAME_ARCHITECTURE_MULTINODE.md (archived before work)
+
+WHAT WAS DONE
+- Timeframe is now a NODE property, never a global setting. The global instrument
+  dropdown is untouched; there is no global timeframe control anywhere.
+- Backend (HERO V1.4.0, see G1): compiler 1.1.0 — identity.name/description removed
+  from the semantic fingerprint; identity.timeframe + identity.instrument remain in
+  it. nodes.timeframe column (migration 0003_timeframe_unique_name, spec-backfilled
+  only) + unique (instrument_id, name) boundary + index. GET /nodes?timeframe=
+  (422 TIMEFRAME_UNSUPPORTED / TIMEFRAME_DUPLICATE) + timeframe_counts +
+  unassigned_timeframe_total. POST /nodes/generate — one validated strategy → N
+  independent node rows (own id/version/lineage root/fingerprint per timeframe;
+  all-or-nothing; server-side sequential first-available C-names with gap reuse,
+  race-guarded by the unique index, one retry else 409; explicit name only for
+  single-timeframe saves).
+- Frontend (G2): TimeframeMultiSelect (themed multi listbox; registry-restricted —
+  W1/MN1 not expressible; Select All / Clear All / counts / readable summary /
+  no-timeframe validation / full keyboard + aria-multiselectable) in the node
+  strategy creation flow. Default = registry default (M15 for all three seeds) else
+  M15. Save fans out N nodes via /nodes/generate; button label becomes
+  "Generate N nodes"; single-TF keeps explicit name. Inline rename of saved nodes
+  (click name or pencil; Enter saves / Escape cancels; trim; ≤160; duplicate
+  per instrument rejected client-side; metadata-only PATCH — hash/version/lineage
+  untouched). Registry: TF badge column (— for drafts), timeframe filter chips
+  (server ?timeframe= filter; per-TF counts; unassigned-drafts note), "Group by
+  timeframe" toggle, Select-All restricted to the visible set. Inspector shows TF
+  badge + "AWAITING MARKET DATA · DATA UNAVAILABLE — Phase 4" — NO market-data
+  store exists, nothing is claimed validated. Shared persisted scope
+  (state/timeframeScope.tsx, localStorage hero1.timeframeScope) drives Manual
+  Nodes + DeepTesting/Fine Tuning/Live Testing batch-scope panels (ISSUE-034 fixed:
+  BatchScope now consumes the shared scope — timeframes in scope, server-enforced
+  counts, filtered/total shown; execution remains a later phase by design).
+- START.bat (TASK 4 of the prompt): the launcher remains the TASK-7 rebuild
+  (legacy v10.4-throughput stage architecture: %~dp0 root → venv → import check →
+  DB check → port ownership with identity proof → persistent cmd /k service
+  windows → real HTTP readiness → proxy→backend verification → browser after all
+  checks → foreground monitor; every failure path prints + pauses; startup.log
+  append-only). This task re-audited it statically (labels/gotos/parens/quotes/
+  pipes) and re-rehearsed every embedded command on Linux with the post-timeframe
+  code — backend import OK; init_db --check fails closed (rc=1) when DATA is
+  absent as designed; one stale-preview-backend incident found & fixed (ISSUE-035:
+  :8788 served pre-G1 code until restart; now serves the timeframe contract).
+  WINDOWS EXECUTION STILL NOT PERFORMED — no Windows in this environment; the
+  .bat files remain UNPROVEN; first Windows run must be a smoke test.
+- docs/IMPLEMENTATION_PROGRESS.md G1 (backend) / G2 (frontend) / G3 (gates)
+  appended; ARCHITECTURE.md gained the timeframe section; DESIGN_SYSTEM.md gained
+  the TimeframeMultiSelect/chips/badge inventory; ISSUES_AND_FIXES ISSUE-034/035;
+  CHANGELOG HERO V1.4.0 entry.
+
+VERIFIED (LMS Linux)
+- pytest 103 passed / 1 skipped · vitest 40/40 · tsc --noEmit clean ·
+  vite production build green (266.31 kB JS / 82.80 kB gzip).
+- Live preview DATA migration: backups (BACKUPS/pre-0003-2026-11-06/) → alembic
+  0002 → 0003 on XAUUSD/EURUSD/BTCUSD (registry stays 0001); 1 legacy spec-less
+  draft kept NULL timeframe; fingerprint-migration dry-run = nothing to rewrite
+  (--apply NOT run — zero rows to write); idempotent.
+- Live preview (restarted backend :8788 with identical env + vite :5173, host
+  whitelisted): list contract incl. timeframe_counts/unassigned_timeframe_total;
+  ?timeframe=M15 → filtered_total 0 (spec-less draft); ?timeframe=W1 → 422
+  TIMEFRAME_UNSUPPORTED; ?timeframe=M15,M15 → 422 TIMEFRAME_DUPLICATE;
+  /health echoes project_root + start_token; vite proxy /health → backend OK;
+  all NEW modules (TimeframeMultiSelect, timeframeScope, BatchScope rework)
+  serve 200; theme.css carries the new tf-* class families.
+- Migration safety: 0003 refuses on duplicate (instrument_id, name); no data was
+  renamed/deleted anywhere; backups taken before any write.
+
+NOT DONE / HONEST LIMITS
+- Windows execution of PREREQUISITES.bat / START.bat remains UNVERIFIED (no
+  Windows here); owner must smoke-test on Windows (cmd /k START.bat).
+- No market-data store, no indicator values, no backtests: saved nodes are
+  DRAFT/PENDING; "AWAITING MARKET DATA" is the truth everywhere. Phase 4+.
+- Browser E2E absent (ISSUE-011). No screenshot captured — visual verification is
+  jsdom tests + build + served-module checks; owner should eyeball the
+  Manual Nodes tab and the DeepTesting batch-scope panel.
+- identity.name stays fingerprinted at SAVE time only via the reference-TF spec;
+  renames after save are metadata-only PATCH and never affect hashes (tested).
+
+PUBLISHED (TASK 9)
+- Commit (feature): see git log -1 after push; remote main verified via ls-remote.
+  (SHAs recorded after push.)

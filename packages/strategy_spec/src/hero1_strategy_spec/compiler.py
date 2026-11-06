@@ -3,6 +3,9 @@
 Guarantees:
   * identical specs produce identical fingerprints (key-order independent),
   * different meaningful specs produce different fingerprints,
+  * fingerprint EXCLUDES identity.name/identity.description (presentation) but
+    INCLUDES identity.timeframe and identity.instrument (semantics) — changing a
+    timeframe forks the strategy; renaming it does not,
   * output records schema_version and compiler_version,
   * nothing from the spec is ever executed, imported or eval'd.
 """
@@ -10,14 +13,14 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from pydantic import BaseModel, ConfigDict
 
 from .spec import SCHEMA_VERSION, StrategySpec
 from .validation import ReportStatus, ValidationReport, validate_spec
 
-COMPILER_VERSION = "1.0.0"
+COMPILER_VERSION = "1.1.0"
 IR_VERSION = "1.0.0"
 
 
@@ -49,6 +52,29 @@ def canonical_json(data: Any) -> str:
                       ensure_ascii=True, allow_nan=False)
 
 
+# Identity fields that are PRESENTATION, not semantics. They are stored in the
+# spec (canonical_json) and shown in the UI but are excluded from the semantic
+# fingerprint — renaming a node must never fork a "different strategy".
+# Timeframe and instrument ARE part of identity and ARE fingerprinted.
+PRESENTATION_IDENTITY_FIELDS = ("name", "description")
+
+
+def semantic_canonical(data: Any) -> str:
+    """Canonical JSON source for the fingerprint: the full spec minus display fields."""
+    payload = data if isinstance(data, dict) else data.model_dump(mode="json")
+    ident = payload.get("identity")
+    if isinstance(ident, dict):
+        ident = {k: v for k, v in ident.items() if k not in PRESENTATION_IDENTITY_FIELDS}
+        payload = {**payload, "identity": ident}
+    return canonical_json(payload)
+
+
+def semantic_fingerprint(spec: "StrategySpec") -> Tuple[str, str]:
+    """(fingerprint, semantic canonical JSON) for an already-validated spec."""
+    canon = semantic_canonical(spec.model_dump(mode="json"))
+    return hashlib.sha256(canon.encode("utf-8")).hexdigest(), canon
+
+
 def compile_spec(data: Any, *, expected_instrument: Optional[str] = None,
                  broker_meta: Optional[Dict[str, dict]] = None,
                  report: Optional[ValidationReport] = None) -> CompileResult:
@@ -64,9 +90,10 @@ def compile_spec(data: Any, *, expected_instrument: Optional[str] = None,
         raise SpecCompilationError(report)
 
     spec = data if isinstance(data, StrategySpec) else StrategySpec.model_validate(data)
-    canonical_source = spec.model_dump(mode="json")
-    canon = canonical_json(canonical_source)
-    fingerprint = hashlib.sha256(canon.encode("utf-8")).hexdigest()
+    # Storage keeps the FULL canonical spec (incl. identity.name — it is needed to
+    # round-trip the editor). The FINGERPRINT excludes presentation fields.
+    canon = canonical_json(spec.model_dump(mode="json"))
+    fingerprint, semantic_canon = semantic_fingerprint(spec)
 
     warmup = report.required_warmup_candles if report.required_warmup_candles is not None else 1
     warnings = [f"{i.code}@{i.path}: {i.message}" for i in report.issues if i.severity.value == "WARNING"]

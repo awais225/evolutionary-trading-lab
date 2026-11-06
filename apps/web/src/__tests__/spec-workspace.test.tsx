@@ -31,7 +31,7 @@ describe('Manual Nodes — spec workspace (Phase 2)', () => {
     expect(await screen.findByText(/eb132930ec461848abb54173d50cdeda6f812581e39f7cefac1f4155935a689c/)).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /save as new spec node/i }))
-    expect(await screen.findByRole('status')).toHaveTextContent(/Saved as node #1 · v1/i)
+    expect(await screen.findByRole('status')).toHaveTextContent(/Saved as node #\d+ .+ \(M15\) · fingerprint/i)
   })
 
   it('compile of a pips-based spec without broker metadata surfaces the 422 as structured issues', async () => {

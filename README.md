@@ -1,6 +1,6 @@
 # Hero1 — Trading Research Workstation
 
-> **HERO V1.1.0** — canonical repository: <https://github.com/awais225/evolutionary-trading-lab> (`main`).
+> **HERO V1.4.0** — canonical repository: <https://github.com/awais225/evolutionary-trading-lab> (`main`).
 > The original Evolutionary Trading Lab project is preserved on the `legacy-archive` branch.
 
 Hero1 is a local-first research and execution platform for algorithmic trading.
@@ -142,4 +142,4 @@ cd apps/web && npm test && npm run build
 
 ## License / ownership
 
-Owner: awais225. Release identity HERO V1.1.0 (2026-11-06). Repository is public by explicit owner decision.
+Owner: awais225. Release identity HERO V1.4.0 (2026-11-06). Repository is public by explicit owner decision.

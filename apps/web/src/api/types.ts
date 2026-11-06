@@ -29,6 +29,8 @@ export interface Node {
   updated_at: number
   /** Favorite flag — research metadata only. Never affects spec semantics. */
   starred: boolean
+  /** Node-identity timeframe (assigned from the spec at creation). null = draft / legacy. */
+  timeframe: string | null
 }
 
 export interface NodeListOut {
@@ -39,7 +41,18 @@ export interface NodeListOut {
   starred_total: number
   /** Rows matching the ACTIVE filter (== total when no filter is applied). */
   filtered_total: number
+  /** Per-timeframe node counts within the ACTIVE starred scope (filter ignored). */
+  timeframe_counts: Record<string, number>
+  /** Nodes with no timeframe (drafts) within the ACTIVE starred scope. */
+  unassigned_timeframe_total: number
   items: Node[]
+}
+
+export interface NodeGenerateOut {
+  instrument: string
+  requested: string[]
+  count: number
+  created: Node[]
 }
 
 export type EventSeverity = 'DEBUG' | 'INFO' | 'SUCCESS' | 'WARNING' | 'ERROR'

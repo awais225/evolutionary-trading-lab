@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import json
-from typing import Optional
+import re
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.exc import IntegrityError
@@ -10,14 +11,15 @@ from sqlalchemy.orm import Session
 from app import spec_service
 from app.deps import get_instrument_context, get_instrument_session
 from app.schemas import (
-    CompileResultOut, NewVersionRequest, NodeCreate, NodeListOut, NodeOut, NodePatch,
+    CompileResultOut, NewVersionRequest, NodeCreate, NodeGenerateOut, NodeGenerateRequest,
+    NodeListOut, NodeOut, NodePatch,
     NodeVersionListOut, SpecCompileRequest, SpecValidationRequest, ValidationReportOut,
     ValidationIssueOut,
 )
 from hero1_eventbus import get_event_publisher
 from hero1_storage.enums import ApprovalState, NodeStatus
 from hero1_storage.repositories import NodeRepository
-from hero1_strategy_spec import SpecCompilationError
+from hero1_strategy_spec import SpecCompilationError, SUPPORTED_TIMEFRAMES
 
 router = APIRouter(prefix="/api/v1/instruments/{instrument}/nodes", tags=["nodes"])
 
@@ -34,6 +36,40 @@ def _publish(severity: str, message: str, instrument: str, *,
 
 _SEVERITY_FOR_STATUS = {"VALID": "INFO", "WARNING": "WARNING",
                         "NEEDS_METADATA": "WARNING", "INVALID": "ERROR"}
+
+_NAME_DUPLICATE_DETAIL = {
+    "code": "NAME_DUPLICATE",
+    "message": "a node with this name already exists for this instrument. Names are unique per instrument.",
+}
+
+_C_NAME_RE = re.compile(r"^[Cc](\d+)$")
+
+
+def _alloc_sequential_names(existing_names, count: int):
+    """First available sequential C-numbers (gap reuse), in order."""
+    used = set()
+    for n in existing_names:
+        m = _C_NAME_RE.match(str(n).strip())
+        if m:
+            used.add(int(m.group(1)))
+    out, k = [], 1
+    while len(out) < count:
+        if k not in used:
+            out.append(f"C{k}")
+            used.add(k)
+        k += 1
+    return out
+
+
+def _integrity_detail(exc: IntegrityError):
+    msg = str(getattr(exc, "orig", exc))
+    if "nodes.name" in msg or "uq_nodes_instr_name" in msg:
+        return _NAME_DUPLICATE_DETAIL
+    if "spec_hash" in msg or "uq_nodes_spec" in msg:
+        return _DUPLICATE_SPEC_DETAIL
+    return {"code": "NODE_CREATE_CONFLICT",
+            "message": "conflict with an existing record (unique constraint)."}
+
 
 # nodes table carries UNIQUE(instrument_id, spec_hash, version) — the server never silently
 # duplicates an identical strategy at the same version, it reports it.
@@ -69,16 +105,31 @@ def list_nodes(instrument: str = Depends(get_instrument_context),
                origin: str | None = Query(default=None),
                status: str | None = Query(default=None),
                starred: bool | None = Query(default=None),
+               timeframe: str | None = Query(default=None,
+                   description="Comma-separated timeframes (e.g. 'M1,M15'); unknown values are rejected"),
                limit: int = Query(default=200, ge=1, le=500),
                offset: int = Query(default=0, ge=0),
                session: Session = Depends(get_instrument_session)) -> NodeListOut:
+    tfs: Optional[List[str]] = None
+    if timeframe:
+        wanted = [t.strip().upper() for t in timeframe.split(",") if t.strip()]
+        bad = [t for t in wanted if t not in SUPPORTED_TIMEFRAMES]
+        if bad:
+            raise HTTPException(422, detail={"code": "TIMEFRAME_UNSUPPORTED",
+                                             "message": f"unsupported timeframe(s) {bad}; supported: {list(SUPPORTED_TIMEFRAMES)}"})
+        if len(set(wanted)) != len(wanted):
+            raise HTTPException(422, detail={"code": "TIMEFRAME_DUPLICATE",
+                                             "message": "duplicate timeframes in the filter"})
+        tfs = wanted
     repo = NodeRepository(session, instrument)
-    items = repo.list(origin=origin, status=status, starred=starred, limit=limit, offset=offset)
-    filtered_total = repo.count(starred=True) if starred is True else (
-        repo.count() if starred is None else repo.count(starred=False))
+    items = repo.list(origin=origin, status=status, starred=starred,
+                      timeframes=tfs, limit=limit, offset=offset)
+    filtered_total = repo.count(starred=starred, timeframes=tfs)
     return NodeListOut(instrument=instrument, total=repo.count(),
                        starred_total=repo.count(starred=True),
                        filtered_total=filtered_total,
+                       timeframe_counts=repo.timeframe_counts(starred=starred),
+                       unassigned_timeframe_total=repo.count_no_timeframe(starred=starred),
                        items=[NodeOut.model_validate(n, from_attributes=True) for n in items])
 
 
@@ -132,6 +183,78 @@ def node_lineage(node_id: int, instrument: str = Depends(get_instrument_context)
     )
 
 
+@router.post("/generate", response_model=NodeGenerateOut, status_code=201)
+def generate_nodes(body: NodeGenerateRequest,
+                   instrument: str = Depends(get_instrument_context),
+                   session: Session = Depends(get_instrument_session)) -> NodeGenerateOut:
+    """Create ONE INDEPENDENT NODE PER selected timeframe from one strategy definition.
+
+    Each node: own id, own instrument+timeframe, own spec (timeframe-swapped),
+    own semantic fingerprint (timeframe IS fingerprinted), own lineage root,
+    DATA availability explicitly NOT claimed (no market-data store ships yet).
+
+    Naming: a single timeframe honours an explicit name (409 on conflict);
+    multiple timeframes allocate the first available sequential C-names
+    atomically. All-or-nothing: any conflict aborts the whole batch.
+    """
+    repo = NodeRepository(session, instrument)
+
+    ident = body.spec.get("identity") if isinstance(body.spec, dict) else None
+    if not isinstance(ident, dict):
+        raise HTTPException(422, detail={"code": "SPEC_INVALID",
+                                         "message": "spec.identity is missing or invalid"})
+
+    prepared = []
+    for tf in body.timeframes:
+        cloned = json.loads(json.dumps(body.spec))
+        cloned["identity"] = {**cloned["identity"], "timeframe": tf}
+        parsed, err = spec_service.parse_spec_json(json.dumps(cloned))
+        if err:
+            raise HTTPException(422, err)
+        _, result = _compile_or_422(parsed, instrument, body.broker_meta)
+        prepared.append({"timeframe": tf,
+                         "spec_json": result.canonical_json,
+                         "spec_hash": result.fingerprint})
+
+    tf_count = len(prepared)
+    explicit_single = tf_count == 1 and body.name
+    if explicit_single and repo.name_exists(body.name):
+        raise HTTPException(409, _NAME_DUPLICATE_DETAIL)
+
+    def _items(names):
+        return [{"origin": "CUSTOM", "name": names[i],
+                 "description": body.description,
+                 "spec_json": p["spec_json"], "spec_hash": p["spec_hash"],
+                 "created_by": body.created_by, "timeframe": p["timeframe"]}
+                for i, p in enumerate(prepared)]
+
+    names = [body.name.strip()] if explicit_single else _alloc_sequential_names(repo.existing_names(), tf_count)
+    try:
+        created = repo.create_many(_items(names))
+    except IntegrityError as exc:
+        session.rollback()
+        if explicit_single:
+            raise HTTPException(409, _integrity_detail(exc)) from None
+        # One retry with a fresh allocation — the race guard is uq_nodes_instr_name.
+        try:
+            names = _alloc_sequential_names(repo.existing_names(), tf_count)
+            created = repo.create_many(_items(names))
+        except IntegrityError as exc2:
+            session.rollback()
+            raise HTTPException(409, _integrity_detail(exc2)) from None
+
+    for node in created:
+        _publish("INFO", f"node generated [{instrument}] #{node.id} {node.name} ({node.timeframe})",
+                 instrument, node_id=node.id,
+                 payload={"origin": node.origin, "node_id": node.id,
+                          "version": node.version, "timeframe": node.timeframe,
+                          "spec_hash": node.spec_hash})
+    return NodeGenerateOut(instrument=instrument,
+                           requested=[p["timeframe"] for p in prepared],
+                           count=len(created),
+                           created=[NodeOut.model_validate(n, from_attributes=True) for n in created])
+
+
 # -------------------------------------------------------------- write side
 @router.post("", response_model=NodeOut, status_code=201)
 def create_node(body: NodeCreate,
@@ -143,24 +266,32 @@ def create_node(body: NodeCreate,
     if body.parent_node_id is not None and repo.get(body.parent_node_id) is None:
         raise HTTPException(422, f"parent node {body.parent_node_id} not found for instrument {instrument}")
 
+    if repo.name_exists(body.name):
+        raise HTTPException(409, _NAME_DUPLICATE_DETAIL)
+
     spec_json: Optional[str] = None
     spec_hash: Optional[str] = None
+    timeframe: Optional[str] = None
     if body.spec_json is not None:
         parsed, err = spec_service.parse_spec_json(body.spec_json)
         if err:
             raise HTTPException(422, err)
         _, result = _compile_or_422(parsed, instrument, body.broker_meta)
         spec_json, spec_hash = result.canonical_json, result.fingerprint
+        ident = parsed.get("identity") if isinstance(parsed, dict) else None
+        tf = ident.get("timeframe") if isinstance(ident, dict) else None
+        timeframe = str(tf).upper() if tf else None
 
     try:
         node = repo.create(
             origin=body.origin.value, name=body.name, description=body.description,
             spec_json=spec_json, spec_hash=spec_hash,
             parent_node_id=body.parent_node_id, created_by=body.created_by,
+            timeframe=timeframe,
         )
-    except IntegrityError:
+    except IntegrityError as exc:
         session.rollback()
-        raise HTTPException(409, _DUPLICATE_SPEC_DETAIL) from None
+        raise HTTPException(409, _integrity_detail(exc)) from None
     _publish("INFO",
              f"node created [{instrument}] #{node.id}: {node.name}"
              + (f" (spec {spec_hash[:12]}…)" if spec_hash else " (no spec — draft)"),
@@ -182,18 +313,30 @@ def create_version(node_id: int, body: NewVersionRequest,
         raise HTTPException(404, f"node {node_id} not found for instrument {instrument}")
 
     _, result = _compile_or_422(body.spec, instrument, body.broker_meta)
+    if body.name:
+        if repo.name_exists(body.name):
+            raise HTTPException(409, _NAME_DUPLICATE_DETAIL)
+        child_name = body.name
+    else:
+        # names are unique per instrument — a new version cannot reuse its parent's
+        # display name; it gets the first available sequential C-name (renameable).
+        child_name = _alloc_sequential_names(repo.existing_names(), 1)[0]
     version = spec_service.next_version(session, instrument, parent)
+    ident = body.spec.get("identity") if isinstance(body.spec, dict) else None
+    tf = ident.get("timeframe") if isinstance(ident, dict) else None
+    timeframe = str(tf).upper() if tf else None
     try:
         node = repo.create(
             origin=parent.origin,
-            name=body.name or parent.name,
+            name=child_name,
             description=body.description if body.description is not None else parent.description,
             spec_json=result.canonical_json, spec_hash=result.fingerprint,
             parent_node_id=parent.id, created_by=body.created_by, version=version,
+            timeframe=timeframe,
         )
-    except IntegrityError:
+    except IntegrityError as exc:
         session.rollback()
-        raise HTTPException(409, _DUPLICATE_SPEC_DETAIL) from None
+        raise HTTPException(409, _integrity_detail(exc)) from None
     _publish("INFO",
              f"node version created [{instrument}] #{node.id} v{node.version} (parent #{parent.id})",
              instrument, node_id=node.id,
@@ -211,7 +354,15 @@ def patch_node(body: NodePatch, node_id: int,
         fields["approval_state"] = ApprovalState(fields["approval_state"]).value
     if "status" in fields and fields["status"] is not None:
         fields["status"] = NodeStatus(fields["status"]).value
-    node = NodeRepository(session, instrument).update(node_id, **fields)
+    if fields.get("name"):
+        repo = NodeRepository(session, instrument)
+        if repo.name_exists(fields["name"], exclude_id=node_id):
+            raise HTTPException(409, _NAME_DUPLICATE_DETAIL)
+    try:
+        node = NodeRepository(session, instrument).update(node_id, **fields)
+    except IntegrityError as exc:
+        session.rollback()
+        raise HTTPException(409, _integrity_detail(exc)) from None
     if node is None:
         raise HTTPException(404, f"node {node_id} not found for instrument {instrument}")
     _publish("INFO", f"node metadata updated [{instrument}] #{node.id}: {sorted(fields)}",

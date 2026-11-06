@@ -17,7 +17,10 @@ from .indicators import IndicatorName, indicator_warmup
 from .validation import (
     Issue, ReportStatus, Severity, ValidationReport, validate_spec,
 )
-from .compiler import COMPILER_VERSION, IR_VERSION, CompileResult, SpecCompilationError, canonical_json, compile_spec
+from .compiler import (
+    COMPILER_VERSION, IR_VERSION, PRESENTATION_IDENTITY_FIELDS, CompileResult,
+    SpecCompilationError, canonical_json, compile_spec, semantic_canonical, semantic_fingerprint,
+)
 from .examples import bullish_engulfing, example_spec, example_specs, EXAMPLE_TIMEFRAMES
 
 __version__ = "1.1.0"
@@ -32,5 +35,6 @@ __all__ = [
     "Distance", "DistanceUnit", "PositionSizing", "RiskConfig", "StopLoss", "TakeProfit", "DirectionRisk",
     "Issue", "ReportStatus", "Severity", "ValidationReport", "validate_spec",
     "CompileResult", "SpecCompilationError", "canonical_json", "compile_spec",
+    "PRESENTATION_IDENTITY_FIELDS", "semantic_canonical", "semantic_fingerprint",
     "bullish_engulfing", "example_spec", "example_specs", "EXAMPLE_TIMEFRAMES",
 ]

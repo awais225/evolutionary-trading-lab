@@ -1,27 +1,19 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { useInstrument } from '../state/instrument'
 import { api, ApiError } from '../api/client'
 import { bullishEngulfingSpec } from '../lib/exampleSpec'
 import { StrategyBuilder } from '../components/StrategyBuilder'
 import { StarButton } from '../components/StarButton'
 import { StarredScopeControl } from '../components/StarredScopeControl'
+import { TimeframeMultiSelect } from '../components/TimeframeMultiSelect'
 import { useStarredScope } from '../state/starScope'
+import { useTimeframeScope } from '../state/timeframeScope'
 import { emptyComparison } from '../builder/specTree'
+import { SUPPORTED_TIMEFRAMES } from '../lib/timeframes'
+import { nextAutoName } from '../lib/nodeNames'
 import type { Node, NodeOrigin, ValidationIssue, ValidationReport, CompileResult, NodeVersionList, BrokerMeta } from '../api/types'
 
-const AUTO_NAME_RE = /^C(\d+)$/i
-/** Next C-number from the registry for THIS instrument — refresh-proof (registry is the source of truth). */
-function nextAutoName(nodes: Node[]): string {
-  let max = 0
-  for (const n of nodes) {
-    const m = AUTO_NAME_RE.exec(n.name.trim())
-    if (m) max = Math.max(max, parseInt(m[1], 10))
-  }
-  return `C${max + 1}`
-}
-
 const ORIGINS: NodeOrigin[] = ['CUSTOM', 'WWW', 'INTERACTIVE', 'FINE_TUNED']
-const TIMEFRAMES = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1'] as const
 
 const STATUS_COLOR: Record<string, string> = {
   VALID: 'var(--ok)', WARNING: 'var(--warn)', NEEDS_METADATA: 'var(--info)', INVALID: 'var(--err)',
@@ -45,10 +37,10 @@ function IssueRow({ issue }: { issue: ValidationIssue }) {
 }
 
 export function ManualNodes() {
-  const { instrument } = useInstrument()
+  const { instrument, instruments } = useInstrument()
   const { scope, setScope } = useStarredScope()
   const [nodes, setNodes] = useState<Node[]>([])
-  const [counts, setCounts] = useState<{ total: number; starred_total: number; filtered_total: number } | null>(null)
+  const [counts, setCounts] = useState<{ total: number; starred_total: number; filtered_total: number; timeframe_counts: Record<string, number>; unassigned_timeframe_total: number } | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [starBusyId, setStarBusyId] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
@@ -67,7 +59,15 @@ export function ManualNodes() {
   const [autoName, setAutoName] = useState('C1')
   const [renaming, setRenaming] = useState(false)
   const [specText, setSpecText] = useState('')
-  const [timeframe, setTimeframe] = useState<string>('M15')
+  const tfScope = useTimeframeScope()                    // shared table/scope filter
+  const defaultTf = (instruments.find((i) => i.symbol.toUpperCase() === instrument.toUpperCase())?.default_timeframe ?? 'M15').toUpperCase()
+  const [selectedTfs, setSelectedTfs] = useState<string[]>([defaultTf])
+  const [tfInvalid, setTfInvalid] = useState(false)      // no timeframe selected → block save
+  const [groupByTf, setGroupByTf] = useState(false)
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [editDraft, setEditDraft] = useState('')
+  const [editBusy, setEditBusy] = useState(false)
+  const [editError, setEditError] = useState<string | null>(null)
   const [nodeName, setNodeName] = useState('')
   const [pipSize, setPipSize] = useState('')
   const [tickSize, setTickSize] = useState('')
@@ -83,13 +83,35 @@ export function ManualNodes() {
 
   const selected = useMemo(() => nodes.find((n) => n.id === selectedId) ?? null, [nodes, selectedId])
 
+  // Group-by-timeframe rendering: supported order, then drafts-without-TF last
+  const grouped = useMemo(() => {
+    if (!groupByTf) return [{ key: 'all', label: null as string | null, items: nodes }]
+    const byTf = new Map<string, Node[]>()
+    for (const n of nodes) {
+      const k = (n.timeframe ?? '').toUpperCase()
+      const arr = byTf.get(k) ?? []
+      arr.push(n)
+      byTf.set(k, arr)
+    }
+    const out: { key: string; label: string | null; items: Node[] }[] = []
+    for (const tf of SUPPORTED_TIMEFRAMES) {
+      const items = byTf.get(tf)
+      if (items && items.length) out.push({ key: tf, label: `${tf} · ${items.length} node${items.length === 1 ? '' : 's'}`, items })
+    }
+    const noTf = byTf.get('') ?? []
+    if (noTf.length) out.push({ key: 'none', label: `NO TIMEFRAME (drafts) · ${noTf.length}`, items: noTf })
+    return out
+  }, [groupByTf, nodes])
+
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const res = await api.nodes.list(instrument, { starred: scope === 'starred' ? true : undefined })
+      const res = await api.nodes.list(instrument, { starred: scope === 'starred' ? true : undefined,
+                                                      timeframe: tfScope.timeframes.length ? tfScope.timeframes : undefined })
       setNodes(res.items)
-      setCounts({ total: res.total, starred_total: res.starred_total, filtered_total: res.filtered_total })
+      setCounts({ total: res.total, starred_total: res.starred_total, filtered_total: res.filtered_total,
+                  timeframe_counts: res.timeframe_counts ?? {}, unassigned_timeframe_total: res.unassigned_timeframe_total ?? 0 })
       // selection can never exceed the visible (filtered) set — prune silently
       setSelectedIds((prev) => {
         const visible = new Set(res.items.map((n) => n.id))
@@ -102,21 +124,27 @@ export function ManualNodes() {
     } finally {
       setLoading(false)
     }
-  }, [instrument, scope])
+  }, [instrument, scope, tfScope.timeframes])
 
   useEffect(() => { load() }, [load])
   useEffect(() => {
     setValidation(null); setCompiled(null); setActionError(null); setNotice(null); setLineage(null)
     // instrument switch = a different database; never mix specs or naming across instruments
     setSpec(null); setSpecText(''); setSpecParseError(null); setNameDirty(false); setNodeName('C1')
+    setSelectedTfs([(instruments.find((i) => i.symbol.toUpperCase() === instrument.toUpperCase())?.default_timeframe ?? 'M15').toUpperCase()])
+    setTfInvalid(false)
+    setEditingId(null); setEditError(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [instrument])
 
-  // auto-name from the registry (max C-number + 1, per instrument, refresh-proof)
+  // auto-name from the registry (first available C-number, gap reuse — refresh-proof)
+  const registryNames = useMemo(() => nodes.map((n) => n.name), [nodes])
   useEffect(() => {
-    const next = nextAutoName(nodes)
+    const next = nextAutoName(registryNames)
     setAutoName(next)
-    if (!nameDirty) setNodeName(next)
-  }, [nodes, nameDirty])
+    if (!nameDirty && selectedTfs.length <= 1) setNodeName(next)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [registryNames, nameDirty, selectedTfs.length])
 
   const toggleStar = async (node: Node) => {
     if (starBusyId !== null) return
@@ -207,7 +235,9 @@ export function ManualNodes() {
     const finalName = resolveNodeName()
     const identity = parsed.identity
     if (identity && typeof identity === 'object' && !Array.isArray(identity)) {
-      return { ...parsed, identity: { ...identity, name: finalName } }
+      // dry-run/compile preview always uses the FIRST selected timeframe as reference;
+      // save fans out to one node per selected timeframe server-side.
+      return { ...parsed, identity: { ...identity, name: finalName, timeframe: referenceTf } }
     }
     return parsed // backend will report the missing identity with exact issues
   }
@@ -231,10 +261,11 @@ export function ManualNodes() {
       setSpecParseError(err instanceof Error ? err.message : 'invalid JSON')
     }
   }
+  const referenceTf = selectedTfs[0] ?? 'M15'
   const startBlankSpec = () => {
     const blank = {
       schema_version: '1.0.0',
-      identity: { name: resolveNodeName(), description: '', instrument, timeframe, direction: 'LONG', origin: 'CUSTOM', tags: [], metadata: {} },
+      identity: { name: resolveNodeName(), description: '', instrument, timeframe: referenceTf, direction: 'LONG', origin: 'CUSTOM', tags: [], metadata: {} },
       execution: { entry_timing: 'next_bar_open', candle: 'completed', permit_forming_candle: false, order_type: 'market', position_handling: 'single' },
       entry: { type: 'and', children: [emptyComparison()] },
       exits: {},
@@ -246,7 +277,7 @@ export function ManualNodes() {
   }
 
   const loadExample = () => {
-    const example = bullishEngulfingSpec(instrument, timeframe) as SpecObject
+    const example = bullishEngulfingSpec(instrument, referenceTf) as SpecObject
     setSpec(example)
     setSpecText(JSON.stringify(example, null, 2))
     setValidation(null); setCompiled(null); setActionError(null); setNotice(null); setSpecParseError(null)
@@ -287,17 +318,26 @@ export function ManualNodes() {
 
   const saveNewNode = async () => {
     const spec = resolveSpec(); if (!spec) return
-    setBusy('save'); setActionError(null); setNotice(null)
+    if (selectedTfs.length === 0) { setTfInvalid(true); setActionError({ message: 'Select at least one timeframe before saving.' }); return }
+    setBusy('save'); setActionError(null); setNotice(null); setTfInvalid(false)
+    const single = selectedTfs.length === 1
     try {
-      const created = await api.nodes.create(instrument, {
-        name: resolveNodeName(),
-        origin: 'CUSTOM',
-        description: 'Saved from the spec workspace (server-validated + compiled).',
-        spec_json: JSON.stringify(spec),
+      const result = await api.nodes.generate(instrument, {
+        spec,
+        timeframes: selectedTfs,
+        // explicit name honoured only for single-timeframe saves; multi-timeframe
+        // generation allocates sequential first-available C-names server-side
+        name: single ? resolveNodeName() : undefined,
+        description: selectedTfs.length > 1
+          ? `Generated from one strategy across ${selectedTfs.length} timeframes (server-validated + compiled).`
+          : 'Saved from the spec workspace (server-validated + compiled).',
         broker_meta: buildBrokerMeta(),
       })
-      setNotice(`Saved as node #${created.id} · v${created.version} · fingerprint ${created.spec_hash?.slice(0, 12)}…`)
-      setSelectedId(created.id)
+      const created = result.created
+      setNotice(created.length === 1
+        ? `Saved as node #${created[0].id} ${created[0].name} (${created[0].timeframe}) · fingerprint ${created[0].spec_hash?.slice(0, 12)}…`
+        : `Saved ${created.length} independent nodes: ${created.map((n) => `${n.name} (${n.timeframe})`).join(', ')} — each with its own spec fingerprint`)
+      setSelectedId(created[created.length - 1]?.id ?? null)
       setNameDirty(false) // registry refresh recomputes the next auto C-number
       await load()
     } catch (err) {
@@ -350,6 +390,36 @@ export function ManualNodes() {
     setValidation(null); setCompiled(null); setActionError(null); setNotice(null)
   }
 
+  // Inline rename (click the displayed name): Enter saves · Escape cancels. Display only.
+  const startInlineEdit = (n: Node) => { setEditingId(n.id); setEditDraft(n.name); setEditError(null) }
+  const cancelInlineEdit = () => { setEditingId(null); setEditError(null) }
+  const toggleTfChip = (tf: string) => {
+    const cur = new Set(tfScope.timeframes)
+    if (cur.has(tf)) cur.delete(tf); else cur.add(tf)
+    tfScope.setTimeframes([...cur])
+  }
+  const commitInlineEdit = async (n: Node) => {
+    if (editBusy) return
+    const finalName = editDraft.trim()
+    if (!finalName) { setEditError('Name cannot be empty.'); return }
+    if (finalName.length > 160) { setEditError('Name must be ≤ 160 characters.'); return }
+    const dup = nodes.find((m) => m.id !== n.id && m.name.trim().toLowerCase() === finalName.toLowerCase())
+    if (dup) { setEditError(`“${finalName}” is already used by node #${dup.id} — names are unique per instrument.`); return }
+    setEditBusy(true)
+    try {
+      await api.nodes.rename(instrument, n.id, finalName)
+      setNotice(`Renamed node #${n.id} → “${finalName}” (display only — spec hash unchanged)`)
+      setEditingId(null); setEditError(null)
+      await load()
+    } catch (err) {
+      setEditError(err instanceof ApiError ? err.message : 'Rename failed')
+    } finally { setEditBusy(false) }
+  }
+  const onInlineEditKeyDown = (n: Node) => (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') { e.preventDefault(); void commitInlineEdit(n) }
+    else if (e.key === 'Escape') { e.preventDefault(); cancelInlineEdit() }
+  }
+
   // Metadata-only rename of the SAVED node — never touches the spec or its hash.
   const renameSelected = async () => {
     if (!selected) return
@@ -391,12 +461,16 @@ export function ManualNodes() {
               <button type="button" role="tab" aria-selected={mode === 'visual'} className={mode === 'visual' ? 'active' : ''} onClick={() => setMode('visual')}>Visual Builder</button>
               <button type="button" role="tab" aria-selected={mode === 'json'} className={mode === 'json' ? 'active' : ''} onClick={() => setMode('json')}>JSON Editor</button>
             </div>
-            <div className="field" style={{ marginBottom: 0 }}>
-              <label htmlFor="spec-tf">Timeframe</label>
-              <select id="spec-tf" className="input" value={timeframe} onChange={(e) => setTimeframe(e.target.value)}>
-                {TIMEFRAMES.map((tf) => <option key={tf} value={tf}>{tf}</option>)}
-              </select>
-            </div>
+            <TimeframeMultiSelect id="spec-tf-multi"
+                                  value={selectedTfs}
+                                  invalid={tfInvalid}
+                                  onChange={(next) => { setSelectedTfs(next); setTfInvalid(false) }}
+                                  label="TIMEFRAMES — ONE NODE PER TF"
+                                  hint={selectedTfs.length > 1
+                                    ? `Saving will generate ${selectedTfs.length} independent nodes (${selectedTfs.join(', ')}) — sequential names, one fingerprint each`
+                                    : selectedTfs.length === 1
+                                      ? 'Saving generates 1 node with this timeframe'
+                                      : undefined} />
             <button className="btn btn-ghost btn-sm" type="button" onClick={startBlankSpec}>New blank strategy</button>
             <button className="btn btn-ghost btn-sm" type="button" onClick={loadExample}>Load bullish engulfing example</button>
             {mode === 'json' && <button className="btn btn-ghost btn-sm" type="button" onClick={formatEditor} disabled={!specText.trim()}>Format JSON</button>}
@@ -439,14 +513,23 @@ export function ManualNodes() {
               <input id="broker-tick" className="input mono" style={{ maxWidth: 150 }} inputMode="decimal" placeholder="tick_size" aria-label="tick size" value={tickSize} onChange={(e) => setTickSize(e.target.value)} />
               <input id="broker-point" className="input mono" style={{ maxWidth: 150 }} inputMode="decimal" placeholder="point_size" aria-label="point size" value={pointSize} onChange={(e) => setPointSize(e.target.value)} />
             </div>
+            <div className="faint" style={{ fontSize: 10.5, marginTop: 6 }}>
+              Validate/Compile preview uses the first selected timeframe as the <strong>reference</strong> (<span className="mono">{referenceTf}</span>) — identical conditions are replicated to every selected timeframe on save; timeframe is part of each node's identity and fingerprint.
+            </div>
           </div>
 
           <div className="node-name-row">
-            <label htmlFor="spec-node-name">Node name <span className="faint">auto → {autoName}</span></label>
-            <input id="spec-node-name" className="input mono" maxLength={160} value={nodeName}
+            <label htmlFor="spec-node-name">Node name <span className="faint">{selectedTfs.length > 1 ? `${selectedTfs.length} nodes — sequential names allocated at save` : `auto → ${autoName}`}</span></label>
+            <input id="spec-node-name" className="input mono" maxLength={160}
+                   value={selectedTfs.length > 1 ? '' : nodeName}
+                   disabled={selectedTfs.length > 1}
                    onChange={(e) => { setNodeName(e.target.value); setNameDirty(true) }}
-                   placeholder={autoName} aria-label="Node name" />
-            {nameDirty ? (
+                   placeholder={selectedTfs.length > 1 ? 'C… C… C… (allocated sequentially)' : autoName}
+                   aria-label="Node name"
+                   title={selectedTfs.length > 1 ? 'Multiple timeframes selected — each node receives the next sequential available C-name' : undefined} />
+            {selectedTfs.length > 1 ? (
+              <span className="faint" style={{ fontSize: 11 }}>names allocated sequentially from the registry (edit any of them later via inline rename)</span>
+            ) : nameDirty ? (
               <>
                 <button className="btn btn-ghost btn-sm" type="button" onClick={() => { setNameDirty(false); setNodeName(autoName) }}>Reset to auto ({autoName})</button>
                 <span className="faint" style={{ fontSize: 11 }}>custom name will be preserved</span>
@@ -461,12 +544,12 @@ export function ManualNodes() {
               </button>
             )}
           </div>
-          <p className="faint" style={{ fontSize: 10.5, marginTop: 4 }}>Node naming is registry metadata, not strategy semantics: it is applied at save time, and renaming an existing node uses metadata-only PATCH — the spec fingerprint and version lineage are never affected by a display rename. Auto names come from the registry for <strong>{instrument}</strong> (C1, C2, …; never reused while names exist).</p>
+          <p className="faint" style={{ fontSize: 10.5, marginTop: 4 }}>Node naming is registry metadata, not strategy semantics: it is applied at save time, and renaming an existing node uses metadata-only PATCH — the spec fingerprint and version lineage are never affected by a display rename. Auto names come from the registry for <strong>{instrument}</strong> as the first available sequential C-number with gap reuse (C1, C3 exist → next is C2). Saving one strategy across N timeframes allocates N different sequential names, server-side and race-safe (unique index on instrument+name).</p>
 
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 12 }}>
             <button className="btn btn-primary" type="button" onClick={doValidate} disabled={busy !== null || !specText.trim()}>{busy === 'validate' ? 'Validating…' : 'Validate'}</button>
             <button className="btn" type="button" onClick={doCompile} disabled={busy !== null || !specText.trim()}>{busy === 'compile' ? 'Compiling…' : 'Compile'}</button>
-            <button className="btn" type="button" onClick={saveNewNode} disabled={busy !== null || !specText.trim()}>{busy === 'save' ? 'Saving…' : 'Save as new spec node'}</button>
+            <button className="btn" type="button" onClick={saveNewNode} disabled={busy !== null || !specText.trim()}>{busy === 'save' ? 'Saving…' : selectedTfs.length > 1 ? `Generate ${selectedTfs.length} nodes` : 'Save as new spec node'}</button>
             <button className="btn btn-ghost" type="button" onClick={saveNewVersion} disabled={busy !== null || !specText.trim() || !selected?.spec_json}
                     title={selected?.spec_json ? `New immutable version in the lineage of node #${selected.id}` : 'Select a spec-backed node in the registry first'}>
               {busy === 'version' ? 'Creating version…' : selected?.spec_json ? `Save as new version of #${selected.id}` : 'Save as new version (select a spec node)'}
@@ -547,6 +630,36 @@ export function ManualNodes() {
             Registry · {instrument}
             <button className="btn btn-ghost btn-sm" onClick={load} style={{ marginLeft: 'auto' }} aria-label="Refresh">↻ Refresh</button>
           </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+            <span className="tf-multi-label" style={{ margin: 0 }}>TIMEFRAME</span>
+            <div className="tf-chips" role="group" aria-label="Filter nodes by timeframe">
+              <button type="button" className={`tf-chip${tfScope.timeframes.length === 0 ? ' on' : ''}`}
+                      aria-pressed={tfScope.timeframes.length === 0} onClick={() => tfScope.setTimeframes([])}>All</button>
+              {SUPPORTED_TIMEFRAMES.map((tf) => {
+                const on = tfScope.timeframes.includes(tf)
+                const n = counts?.timeframe_counts?.[tf] ?? 0
+                return (
+                  <button key={tf} type="button" className={`tf-chip${on ? ' on' : ''}`}
+                          aria-pressed={on} onClick={() => toggleTfChip(tf)}
+                          title={`${tf} — ${n} node${n === 1 ? '' : 's'} in this instrument (star-scope aware)`}>
+                    {tf}<span className="tf-chip-count">{n}</span>
+                  </button>
+                )
+              })}
+              {(counts?.unassigned_timeframe_total ?? 0) > 0 && (
+                <span className="faint" style={{ fontSize: 10 }}>+{counts!.unassigned_timeframe_total} draft{counts!.unassigned_timeframe_total === 1 ? '' : 's'} without timeframe</span>
+              )}
+            </div>
+            <button type="button" className={`tf-chip${groupByTf ? ' on' : ''}`} style={{ marginLeft: 'auto' }}
+                    aria-pressed={groupByTf} onClick={() => setGroupByTf((v) => !v)}>
+              Group by timeframe
+            </button>
+          </div>
+          {tfScope.timeframes.length > 0 && (
+            <div className="faint" style={{ fontSize: 10, marginBottom: 8 }}>
+              Filtering: {tfScope.timeframes.join(', ')} — Select All applies only to these visible nodes ({counts?.filtered_total ?? '…'} of {counts?.total ?? '…'}).
+            </div>
+          )}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
             <StarredScopeControl mini total={counts?.total ?? null} starredTotal={counts?.starred_total ?? null} />
             {selectedIds.size > 0 && (
@@ -576,10 +689,13 @@ export function ManualNodes() {
                         checked={allVisibleSelected} data-indeterminate={someVisibleSelected && !allVisibleSelected}
                         onChange={toggleAllVisible} ref={(el) => { if (el) el.indeterminate = someVisibleSelected && !allVisibleSelected }} /></th>
                   <th className="star-col" aria-label="Starred">★</th>
-                  <th>ID</th><th>Name</th><th>Origin</th><th>v</th><th>Spec</th><th>Status</th><th>Approval</th><th></th>
+                  <th>ID</th><th>Name</th><th>Origin</th><th>TF</th><th>v</th><th>Spec</th><th>Status</th><th>Approval</th><th></th>
                 </tr></thead>
                 <tbody>
-                  {nodes.map((n) => (
+                  {grouped.map((group) => (
+                    <Fragment key={group.key}>
+                      {group.label && <tr className="group-row"><td colSpan={11}>{group.label}</td></tr>}
+                      {group.items.map((n) => (
                     <tr key={n.id} onClick={() => { setSelectedId(n.id); setLineage(null) }}
                         style={{ cursor: 'pointer', background: n.id === selectedId ? 'rgba(92,200,255,.06)' : undefined }}>
                       <td className="select-col" onClick={(e) => e.stopPropagation()}>
@@ -592,14 +708,42 @@ export function ManualNodes() {
                                     onToggle={() => toggleStar(n)} />
                       </td>
                       <td className="mono">#{n.id}</td>
-                      <td>{n.name}{n.description && <div className="row-desc">{n.description}</div>}</td>
+                      <td onClick={(e) => e.stopPropagation()}>
+                        {editingId === n.id ? (
+                          <span>
+                            <input autoFocus className="name-input" value={editDraft} maxLength={160}
+                                   disabled={editBusy} aria-label={`Rename node ${n.id}`}
+                                   onChange={(e) => { setEditDraft(e.target.value); setEditError(null) }}
+                                   onKeyDown={onInlineEditKeyDown(n)}
+                                   onBlur={() => { if (!editBusy) cancelInlineEdit() }} />
+                            {editError && <span className="name-error" role="alert">{editError}</span>}
+                          </span>
+                        ) : (
+                          <span className="name-cell">
+                            <button type="button" className="name-text"
+                                    title="Click to rename · Enter saves · Escape cancels"
+                                    onClick={() => startInlineEdit(n)}>{n.name}</button>
+                            <button type="button" className="name-edit-btn" aria-label={`Rename node ${n.id}`}
+                                    onClick={() => startInlineEdit(n)}>
+                              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor"
+                                   strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <path d="M17 3a2.85 2.85 1 1 1 4 4L8 20l-5 1 1-5L17 3z" />
+                              </svg>
+                            </button>
+                            {n.description && <div className="row-desc">{n.description}</div>}
+                          </span>
+                        )}
+                      </td>
                       <td><span className={`badge ${n.origin}`}>{n.origin}</span></td>
+                      <td>{n.timeframe ? <span className="tf-badge">{n.timeframe}</span> : <span className="tf-badge none" title="Draft — no spec, no timeframe">—</span>}</td>
                       <td className="mono">v{n.version}{n.parent_node_id ? <span className="faint">↳#{n.parent_node_id}</span> : null}</td>
                       <td className="mono faint" style={{ fontSize: 10.5 }}>{n.spec_hash ? `${n.spec_hash.slice(0, 12)}…` : '—'}</td>
                       <td><span className="badge DRAFT">{n.status}</span></td>
                       <td><span className={`badge ${n.approval_state === 'APPROVED' ? 'APPROVED' : 'PENDING'}`}>{n.approval_state}</span></td>
                       <td><button className="btn btn-ghost btn-sm" type="button" onClick={(e) => { e.stopPropagation(); setSelectedId(n.id); setLineage(null) }}>{n.id === selectedId ? 'Selected' : 'Inspect'}</button></td>
                     </tr>
+                      ))}
+                    </Fragment>
                   ))}
                 </tbody>
               </table>
@@ -610,6 +754,11 @@ export function ManualNodes() {
             <div style={{ borderTop: '1px solid var(--border)', marginTop: 10, paddingTop: 10 }}>
               <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', fontSize: 11.5 }}>
                 <strong>#{selected.id} · v{selected.version}</strong>
+                {selected.timeframe
+                  ? <span className="tf-badge">{selected.timeframe}</span>
+                  : <span className="tf-badge none" title="Draft — no spec, no timeframe">draft · no TF</span>}
+                <span className="tf-badge awaiting" title="No market-data store ships in this build (Phase 4) — a saved node is a validated spec, never a backtested result">AWAITING MARKET DATA</span>
+                <span className="faint" style={{ fontSize: 10 }}>DATA UNAVAILABLE — Phase 4</span>
                 <span className="faint">created by {selected.created_by}</span>
                 {selected.parent_node_id && <span className="faint">derived from #{selected.parent_node_id}</span>}
                 <button className="btn btn-ghost btn-sm" type="button" onClick={showLineage}>Lineage</button>

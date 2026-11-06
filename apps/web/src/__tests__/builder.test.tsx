@@ -172,9 +172,12 @@ describe('Manual Nodes — visual strategy builder', () => {
     await startBlank()
     fireEvent.click(screen.getByRole('button', { name: /save as new spec node/i }))
     await waitFor(() => expect(postCalls().length).toBeGreaterThan(0))
-    const body = JSON.parse(String((postCalls()[0][1] as RequestInit).body))
-    expect(body.name).toBe('C1')
-    expect(body.spec_json).toBeTruthy()
+    const generate = postCalls().find(([url]) => String(url).includes('/generate'))
+    expect(generate, 'save routes through /generate').toBeTruthy()
+    const body = JSON.parse(String((generate![1] as RequestInit).body))
+    expect(body.timeframes).toEqual(['M15'])   // default = registry default timeframe
+    expect(body.name).toBe('C1')               // explicit name honoured for single-TF saves
+    expect(body.spec?.identity?.name).toBe('C1')
   })
 
   it('preserves a manual custom name on save (hash path still backend-compiled)', async () => {
@@ -185,9 +188,10 @@ describe('Manual Nodes — visual strategy builder', () => {
     await startBlank()
     fireEvent.click(screen.getByRole('button', { name: /save as new spec node/i }))
     await waitFor(() => expect(postCalls().length).toBeGreaterThan(0))
-    const body = JSON.parse(String((postCalls()[0][1] as RequestInit).body))
+    const generate = postCalls().find(([url]) => String(url).includes('/generate'))
+    const body = JSON.parse(String((generate![1] as RequestInit).body))
     expect(body.name).toBe('XAU Breakout')
-    expect(body.spec_json).toContain('XAU Breakout') // identity.name follows the node name
+    expect(JSON.stringify(body.spec)).toContain('XAU Breakout') // identity.name follows the node name
   })
 
   it('instrument switch resets the workspace — no cross-instrument spec mixing', async () => {

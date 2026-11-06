@@ -238,3 +238,78 @@ deterministic compile → instrument/timeframe resolve → market-data integrity
 qualification → paper → MT5). Only stages 1–4 + spec validation are
 implemented; executors for 6–12 are future phases and are NOT claimed. See
 docs/PIPELINE.md for the full matrix, boundaries and risks.
+
+## Multi-timeframe strategy nodes — IMPLEMENTED & TESTED (pytest + vitest) — HERO V1.4.0
+
+Timeframe is a property of the NODE, never a global app setting. The global
+instrument dropdown (TopBar) is unchanged; there is deliberately NO global
+timeframe control anywhere. State lives in:
+
+- per-node `timeframe` column (instrument DBs; migration `0003_timeframe_unique_name`,
+  additive + idempotent; backfilled ONLY from stored spec_json identity — never
+  guessed; drafts keep NULL),
+- per-node fingerprint: `sha256(semantic_canonical(spec))` excludes presentation
+  fields (identity.name / identity.description) and INCLUDES identity.timeframe +
+  identity.instrument (compiler 1.1.0),
+- per-instrument sequential C-names (`^C(\d+)$`, first-available gap reuse),
+  raced-guarded by the additive UNIQUE index `uq_nodes_instr_name`
+  (`(instrument_id, name)`).
+
+### Save flow (one strategy → N nodes)
+`POST /api/v1/instruments/{instrument}/nodes/generate` — body: `spec` + `timeframes[]`
+(supported set only, no duplicates, else 422 TIMEFRAME_UNSUPPORTED/TIMEFRAME_DUPLICATE)
++ optional `name` (honoured ONLY for single-timeframe saves) + optional `description`.
+The server, in ONE all-or-nothing transaction per instrument database:
+1. re-validates the spec (authoritative), recomputes the canonical fingerprint
+   for the REFERENCE timeframe,
+2. for each requested timeframe, clones the spec with identity.timeframe re-stamped,
+   re-fingerprints, creates an independent node row (own id, own version 1,
+   lineage root = itself, parent NULL for roots),
+3. allocates sequential first-available C-names (server-side; unique index makes
+   concurrent allocation safe — one retry on conflict, else 409),
+4. returns `nodes[]` (created, in requested-timeframe order) — the client never
+   sends N specs and never allocates names for multi-timeframe saves.
+
+### Fingerprint migration (one-off, 2026-11-06)
+The fingerprint definition changed (compiler 1.0.0 → 1.1.0) so previously stored
+spec_hashes no longer match deterministic recomputation. `hero1_storage.fingerprint_migrate`
+/ `scripts/migrate_fingerprints.py` recompute from stored spec_json: dry-run by default,
+collision-refuses (two nodes with same (hash, version) → NOTHING written, both listed),
+backup-then-apply per DB, idempotent. Preview DATA root: 1 draft node, no spec →
+nothing to rewrite (verified by dry-run). Live databases with real specs MUST run the
+dry-run before the next deploy; see docs/DATA_LAYOUT.md § backups.
+
+### Frontend
+`TimeframeMultiSelect` (themed listbox multi-select; registry-restricted values;
+Select All / Clear All / counts / readable summary / no-timeframe validation; full
+keyboard + ARIA contract) in the node strategy creation flow. Default = registry
+default (`instruments.default_timeframe`, XAUUSD=M15) else M15. Multi-TF saves POST
+`/nodes/generate` (names allocated server-side; UI labels the button `Generate N
+nodes`); single-TF saves honour the explicit name input. Display name is
+INDEPENDENT of id and fingerprint: renames are metadata-only PATCH (Enter/Escape,
+trim/≤160/dup-per-instrument) and never fork versions or change hashes.
+
+Registry: TF badge column, timeframe filter chips (server `?timeframe=` filter,
+per-TF counts from `timeframe_counts`), "Group by timeframe" view toggle, and a
+`TIMEFRAME UNASSIGNED` treatment for spec-less drafts. Shared persisted scope
+(`TimeframeScopeProvider`, localStorage `hero1.timeframeScope`) drives Manual Nodes
+AND the batch-scope panels of DeepTesting / Fine Tuning / Live Testing — Select All
+always applies to the currently visible (filtered) set only.
+
+### Honesty gates
+No market-data store exists; saved multi-timeframe nodes are DRAFT/PENDING and render
+`AWAITING MARKET DATA · DATA UNAVAILABLE — Phase 4` in the inspector. No backtest,
+validation, qualification or live-readiness claim is made anywhere in this flow.
+W1/MN1 are not in the supported registry and are deliberately not selectable.
+
+### Verification
+- pytest 103 passed / 1 skipped (tests/test_multitimeframe.py: single/3/7-TF saves,
+  gap C-number reuse, per-instrument isolation, hash-vs-rename invariance, list
+  422s, timeframe_counts, migration tool incl. collision refusal)
+- vitest 40/40 (src/__tests__/multitimeframe.test.tsx: generate fan-out contract,
+  no-TF validation gate, server-side chip filter, group-by, inline rename, keyboard)
+- Live preview (BACKEND :8788 + vite :5173): list contract incl. timeframe_counts,
+  422 TIMEFRAME_UNSUPPORTED / TIMEFRAME_DUPLICATE, /health identity echo; migration
+  applied to preview DATA (alembic 0002→0003 ×3 instrument DBs; fingerprint dry-run
+  = no-op); backups in BACKUPS/pre-0003-2026-11-06/.
+- Windows .bat files remain UNTESTED on Windows (no Windows in this environment).

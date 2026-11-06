@@ -47,6 +47,20 @@ with a named token and document it here.
   `components/InstrumentSelect.tsx`; behavior contract: state/instrument.tsx
   owns registry, persistence (`hero1.instrument`), XAUUSD default, disabled
   unavailable options; the component owns visuals, keyboard, ARIA).
+- `.tf-multi` trigger/label/panel + `.tf-option` / `.tf-check` / `.tf-trigger-count` /
+  `.tf-panel-actions` / `.tf-action` — themed MULTI-select listbox for timeframes
+  (component: `components/TimeframeMultiSelect.tsx`). Same listbox recipe and a11y
+  contract as InstrumentSelect (role=listbox panel, aria-multiselectable,
+  role=option + aria-selected, arrow-key navigation, Home/End, Space/Enter toggle,
+  Escape/Tab close, outside-mousedown closes, `aria-invalid` + `field-error` in the
+  no-timeframe state). Values restricted to the supported registry — the component
+  cannot express W1/MN1. Used for the node creation fan-out and the batch scope.
+- `.tf-chips` / `.tf-chip(.on)` / `.tf-chip-count` — compact timeframe filter chips
+  (registry filter row; server-enforced `?timeframe=`). Per-TF counts inside the chip;
+  `All` chip clears the filter.
+- `.tf-badge` — read-only TF badge (table column, inspector header). `.group-row` —
+  full-width timeframe group separator in the registry table (display only).
+  `.name-edit-btn` / `.name-input` / `.name-error` — inline rename affordances.
 - `.star-btn` / `.star-btn.on` — star toggle (research metadata only).
 - `.scope-line`, `.selection-chip`, `.instrument-warn` — meta rows/badges.
 - Focus ring is global (`:focus-visible` outline `--accent`); never remove it.
@@ -84,4 +98,10 @@ with a named token and document it here.
   `aria-disabled`; focus stays on the trigger, keyboard drives the active
   option (ArrowUp/Down, Home, End, Enter, Space, Escape, Tab=close);
   outside-mousedown closes. Screen-reader name = `Instrument — current: X`.
+- Timeframe multi-select: trigger carries `aria-haspopup="listbox"` +
+  `aria-expanded` + `aria-controls` + `aria-multiselectable` on the panel; each option
+  is `role="option"` with `aria-selected`; Space/Enter toggles, arrows move the active
+  option, Home/End jump, Escape closes and refocuses the trigger, Tab closes; label
+  (`label=` prop) names the control for screen readers; invalid state sets
+  `aria-invalid` and an associated `role="alert"` message.
 - Disabled options are announced and unselectable via click AND keyboard.

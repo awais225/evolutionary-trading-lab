@@ -16,7 +16,7 @@ const baseNode = {
   id: 1, instrument_id: 'XAUUSD', origin: 'CUSTOM', name: 'x', description: null,
   status: 'DRAFT', approval_state: 'PENDING', version: 1, parent_node_id: null,
   spec_hash: null as string | null, spec_json: null as string | null,
-  created_by: 'test', created_at: 0, updated_at: 0, starred: false,
+  created_by: 'test', created_at: 0, updated_at: 0, starred: false, timeframe: 'M15',
 }
 
 function route(url: string, method: string, bodyText?: string): Response {
@@ -53,6 +53,26 @@ function route(url: string, method: string, bodyText?: string): Response {
     if (/\/nodes\/\d+\/versions$/.test(url)) {
       return json({ ...baseNode, id: 2, version: 2, parent_node_id: 1, spec_hash: SPEC_FINGERPRINT, spec_json: '{"schema_version":"1.0.0"}' }, 201)
     }
+    if (url.includes('/generate')) {
+      const tfs: string[] = Array.isArray(body?.timeframes) ? body.timeframes.map((t: string) => String(t).toUpperCase()) : ['M15']
+      const all = (globalThis as { __hero1NodeItems?: Array<Record<string, unknown>> }).__hero1NodeItems ?? []
+      const used = new Set<number>()
+      for (const n of all) {
+        const m = /^c(\d+)$/i.exec(String((n as Record<string, unknown>).name ?? '').trim())
+        if (m) used.add(parseInt(m[1], 10))
+      }
+      const names: string[] = []
+      if (tfs.length === 1 && body?.name) { names.push(String(body.name)) } else {
+        let k = 1
+        while (names.length < tfs.length) { if (!used.has(k)) { names.push(`C${k}`); used.add(k) } k += 1 }
+      }
+      const created = tfs.map((tf, i) => ({
+        ...baseNode, id: i + 1, name: names[i], timeframe: tf,
+        spec_hash: SPEC_FINGERPRINT,
+        spec_json: JSON.stringify({ ...(body?.spec ?? {}), identity: { ...(body?.spec?.identity ?? {}), timeframe: tf } }),
+      }))
+      return json({ instrument: 'XAUUSD', requested: tfs, count: created.length, created }, 201)
+    }
     if (method === 'POST') {
       const hasSpec = typeof body?.spec_json === 'string'
       return json({ ...baseNode, spec_hash: hasSpec ? SPEC_FINGERPRINT : null, spec_json: hasSpec ? body.spec_json : null }, 201)
@@ -67,8 +87,16 @@ function route(url: string, method: string, bodyText?: string): Response {
     const filtered = wantStarred ? all.filter((n) => n.starred === true)
       : wantUnstarred ? all.filter((n) => n.starred !== true)
       : all
+    const tfCounts: Record<string, number> = {}
+    for (const n of filtered) { const tf = (n as Record<string, unknown>).timeframe as string | null | undefined; if (tf) tfCounts[tf] = (tfCounts[tf] ?? 0) + 1 }
+    const wantTf = new URLSearchParams(url.split('?')[1] ?? '').get('timeframe')
+    const tfFilter = wantTf ? new Set(wantTf.split(',').map((t) => t.trim().toUpperCase())) : null
+    const tfFiltered = tfFilter ? filtered.filter((n) => tfFilter.has(String((n as Record<string, unknown>).timeframe ?? '').toUpperCase())) : filtered
     return json({ instrument: 'XAUUSD', total: all.length, starred_total: starredTotal,
-                  filtered_total: filtered.length, items: filtered })
+                  filtered_total: tfFiltered.length,
+                  timeframe_counts: tfCounts,
+                  unassigned_timeframe_total: filtered.filter((n) => !(n as Record<string, unknown>).timeframe).length,
+                  items: tfFiltered })
   }
   if (url.includes('/api/v1/instruments')) {
     const override = (globalThis as { __hero1Instruments?: unknown[] }).__hero1Instruments

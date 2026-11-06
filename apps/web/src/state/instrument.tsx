@@ -6,6 +6,8 @@ export interface SelectorInstrument {
   symbol: string
   display_name: string
   enabled: boolean
+  /** Registry default timeframe (used as the per-instrument default selection for strategy creation). Absent on the static fallback → M15. */
+  default_timeframe?: string
 }
 
 /**
@@ -67,6 +69,7 @@ export function InstrumentProvider({ children }: { children: ReactNode }) {
           symbol: i.symbol.toUpperCase(),
           display_name: i.display_name,
           enabled: i.enabled,
+          default_timeframe: (i.default_timeframe || 'M15').toUpperCase(),
         }))
         if (list.length === 0) {
           setInstruments(FALLBACK)

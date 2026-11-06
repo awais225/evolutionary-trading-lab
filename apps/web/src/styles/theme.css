@@ -455,3 +455,99 @@ input[type="number"].input { -moz-appearance: textfield; }
 .scope-hint { font-size: 11px; color: var(--muted); line-height: 1.6; margin-top: 8px; }
 .selection-chip { display: inline-flex; align-items: center; gap: 8px; font-size: 10.5px; font-family: var(--mono); color: var(--accent-strong); border: 1px solid rgba(230,185,61,.3); background: var(--accent-soft); border-radius: 999px; padding: 3px 12px; }
 .selection-chip button { background: none; border: none; color: var(--accent-strong); cursor: pointer; font-size: 11px; text-decoration: underline; padding: 0; }
+
+/* ------------------------------------------------------------------ */
+/* Timeframe multi-select (graphical tier) + timeframe badges/filters */
+/* ------------------------------------------------------------------ */
+.tf-multi { position: relative; display: inline-flex; flex-direction: column; }
+.tf-multi-label { font-family: var(--mono); font-size: 9px; letter-spacing: 1.4px; color: var(--accent); margin-bottom: 4px; }
+.tf-trigger {
+  display: inline-flex; align-items: center; gap: 10px;
+  border: 1px solid rgba(230,185,61,.45); border-radius: 10px;
+  background: linear-gradient(180deg, var(--bg-2), #131a24);
+  color: var(--text); font-family: var(--mono); font-size: 11.5px; font-weight: 700;
+  letter-spacing: .4px; padding: 7px 10px 7px 12px; cursor: pointer;
+  min-width: 230px; max-width: 380px; transition: all .15s ease;
+}
+.tf-trigger:hover { border-color: rgba(230,185,61,.75); box-shadow: 0 0 14px rgba(230,185,61,.18); }
+.tf-trigger:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.tf-multi.open .tf-trigger { border-color: var(--accent); box-shadow: 0 0 18px rgba(230,185,61,.28); }
+.tf-multi.invalid .tf-trigger { border-color: var(--err); box-shadow: 0 0 12px rgba(229,72,77,.25); }
+.tf-trigger-value { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.tf-trigger-count { flex: 0 0 auto; }
+.tf-multi.open .instrument-chevron { transform: rotate(180deg); color: var(--accent); }
+.tf-panel { min-width: 300px; }
+.tf-panel-actions {
+  display: flex; gap: 8px; align-items: center;
+  padding: 6px 8px 8px; border-bottom: 1px solid var(--border); margin-bottom: 4px;
+}
+.tf-action {
+  font-family: var(--mono); font-size: 9.5px; font-weight: 800; letter-spacing: 1px;
+  text-transform: uppercase; color: var(--accent-strong);
+  background: var(--accent-soft); border: 1px solid rgba(230,185,61,.3);
+  border-radius: 6px; padding: 4px 9px; cursor: pointer; transition: all .12s ease;
+}
+.tf-action:hover { background: rgba(230,185,61,.22); border-color: rgba(230,185,61,.5); }
+.tf-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.tf-option { grid-template-columns: 22px 1fr auto; }
+.tf-check {
+  width: 16px; height: 16px; border-radius: 4px;
+  border: 1px solid var(--border-strong); background: var(--bg-1);
+  display: inline-flex; align-items: center; justify-content: center; color: transparent;
+}
+.tf-option.selected .tf-check { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-strong); }
+.tf-check svg { width: 12px; height: 12px; }
+
+/* timeframe badge in the registry table */
+.tf-badge {
+  display: inline-flex; align-items: center; border-radius: 5px;
+  border: 1px solid rgba(230,185,61,.3); background: var(--accent-soft);
+  color: var(--accent-strong); font-family: var(--mono); font-size: 9.5px;
+  font-weight: 800; letter-spacing: 1px; padding: 2px 7px;
+}
+.tf-badge.none { border-color: var(--border); background: transparent; color: var(--faint); }
+.tf-badge.awaiting { border-color: rgba(88,166,255,.3); background: rgba(88,166,255,.08); color: var(--blue); }
+
+/* timeframe filter chips (registry toolbar) */
+.tf-chips { display: inline-flex; gap: 5px; flex-wrap: wrap; align-items: center; }
+.tf-chip {
+  display: inline-flex; gap: 5px; align-items: center;
+  font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: .5px;
+  color: var(--muted); background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: 999px; padding: 3px 10px; cursor: pointer; transition: all .12s ease;
+}
+.tf-chip:hover { border-color: var(--border-strong); color: var(--text); }
+.tf-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.tf-chip.on {
+  background: linear-gradient(180deg, var(--accent-strong), var(--accent));
+  border-color: rgba(245,205,94,.8); color: #171106;
+  box-shadow: 0 0 12px rgba(230,185,61,.3);
+}
+.tf-chip .tf-chip-count { font-size: 8.5px; opacity: .8; }
+.tf-chip.on .tf-chip-count { color: #171106; }
+
+/* group separator rows in the registry table */
+tr.group-row td {
+  background: var(--bg-2); border-top: 1px solid var(--border-strong);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--mono); font-size: 9.5px; font-weight: 800; letter-spacing: 1.6px;
+  text-transform: uppercase; color: var(--accent); padding: 6px 10px;
+}
+
+/* inline-editing name cell */
+.name-cell { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; }
+.name-text { font-weight: 600; color: var(--text); background: transparent; border: none; border-bottom: 1px dashed transparent; padding: 0; cursor: text; font: inherit; text-align: left; }
+.name-text:hover { color: var(--accent-strong); border-bottom-color: var(--border-strong); }
+.name-edit-btn {
+  opacity: 0; border: none; background: transparent; color: var(--faint);
+  cursor: pointer; padding: 3px; border-radius: 5px; transition: all .12s ease;
+}
+tr:hover .name-edit-btn, .name-text:focus-visible + .name-edit-btn { opacity: 1; }
+.name-edit-btn:hover { color: var(--accent-strong); background: var(--bg-3); }
+.name-edit-btn:focus-visible { opacity: 1; outline: 2px solid var(--accent); outline-offset: 1px; }
+.name-input {
+  font-family: var(--mono); font-size: 12px; font-weight: 600; color: var(--text);
+  background: var(--bg-1); border: 1px solid var(--accent); border-radius: 6px;
+  padding: 3px 8px; width: 190px; outline: none; box-shadow: 0 0 10px rgba(230,185,61,.25);
+}
+.name-error { display: block; color: var(--err); font-size: 10.5px; margin-top: 3px; max-width: 260px; }
