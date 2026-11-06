@@ -37,9 +37,18 @@ Windows/RTX 4090/MT5 still unverified; local Ollama currently unreachable
 (integration test skipped); Phase 2 not started; post-push verification record
 is a follow-up docs commit on top of HERO-V1.0.0 (tags immutable).
 
-**Commit:** (HERO V1 release commit — see git log; the post-push record commit
-carries this SHA)
-**Tag:** HERO-V1.0.0
+**Commit:** `eaf02eb97341322a1bc443c43bbd588f4c8fdf12` (tag HERO-V1.0.0)
+**Tag:** HERO-V1.0.0 → eaf02eb97 (annotated e7cfba090c47bb7fbe744f9d184976c9212d6a8f)
+
+**Remote verification (2026-11-06):** `git ls-remote origin` — refs/heads/main
+= eaf02eb9…; refs/heads/legacy-archive = d96ec4b…; legacy branches
+(v10.2-dashboard-manual-testing @ f5935f3, v10.3-speed-diagnostics @ 8abf304,
+v10.4-throughput @ 85b79b1) and legacy tags (archive-v5.4-line-d9ea8e7 @
+d9ea8e7, V5.3.1-V6-BASELINE @ 11415f6) intact; v0.1.0 → 840bf71, v0.1.1 →
+ddce564, HERO-V1.0.0 → eaf02eb9. Initial push rejected by GitHub (PAT lacked
+`workflow` scope; remote unchanged, verified); retried with a workflow-scoped
+token — success. A post-push record commit follows this entry on main
+(tags remain on eaf02eb9; tags are not moved).
 
 ---
 

@@ -32,8 +32,9 @@ No trading capability exists. Phase 2 (strategy compiler) is NOT started.
   VISIBILITY: PUBLIC (owner decision, 2026-11-06). Hero1 occupies `main` as
   HERO V1; the legacy Evolutionary Trading Lab project is preserved on the
   `legacy-archive` branch.
-- Active branch: main (full Hero1 history: 840bf71 → ddce564 → 2471da6,
-  plus the HERO V1 release commit and the post-push record commit)
+- Active branch: main — full Hero1 history:
+  840bf71 (v0.1.0) → ddce564 (v0.1.1) → 2471da6 → eaf02eb97 (HERO-V1.0.0)
+  → post-push record commit (this commit)
 - legacy-archive branch: d96ec4baae56054729b3dd961aea9b7f0b067114
   (original Evolutionary Trading Lab main, "V10.5.2: optimize dashboard reads
   and DeepTest summaries", author awais225, 2026-11-01) — verified remotely
@@ -43,7 +44,7 @@ No trading capability exists. Phase 2 (strategy compiler) is NOT started.
 - Phase 1 commit:    840bf71d9d3adbb556be1bf19771b63d98ae3e57 (tag v0.1.0)
 - Phase 1.1 commit:  ddce56450ed8e354e8a5e7e8a3ede89aaa5a7d81 (tag v0.1.1)
 - Phase 1.2 commit:  2471da69d1533ed05b9247f46cffc25e4060d78b
-- HERO V1 release:   see git log + tag HERO-V1.0.0
+- HERO V1 release:   eaf02eb97341322a1bc443c43bbd588f4c8fdf12 (tag HERO-V1.0.0; push verified 2026-11-06)
 - Local repo:  /home/user/hero1-trading-platform (Linux dev box)
 - Local safety bundle: /home/user/backups/hero1-2471da6-full.bundle
 - Legacy DATA/LFS (parquet/db/sqlite + DATA/HISTORICAL CSVs): untouched;
@@ -310,8 +311,13 @@ explicit until their phase lands; never rewrite 840bf71.
   fetch; legacy main/branches/tags untouched; LFS objects preserved
 - Hero1 docs updated; HERO-V1.0.0 tag created on the release commit
 - main force-with-lease push (lease = d96ec4ba…); tags v0.1.0/v0.1.1/HERO-V1.0.0 pushed
-- Post-push: git ls-remote verified; see CHANGELOG.md HERO-V1.0.0 entry and
-  PROMPTS/PHASE_1_3_HERO_V1_REPOSITORY_MIGRATION.md OUTCOME
+- Post-push remote verification (authenticated ls-remote, 2026-11-06):
+  refs/heads/main == eaf02eb97341322a1bc443c43bbd588f4c8fdf12;
+  refs/heads/legacy-archive == d96ec4baae56054729b3dd961aea9b7f0b067114;
+  legacy branches v10.2/v10.3/v10.4 intact; legacy tags intact;
+  refs/tags/{v0.1.0,v0.1.1,HERO-V1.0.0} present (HERO-V1.0.0^{} == main).
+  One push was rejected initially (workflow scope) with remote UNCHANGED
+  (lease + verification confirmed); retried with a workflow-scoped token.
 
 2026-11-06 — Auth re-check: GitHub connector "unsupported"; env GITHUB_TOKEN
 absent; gh CLI absent; no credential helpers/files → push BLOCKED (OPEN-001).

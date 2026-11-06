@@ -220,9 +220,13 @@ locally and remotely). History preserved: 840bf71 → ddce564 → 2471da6 (full 
 2471da69d1533ed05b9247f46cffc25e4060d78b).
 
 PART 4 — main replaced with Hero1 via lease-protected push
-(`git push --force-with-lease=main:<legacy-sha> origin main:main`) — executed
-ONLY after legacy-archive was verified remotely. Remote README/API SHAs in
-CHANGELOG/CHATGPT.txt; final SHAs recorded post-push.
+(`--force-with-lease=main:d96ec4ba…`). First attempt REJECTED by GitHub
+(PAT lacked 'workflow' scope for .github/workflows/ci.yml; remote verified
+UNCHANGED afterwards). Owner then provided a workflow-scoped credential;
+push succeeded (d96ec4ba… → eaf02eb9…) — executed only after legacy-archive
+was verified remotely. Post-push authenticated ls-remote: main =
+eaf02eb97341322a1bc443c43bbd588f4c8fdf12; legacy-archive = d96ec4ba…;
+legacy branches/tags intact; v0.1.0/v0.1.1/HERO-V1.0.0 pushed and verified.
 
 PART 5 — docs included in the HERO V1 release commit; this file archived.
 Visibility decision by owner: KEEP REPOSITORY PUBLIC (explicit owner decision,
