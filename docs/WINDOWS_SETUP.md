@@ -16,15 +16,29 @@ Hero1 on Windows:
    e.g. `set HERO1_DATA_ROOT=E:\Hero1Data`. The launcher windows are
    persistent; both stay open (or exit with a visible error + pause) until you
    close them.
-2. **`START.bat`** — double-click it whenever you want Hero1. It verifies the
-   database (initializing idempotently if needed), detects an already-running
-   instance (never launches duplicates), starts the backend in a persistent
-   visible window (`HERO1 Backend :8788`) and the frontend in another
-   (`HERO1 Frontend :5173`), polls real HTTP readiness, then opens
-   <http://127.0.0.1:5173/> in the default browser.
+2. **`START.bat`** — double-click it whenever you want Hero1. Adapted from the
+   proven legacy Evolutionary Trading Lab launcher, it runs in stages:
+   project-root detection → venv resolution → backend import check → database
+   integrity check → frontend dependency check → **port ownership checks**
+   (`scripts\check_port.py`; exit 10 = verified Hero1, 20 = foreign app — never
+   killed, never reused silently) → starts the backend in a persistent visible
+   window (`HERO1 Backend :8788`) → **real HTTP health polling** (`scripts\wait_ready.py`)
+   → **instance identity verification** (`scripts\verify_instance.py`: the process
+   answering :8788 must serve THIS repo — `HERO1_REPO_ROOT` — and, for a fresh
+   launch, carry this run's `HERO1_START_TOKEN`) → starts the frontend in a
+   persistent window (`HERO1 Frontend :5173`, vite `strictPort`) → verifies the
+   page AND that the **vite proxy forwards `/health` to our backend** → only then
+   opens <http://127.0.0.1:5173/> in the browser → keeps a foreground monitor
+   loop in the launcher window. Re-running reuses verified instances instead of
+   launching duplicates. Every failure path prints diagnostics and pauses — the
+   window never closes silently. For troubleshooting run it as
+   `cmd /k START.bat` so all output stays visible, and see
+   `<PROJECT_ROOT>\DATA\LOGS\startup.log`.
 
-Logs: `<PROJECT_ROOT>\DATA\LOGS\{prerequisite,startup,backend,frontend}.log`
-(append-only; what it did, what failed, what to do next).
+Logs: `<PROJECT_ROOT>\DATA\LOGS\{prerequisite,startup}.log`
+(append-only; what it did, what failed, what to do next). The backend and
+frontend print directly to their own service windows by design (the proven
+legacy pattern — no pipes), so tracebacks always remain visible there.
 
 **Verification status:** the files were written for Windows 10/11 and reviewed;
 the underlying commands (editable installs, `npm ci`, `npm run build`,
@@ -32,8 +46,10 @@ the underlying commands (editable installs, `npm ci`, `npm run build`,
 Linux-verified from scratch in a clean environment, but **the .bat files
 themselves have NOT been executed on a Windows machine yet** — treat first run
 on Windows as a smoke test and report any failure with the log file above.
-Never put DATA inside the repository checkout; production DATA at
-`<PROJECT_ROOT>\DATA` is never deleted or reset by these scripts.
+The canonical in-checkout DATA root is `<PROJECT_ROOT>\DATA` (the folder
+containing the BAT files); it is git-ignored and never deleted or reset by these
+scripts. `HERO1_DATA_ROOT` overrides it (e.g. `E:\Hero1Data`) for machines with
+a dedicated data drive — do not commit it or point it inside `.git`.
 
 This is the runbook for the intended production machine: Windows 11, Intel i9,
 RTX 4090 (Laptop, 16 GB VRAM), 32 GB RAM, MT5 installed via MetaTrader 5.
@@ -48,12 +64,16 @@ RTX 4090 (Laptop, 16 GB VRAM), 32 GB RAM, MT5 installed via MetaTrader 5.
 
 ## 2. DATA root
 
+Default (in-checkout, git-ignored): `<PROJECT_ROOT>\DATA` — no configuration
+needed. To relocate to a data drive:
+
 ```powershell
-$env:HERO1_DATA_ROOT = "D:\\Hero1\\DATA"   # persistent: set via System → Environment Variables
+setx HERO1_DATA_ROOT "E:\Hero1Data"   # persistent: set via System → Environment Variables
 ```
 
 The app creates the required subtree idempotently on `init_db --create`.
-Nothing is ever written into the git checkout.
+Set the same variable before launching `START.bat` / `PREREQUISITES.bat` if you
+relocate DATA.
 
 ## 3. Backend
 

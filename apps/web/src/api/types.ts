@@ -27,11 +27,18 @@ export interface Node {
   created_by: string
   created_at: number
   updated_at: number
+  /** Favorite flag — research metadata only. Never affects spec semantics. */
+  starred: boolean
 }
 
 export interface NodeListOut {
   instrument: string
+  /** UNFILTERED instrument total (stable contract). */
   total: number
+  /** Starred nodes in this instrument (unfiltered). */
+  starred_total: number
+  /** Rows matching the ACTIVE filter (== total when no filter is applied). */
+  filtered_total: number
   items: Node[]
 }
 

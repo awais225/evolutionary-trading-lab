@@ -72,6 +72,9 @@ class NodePatch(BaseModel):
     description: Optional[str] = Field(default=None, max_length=4000)
     status: Optional[NodeStatus] = None
     approval_state: Optional[ApprovalState] = None
+    # Favorite toggle — research metadata only. Cannot alter spec_json, spec_hash,
+    # version or lineage, so it cannot change strategy semantics or validation.
+    starred: Optional[bool] = None
 
 
 class NodeOut(BaseModel):
@@ -89,13 +92,16 @@ class NodeOut(BaseModel):
     created_by: str
     created_at: float
     updated_at: float
+    starred: bool = False
 
     model_config = {"from_attributes": True}
 
 
 class NodeListOut(BaseModel):
     instrument: str
-    total: int
+    total: int                    # UNFILTERED instrument total (stable contract)
+    starred_total: int = 0        # nodes currently starred (unfiltered)
+    filtered_total: int = 0       # rows matching the ACTIVE filter (== total when none)
     items: List[NodeOut]
 
 
@@ -167,6 +173,11 @@ class HealthOut(BaseModel):
     status: Literal["ok", "degraded"]
     version: str
     checks: dict
+    # Additive launcher-identity fields. Both are None unless the process was
+    # started by START.bat/run_backend.cmd (localhost only; no secrets). Let the
+    # launcher prove that the answering process is THIS repository and this launch.
+    start_token: str | None = None
+    project_root: str | None = None
 
 
 class ErrorOut(BaseModel):

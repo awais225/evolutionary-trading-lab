@@ -159,26 +159,31 @@ class NodeRepository:
         ).scalar_one_or_none()
 
     def list(self, *, origin: Optional[str] = None, status: Optional[str] = None,
+             starred: Optional[bool] = None,
              limit: int = 200, offset: int = 0) -> List[im.Node]:
         stmt = self._scoped(select(im.Node)).order_by(im.Node.id.desc())
         if origin:
             stmt = stmt.where(im.Node.origin == origin.upper())
         if status:
             stmt = stmt.where(im.Node.status == status.upper())
+        if starred is not None:
+            stmt = stmt.where(im.Node.starred.is_(bool(starred)))
         stmt = stmt.offset(max(0, offset)).limit(max(1, min(limit, 500)))
         return list(self.s.execute(stmt).scalars())
 
-    def count(self) -> int:
+    def count(self, *, starred: Optional[bool] = None) -> int:
         from sqlalchemy import func
-        return int(self.s.execute(
-            select(func.count()).select_from(im.Node).where(im.Node.instrument_id == self.instrument)
-        ).scalar_one())
+        stmt = select(func.count()).select_from(im.Node).where(
+            im.Node.instrument_id == self.instrument)
+        if starred is not None:
+            stmt = stmt.where(im.Node.starred.is_(bool(starred)))
+        return int(self.s.execute(stmt).scalar_one())
 
     def update(self, node_id: int, **fields) -> Optional[im.Node]:
         node = self.get(node_id)
         if node is None:
             return None
-        allowed = {"name", "description", "status", "approval_state", "spec_json", "spec_hash", "version"}
+        allowed = {"name", "description", "status", "approval_state", "spec_json", "spec_hash", "version", "starred"}
         for key, value in fields.items():
             if key in allowed and value is not None:
                 setattr(node, key, value)

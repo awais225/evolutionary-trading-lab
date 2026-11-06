@@ -489,3 +489,74 @@ here); underlying commands Linux-verified only. Preview services running in this
 workspace on /home/user/hero1-workspace-data (outside git): backend :8788 (health ok),
 frontend :5173 (HTTP 200). Indicator values remain unavailable (Phase 3 dependency).
 Fixes recorded in docs/ISSUES_AND_FIXES.md ISSUE-020..024. legacy-archive untouched.
+
+================================================================
+[2026-11-06] HERO-V1.3.0 — TASK 7: CRITICAL RECOVERY (launcher, theme, starred nodes, pipeline audit)
+================================================================
+PROMPT: PROMPTS/CRITICAL_RECOVERY_LAUNCHER_STARRED.md (archived before work)
+
+WHAT WAS DONE
+- Legacy launcher architecture recovered READ-ONLY from v10.4-throughput (85b79b1c):
+  start.bat fully read (433 lines), scripts/run_backend.bat, check_port.py,
+  wait_ready.py, frontend_build_guard.py (LAUNCHER_FIX_REPORT: the stale-bundle
+  class of bugs + the "are was unexpected at this time" nested-batch-parsing
+  failure class), PREREQUISITES lineage, V10_4 launch/uat reports. Also inspected
+  v10.3-speed-diagnostics (8abf3042), v10.2-dashboard-manual-testing (f5935f33),
+  legacy-archive (d96ec4b). Legacy branches NOT modified.
+- Root causes fixed (full register ISSUE-025..032):
+  1) Launcher accepted any HTTP 200 as "our instance"; no identity proof.
+  2) No frontend→backend (vite proxy) verification — page 200 ≠ API connected.
+  3) vite.config.ts had no strictPort → silent drift to 5174+.
+  4) Service windows piped uvicorn/vite through powershell Tee-Object.
+  5) `uvicorn services.api.app.main:app` from repo root double-loaded app modules
+     (services.api.app.* entry + app.* imports). Fixed to legacy semantics:
+     cwd services\api + `uvicorn app.main:app` (single identity).
+  6) Theme regression: bare/inactive-less buttons, native select arrow, native
+     checkbox/radio accent, time-picker indicator; all integrated into the token
+     system (appearance:none chevron, accent-color, .star-btn etc.).
+- START.bat rebuilt on the proven stage architecture with NO new wrapper layers;
+  persistent cmd /k service windows; real HTTP readiness; instance identity
+  verification (project_root + per-run HERO1_START_TOKEN echoed by /health);
+  proxy→backend verification; browser only after all checks; foreground monitor
+  loop; every failure path visible + pause; LOGS\startup.log append-only;
+  `cmd /k START.bat` for full diagnostic output.
+- Starred/favorite nodes (research metadata ONLY): additive nodes.starred column
+  + idempotent migration 0002_nodes_starred (instrument DBs; existing rows 0; no
+  data rewritten). Server-enforced ?starred=true|false filter on node lists;
+  starred_total/filtered_total on the response; PATCH starred metadata-only;
+  spec_hash/version/lineage/validation untouched by starring (tested).
+- UI: per-row SVG star toggle (optimistic + rollback) in Manual Nodes; shared
+  All Nodes / Starred Only scope with live counts in Manual Nodes + DeepTesting /
+  Fine Tuning / Live Testing placeholders; Select-All = currently visible
+  (filtered) set; selection pruned to visible set; counts always visible.
+- Pipeline preservation: docs/PIPELINE.md recovers the legacy stage order from
+  source (INIT→DATA_DISCOVERY→DATA_SYNC→DATA_VALIDATION→FEATURE_*→DATASET_*→
+  RESEARCH→NODE_GENERATION→NODE_EVALUATION→BACKTESTING→VALIDATION→QUALIFICATION→
+  EVOLUTION→RESEARCH_COMPLETED) and maps it onto Hero1 with honest statuses.
+  Only stages 1–4 + spec validation are implemented; everything else is marked
+  future and is NOT claimed. Boundaries documented (spec authoritative,
+  validation≠qualification, paper≠MT5, star⊥semantics, instrument-explicit).
+- Theme audit: every control grep-verified against the token system; no second
+  design system introduced; no unrelated theme changes.
+
+VERIFIED (LMS Linux)
+- pytest 91 passed / 1 skipped; vitest 28/28; tsc + vite build GREEN.
+- Live preview restarted (backend HERO1_START_TOKEN set; frontend via preview
+  config, strictPort): /health ok with identity echo; proxy /health -> backend ok;
+  reuse/fresh/wrong-token identity checks rc-verified; all 8 tabs serve 200;
+  preview DATA migrated 0001→0002 (starred column + index; rows untouched).
+- BAT files: static audit only (labels/gotos/parens/quotes/pipes) + Linux
+  rehearsal of every invoked command. WINDOWS EXECUTION NOT PERFORMED — the
+  .bat files remain unproven on Windows; first run must be a smoke test.
+
+AST NODE_COUNT: 0 changes to algorithmic semantics; spec compiler untouched.
+STARRED SEMANTICS: rename/star never touches spec_hash — enforced server-side.
+
+PUBLISHED
+- Commit (TASK 7): SEE git log -1 after push; remote main verified via ls-remote.
+  (SHAs recorded below after push.)
+
+KNOWN LIMITS
+- Windows BAT execution unproven; MT5/Phases 4–8 not implemented (by design);
+  browser E2E absent (ISSUE-011); first Windows run = smoke test with
+  cmd /k START.bat and LOGS\startup.log.

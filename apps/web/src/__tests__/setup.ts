@@ -16,7 +16,7 @@ const baseNode = {
   id: 1, instrument_id: 'XAUUSD', origin: 'CUSTOM', name: 'x', description: null,
   status: 'DRAFT', approval_state: 'PENDING', version: 1, parent_node_id: null,
   spec_hash: null as string | null, spec_json: null as string | null,
-  created_by: 'test', created_at: 0, updated_at: 0,
+  created_by: 'test', created_at: 0, updated_at: 0, starred: false,
 }
 
 function route(url: string, method: string, bodyText?: string): Response {
@@ -57,8 +57,18 @@ function route(url: string, method: string, bodyText?: string): Response {
       const hasSpec = typeof body?.spec_json === 'string'
       return json({ ...baseNode, spec_hash: hasSpec ? SPEC_FINGERPRINT : null, spec_json: hasSpec ? body.spec_json : null }, 201)
     }
-    const items = (globalThis as { __hero1NodeItems?: unknown[] }).__hero1NodeItems ?? []
-    return json({ instrument: 'XAUUSD', total: items.length, items })
+    if (method === 'PATCH' && /\/nodes\/\d+$/.test(url.split('?')[0])) {
+      return json({ ...baseNode, ...(body ?? {}), id: Number(url.split('?')[0].split('/').pop()) })
+    }
+    const all = (globalThis as { __hero1NodeItems?: Array<Record<string, unknown>> }).__hero1NodeItems ?? []
+    const starredTotal = all.filter((n) => n.starred === true).length
+    const wantStarred = /[?&]starred=true/.test(url)
+    const wantUnstarred = /[?&]starred=false/.test(url)
+    const filtered = wantStarred ? all.filter((n) => n.starred === true)
+      : wantUnstarred ? all.filter((n) => n.starred !== true)
+      : all
+    return json({ instrument: 'XAUUSD', total: all.length, starred_total: starredTotal,
+                  filtered_total: filtered.length, items: filtered })
   }
   if (url.includes('/api/v1/instruments')) {
     const override = (globalThis as { __hero1Instruments?: unknown[] }).__hero1Instruments

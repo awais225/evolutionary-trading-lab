@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import time
@@ -83,6 +84,8 @@ def health() -> HealthOut:
         "gpu": _gpu_check(),
     }
     status = "ok" if registry["status"] == "healthy" else "degraded"
-    payload = {"status": status, "version": get_settings().app_version, "checks": checks}
+    payload = {"status": status, "version": get_settings().app_version, "checks": checks,
+               "start_token": os.environ.get("HERO1_START_TOKEN") or None,
+               "project_root": os.environ.get("HERO1_REPO_ROOT") or None}
     _cache.update(ts=now, payload=payload)
     return HealthOut(**payload)

@@ -3,6 +3,9 @@ import { useInstrument } from '../state/instrument'
 import { api, ApiError } from '../api/client'
 import { bullishEngulfingSpec } from '../lib/exampleSpec'
 import { StrategyBuilder } from '../components/StrategyBuilder'
+import { StarButton } from '../components/StarButton'
+import { StarredScopeControl } from '../components/StarredScopeControl'
+import { useStarredScope } from '../state/starScope'
 import { emptyComparison } from '../builder/specTree'
 import type { Node, NodeOrigin, ValidationIssue, ValidationReport, CompileResult, NodeVersionList, BrokerMeta } from '../api/types'
 
@@ -43,7 +46,11 @@ function IssueRow({ issue }: { issue: ValidationIssue }) {
 
 export function ManualNodes() {
   const { instrument } = useInstrument()
+  const { scope, setScope } = useStarredScope()
   const [nodes, setNodes] = useState<Node[]>([])
+  const [counts, setCounts] = useState<{ total: number; starred_total: number; filtered_total: number } | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
+  const [starBusyId, setStarBusyId] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [name, setName] = useState('')
@@ -80,14 +87,22 @@ export function ManualNodes() {
     setLoading(true)
     setError(null)
     try {
-      const res = await api.nodes.list(instrument)
+      const res = await api.nodes.list(instrument, { starred: scope === 'starred' ? true : undefined })
       setNodes(res.items)
+      setCounts({ total: res.total, starred_total: res.starred_total, filtered_total: res.filtered_total })
+      // selection can never exceed the visible (filtered) set — prune silently
+      setSelectedIds((prev) => {
+        const visible = new Set(res.items.map((n) => n.id))
+        const next = new Set<number>()
+        for (const id of prev) if (visible.has(id)) next.add(id)
+        return next.size === prev.size ? prev : next
+      })
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'failed to load nodes')
     } finally {
       setLoading(false)
     }
-  }, [instrument])
+  }, [instrument, scope])
 
   useEffect(() => { load() }, [load])
   useEffect(() => {
@@ -102,6 +117,44 @@ export function ManualNodes() {
     setAutoName(next)
     if (!nameDirty) setNodeName(next)
   }, [nodes, nameDirty])
+
+  const toggleStar = async (node: Node) => {
+    if (starBusyId !== null) return
+    const next = !node.starred
+    setStarBusyId(node.id)
+    // optimistic flip (research metadata; the PATCH is authoritative)
+    setNodes((prev) => prev.map((n) => (n.id === node.id ? { ...n, starred: next } : n)))
+    try {
+      await api.nodes.setStarred(instrument, node.id, next)
+      await load()   // re-sync rows + counts; unstarred rows leave a Starred-Only view
+    } catch (err) {
+      // rollback on failure
+      setNodes((prev) => prev.map((n) => (n.id === node.id ? { ...n, starred: !next } : n)))
+      setActionError({ message: err instanceof ApiError ? err.message : 'could not update star state' })
+    } finally {
+      setStarBusyId(null)
+    }
+  }
+
+  const visibleIds = nodes.map((n) => n.id)
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id))
+  const someVisibleSelected = visibleIds.some((id) => selectedIds.has(id))
+  const toggleOne = (id: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+  // Select All always means: the nodes CURRENTLY VISIBLE under the active filter
+  const toggleAllVisible = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (allVisibleSelected) { for (const id of visibleIds) next.delete(id) }
+      else { for (const id of visibleIds) next.add(id) }
+      return next
+    })
+  }
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -494,20 +547,50 @@ export function ManualNodes() {
             Registry · {instrument}
             <button className="btn btn-ghost btn-sm" onClick={load} style={{ marginLeft: 'auto' }} aria-label="Refresh">↻ Refresh</button>
           </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
+            <StarredScopeControl mini total={counts?.total ?? null} starredTotal={counts?.starred_total ?? null} />
+            {selectedIds.size > 0 && (
+              <span className="selection-chip" role="status">
+                {selectedIds.size} selected{scope === 'starred' ? ' · starred scope' : ''}
+                <button type="button" onClick={() => setSelectedIds(new Set())}>clear</button>
+              </span>
+            )}
+          </div>
           {loading ? (
             <div className="state"><div className="spinner" /><div className="state-title">Loading nodes…</div></div>
           ) : error ? (
             <div className="state error"><div className="state-title">Backend unavailable</div>{error}<div style={{ marginTop: 12 }}><button className="btn btn-sm" onClick={load}>Retry</button></div></div>
+          ) : nodes.length === 0 && scope === 'starred' ? (
+            <div className="state">
+              <div className="state-title">No starred nodes yet for {instrument}</div>
+              Star nodes with the star column to pin them here — starring is research metadata and never changes a strategy.
+              <div style={{ marginTop: 10 }}><button className="btn btn-sm" onClick={() => setScope('all')}>Show all nodes</button></div>
+            </div>
           ) : nodes.length === 0 ? (
             <div className="state"><div className="state-title">No nodes yet for {instrument}</div>Create your first draft or save a validated spec — both stay inside this instrument’s database.</div>
           ) : (
             <div style={{ overflowX: 'auto' }}>
               <table className="node-table">
-                <thead><tr><th>ID</th><th>Name</th><th>Origin</th><th>v</th><th>Spec</th><th>Status</th><th>Approval</th><th></th></tr></thead>
+                <thead><tr>
+                  <th className="select-col"><input type="checkbox" aria-label="Select all visible nodes"
+                        checked={allVisibleSelected} data-indeterminate={someVisibleSelected && !allVisibleSelected}
+                        onChange={toggleAllVisible} ref={(el) => { if (el) el.indeterminate = someVisibleSelected && !allVisibleSelected }} /></th>
+                  <th className="star-col" aria-label="Starred">★</th>
+                  <th>ID</th><th>Name</th><th>Origin</th><th>v</th><th>Spec</th><th>Status</th><th>Approval</th><th></th>
+                </tr></thead>
                 <tbody>
                   {nodes.map((n) => (
                     <tr key={n.id} onClick={() => { setSelectedId(n.id); setLineage(null) }}
                         style={{ cursor: 'pointer', background: n.id === selectedId ? 'rgba(92,200,255,.06)' : undefined }}>
+                      <td className="select-col" onClick={(e) => e.stopPropagation()}>
+                        <input type="checkbox" aria-label={`Select node ${n.id}`}
+                               checked={selectedIds.has(n.id)} onChange={() => toggleOne(n.id)} />
+                      </td>
+                      <td className="star-col" onClick={(e) => e.stopPropagation()}>
+                        <StarButton starred={!!n.starred} busy={starBusyId === n.id}
+                                    label={n.starred ? `Unstar node ${n.id}` : `Star node ${n.id}`}
+                                    onToggle={() => toggleStar(n)} />
+                      </td>
                       <td className="mono">#{n.id}</td>
                       <td>{n.name}{n.description && <div className="row-desc">{n.description}</div>}</td>
                       <td><span className={`badge ${n.origin}`}>{n.origin}</span></td>

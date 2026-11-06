@@ -1,19 +1,25 @@
 @echo off
-setlocal EnableExtensions EnableDelayedExpansion
-rem ==========================================================================
-rem  START.bat - HERO1 everyday launcher
-rem  Double-click to start Hero1. Starts:
-rem    - Backend  on http://127.0.0.1:8788  (visible persistent window)
-rem    - Frontend on http://127.0.0.1:5173  (visible persistent window)
-rem  Waits for REAL HTTP readiness on both, then opens the browser.
-rem  Canonical DATA root: <PROJECT_ROOT>\DATA (folder containing this BAT).
-rem  Override only if you know what you are doing: set HERO1_DATA_ROOT first.
-rem  Logs: <DATA_ROOT>\LOGS\startup.log backend.log frontend.log
-rem  Never kills unrelated processes. Never deletes DATA.
-rem ==========================================================================
+setlocal EnableDelayedExpansion
+title HERO1 Trading Research Workstation
+
+REM ===========================================================================
+REM  HERO1 — MAIN LAUNCHER (Windows cmd.exe)
+REM  Adapted from the PROVEN legacy Evolutionary Trading Lab v10.4-throughput
+REM  start.bat (root detect -^> venv -^> import check -^> DB verify -^> port
+REM  ownership -^> persistent service windows -^> real HTTP readiness -^>
+REM  instance verification -^> browser -^> foreground monitor loop).
+REM  HERO1 differences (verified against this repository — do not "fix" blindly):
+REM    * backend package dir  : services\api      (entrypoint app.main:app)
+REM    * frontend             : Vite dev server on 5173 (strictPort)
+REM    * vite proxies /api, /health and /ws to the backend on 8788
+REM    * DATA root            : <repo>\DATA (override: set HERO1_DATA_ROOT)
+REM  Windows test status: UNTESTED on a real Windows host — see docs.
+REM ===========================================================================
 
 set "ROOT=%~dp0"
 if "%ROOT:~-1%"=="\" set "ROOT=%ROOT:~0,-1%"
+cd /d "%ROOT%"
+if errorlevel 1 goto :ROOT_FAIL
 
 if not "%HERO1_DATA_ROOT%"=="" (
   set "DATA_ROOT=%HERO1_DATA_ROOT%"
@@ -21,249 +27,262 @@ if not "%HERO1_DATA_ROOT%"=="" (
   set "DATA_ROOT=%ROOT%\DATA"
 )
 set "LOG_DIR=%DATA_ROOT%\LOGS"
+if not exist "%LOG_DIR%" mkdir "%LOG_DIR%" >nul 2>&1
+if not exist "%LOG_DIR%" goto :LOG_FAIL
 set "STARTUP_LOG=%LOG_DIR%\startup.log"
-set "BACKEND_LOG=%LOG_DIR%\backend.log"
-set "FRONTEND_LOG=%LOG_DIR%\frontend.log"
 
-if /i not "%OS%"=="Windows_NT" (
-  echo ERROR: START.bat must run on Windows.
-  pause
-  exit /b 1
-)
-if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
-if not exist "%LOG_DIR%" (
-  echo ERROR: could not create log directory "%LOG_DIR%".
-  pause
-  exit /b 1
-)
+echo. >> "%STARTUP_LOG%"
+echo =========================================================== >> "%STARTUP_LOG%"
+echo HERO1 LAUNCHER  %DATE% %TIME% >> "%STARTUP_LOG%"
+echo  root=%ROOT%  data=%DATA_ROOT% >> "%STARTUP_LOG%"
+echo =========================================================== >> "%STARTUP_LOG%"
 
-call :log "============================================================"
-call :log "START.bat launched  %DATE% %TIME%"
-call :log "Project root: %ROOT%"
-call :log "DATA root   : %DATA_ROOT%"
-
-echo.
-echo ======================================================
-echo   HERO1 STARTUP
-echo   Project root : %ROOT%
-echo   Dashboard    : http://127.0.0.1:5173/
-echo   DATA root    : %DATA_ROOT%
-echo ======================================================
+echo ===========================================================
+echo  HERO1 TRADING RESEARCH WORKSTATION
+echo  Project root: %ROOT%
+echo ===========================================================
 echo.
 
-rem ------------------------------------------------ Step 1: required files and prerequisites
-call :step "Checking required files and prerequisite installation"
-if not exist "%ROOT%\services\api\app\main.py" (
-  set "FAIL_STEP=Required file: services\api\app\main.py"
-  set "FAIL_DETAIL=This does not look like the Hero1 repository root. The two BAT files must live in the Hero1 source root."
-  goto :fail
-)
-if not exist "%ROOT%\apps\web\package.json" (
-  set "FAIL_STEP=Required file: apps\web\package.json"
-  set "FAIL_DETAIL=Frontend source is missing."
-  goto :fail
-)
-if not exist "%ROOT%\scripts\run_backend.cmd" (
-  set "FAIL_STEP=Required file: scripts\run_backend.cmd"
-  set "FAIL_DETAIL=Service launcher is missing. Restore scripts\run_backend.cmd from the repository."
-  goto :fail
-)
-if not exist "%ROOT%\scripts\run_frontend.cmd" (
-  set "FAIL_STEP=Required file: scripts\run_frontend.cmd"
-  set "FAIL_DETAIL=Service launcher is missing. Restore scripts\run_frontend.cmd from the repository."
-  goto :fail
-)
-if not exist "%ROOT%\.venv\Scripts\python.exe" (
-  echo.
-  echo .venv not found. Please run PREREQUISITES.bat first (double-click it).
-  call :log "ABORT: .venv missing - user told to run PREREQUISITES.bat"
-  pause
-  exit /b 1
-)
-if not exist "%ROOT%\apps\web\node_modules" (
-  echo.
-  echo Frontend dependencies are not installed. Please run PREREQUISITES.bat first (double-click it).
-  call :log "ABORT: apps\web\node_modules missing - user told to run PREREQUISITES.bat"
-  pause
-  exit /b 1
-)
+REM ---- STAGE 1: required files ---------------------------------------------
+if not exist "%ROOT%\services\api\app\main.py"        goto :MISSING_MAIN
+if not exist "%ROOT%\apps\web\package.json"           goto :MISSING_WEB
+if not exist "%ROOT%\apps\web\vite.config.ts" if not exist "%ROOT%\apps\web\vite.config.mjs" goto :MISSING_VITE
+if not exist "%ROOT%\apps\web\node_modules"           goto :MISSING_NODE_MODULES
+if not exist "%ROOT%\scripts\run_backend.cmd"         goto :MISSING_BACKEND_RUNNER
+if not exist "%ROOT%\scripts\run_frontend.cmd"        goto :MISSING_FRONTEND_RUNNER
+if not exist "%ROOT%\scripts\check_port.py"           goto :MISSING_UTILS
+if not exist "%ROOT%\scripts\wait_ready.py"           goto :MISSING_UTILS
+if not exist "%ROOT%\scripts\verify_instance.py"      goto :MISSING_UTILS
+if not exist "%ROOT%\packages\storage\src\hero1_storage\__init__.py" goto :MISSING_STORAGE
+echo [OK] Required files present.
+
+REM ---- STAGE 2: virtual environment -----------------------------------------
 set "VENV_PY=%ROOT%\.venv\Scripts\python.exe"
-set "HERO1_DATA_ROOT=%DATA_ROOT%"
-cd /d "%ROOT%" || (set "FAIL_STEP=Project root" & set "FAIL_DETAIL=Cannot enter %ROOT%" & goto :fail)
-call :step "Verifying the backend imports (read-only check)"
-set "PYTHONPATH=%ROOT%\services\api"
-"%VENV_PY%" -c "import sys; sys.path.insert(0, r'%ROOT%\services\api'); import app.main; print('backend import OK')" >> "%STARTUP_LOG%" 2>&1
-if errorlevel 1 (
-  set "FAIL_STEP=Backend import verification"
-  set "FAIL_DETAIL=The backend failed to import. Run PREREQUISITES.bat again, then see %STARTUP_LOG%."
-  goto :fail
+if not exist "%VENV_PY%" (
+  echo [ACTION] Virtual environment missing -^> running PREREQUISITES.bat once...
+  echo [%DATE% %TIME%] venv missing; calling PREREQUISITES.bat >> "%STARTUP_LOG%"
+  call "%ROOT%\PREREQUISITES.bat"
 )
-call :log "backend import check OK"
+if not exist "%VENV_PY%" goto :NO_VENV
+echo [OK] Python: %VENV_PY%
 
-rem ------------------------------------------------ Step 2: database ready?
-call :step "Verifying the Hero1 database (read-only check)"
+REM ---- STAGE 3: backend import verification ----------------------------------
+echo [..] Verifying backend imports...
+"%VENV_PY%" -c "import sys; sys.path.insert(0, r'%ROOT%\services\api'); import app.main; print('[OK] backend import')" >> "%STARTUP_LOG%" 2>&1
+if errorlevel 1 goto :BACKEND_IMPORT_FAIL
+echo [OK] Backend application import verified.
+
+REM ---- STAGE 4: database verification ----------------------------------------
+echo [..] Verifying database integrity (read-only check)...
 "%VENV_PY%" "%ROOT%\scripts\init_db.py" --check >> "%STARTUP_LOG%" 2>&1
-if errorlevel 1 (
-  call :log "database check FAILED - attempting idempotent initialization (init_db.py --create; never deletes data)"
-  echo Database not initialized; initializing now (idempotent, your DATA is never reset)...
-  "%VENV_PY%" "%ROOT%\scripts\init_db.py" --create >> "%STARTUP_LOG%" 2>&1 || (set "FAIL_STEP=Database initialization" & set "FAIL_DETAIL=init_db.py --create failed. See %STARTUP_LOG%." & goto :fail)
-  "%VENV_PY%" "%ROOT%\scripts\init_db.py" --check >> "%STARTUP_LOG%" 2>&1 || (set "FAIL_STEP=Database integrity check" & set "FAIL_DETAIL=Database integrity check still failing after initialization. See %STARTUP_LOG%." & goto :fail)
-)
-call :log "database check OK"
+if errorlevel 1 goto :DB_CHECK_FAIL
+echo [OK] Database verified.
 
-rem ------------------------------------------------ Step 3: backend up?
-call :step "Backend on port 8788"
-set "BACKEND_ALREADY=0"
-call :http_code 8788 /health
-if "!HTTP_CODE!"=="200" (
-  set "BACKEND_ALREADY=1"
-  call :log "backend already healthy on :8788 - NOT launching a duplicate"
-  echo HERO1 backend is already running - reusing it.
+REM ---- STAGE 5: frontend dependency check (dev server serves src) ------------
+REM  Vite serves apps\web\src directly, so this launcher can never serve a stale
+REM  production bundle. A stale/missing apps\web\dist is reported as an advisory
+REM  only; build it with "npm run build" in apps\web when you need one.
+if exist "%ROOT%\apps\web\dist\index.html" (
+  echo [INFO] Production dist present (advisory; dev server serves live source).
 ) else (
-  call :port_in_use 8788
-  if "!PORT_IN_USE!"=="1" (
-    set "FAIL_STEP=Port 8788 occupied"
-    set "FAIL_DETAIL=Port 8788 is in use by something that is NOT a healthy Hero1 backend. Free port 8788 yourself - START.bat will not kill unrelated processes."
-    goto :fail
-  )
-  call :log "launching backend window (HERO1 Backend :8788) via scripts\run_backend.cmd"
-  start "HERO1 Backend :8788" /D "%ROOT%" cmd /k call "%ROOT%\scripts\run_backend.cmd"
+  echo [INFO] No production dist - dev server will serve live source. To create one: npm run build ^(in apps\web^)
 )
 
-rem ------------------------------------------------ Step 4: backend readiness
-if "%BACKEND_ALREADY%"=="1" goto :backend_ready
-call :step "Waiting for the backend health endpoint to answer"
-echo Waiting for the backend to become healthy at http://127.0.0.1:8788/health ...
-call :wait_http 8788 /health 90
-if errorlevel 1 (
+REM ---- STAGE 6: port ownership + existing-instance detection -----------------
+set "BACKEND_REUSE=0"
+set "FRONTEND_REUSE=0"
+
+"%VENV_PY%" "%ROOT%\scripts\check_port.py" 8788
+if errorlevel 20 goto :PORT_BACKEND_FOREIGN
+if errorlevel 10 set "BACKEND_REUSE=1"
+
+"%VENV_PY%" "%ROOT%\scripts\check_port.py" --frontend 5173
+if errorlevel 20 goto :PORT_FRONTEND_FOREIGN
+if errorlevel 10 set "FRONTEND_REUSE=1"
+
+if "%BACKEND_REUSE%"=="1" (
+  echo [..] Port 8788 answers Hero1 -^> verifying it serves THIS repository...
+  "%VENV_PY%" "%ROOT%\scripts\verify_instance.py" --mode backend --url http://127.0.0.1:8788/health --root "%ROOT%" >> "%STARTUP_LOG%" 2>&1
+  if errorlevel 1 goto :BACKEND_FOREIGN_REUSE
+)
+
+REM ---- STAGE 7: launch token --------------------------------------------------
+set "HERO1_START_TOKEN=HERO1-%RANDOM%%RANDOM%-%RANDOM%"
+set "HERO1_REPO_ROOT=%ROOT%"
+echo [INFO] Launch token: %HERO1_START_TOKEN% >> "%STARTUP_LOG%"
+
+REM ---- STAGE 8: backend (persistent visible window) ---------------------------
+if "%BACKEND_REUSE%"=="1" goto :BACKEND_READY
+echo [..] Starting HERO1 backend in its own terminal window...
+start "HERO1 Backend :8788" cmd /k call "%ROOT%\scripts\run_backend.cmd"
+echo [..] Waiting for the backend (health + Hero1 identity)...
+call "%VENV_PY%" "%ROOT%\scripts\wait_ready.py" http://127.0.0.1:8788/health 120 --require backend >> "%STARTUP_LOG%"
+if errorlevel 1 goto :BACKEND_TIMEOUT
+
+REM post-start identity check: the answering process must be THIS launch
+"%VENV_PY%" "%ROOT%\scripts\verify_instance.py" --mode backend --url http://127.0.0.1:8788/health --root "%ROOT%" --token "%HERO1_START_TOKEN%" >> "%STARTUP_LOG%" 2>&1
+if errorlevel 1 goto :BACKEND_NOT_OURS
+
+:BACKEND_READY
+echo [OK] Backend serving at http://127.0.0.1:8788
+
+REM ---- STAGE 9: frontend (persistent visible window) --------------------------
+if "%FRONTEND_REUSE%"=="1" goto :FRONTEND_READY
+echo [..] Starting HERO1 frontend (vite dev) in its own terminal window...
+start "HERO1 Frontend :5173" cmd /k call "%ROOT%\scripts\run_frontend.cmd"
+echo [..] Waiting for the frontend...
+call "%VENV_PY%" "%ROOT%\scripts\wait_ready.py" http://127.0.0.1:5173/ 120 --require frontend >> "%STARTUP_LOG%"
+if errorlevel 1 goto :FRONTEND_TIMEOUT
+
+:FRONTEND_READY
+echo [..] Verifying frontend -^> backend connectivity through the vite proxy...
+"%VENV_PY%" "%ROOT%\scripts\verify_instance.py" --mode frontend-proxy --url http://127.0.0.1:5173/health
+if errorlevel 1 goto :PROXY_FAIL
+echo [OK] Frontend and backend are connected.
+echo.
+
+REM ---- STAGE 10: browser ------------------------------------------------------
+start "" "http://127.0.0.1:5173/?v=%HERO1_START_TOKEN%"
+echo [OK] Browser opened at http://127.0.0.1:5173/
+echo.
+
+echo ===========================================================
+echo  HERO1 IS RUNNING
+echo ===========================================================
+echo  Dashboard : http://127.0.0.1:5173/
+echo  Backend   : http://127.0.0.1:8788/health
+echo  Logs      : %STARTUP_LOG%
+echo.
+echo  Keep this window open - it monitors the backend.
+echo  Service windows stay open on purpose; close them to stop.
+echo ===========================================================
+echo.
+
+REM ---- STAGE 11: foreground monitor loop --------------------------------------
+set "MONITOR_TICKS=0"
+:MONITOR_LOOP
+timeout /t 5 /nobreak >nul
+set /a MONITOR_TICKS=MONITOR_TICKS+1
+"%VENV_PY%" "%ROOT%\scripts\check_port.py" 8788 >nul 2>&1
+set "BE_RC=!ERRORLEVEL!"
+if not "!BE_RC!"=="10" (
   echo.
-  echo ERROR: the backend did not become healthy within 90 seconds.
-  echo Recent backend log output:
-  echo ------------------------------------------------
-  powershell -NoProfile -Command "if (Test-Path '%BACKEND_LOG%') { Get-Content -Tail 40 '%BACKEND_LOG%' } else { 'backend.log not created yet - check the HERO1 Backend window for errors.' }"
-  echo ------------------------------------------------
-  call :log "BACKEND FAILED READINESS - see %BACKEND_LOG%"
-  set "FAIL_STEP=Backend readiness"
-  set "FAIL_DETAIL=Backend did not answer /health within 90s. See the HERO1 Backend window and %BACKEND_LOG%."
-  goto :fail
-)
-:backend_ready
-echo Backend is healthy.
-call :log "backend readiness confirmed"
-
-rem ------------------------------------------------ Step 5: frontend up?
-call :step "Frontend on port 5173"
-set "FRONTEND_ALREADY=0"
-call :http_code 5173 /
-if "!HTTP_CODE!"=="200" (
-  set "FRONTEND_ALREADY=1"
-  call :log "frontend already serving on :5173 - NOT launching a duplicate"
-  echo HERO1 frontend is already running - reusing it.
-) else (
-  call :port_in_use 5173
-  if "!PORT_IN_USE!"=="1" (
-    set "FAIL_STEP=Port 5173 occupied"
-    set "FAIL_DETAIL=Port 5173 is in use by something that is NOT the Hero1 frontend. Free port 5173 yourself - START.bat will not kill unrelated processes. The backend IS running; fix the port and run START.bat again."
-    goto :fail
-  )
-  call :log "launching frontend window (HERO1 Frontend :5173) via scripts\run_frontend.cmd"
-  start "HERO1 Frontend :5173" /D "%ROOT%\apps\web" cmd /k call "%ROOT%\scripts\run_frontend.cmd"
-)
-
-rem ------------------------------------------------ Step 6: frontend readiness
-if "%FRONTEND_ALREADY%"=="1" goto :frontend_ready
-call :step "Waiting for the frontend to answer"
-echo Waiting for the frontend at http://127.0.0.1:5173/ ...
-call :wait_http 5173 / 90
-if errorlevel 1 (
+  echo [WARN] Backend is no longer answering on port 8788 ^(check rc=!BE_RC!^).
+  echo [%DATE% %TIME%] [WARN] backend lost on 8788 >> "%STARTUP_LOG%"
+  echo        Inspect the 'HERO1 Backend :8788' window and %STARTUP_LOG%.
   echo.
-  echo ERROR: the frontend did not become ready within 90 seconds.
-  echo The backend IS running and healthy in its own window - this is a partial startup.
-  echo Recent frontend log output:
-  echo ------------------------------------------------
-  powershell -NoProfile -Command "if (Test-Path '%FRONTEND_LOG%') { Get-Content -Tail 40 '%FRONTEND_LOG%' } else { 'frontend.log not created yet - check the HERO1 Frontend window for errors.' }"
-  echo ------------------------------------------------
-  call :log "FRONTEND FAILED READINESS - backend left running by design; see %FRONTEND_LOG%"
-  set "FAIL_STEP=Frontend readiness"
-  set "FAIL_DETAIL=Frontend did not answer within 90s. Backend is still running - see the HERO1 Frontend window and %FRONTEND_LOG%."
-  goto :fail
+  echo Press any key to exit the launcher...
+  pause >nul
+  exit /b 1
 )
-:frontend_ready
-echo Frontend is ready.
-call :log "frontend readiness confirmed"
-
-rem ------------------------------------------------ Step 7: open the browser
-call :step "Opening the dashboard in the default browser"
-call :log "opening http://127.0.0.1:5173/ in the default browser"
-start "" "http://127.0.0.1:5173/"
-call :log "startup complete (backend_already=%BACKEND_ALREADY% frontend_already=%FRONTEND_ALREADY%)"
-
-echo.
-echo ======================================================
-echo   HERO1 IS RUNNING
-echo   Dashboard : http://127.0.0.1:5173/
-echo   Backend   : http://127.0.0.1:8788  (health: /health)
-echo   Logs      : %STARTUP_LOG%
-echo               %BACKEND_LOG%
-echo               %FRONTEND_LOG%
-echo   Services run in their own windows - close those windows
-echo   (or press Ctrl+C in them) to stop Hero1.
-echo ======================================================
-echo.
-pause
-exit /b 0
-
-rem ============================ helpers ======================================
-:step
-echo [STEP] %~1
-call :log "[STEP] %~1"
-exit /b 0
-
-:log
->> "%STARTUP_LOG%" echo [%DATE% %TIME%] %~1
-exit /b 0
-
-rem HTTP probe without curl.exe (works on every Windows with PowerShell).
-rem Sets HTTP_CODE (000 on any error).
-:http_code
-set "HTTP_CODE=000"
-set "HERO1_PROBE_URL=http://127.0.0.1:%~1%~2"
-for /f "delims=" %%C in ('powershell -NoProfile -Command "try { (Invoke-WebRequest -UseBasicParsing -TimeoutSec 4 $env:HERO1_PROBE_URL).StatusCode } catch { 0 }" 2^>nul') do set "HTTP_CODE=%%C"
-exit /b 0
-
-rem Sets PORT_IN_USE=1 when something is LISTENING on the port (regardless of what).
-:port_in_use
-set "PORT_IN_USE=0"
-netstat -ano | findstr /R /I /C:":%~1 .*LISTENING" >nul 2>&1
-if %errorlevel%==0 set "PORT_IN_USE=1"
-exit /b 0
-
-rem Poll http://127.0.0.1:%1%2 until HTTP 200 or %3 attempts (2s apart). Exit 0=ready, 1=timeout.
-:wait_http
-set "WAIT_OK=0"
-for /L %%I in (1,1,%~3) do (
-  call :http_code %~1 %~2
-  if "!HTTP_CODE!"=="200" (
-    set "WAIT_OK=1"
-    goto :wait_http_done
-  )
-  timeout /t 2 /nobreak >nul
+if "!MONITOR_TICKS!"=="6" (
+  set "MONITOR_TICKS=0"
+  "%VENV_PY%" "%ROOT%\scripts\check_port.py" --frontend 5173 >nul 2>&1
+  if errorlevel 20 echo [%DATE% %TIME%] [WARN] port 5173 no longer serves the Hero1 frontend >> "%STARTUP_LOG%"
 )
-:wait_http_done
-if "%WAIT_OK%"=="1" (exit /b 0) else (exit /b 1)
+goto :MONITOR_LOOP
 
-rem ============================ failure path ================================
-:fail
+REM ============================ FAILURE HANDLERS =============================
+:ROOT_FAIL
+set "FAILED_REASON=Cannot cd to %ROOT%."
+set "FAILED_CMD=cd /d %ROOT%"
+goto :STARTUP_FAILED
+:LOG_FAIL
+set "FAILED_REASON=%DATA_ROOT%\LOGS does not exist and could not be created. Check the DATA root (default <repo>\DATA, override HERO1_DATA_ROOT) and its permissions."
+set "FAILED_CMD=mkdir %DATA_ROOT%\LOGS"
+goto :STARTUP_FAILED
+:MISSING_MAIN
+set "FAILED_REASON=services\api\app\main.py is missing - is this a complete Hero1 checkout?"
+set "FAILED_CMD=git status"
+goto :STARTUP_FAILED
+:MISSING_WEB
+set "FAILED_REASON=apps\web\package.json is missing - is this a complete Hero1 checkout?"
+set "FAILED_CMD=git status"
+goto :STARTUP_FAILED
+:MISSING_VITE
+set "FAILED_REASON=apps\web\vite.config.ts is missing."
+set "FAILED_CMD=git status"
+goto :STARTUP_FAILED
+:MISSING_NODE_MODULES
+set "FAILED_REASON=apps\web\node_modules is missing. The normal launcher does not install dependencies - run PREREQUISITES.bat first (or: cd apps\web ^&^& npm install)."
+set "FAILED_CMD=PREREQUISITES.bat"
+goto :STARTUP_FAILED
+:MISSING_BACKEND_RUNNER
+set "FAILED_REASON=scripts\run_backend.cmd is missing."
+set "FAILED_CMD=git status"
+goto :STARTUP_FAILED
+:MISSING_FRONTEND_RUNNER
+set "FAILED_REASON=scripts\run_frontend.cmd is missing."
+set "FAILED_CMD=git status"
+goto :STARTUP_FAILED
+:MISSING_UTILS
+set "FAILED_REASON=A launcher utility (check_port.py / wait_ready.py / verify_instance.py) is missing."
+set "FAILED_CMD=git status"
+goto :STARTUP_FAILED
+:MISSING_STORAGE
+set "FAILED_REASON=packages\storage is missing - is this a complete Hero1 checkout?"
+set "FAILED_CMD=git status"
+goto :STARTUP_FAILED
+:NO_VENV
+set "FAILED_REASON=.venv\Scripts\python.exe was not found even after PREREQUISITES.bat. See %DATA_ROOT%\LOGS\prerequisite.log"
+set "FAILED_CMD=PREREQUISITES.bat"
+goto :STARTUP_FAILED
+:BACKEND_IMPORT_FAIL
+set "FAILED_REASON=The backend failed to import (import app.main). Run PREREQUISITES.bat, then check %STARTUP_LOG%."
+set "FAILED_CMD=cd services\api and run: python -m uvicorn app.main:app --host 127.0.0.1 --port 8788"
+goto :STARTUP_FAILED
+:DB_CHECK_FAIL
+set "FAILED_REASON=Database verification failed. See %STARTUP_LOG% and run PREREQUISITES.bat (it creates/verifies the canonical <repo>\DATA registry and instrument databases)."
+set "FAILED_CMD=%VENV_PY% scripts\init_db.py --check"
+goto :STARTUP_FAILED
+:PORT_BACKEND_FOREIGN
+set "FAILED_REASON=Port 8788 is held by an application that is NOT Hero1 (or no longer identifiable as Hero1). Close that application - this launcher never kills unrelated software - or set HERO1_DATA_ROOT and check with scripts\check_port.py 8788."
+set "FAILED_CMD=%VENV_PY% scripts\check_port.py 8788"
+goto :STARTUP_FAILED
+:PORT_FRONTEND_FOREIGN
+set "FAILED_REASON=Port 5173 is held by an application that is NOT the Hero1 dashboard (vite uses strictPort, so it cannot move to a free port). Close the other application and launch again. This launcher never kills unrelated software."
+set "FAILED_CMD=%VENV_PY% scripts\check_port.py --frontend 5173"
+goto :STARTUP_FAILED
+:BACKEND_FOREIGN_REUSE
+set "FAILED_REASON=Port 8788 answers Hero1 but NOT this repository (project_root mismatch or older unidentified build). Refusing to reuse or kill it. Close the other Hero1 instance and launch again."
+set "FAILED_CMD=%VENV_PY% scripts\verify_instance.py --mode backend --url http://127.0.0.1:8788/health --root %ROOT%"
+goto :STARTUP_FAILED
+:BACKEND_TIMEOUT
+set "FAILED_REASON=The backend did not become ready at http://127.0.0.1:8788/health within 120s. Inspect the 'HERO1 Backend :8788' window for the traceback and %STARTUP_LOG%."
+set "FAILED_CMD=%VENV_PY% scripts\wait_ready.py http://127.0.0.1:8788/health 120 --require backend"
+goto :STARTUP_FAILED
+:BACKEND_NOT_OURS
+set "FAILED_REASON=Port 8788 answered with the Hero1 health schema but the identity check failed (project_root / start_token mismatch). The answering process was NOT started by this run - refusing to claim success. Another Hero1 instance may have been already running; close it and launch again."
+set "FAILED_CMD=%VENV_PY% scripts\verify_instance.py --mode backend --url http://127.0.0.1:8788/health --root %ROOT% --token %HERO1_START_TOKEN%"
+goto :STARTUP_FAILED
+:FRONTEND_TIMEOUT
+set "FAILED_REASON=The frontend did not become ready at http://127.0.0.1:5173/ within 120s. Inspect the 'HERO1 Frontend :5173' window (vite errors stay visible there) and confirm apps\web\node_modules exists."
+set "FAILED_CMD=%VENV_PY% scripts\wait_ready.py http://127.0.0.1:5173/ 120 --require frontend"
+goto :STARTUP_FAILED
+:PROXY_FAIL
+set "FAILED_REASON=The frontend page loaded but http://127.0.0.1:5173/health did NOT reach the Hero1 backend through the vite proxy. The API is not connected - do not use the dashboard. Check the backend window, the /health proxy entry in apps\web\vite.config.mjs, and %STARTUP_LOG%."
+set "FAILED_CMD=%VENV_PY% scripts\verify_instance.py --mode frontend-proxy --url http://127.0.0.1:5173/health"
+goto :STARTUP_FAILED
+
+:STARTUP_FAILED
 echo.
-echo ======================================================
-echo   HERO1 STARTUP FAILED
-echo   Step  : %FAIL_STEP%
-echo   Detail: %FAIL_DETAIL%
-echo   Log   : %STARTUP_LOG%
-echo   Backend log : %BACKEND_LOG%
-echo   Frontend log: %FRONTEND_LOG%
-echo   Nothing was deleted. Your DATA at %DATA_ROOT% is untouched.
-echo ======================================================
-call :log "FAILED at step: %FAIL_STEP% - %FAIL_DETAIL%"
-pause
+echo ===========================================================
+echo  STARTUP FAILED
+echo ===========================================================
+echo.
+echo  Diagnostic:
+echo  %FAILED_REASON%
+echo.
+if defined FAILED_CMD (
+  echo  Command to reproduce / inspect:
+  echo  %FAILED_CMD%
+  echo.
+)
+echo  Launcher log: %STARTUP_LOG%
+echo.
+echo [%DATE% %TIME%] [STARTUP_FAILED] %FAILED_REASON% >> "%STARTUP_LOG%"
+if defined FAILED_CMD echo [%DATE% %TIME%] command: %FAILED_CMD% >> "%STARTUP_LOG%"
+echo  The application was NOT started (or NOT verified).
+echo  This window stays open. Press any key to close it.
+pause >nul
 exit /b 1

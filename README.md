@@ -50,9 +50,13 @@ data tree: [docs/DATA_LAYOUT.md](docs/DATA_LAYOUT.md)
 ### Windows (two files, no manual commands)
 
 Double-click **`PREREQUISITES.bat`** once, then **`START.bat`** whenever you
-want Hero1 — backend (:8788) and frontend (:5173) open in their own windows and
-the browser opens automatically once both are healthy. Logs:
-`<PROJECT_ROOT>\DATA\LOGS\*.log`. See [docs/WINDOWS_SETUP.md](docs/WINDOWS_SETUP.md).
+want Hero1 — it verifies the environment, database and ports, starts the
+backend (:8788) and frontend (:5173) in their own persistent windows, polls
+real HTTP readiness, verifies the answering server is THIS Hero1 instance
+(never a bare HTTP 200), opens the browser only after both are verified, and
+keeps a visible monitor loop. Logs: `<PROJECT_ROOT>\DATA\LOGS\startup.log`.
+Troubleshoot with `cmd /k START.bat`. See
+[docs/WINDOWS_SETUP.md](docs/WINDOWS_SETUP.md).
 
 ### 1. Backend
 

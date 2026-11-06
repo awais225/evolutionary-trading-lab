@@ -33,3 +33,12 @@ def test_instrument_db_files_created_outside_repo(data_root):
         assert (data_root / sym / "DATABASE" / "hero1.db").exists()
         for sub in ("MARKET_DATA/M15", "NODES/CUSTOM", "DEEPTEST", "LIVE_TESTING", "RESEARCH"):
             assert (data_root / sym / sub).is_dir(), f"missing {sym}/{sub}"
+
+
+def test_health_identity_fields_present(client):
+    body = client.get("/health").json()
+    # additive launcher-identity fields: always present; populated when launched
+    # via START.bat (conftest sets HERO1_REPO_ROOT, token only when injected).
+    assert "start_token" in body and "project_root" in body
+    assert body["start_token"] is None or isinstance(body["start_token"], str)
+    assert body["project_root"] is None or isinstance(body["project_root"], str)

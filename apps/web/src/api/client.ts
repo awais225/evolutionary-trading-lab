@@ -59,9 +59,12 @@ export const api = {
   postEvent: (body: { category: string; severity?: string; instrument?: string; subsystem?: string; message: string }) =>
     request<HeroEventCreated>('POST', '/api/v1/events', body),
   nodes: {
-    list: (instrument: string, params: { origin?: string } = {}) => {
+    list: (instrument: string, params: { origin?: string; starred?: boolean; limit?: number } = {}) => {
       const q = new URLSearchParams()
       if (params.origin) q.set('origin', params.origin)
+      if (params.starred === true) q.set('starred', 'true')
+      else if (params.starred === false) q.set('starred', 'false')
+      if (params.limit) q.set('limit', String(params.limit))
       return request<NodeListOut>('GET', `/api/v1/instruments/${instrument}/nodes?${q}`)
     },
     get: (instrument: string, id: number) =>
@@ -84,6 +87,10 @@ export const api = {
     // so it cannot change the semantic hash or fork a version.
     rename: (instrument: string, id: number, name: string) =>
       request<Node>('PATCH', `/api/v1/instruments/${instrument}/nodes/${id}`, { name }),
+    // Favorite toggle — research metadata only (server contract: never touches
+    // spec_json/spec_hash/version/lineage/validation).
+    setStarred: (instrument: string, id: number, starred: boolean) =>
+      request<Node>('PATCH', `/api/v1/instruments/${instrument}/nodes/${id}`, { starred }),
   },
   settings: {
     get: () => request<SettingsOut>('GET', '/api/v1/settings'),

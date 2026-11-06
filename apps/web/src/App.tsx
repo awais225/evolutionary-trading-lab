@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { InstrumentProvider } from './state/instrument'
 import { FeedProvider, useFeed } from './state/feed'
+import { StarScopeProvider } from './state/starScope'
 import { Sidebar } from './components/Sidebar'
 import { TopBar } from './components/TopBar'
 import { GlobalLiveFeed } from './components/GlobalLiveFeed'
@@ -44,9 +45,11 @@ function Frame() {
 export default function App() {
   return (
     <InstrumentProvider>
-      <FeedProvider>
-        <Frame />
-      </FeedProvider>
+      <StarScopeProvider>
+        <FeedProvider>
+          <Frame />
+        </FeedProvider>
+      </StarScopeProvider>
     </InstrumentProvider>
   )
 }

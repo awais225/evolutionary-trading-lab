@@ -68,12 +68,17 @@ def _compile_or_422(spec: dict, instrument: str, broker_meta: Optional[dict]):
 def list_nodes(instrument: str = Depends(get_instrument_context),
                origin: str | None = Query(default=None),
                status: str | None = Query(default=None),
+               starred: bool | None = Query(default=None),
                limit: int = Query(default=200, ge=1, le=500),
                offset: int = Query(default=0, ge=0),
                session: Session = Depends(get_instrument_session)) -> NodeListOut:
     repo = NodeRepository(session, instrument)
-    items = repo.list(origin=origin, status=status, limit=limit, offset=offset)
+    items = repo.list(origin=origin, status=status, starred=starred, limit=limit, offset=offset)
+    filtered_total = repo.count(starred=True) if starred is True else (
+        repo.count() if starred is None else repo.count(starred=False))
     return NodeListOut(instrument=instrument, total=repo.count(),
+                       starred_total=repo.count(starred=True),
+                       filtered_total=filtered_total,
                        items=[NodeOut.model_validate(n, from_attributes=True) for n in items])
 
 

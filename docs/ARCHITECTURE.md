@@ -186,3 +186,52 @@ git ls-remote/GitHub; if SHA-recording needs another commit, push that too.
   v10.4-throughput and legacy tags (archive-v5.4-line-d9ea8e7,
   V5.3.1-V6-BASELINE) untouched. No legacy DATA or LFS objects deleted.
 - Runtime architecture is unchanged: local-first FastAPI + Vite + SQLite.
+
+## Launcher architecture — IMPLEMENTED & LINUX-VERIFIED (Windows UNPROVEN)
+Adapted from the legacy v10.4-throughput launcher (read-only reference; see
+docs/PIPELINE.md §1 for inspected files/commits):
+- Stages: root detect → venv → import check (`sys.path.insert services/api`) →
+  DB check (`init_db.py --check`) → frontend deps (node_modules; no auto-install)
+  → port ownership (`scripts/check_port.py`: 0 free / 10 verified-Hero1 /
+  20 foreign — foreign is NEVER reused or killed) → persistent windows
+  (`cmd /k` + visible CMD) → real HTTP readiness (`scripts/wait_ready.py`)
+  → instance identity (`scripts/verify_instance.py`: `/health` schema +
+  `project_root` must match this repo; fresh launches additionally require the
+  per-run `HERO1_START_TOKEN`) → frontend proxy verification (page 200 AND
+  `/health` via vite proxy = real backend link) → browser → foreground monitor
+  loop. Every failure path prints diagnostics and pauses — nothing exits
+  silently.
+- Backend serves ONLY the API (:8788). The dashboard is the vite dev server
+  (:5173, `strictPort`) — there is no production-bundle serving path in the
+  normal launcher, so a stale dist can never be served silently; a stale dist
+  is reported as advisory only.
+- `/health` additionally echoes `start_token`/`project_root` when the launcher
+  sets them (localhost-only, no secrets).
+- The legacy single-port model (backend serving dist on 8787) was NOT copied:
+  Hero1's architecture is two services by design; everything else transfers.
+- Windows: files written for cmd.exe with CRLF + `enabledelayedexpansion`;
+  label/goto/paren/quote integrity verified statically; real Windows run
+  PENDING (see docs/ISSUES_AND_FIXES.md ISSUE-025).
+
+## Starred (favorite) nodes — IMPLEMENTED & TESTED (pytest + vitest)
+- Additive `nodes.starred` column (instrument DBs; migration `0002_nodes_starred`,
+  idempotent; existing rows default 0; no data rewritten).
+- Research metadata ONLY: excluded from `spec_hash`, versions, validation,
+  compilation, lineage. Toggling never forks a version or changes semantics.
+- `GET /api/v1/instruments/{id}/nodes?starred=true|false` — server-enforced
+  scope; response carries `total` (unfiltered, stable contract),
+  `starred_total`, `filtered_total`. A frontend-only filter is NOT a boundary:
+  batch consumers must use the query param.
+- UI: star toggle per registry row (SVG, theme tokens, optimistic flip with
+  rollback), shared All Nodes / Starred Only scope (`StarScopeProvider`,
+  localStorage `hero1.nodeScope`) wired in Manual Nodes, DeepTesting,
+  Fine Tuning and Live Testing; selection (where selection exists) is limited
+  to the filtered set; counts always shown ("Showing N starred nodes out of M").
+
+## Trading research pipeline — AUDITED (docs/PIPELINE.md)
+Legacy stage order recovered and mapped onto Hero1 (spec → validation →
+deterministic compile → instrument/timeframe resolve → market-data integrity
+→ indicators (Phase 3 skeleton) → screening → backtest → OOS/robustness →
+qualification → paper → MT5). Only stages 1–4 + spec validation are
+implemented; executors for 6–12 are future phases and are NOT claimed. See
+docs/PIPELINE.md for the full matrix, boundaries and risks.

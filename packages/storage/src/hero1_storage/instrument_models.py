@@ -40,6 +40,9 @@ class Node(Base):
     )
     spec_json: Mapped[str | None] = mapped_column(Text, nullable=True)   # validated spec; NULL until Phase 2 compiler lands
     spec_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Research metadata ONLY (favorite toggle). Never consulted by the spec compiler,
+    # semantic hashing, validation or any trading decision. See docs/ISSUES_AND_FIXES.md ISSUE-027.
+    starred: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
     created_by: Mapped[str] = mapped_column(String(60), nullable=False, default="user")
     created_at: Mapped[float] = mapped_column(Float, nullable=False, default=utcnow)
     updated_at: Mapped[float] = mapped_column(Float, nullable=False, default=utcnow, onupdate=utcnow)

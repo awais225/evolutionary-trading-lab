@@ -5,6 +5,69 @@ exact commit SHA and tag. Claims only for what was implemented AND verified.
 
 ---
 
+## [Unreleased] — 2026-11-06 — Hero1 critical recovery: proven legacy launcher, theme consistency, starred nodes, pipeline audit (HERO V1.3.0)
+
+**Added**
+- `scripts/check_port.py`, `scripts/wait_ready.py`, `scripts/verify_instance.py` —
+  stdlib-only launcher utilities adapted from the legacy v10.4-throughput tools:
+  port ownership with Hero1 identity proof (0 free / 10 verified-Hero1 / 20 foreign),
+  schema-verified HTTP readiness polling, and post-launch instance verification
+  (Hero1 `/health` signature + `project_root` + per-run `HERO1_START_TOKEN`).
+- `/health` additive identity echo: `start_token` / `project_root` (set only by the
+  launcher; localhost-only; no secrets). `HealthOut` carries both as optional fields.
+- Starred (favorite) nodes, research metadata only: additive `nodes.starred` column +
+  idempotent instrument-DB migration `0002_nodes_starred`; `starred` on NodeCreate patch
+  path / NodeOut; `GET /nodes?starred=true|false` with `starred_total` + `filtered_total`
+  (`total` stays unfiltered — stable contract); server-enforced scope for every consumer.
+- UI: per-row star toggle in Manual Nodes (SVG, theme tokens, optimistic flip with
+  rollback), shared All Nodes / Starred Only filter (`StarScopeProvider`, persisted) in
+  Manual Nodes, DeepTesting, Fine Tuning, Live Testing; Select-All limited to the
+  filtered set; live match counts ("Showing N starred nodes out of M total nodes").
+- docs/PIPELINE.md — legacy→Hero1 pipeline recovery + forward-compatibility audit
+  (Part 5 deliverable; boundaries; risks; future phases explicitly not implemented).
+- `PROMPTS/CRITICAL_RECOVERY_LAUNCHER_STARRED.md` (task prompt archive).
+- vitest: `src/__tests__/starred.test.tsx` (4 tests). pytest: starred persistence/filter/
+  counts + health identity fields (+3 tests). Test counts: pytest 91 passed/1 skipped,
+  vitest 28/28.
+
+**Changed**
+- `START.bat` rebuilt on the proven legacy stage architecture (root detect → venv →
+  import → DB → frontend deps → port ownership → persistent `cmd /k` service windows →
+  real HTTP readiness → instance identity verification → browser → foreground monitor
+  loop). Every failure path prints diagnostics and pauses; nothing closes silently.
+  Frontend↔backend connectivity is verified through the vite proxy before the browser
+  opens. Re-launching reuses identity-verified instances (never duplicates, never kills
+  unrelated processes). `cmd /k START.bat` keeps full output visible for debugging.
+- `scripts/run_backend.cmd` / `scripts/run_frontend.cmd`: single module identity
+  `app.main:app` with cwd `services\api` (legacy semantics; previously worked only via
+  the editable finder and double-loaded app modules); PowerShell `Tee-Object` pipes
+  removed; services stream to their own persistent windows.
+- `apps/web/vite.config.ts`: `strictPort: true` (vite fails fast on occupied 5173
+  instead of silently moving to 5174).
+- Theme: native `<select>` integrated into the dark theme (custom SVG chevron, amber on
+  focus), `accent-color` on checkboxes/radios, tinted time/date indicators, new
+  `.star-btn`/`.scope-line`/`.selection-chip` tokens-only styles; new batch scope UI
+  reuses `.segmented`/`.card`/`.btn` — no separate visual system.
+
+**Fixed (ISSUES_AND_FIXES.md ISSUE-025..032)**
+- Launcher accepted any HTTP 200 as "already running"; frontend 200 could mask a dead
+  or missing proxy→backend link; vite port drift; PowerShell-pipe fragility; dual app
+  module identity; theme regression on Visual Builder/JSON Editor native controls;
+  scope-line test-unfriendly split text nodes.
+
+**Verified**
+- Linux (LMS): backend + frontend run against the REAL code; `/health` ok; proxy
+  connectivity verified; identity checks rc-tested (reuse, fresh, wrong-token);
+  preview DATA migrated 0001→0002 (additive; data untouched); all 8 tabs serve;
+  pytest 91/1-skip, vitest 28/28, tsc+vite build green.
+
+**Limitations / honest status**
+- Windows execution of the .bat files remains UNPROVEN (no Windows environment here);
+  first Windows run must be a smoke test with `cmd /k START.bat` + LOGS\startup.log.
+- Phases 3 (indicator engine), 4 (screening/backtest/OOS), 5 (paper/MT5), 6–8 are NOT
+  implemented and NOT claimed; pipeline preparation documented in docs/PIPELINE.md.
+- Browser E2E (Playwright) still absent (see ISSUE-011).
+
 ## [Unreleased] — 2026-11-06 — Hero1 dashboard completion: global instrument selector, visual strategy builder, canonical DATA, launcher repair
 
 **Added**
