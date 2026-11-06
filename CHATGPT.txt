@@ -740,3 +740,7 @@ NOT DONE / HONEST LIMITS
 PUBLISHED (TASK 9)
 - Commit (feature): see git log -1 after push; remote main verified via ls-remote.
   (SHAs recorded after push.)
+- Feature commit: 01ccd599a6c23450a8ba8868e420b39145492615 (main -> main,
+  pushed 2026-11-06). Remote main verified via ls-remote after push:
+  01ccd599a6c23450a8ba8868e420b39145492615 refs/heads/main.
+  This record commit follows (SHAs: TASK 9).

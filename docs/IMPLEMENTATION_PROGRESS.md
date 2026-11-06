@@ -82,4 +82,11 @@ Verified:
 NOT done / out of scope: Windows execution of .bat files (no Windows available);
 live market data, backtests, validation, qualification (Phase 4+; nothing claimed).
 
-## 2026-11-06 — G4: commit + push — see the G4-record entry appended after push
+## 2026-11-06 — G4: commit + push (verified)
+- Feature commit 01ccd599a6c23450a8ba8868e420b39145492615 pushed to origin main
+  (35 files, +2130/-101). Remote main verified via ls-remote AFTER push:
+  01ccd599a6c23450a8ba8868e420b39145492615 refs/heads/main.
+- Record commit follows this entry (docs-only); remote main re-verified via
+  ls-remote after it.
+- Not done (unchanged, honest): Windows execution of the .bat files; Phase 4+
+  market data / backtests / qualification; browser E2E (ISSUE-011).
