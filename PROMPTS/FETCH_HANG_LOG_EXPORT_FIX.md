@@ -478,3 +478,27 @@ Provide:
 16. Remaining limitations.
 
 **Do not mark this task complete simply because the buttons have been added or the frontend no longer displays an error. Verify the actual backend behavior, persistent operation trace, complete log export, and database integrity.**
+
+## OUTCOME (2026-11-07, HERO-V1.5.0 repair line, ISSUE-052)
+
+Starting SHA 6c4c7b0e57f277e304328dbfc1b991d9864f2098. The owner's
+operation FETCH-20261107-090358-B7E4F1 was generated on their Windows
+machine and does not exist in the LMS event store (searched); the old
+code captured no Windows exception - stated honestly in the report.
+CONFIRMED defects fixed: single blocking sync fetch (no operation state/
+resume/duplicates possible), no MT5 timeout, failure paths without stack
+traces in the persistent log, LOG oldest-first capped loading with no
+total/pagination/export. Implemented: background operations
+(start/status/latest, duplicate-start returns the running op, DATA tab
+polls 700ms and resumes), per-timeframe MT5 timeout (180s default,
+stage MT5_HISTORY_REQUEST), canonical lifecycle stages with full stack
+traces (incl. unhandled-500 capture), events offset/order/total, LOG
+Load-older + COPY ALL LOGS + SAVE LOGS TO TXT (complete filtered export).
+Live Linux: ALL operation RUNNING -> FAILED (MT5_UNAVAILABLE) with a
+6-event trace; events total=30 paged; unrelated APIs responsive;
+canonical DB unchanged (419,013 candles, integrity ok, 0 duplicates).
+Tests: backend 204 passed / 1 skipped (205); frontend 51/51; build
+clean. Commit aa02a11929d73f10554831d66943bc923bbcf2ba (remote main
+verified; HERO-V1.5.0 not moved). Windows NOT VERIFIED: after git pull,
+any recurrence now appears in LOG as an ERROR event with stack trace -
+return that trace (or use SAVE LOGS TO TXT with the operation id filter).
