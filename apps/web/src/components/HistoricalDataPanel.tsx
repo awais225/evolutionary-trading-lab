@@ -254,11 +254,13 @@ export function HistoricalDataPanel() {
               <span className="faint">last MT5 update {marketData.summary.last_mt5_update ?? '—'}</span>
               <span className="faint">last update {marketData.summary.last_successful_update ?? '—'}</span>
               {marketData.summary.mt5_fetch_required_timeframes?.length ? (
-                <span className="meta-chip warn" title="At least one completed candle after the latest stored candle has closed for these timeframes. A fetch appends newer completed candles; market-closure periods cannot be distinguished from the clock alone.">
+                <span className="meta-chip warn" title="At least one completed candle is genuinely missing under the measured broker session model (weekend closure + nightly session break already excluded). A fetch appends newer completed candles.">
                   MT5 update available: {marketData.summary.mt5_fetch_required_timeframes.join(', ')}
                 </span>
+              ) : marketData.summary.market_open === false ? (
+                <span className="meta-chip ok" title="Expected-latest-candle uses the measured session model: weekend closure and the nightly break produce no expected candles, so stored data ending Friday evening is current.">Market closed — stored data is current</span>
               ) : (
-                <span className="meta-chip ok" title="Every timeframe's latest stored candle is the last completed bar.">MT5 data up to date</span>
+                <span className="meta-chip ok" title="Every timeframe's latest stored candle is the last completed bar under the measured session model (weekend closure + nightly break excluded).">MT5 data up to date</span>
               )}
               {(marketData.summary.unresolved_conflicts ?? 0) > 0 && (
                 <span className="meta-chip warn">{marketData.summary.unresolved_conflicts} unresolved conflict(s) — see below</span>

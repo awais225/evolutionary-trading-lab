@@ -251,6 +251,23 @@ export function ManualNodes() {
   }
 
   useEffect(() => { loadMetadata() }, [loadMetadata])
+  useEffect(() => {
+    // ISSUE-056: the backend auto-connects (single unambiguous terminal) and
+    // auto-refreshes broker metadata for the connected account. If a live
+    // account exists, re-read metadata once the refresh has had a moment to
+    // land, so this panel never shows a previous account's snapshot as
+    // current. The manual Refresh button remains untouched.
+    let cancelled = false
+    ;(async () => {
+      try {
+        const st: any = await api.mt5.status()
+        if (!cancelled && st?.account?.server) {
+          window.setTimeout(() => { if (!cancelled) void loadMetadata() }, 1500)
+        }
+      } catch { /* disconnected: stored snapshot (if any) stays visibly labelled */ }
+    })()
+    return () => { cancelled = true }
+  }, [instrument]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const parseEditor = (): Record<string, unknown> | null => {
     try {

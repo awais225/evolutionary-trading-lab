@@ -39,6 +39,29 @@ exact commit SHA and tag. Claims only for what was implemented AND verified.
   with freshness and is replaced by separate up-to-date / missing-completed
   -candles facts; new `GET /market-data/quality` readiness report
   (READY/CAUTION/NOT_READY). Backend 227 tests, frontend 66/66.
+- **ISSUE-056 (automatic MT5 connection, metadata retrieval, fetch/persistence
+  reliability)**: a startup background worker now auto-connects when exactly
+  one unambiguous terminal/account is verifiable via the MT5 API (a saved
+  user-chosen terminal wins; multiple running terminals are left to the
+  existing dropdown; no terminal is ever launched automatically; bounded
+  retries 0/3/8/20/45s never block startup and yield to a manual connect).
+  The existing dropdown and manual switching are unchanged. After ANY
+  successful connection, broker metadata refreshes automatically for the
+  actually-connected account (one shared `refresh_from_terminal` core also
+  used by manual Refresh; concurrent refreshes deduplicated; a stored
+  snapshot for a different server is labelled STALE). Fetches now verify
+  persistence: post-commit read-back from a fresh connection (row-count
+  delta + newest-candle OHLC) as a staged `POST_COMMIT_VERIFICATION` event;
+  a failed commit or read-back reports FAILED with nothing falsely appended.
+  Freshness uses a measured session model (weekend closure, Friday-evening
+  close, Sunday 23:00 UTC reopen, Mon-Thu nightly break; the break's last
+  bar 20:59 UTC measured from stored data), so a Saturday fetch ending
+  Friday evening is CURRENT while genuinely missing completed candles still
+  report; new "Market closed - stored data is current" state. The 15
+  Windows conflicts remain UNRESOLVED, stored preserved. Backend 242 tests,
+  frontend 66/66, production build clean. Genuine Windows MT5 auto-connect,
+  metadata retrieval and Saturday-availability confirmation remain
+  **NOT VERIFIED** until the owner runs START.bat.
 - **ISSUE-054 (fetch conflict audit + node delete + Duplicate & Edit)**:
   conflicts are now persisted durably (`fetch_conflicts`: stored + incoming
   values, both provenances, field diffs, UNRESOLVED by default) with

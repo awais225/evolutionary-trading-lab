@@ -1092,3 +1092,16 @@ shift). (A) Universal sorting: lib/tableSort.ts (number/absNumber/natural/
 date/text, nulls last, stable), SortHeader, per-table localStorage prefs;
 applied to Manual Nodes, DATA node dashboard, DATA market rows, LOG
 (server-side sort param). Backend 227, frontend 66/66.
+[2026-11-07] ISSUE-056: Automatic MT5 connection (background worker;
+unambiguous single running terminal or saved terminal only; attach-only,
+never launches; multiple running = dropdown choice; bounded retries) and
+automatic broker-metadata refresh after any successful connect (shared
+refresh_from_terminal core, deduplicated, stale labelling when the live
+server differs). Fetch persistence hardened: POST_COMMIT_VERIFICATION
+read-back stage (count delta + OHLC spot check from a fresh connection);
+failed commit/verification reports FAILED, never a false append. Freshness
+is session-model based (measured: Fri close, Sat closed, Sun 23:00 UTC
+reopen, Mon-Thu 21:00-22:00 UTC break with last bar 20:59 UTC), so the
+owner's Saturday fetch ending Friday 23:56 is CURRENT; "Market closed -
+stored data is current" chip added. Dropdown untouched. 15 conflicts still
+UNRESOLVED. Backend 242, frontend 66/66, build clean. Windows NOT VERIFIED.

@@ -236,6 +236,36 @@ def _utc_now_epoch() -> int:
     return int(_time.time())
 
 
+# --- session model for freshness (ISSUE-056) -------------------------------
+# Measured from the canonical stored feed, not assumed: the nightly session
+# break's last bar opens 20:59 UTC (58/59 observed breaks), the feed closes
+# Friday evening UTC, and reopens Sunday 23:00 UTC. There is NO broker
+# holiday calendar in evidence, so holidays stay "unverified", never
+# "confirmed closed". The model only ever decides which *completed* candles
+# are expected, and it is compared against STORED history, so it can never
+# fabricate a fetch requirement for a closure.
+def _expected_closed(moment: datetime) -> bool:
+    wd = moment.weekday()  # Mon=0 .. Sun=6
+    if wd == 5:
+        return True                      # Saturday: closed all day
+    if wd == 6:
+        return moment.hour < 23          # Sunday: opens 23:00 UTC
+    if wd == 4:
+        return moment.hour >= 21         # Friday: closes after the 20:5x bar
+    return moment.hour == 21             # Mon-Thu nightly session break
+
+
+def expected_latest_completed(now_epoch: int, step_s: int) -> int:
+    """Open-epoch of the newest candle that SHOULD be complete by now under
+    the measured session model. Pure UTC; walks back over closures."""
+    candidate = (int(now_epoch) // step_s) * step_s - step_s
+    for _ in range(200_000):
+        if not _expected_closed(datetime.fromtimestamp(candidate, tz=timezone.utc)):
+            return candidate
+        candidate -= step_s
+    return candidate
+
+
 def availability(instrument: str) -> Dict[str, Any]:
     """Canonical-store availability, calculated from actual stored records.
 
@@ -333,11 +363,18 @@ def availability(instrument: str) -> Dict[str, Any]:
             # from the clock, so the UI phrases it neutrally.
             _step = md.TIMEFRAME_STEPS[tf]
             _now = _utc_now_epoch()
-            _last_completed = (_now // _step) * _step - _step  # open time of last closed bar
+            # ISSUE-056: the expected newest completed candle comes from the
+            # measured session model (weekend closure + nightly break), not
+            # the raw clock - a Saturday fetch ending Friday evening is
+            # CURRENT, while genuinely missing completed candles still count.
+            _last_completed = expected_latest_completed(_now, _step)
             _missing = 0
             if last_epoch is not None and int(last_epoch) < _last_completed:
                 _missing = (_last_completed - int(last_epoch)) // _step
             stats["missing_completed_candles"] = int(_missing)
+            stats["expected_latest_candle"] = md.ts_iso_of(_last_completed)
+            stats["market_open"] = not _expected_closed(
+                datetime.fromtimestamp(_now, tz=timezone.utc))
             stats["up_to_date"] = bool(stats["row_count"]) and _missing == 0
             stats["mt5_fetch_required"] = bool(stats["row_count"]) and _missing > 0
             stats["baseline_missing"] = not bool(stats["row_count"])
@@ -372,6 +409,8 @@ def availability(instrument: str) -> Dict[str, Any]:
         "unverified_missing_candles_est": sum(int((v.get("gap_analysis") or {}).get("unverified_missing_candles_est") or 0)
                                               for v in out["timeframes"].values() if v),
         "last_successful_update": max(updates) if updates else None,
+        "market_open": not _expected_closed(
+            datetime.fromtimestamp(_utc_now_epoch(), tz=timezone.utc)),
     }
     try:
         _c2 = md.connect_store(db)
@@ -595,6 +634,7 @@ def _fetch_one(mt5, conn, *, instrument: str, timeframe: str, utc_now: int,
     # write transaction and effectively never commit.)
     _lookup_started = _time.monotonic()
     prior_ts = _stored_ts_set(conn, instrument, timeframe, dataset_id)
+    _count_before = md.series_stats(conn, instrument, timeframe)["row_count"]
     _op_event(operation_id, "EXISTING_CANDLE_LOOKUP_COMPLETED", instrument=instrument,
               timeframe=timeframe, existing_records=len(prior_ts),
               elapsed_ms=int((_time.monotonic() - _lookup_started) * 1000),
@@ -616,8 +656,8 @@ def _fetch_one(mt5, conn, *, instrument: str, timeframe: str, utc_now: int,
         res["conflicts"] = len(merged["conflicts"])
         res["conflict_details"] = merged.get("conflict_details") or []
         res["appended"] = merged["inserted"]
+        inserted_rows = [c for c in candles if c["ts"] not in prior_ts]
         if merged["inserted"] or merged["conflicts"]:
-            inserted_rows = [c for c in candles if c["ts"] not in prior_ts]
             gaps, largest = md.gap_stats(inserted_rows or candles, step)
             if not conn.execute("SELECT 1 FROM datasets WHERE dataset_id = ?",
                                 (dataset_id,)).fetchone():
@@ -651,6 +691,53 @@ def _fetch_one(mt5, conn, *, instrument: str, timeframe: str, utc_now: int,
     _op_event(operation_id, "DATABASE_COMMIT", instrument=instrument, timeframe=timeframe,
               appended=res["appended"],
               transaction_elapsed_ms=int((_time.monotonic() - _tx_started) * 1000))
+    # Post-commit READ-BACK verification (ISSUE-056): an appended counter is
+    # not proof of persistence. Re-read from a FRESH connection: the row
+    # count must have grown by exactly `appended`, and the newest inserted
+    # candle must read back with identical OHLC. Any mismatch fails the
+    # timeframe honestly instead of reporting a false append.
+    _verify_started = _time.monotonic()
+    try:
+        _fresh = md.connect_store(store_db_path())
+        try:
+            _after_count = md.series_stats(_fresh, instrument, timeframe)["row_count"]
+            _readback_ok = (_after_count - _count_before) == res["appended"]
+            _spot = None
+            _conflict_ts = {int(d.get("ts")) for d in (res.get("conflict_details") or [])
+                            if isinstance(d, dict) and d.get("ts") is not None}
+            _inserted_actual = [c for c in inserted_rows
+                                if int(c["ts"]) not in _conflict_ts]
+            if _readback_ok and _inserted_actual:
+                _newest = max(_inserted_actual, key=lambda c: c["ts"])
+                _row = _fresh.execute(
+                    "SELECT open, high, low, close FROM candles WHERE instrument = ?"
+                    " AND timeframe = ? AND ts = ?",
+                    (instrument, timeframe, int(_newest["ts"]))).fetchone()
+                _spot = _row is not None and tuple(_row) == (
+                    _newest["open"], _newest["high"], _newest["low"], _newest["close"])
+                _readback_ok = bool(_spot)
+        finally:
+            _fresh.close()
+    except Exception as exc:  # noqa: BLE001
+        _op_exception(operation_id, "POST_COMMIT_VERIFICATION", exc,
+                      instrument=instrument, timeframe=timeframe)
+        res["status"] = "FAILED"
+        res["error"] = f"post-commit read-back verification raised: {exc}"
+        res["appended"] = 0
+        return res
+    _op_event(operation_id, "POST_COMMIT_VERIFICATION", instrument=instrument,
+              timeframe=timeframe, before_count=_count_before,
+              after_count=_after_count, appended=res["appended"],
+              readback_ok=_readback_ok,
+              elapsed_ms=int((_time.monotonic() - _verify_started) * 1000),
+              severity="INFO" if _readback_ok else "ERROR")
+    if not _readback_ok:
+        res["status"] = "FAILED"
+        res["error"] = (f"post-commit verification failed: expected {_count_before} + "
+                        f"{res['appended']} rows, database holds {_after_count} "
+                        "(counts/read-back mismatch - append NOT trusted)")
+        res["appended"] = 0
+        return res
     # Durable source-aware conflict audit (ISSUE-054): stored values,
     # incoming values, both provenances and the field diff are persisted so
     # conflicts can be inspected and resolved deliberately later - the

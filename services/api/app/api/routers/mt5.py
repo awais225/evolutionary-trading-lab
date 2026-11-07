@@ -84,6 +84,14 @@ def mt5_connect(body: Mt5ConnectRequest, registry: Session = Depends(get_registr
             payload={"login": (result.get("account") or {}).get("login"),
                      "server": (result.get("account") or {}).get("server"),
                      "trade_mode_name": (result.get("account") or {}).get("trade_mode_name")})
+        if result.get("ok"):
+            # ISSUE-056: metadata follows the ACTUAL connected account,
+            # automatically - no manual Refresh needed after (re)connecting.
+            try:
+                from app import mt5_autoconnect
+                mt5_autoconnect.refresh_metadata_after_connect("connect")
+            except Exception:  # noqa: BLE001 - metadata must never break connect
+                pass
         result["active_terminal_path"] = path
         return result
     raise HTTPException(status_code=503, detail={

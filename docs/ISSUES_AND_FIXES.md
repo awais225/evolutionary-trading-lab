@@ -184,3 +184,46 @@ CSV-vs-MT5 root cause stays officially unknown until the Windows-side
 values are inspected. No bulk acceptance was implemented - no reliable
 source-level rule has been established.
 
+
+## ISSUE-056 - auto-connect, metadata auto-refresh, persistence proof, session freshness (2026-11-07)
+
+**Auto-connection.** `decide_auto_connect()` plans from DISCOVERED+RUNNING
+terminal facts: a saved (user-chosen) running terminal wins; exactly one
+running terminal connects; zero or multiple running never auto-connect
+(and no terminal is ever auto-launched). A background worker with bounded
+retries (0/3/8/20/45s) is started from the FastAPI lifespan; it stops if
+the user connects manually and publishes every attempt's real reason to
+LOG. The existing dropdown, `/mt5/connect` and manual switching are
+untouched; connection states remain DISCOVERED/RUNNING/CONNECTED/
+ACCOUNT_LOADED/FAILED as before.
+
+**Metadata.** One core (`metadata_service.refresh_from_terminal`) serves
+the manual Refresh button and the new automatic post-connect refresh
+(all registered instruments, background thread, deduplicated). Snapshots
+are keyed by server+symbol; `annotate_staleness` labels a stored snapshot
+STALE (with reason) when the live account is on another server, so a
+previous account's metadata is never presented as current.
+
+**Persistence.** Fetches gained a `POST_COMMIT_VERIFICATION` stage: after
+commit, a fresh connection must show row_count grew by exactly
+`appended`, and the newest inserted candle must read back with identical
+OHLC. Any mismatch marks the timeframe FAILED with appended=0 - a failed
+commit can never again masquerade as a successful append. Repeat fetches
+remain idempotent (verified), conflicts still persist post-commit.
+
+**Freshness.** The ISSUE-055 clock rule still counted weekend bars; the
+expected-latest-completed-candle now walks back over a measured session
+model (Saturday closed; Sunday opens 23:00 UTC; Friday closes after the
+20:5x bar; Mon-Thu 21:00-22:00 UTC nightly break - the 20:59 UTC last bar
+was measured on the canonical feed, 58/59 breaks). The owner's Saturday
+fetch ending Friday 23:56 UTC is therefore CURRENT; genuinely missing
+completed candles (e.g. a weekday hour absent) still report. UI shows
+"Market closed - stored data is current" when appropriate. Holidays stay
+UNVERIFIED - no broker calendar exists in evidence.
+
+**Verification.** 16 new tests (plan rules, attach-only execution,
+failure surfacing, refresh dedupe, staleness, read-back/idempotency/
+rollback/restart, Saturday/weekday/Sunday freshness). Backend 242 passed
+/ 1 skipped; frontend 66/66; production build clean. Genuine Windows MT5
+(auto-connect to a running terminal, live metadata, Saturday availability
+on the owner's database) remains NOT VERIFIED - owner to run START.bat.

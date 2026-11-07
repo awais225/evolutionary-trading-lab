@@ -396,8 +396,20 @@ def test_node_validate_compile_save_and_selection_isolation(fake_mt5, client):
         assert node_after["spec_hash"] == node_before["spec_hash"]
         assert node_after["spec_json"] == node_before["spec_json"]
         assert client.get("/api/v1/instruments/BTCUSD/market-data").json() == avail_before
-        meta_after = client.get("/api/v1/instruments/BTCUSD/metadata").json()
-        assert meta_after["snapshot"]["broker_server"] == "UnitTestBroker-Demo"
+        # ISSUE-056 supersedes the old "connect never touches metadata" rule:
+        # after a successful connection the broker metadata MUST refresh to
+        # the account actually connected (async; node/spec isolation above
+        # still holds). Poll briefly for the background refresh to land.
+        import time as _time
+        meta_after = {}
+        for _ in range(50):
+            meta_after = client.get("/api/v1/instruments/BTCUSD/metadata").json()
+            snap = meta_after.get("snapshot") or {}
+            if snap.get("broker_server") == "ICMarketsSC-Demo":
+                break
+            _time.sleep(0.1)
+        assert meta_after["snapshot"]["broker_server"] == "ICMarketsSC-Demo", meta_after
+        assert meta_after["snapshot"].get("stale") is not True
     finally:
         _cleanup_store()
 

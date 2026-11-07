@@ -194,5 +194,79 @@ def available_view(instrument: str) -> Dict[str, Any]:
     return out
 
 
+def annotate_staleness(view: Dict[str, Any]) -> Dict[str, Any]:
+    """Mark a stored snapshot stale when the currently connected account is
+    on a different server (the previous account's metadata must never be
+    presented as the new account's). No connection -> nothing to compare."""
+    snap = view.get("snapshot")
+    if not snap:
+        return view
+    try:
+        from hero1_mt5_adapter import connection as mt5_connection
+        status = mt5_connection.status()
+        account = status.get("account") or {}
+        live_server = account.get("server")
+    except Exception:  # noqa: BLE001
+        live_server = None
+    if live_server and snap.get("broker_server") and live_server != snap["broker_server"]:
+        snap["stale"] = True
+        snap["stale_reason"] = (f"stored metadata is for {snap['broker_server']} but the "
+                                f"connected account is on {live_server}; awaiting automatic refresh")
+        view["stale"] = True
+    return view
+
 __all__ = ["meta_root", "save_snapshot", "load_manifest", "list_snapshots",
            "best_snapshot", "snapshot_broker_meta", "available_view"]
+
+
+# ------------------------------------------------- terminal refresh (ISSUE-056)
+class MetadataRefreshError(Exception):
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
+def refresh_from_terminal(instrument: str) -> Dict[str, Any]:
+    """Pull symbol_info + tick NOW from the live terminal and store the
+    snapshot. Raises MetadataRefreshError with a machine-readable code.
+    Used by the manual /refresh endpoint AND the automatic post-connect
+    refresh so both paths behave identically."""
+    from hero1_mt5_adapter import build_snapshot
+    from hero1_mt5_adapter import connection as mt5_connection
+
+    sym = instrument.strip().upper()
+    mt5 = mt5_connection.mt5_module()
+    if mt5 is None:
+        raise MetadataRefreshError(
+            "MT5_UNAVAILABLE",
+            f"MetaTrader5 package not importable: {mt5_connection.import_error() or 'not installed'}")
+    result = mt5_connection.connect(None)
+    if result.get("state") == mt5_connection.STATE_CONNECTED:
+        raise MetadataRefreshError(
+            "MT5_LOGIN_REQUIRED",
+            result.get("warning") or "terminal connected but no account is logged in")
+    if not result.get("ok"):
+        raise MetadataRefreshError(
+            result.get("error_code") or "MT5_CONNECT_FAILED",
+            result.get("error") or "MT5 connection failed")
+    with mt5_connection.SESSION_LOCK:
+        symbol_info = mt5.symbol_info(sym)
+        tick = mt5.symbol_info_tick(sym)
+        if symbol_info is None:
+            raise MetadataRefreshError(
+                "MT5_SYMBOL_MISSING",
+                f"symbol_info('{sym}') returned None - is the symbol available on this terminal?")
+        account = result.get("account") or {}
+        terminal = result.get("terminal") or {}
+        server = account.get("server") or terminal.get("company") or "unknown-server"
+        snapshot = build_snapshot(
+            broker_server=str(server), symbol=sym,
+            raw_symbol=symbol_info, raw_tick=tick,
+            terminal_identity={"path": terminal.get("path"), "build": terminal.get("build"),
+                               "company": terminal.get("company"), "name": terminal.get("name"),
+                               "connected": terminal.get("connected")},
+            account_login=(account.get("login") if isinstance(account.get("login"), int) else None),
+            source="mt5-terminal")
+    return save_snapshot(snapshot)
+

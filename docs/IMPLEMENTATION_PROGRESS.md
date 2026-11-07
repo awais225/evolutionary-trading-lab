@@ -344,3 +344,14 @@ this entry).
   remain UNRESOLVED with stored values preserved. Backend 227 tests,
   frontend 66/66, build clean.
 
+- ISSUE-056 (2026-11-07): automatic MT5 connection (unambiguous single
+  running terminal or the saved one; never launches, never guesses between
+  multiple; bounded background retries), automatic broker-metadata refresh
+  after any successful connection (shared core with manual Refresh,
+  deduplicated, stale labelling across account changes), post-commit
+  read-back verification for fetch persistence (idempotent, rollback-safe),
+  and session-model freshness (measured weekend closure + nightly break)
+  so Saturday is no longer falsely "fetch required". Dropdown and manual
+  switching unchanged. Backend 242 tests, frontend 66/66, build clean.
+  Windows genuine-MT5 behaviour NOT VERIFIED.
+

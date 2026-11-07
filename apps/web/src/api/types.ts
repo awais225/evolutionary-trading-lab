@@ -301,6 +301,7 @@ export interface MarketDataAvailability {
     last_successful_import?: string | null
     last_mt5_update?: string | null
     mt5_fetch_required_timeframes?: string[]
+    market_open?: boolean
     up_to_date_timeframes?: string[]
     unresolved_conflicts?: number
     unverified_gap_intervals?: number

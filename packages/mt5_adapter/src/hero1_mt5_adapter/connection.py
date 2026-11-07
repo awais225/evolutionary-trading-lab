@@ -495,3 +495,35 @@ __all__ = [
     "normalize_terminal_path", "discover_terminals",
     "connect", "status", "account_snapshot", "disconnect",
 ]
+
+
+# ------------------------------------------------- automatic connection
+def decide_auto_connect(terminals: List[Dict[str, Any]],
+                        saved_terminal_path: Optional[str] = None) -> Dict[str, Any]:
+    """Decide whether an automatic startup connection is UNAMBIGUOUS.
+
+    Rules (ISSUE-056): never launch a terminal automatically; never choose
+    arbitrarily between multiple RUNNING terminals; a previously saved
+    (user-chosen) terminal wins when it is the one running. Returns
+    {action: 'connect'|'none', path, reason, running: [...]}.
+    """
+    running = [t for t in terminals if t.get("running")]
+    paths = [str(t.get("path")) for t in running]
+    if saved_terminal_path:
+        sp = str(saved_terminal_path)
+        match = next((p for p in paths if p.lower() == sp.lower()), None)
+        if match:
+            return {"action": "connect", "path": match, "running": paths,
+                    "reason": "saved terminal is running"}
+        if len(running) == 0:
+            return {"action": "none", "path": None, "running": paths,
+                    "reason": "saved terminal is not running; not launching it automatically"}
+    if len(running) == 1:
+        return {"action": "connect", "path": paths[0], "running": paths,
+                "reason": "exactly one running terminal"}
+    if len(running) == 0:
+        return {"action": "none", "path": None, "running": paths,
+                "reason": "no MT5 terminal is running"}
+    return {"action": "none", "path": None, "running": paths,
+            "reason": f"{len(running)} terminals are running - ambiguous, user selects"}
+

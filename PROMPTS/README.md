@@ -18,6 +18,7 @@ Original instructions are never silently rewritten.
 | DB_FETCH_HANG_DASHBOARD_WIDTH.md | ISSUE-053 DB fetch hang root cause + dashboard width | done (Linux-verified; Windows NOT VERIFIED) |
 | DATA_FETCH_AUDIT_NODE_DELETE_DUPLICATE.md | ISSUE-054 fetch audit + node delete + Duplicate & Edit | done (Linux-verified; Windows conflicts UNRESOLVED) |
 | TABLE_SORTING_MARKET_DATA_INTEGRITY.md | ISSUE-055 universal sorting + data integrity | done (Linux-verified; Windows NOT VERIFIED) |
+| docs/PROMPTS/ISSUE_056_MT5_AUTO_CONNECT_METADATA_FETCH_PERSISTENCE.md | ISSUE-056 auto-connect + metadata + persistence | done (Linux-verified; Windows NOT VERIFIED) |
 | TASK_13_HERO_V1_5_0.md | TASK 13 — HERO-V1.5.0 Windows MT5 + market data | Implemented 2026-11-07; awaiting Windows acceptance (archive reconstructed after context compaction; see file note) |
 | WINDOWS_LAUNCHER.md | Two-BAT Windows launcher + LMS workspace dashboard preview | Archived BEFORE implementation 2026-11-06; outcome appended after execution |
 

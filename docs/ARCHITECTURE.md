@@ -160,7 +160,13 @@ Domain errors → `{"detail": "…"}`; unhandled → 500 `{"error":{"code":"inte
   two servers' snapshots for one symbol never overwrite each other.
 - Validation consumes snapshots: `validate`/`compile` return `NEEDS_METADATA`
   until a snapshot exists for the exact broker/server/symbol, and are never
-  forced to VALID. The TopBar MT5 terminal/account selection is recorded for
+  forced to VALID. Startup auto-connection (ISSUE-056): a non-blocking
+  worker connects only when the MT5 API can verify exactly one unambiguous
+  running terminal/account (a saved user-chosen terminal wins; multiple
+  running terminals stay a manual dropdown choice; nothing is launched
+  automatically); a deduplicated background refresh then retrieves broker
+  metadata for the actually-connected account (snapshots stale-labelled
+  across account changes). The TopBar MT5 terminal/account selection is recorded for
   **Live Testing only** and never affects instruments, nodes, fingerprints
   or DATA. The spec's `identity.direction` participates in the strategy
   fingerprint; inherently directional examples carry `LONG`/`SHORT` (never
@@ -175,7 +181,12 @@ Domain errors → `{"detail": "…"}`; unhandled → 500 `{"error":{"code":"inte
   parent lineage via `POST /nodes/{id}/duplicate`.
 - Data-quality semantics (ISSUE-055): availability is computed per
   timeframe with DB-derived gap classification (weekend closure /
-  session break / unverified) and completed-bar freshness;
+  session break / unverified) and completed-bar freshness
+  (ISSUE-056: expected-latest-candle under a measured session model -
+  weekend closure, Friday-evening close, Sunday 23:00 UTC reopen,
+  Mon-Thu nightly break - never a raw clock comparison);
+  post-commit read-back verification of every fetch append
+  (ISSUE-056 POST_COMMIT_VERIFICATION stage);
   `data_quality()` exposes a READY/CAUTION/NOT_READY report for
   backtesting readiness. Table sorting is standardized on
   `apps/web/src/lib/tableSort.ts` with per-table persisted state.

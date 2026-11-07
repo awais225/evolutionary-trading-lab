@@ -44,51 +44,24 @@ def _write_snapshot_or_503(snapshot: dict, instrument: str, subsystem: str, acti
 
 @router.get("")
 def read_metadata(instrument: str = Depends(get_instrument_context)) -> dict:
-    """Stored snapshot view for this instrument (read-only)."""
-    return metadata_service.available_view(instrument)
+    """Stored snapshot view (read-only; live-server staleness annotated)."""
+    return metadata_service.annotate_staleness(metadata_service.available_view(instrument))
 
 
 @router.post("/refresh")
 def refresh_metadata(instrument: str = Depends(get_instrument_context)) -> dict:
     """Pull symbol_info() + symbol_info_tick() NOW via the MT5 terminal (Windows only)."""
-    mt5 = mt5_connection.mt5_module()
-    if mt5 is None:
-        raise HTTPException(503, detail={
-            "code": "MT5_UNAVAILABLE",
-            "message": (f"MetaTrader5 package not importable: {mt5_connection.import_error() or 'not installed'}. "
-                        "Refresh from the Windows machine that runs the terminal, or POST /metadata/import."),
-            "platform": __import__("platform").system(),
-        })
-    result = mt5_connection.connect(None)  # reuse the live session or initialize default
-    if result.get("state") == mt5_connection.STATE_CONNECTED:
-        raise HTTPException(503, detail={"code": "MT5_LOGIN_REQUIRED",
-                                         "message": result.get("warning") or
-                                                    "terminal connected but no account is logged in",
-                                         "last_error": result.get("last_error")})
-    if not result.get("ok"):
-        raise HTTPException(503, detail={"code": result.get("error_code") or "MT5_CONNECT_FAILED",
-                                         "message": result.get("error"),
-                                         "last_error": result.get("last_error")})
-    with mt5_connection.SESSION_LOCK:
-        symbol_info = mt5.symbol_info(instrument)
-        tick = mt5.symbol_info_tick(instrument)
-        if symbol_info is None:
-            raise HTTPException(503, detail={"code": "MT5_SYMBOL_MISSING",
-                                             "message": f"symbol_info('{instrument}') returned None - "
-                                                        "is the symbol visible/available on this terminal?",
-                                             "last_error": mt5_connection.as_dict(mt5.last_error()) if hasattr(mt5, 'last_error') else None})
-        account = result.get("account") or {}
-        terminal = result.get("terminal") or {}
-        server = account.get("server") or terminal.get("company") or "unknown-server"
-        snapshot = build_snapshot(
-            broker_server=str(server), symbol=instrument,
-            raw_symbol=symbol_info, raw_tick=tick,
-            terminal_identity={"path": terminal.get("path"), "build": terminal.get("build"),
-                               "company": terminal.get("company"), "name": terminal.get("name"),
-                               "connected": terminal.get("connected")},
-            account_login=(account.get("login") if isinstance(account.get("login"), int) else None),
-            source="mt5-terminal")
-    return _write_snapshot_or_503(snapshot, instrument, "mt5", "refreshed")
+    try:
+        saved = metadata_service.refresh_from_terminal(instrument)
+    except metadata_service.MetadataRefreshError as exc:
+        raise HTTPException(503, detail={"code": exc.code, "message": exc.message,
+                                         "platform": __import__("platform").system()}) from None
+    get_event_publisher().publish(
+        category="SYSTEM", severity="INFO", subsystem="mt5",
+        message=f"broker metadata refreshed [{instrument}] {saved.get('broker_server')}",
+        payload={"fingerprint": saved.get("fingerprint"), "source": saved.get("source"),
+                 "automatic": False})
+    return {**metadata_service.available_view(instrument), "saved": saved}
 
 
 @router.post("/import", status_code=201)

@@ -40,6 +40,11 @@ async def lifespan(app: FastAPI):
         log.info("market-data baseline check", extra={"baseline": str(_baseline)[:500]})
     except Exception:
         log.exception("market-data baseline check failed (continuing without it)")
+    try:  # automatic MT5 connection (ISSUE-056): background, bounded retries
+        from app import mt5_autoconnect
+        mt5_autoconnect.start_auto_connect()
+    except Exception:
+        log.exception("MT5 auto-connect worker failed to start (manual Connect still available)")
     yield
     log.info("hero1-api shutting down")
 
