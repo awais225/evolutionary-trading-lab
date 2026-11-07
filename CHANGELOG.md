@@ -26,6 +26,16 @@ exact commit SHA and tag. Claims only for what was implemented AND verified.
   match the CSVs, and the dashboard API returns identical counts/ranges.
 - Tests: backend 190 passed / 1 skipped (191 collected); frontend 44/44;
   production build clean. Real Windows MT5 fetch remains **not yet verified**.
+- **ISSUE-050/051 (DATA tab, fetch conflicts, LOG)**: new DATA navigation tab
+  (historical market data moved — not duplicated — above a generated-nodes
+  dashboard showing per-node timeframe, spec-direction badges LONG green /
+  SHORT red / BOTH amber, parent links and child counts from the persisted
+  registry); fetch conflicts are now classified (exact / representation /
+  genuine) and isolated with field-level diffs instead of aborting whole
+  timeframes — valid new candles append, stored history is preserved,
+  timeframes report PARTIAL honestly; every fetch carries an operation id
+  traced through persistent backend events, and the LOG tab is now a real
+  searchable view over that event store (filters never delete history).
 - **ISSUE-049 permanent storage fix**: the seven supplied CSVs are now stored
   permanently in the project at `DATA/MARKET_DATA/IMPORTS/XAUUSD/` and tracked
   in git (narrow `.gitignore` exception — the only tracked DATA files), so the

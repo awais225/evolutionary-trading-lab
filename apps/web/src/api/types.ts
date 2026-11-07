@@ -260,6 +260,15 @@ export interface MarketDataFetchResult {
   invalid_rejected: number
   invalid_timestamps_rejected?: number
   invalid_examples?: string[]
+  valid_records?: number
+  representation_diffs?: number
+  conflict_details?: Array<{
+    ts: number
+    ts_iso?: string
+    classification?: string
+    stored_dataset_id?: string | null
+    differing_fields?: Record<string, { stored: unknown; incoming: unknown }>
+  }>
   conflicts: number
   latest_stored_ts?: string | null
   error?: string | null
@@ -267,6 +276,7 @@ export interface MarketDataFetchResult {
 
 export interface MarketDataFetchReport {
   instrument: string
+  operation_id?: string
   broker_server: string
   status?: 'COMPLETE' | 'PARTIAL' | 'FAILED' | string
   time?: {

@@ -133,7 +133,11 @@ function route(url: string, method: string, bodyText?: string): Response {
     ] })
   }
   if (url.includes('/api/v1/settings')) return json(SETTINGS)
-  if (url.includes('/api/v1/events')) return json(method === 'POST' ? { id: 42 } : { limit: 50, count: 0, events: [] })
+  if (url.includes('/api/v1/events')) {
+    if (method === 'POST') return json({ id: 42 })
+    const evts = (globalThis as { __hero1Events?: unknown[] }).__hero1Events ?? []
+    return json({ limit: 50, count: evts.length, events: evts })
+  }
   return json({ detail: 'not found' }, 404)
 }
 

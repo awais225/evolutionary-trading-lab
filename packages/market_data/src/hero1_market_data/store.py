@@ -161,6 +161,39 @@ def candle_equal(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
     return all(a.get(k) == b.get(k) for k in _CANDLE_KEYS)
 
 
+# Price/volume fields that define a candle's market meaning. `volume` (real
+# volume, all-zero in the supplied XAUUSD CSV exports) and `spread` (a broker
+# quote property that terminals routinely report differently for the same
+# historical bar) do NOT change what the candle IS.
+_OHLC_KEYS = ("open", "high", "low", "close", "tick_volume")
+_REPRESENTATION_KEYS = ("volume", "spread")
+
+
+def classify_overlap(stored: Dict[str, Any], incoming: Dict[str, Any]) -> str:
+    """Classify an incoming candle that lands on an existing timestamp.
+
+    "duplicate"      - every stored field matches (category A: exact duplicate)
+    "representation" - OHLC + tick volume match; only volume/spread differ
+                       (category B: harmless representation difference)
+    "conflict"       - price or tick volume differs (category C/D: stored
+                       candle is preserved, the difference is recorded)
+    """
+    if candle_equal(stored, incoming):
+        return "duplicate"
+    if all(stored.get(k) == incoming.get(k) for k in _OHLC_KEYS):
+        return "representation"
+    return "conflict"
+
+
+def candle_diff(stored: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[str, Any]:
+    """Field-by-field comparison used for conflict diagnostics."""
+    fields = {}
+    for k in _CANDLE_KEYS:
+        if stored.get(k) != incoming.get(k):
+            fields[k] = {"stored": stored.get(k), "incoming": incoming.get(k)}
+    return fields
+
+
 def canonical_fingerprint(rows: List[Dict[str, Any]]) -> str:
     h = hashlib.sha256()
     for r in rows:
@@ -188,9 +221,12 @@ def merge_candles(conn: sqlite3.Connection, *, dataset_id: str, instrument: str,
     take over timestamps from an older one - counted in
     overwritten_other_source, never silent.
     policy="fetch" (MT5 incremental): stored history is authoritative -
-    identical overlaps are duplicates; CONFLICTING overlaps are reported and
-    NOT written (the caller aborts the timeframe's transaction).
-    Returns {inserted, overwritten_other_source, duplicates_skipped, conflicts}.
+    overlaps are classified (classify_overlap): exact duplicates and
+    representation differences are skipped; CONFLICTING overlaps are isolated
+    (recorded in conflict_details, stored candle preserved) WITHOUT aborting
+    the timeframe - genuinely new candles are still inserted.
+    Returns {inserted, overwritten_other_source, duplicates_skipped,
+    representation_diffs, conflicts, conflict_details}.
     """
     existing = {
         int(ts): {"dataset_id": ds, "open": o, "high": h, "low": l, "close": c,
@@ -201,16 +237,31 @@ def merge_candles(conn: sqlite3.Connection, *, dataset_id: str, instrument: str,
             (instrument, timeframe))
     }
     inserted = overwritten = duplicates = 0
+    representation_diffs = 0
     conflicts: List[int] = []
+    conflict_details: List[Dict[str, Any]] = []
     for r in rows:
         ts = int(r["ts"])
         prior = existing.get(ts)
         if prior is not None:
             if policy == "fetch":
-                if candle_equal(prior, r):
+                kind = classify_overlap(prior, r)
+                if kind == "duplicate":
                     duplicates += 1
+                elif kind == "representation":
+                    duplicates += 1
+                    representation_diffs += 1
                 else:
                     conflicts.append(ts)
+                    if len(conflict_details) < 10:
+                        conflict_details.append({
+                            "ts": ts, "ts_iso": r.get("ts_iso") or ts_iso_of(ts),
+                            "classification": "CONFLICT_STORED_PRESERVED",
+                            "stored_dataset_id": prior.get("dataset_id"),
+                            "differing_fields": candle_diff(prior, r),
+                            "stored": {k: prior.get(k) for k in _CANDLE_KEYS},
+                            "incoming": {k: r.get(k) for k in _CANDLE_KEYS},
+                        })
                 continue
             if prior["dataset_id"] != dataset_id:
                 overwritten += 1
@@ -229,7 +280,9 @@ def merge_candles(conn: sqlite3.Connection, *, dataset_id: str, instrument: str,
              r["open"], r["high"], r["low"], r["close"],
              r["tick_volume"], r["volume"], r["spread"]))
     return {"inserted": inserted, "overwritten_other_source": overwritten,
-            "duplicates_skipped": duplicates, "conflicts": conflicts}
+            "duplicates_skipped": duplicates,
+            "representation_diffs": representation_diffs,
+            "conflicts": conflicts, "conflict_details": conflict_details}
 
 
 def record_dataset(conn: sqlite3.Connection, *, dataset_id: str, instrument: str,

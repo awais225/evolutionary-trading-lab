@@ -8,8 +8,12 @@ produces. Fetch rules (binding):
     directly from those epochs - NO broker/server offset is applied, and no
     offset is ever derived from a live tick;
   * only COMPLETED candles are appended (ts + step <= current UTC time);
-  * identical overlaps are duplicates; conflicting overlaps abort that
-    timeframe untouched - stored history is never silently overwritten;
+  * identical overlaps are duplicates; overlaps differing only in
+    volume/spread are representation differences (also duplicates);
+    conflicting overlaps (price/tick-volume differ) are ISOLATED - recorded
+    with field-level diffs, the stored candle is preserved, and genuinely
+    new candles still append (timeframe reports PARTIAL, never a false
+    UPDATED and never a whole-timeframe abort);
   * invalid candles are rejected and counted, never repaired;
   * one timeframe's failure never discards another timeframe's success;
   * nothing is reported SUCCESS unless the terminal actually answered.
@@ -95,6 +99,32 @@ def ensure_baseline(symbols=("XAUUSD",)) -> Dict[str, Any]:
     except Exception as exc:  # startup must survive a baseline problem
         report["error"] = f"{type(exc).__name__}: {exc}"
     return report
+
+
+def new_operation_id() -> str:
+    """Unique, sortable fetch operation id, e.g. FETCH-20261107-084512-9F3AC1."""
+    import secrets
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    return f"FETCH-{stamp}-{secrets.token_hex(3).upper()}"
+
+
+def _op_event(operation_id: str, stage: str, *, severity: str = "INFO",
+              instrument: str | None = None, timeframe: str | None = None, **ctx: Any) -> None:
+    """Best-effort persistent lifecycle event (registry event store).
+
+    Never raises and never logs secrets: a logging failure must not break a
+    fetch, and a fetch failure must still be visible in the LOG tab.
+    """
+    try:
+        from hero1_eventbus import get_event_publisher
+        get_event_publisher().publish(
+            category="SYSTEM", severity=severity, subsystem="market-data",
+            message=(f"[{operation_id}] {stage}" + (f" ({timeframe})" if timeframe else "")),
+            instrument=instrument,
+            payload={"operation_id": operation_id, "stage": stage,
+                     "timeframe": timeframe, **ctx})
+    except Exception:  # noqa: BLE001 - logging must never sink the operation
+        pass
 
 
 def _utc_now_epoch() -> int:
@@ -261,7 +291,8 @@ def _raw_rate_time(rate: Any) -> Any:
 
 
 def _fetch_one(mt5, conn, *, instrument: str, timeframe: str, utc_now: int,
-               broker_server: str = "unknown-server") -> Dict[str, Any]:
+               broker_server: str = "unknown-server",
+               operation_id: str = "-") -> Dict[str, Any]:
     """Incrementally fetch ONE timeframe from its latest valid stored candle.
 
     Boundaries are UTC datetimes built directly from stored UTC epoch
@@ -278,6 +309,7 @@ def _fetch_one(mt5, conn, *, instrument: str, timeframe: str, utc_now: int,
         "incomplete_dropped": 0, "invalid_rejected": 0,
         "invalid_timestamps_rejected": 0, "invalid_examples": [],
         "conflicts": 0, "latest_stored_ts": None, "error": None,
+        "valid_records": 0, "representation_diffs": 0, "conflict_details": [],
     }
     latest = md.latest_ts(conn, instrument, timeframe)
     if latest is None:
@@ -290,6 +322,8 @@ def _fetch_one(mt5, conn, *, instrument: str, timeframe: str, utc_now: int,
                         "refusing to build a request from it (no data modified)")
         return res
     res["latest_stored_ts"] = md.ts_iso_of(latest)
+    _op_event(operation_id, "latest_stored_candle_identified", instrument=instrument,
+              timeframe=timeframe, latest_stored_ts=res["latest_stored_ts"])
     from_ts = max(md.MIN_TS, latest - 2 * step)  # small overlap for boundary safety
     to_ts = (int(utc_now) // step) * step
     if to_ts <= from_ts:
@@ -319,6 +353,9 @@ def _fetch_one(mt5, conn, *, instrument: str, timeframe: str, utc_now: int,
 
     raw_rows = list(rates)
     res["received"] = len(raw_rows)
+    _op_event(operation_id, "mt5_history_response_received", instrument=instrument,
+              timeframe=timeframe, received=res["received"],
+              requested_from=res["requested_from"], requested_to=res["requested_to"])
     candles: List[Dict[str, Any]] = []
     batch_conflicts: List[int] = []
     seen: Dict[int, Dict[str, Any]] = {}
@@ -365,47 +402,66 @@ def _fetch_one(mt5, conn, *, instrument: str, timeframe: str, utc_now: int,
                         f"timestamp(s) inside one response - timeframe left untouched")
         return res
 
+    res["valid_records"] = len(candles)
+    _op_event(operation_id, "candle_validation_complete", instrument=instrument,
+              timeframe=timeframe, valid_records=res["valid_records"],
+              invalid_rejected=res["invalid_rejected"],
+              incomplete_dropped=res["incomplete_dropped"])
     batch_fp = md.canonical_fingerprint(candles)
     dataset_id = hashlib.sha256(
         f"{instrument}|{timeframe}|mt5-fetch|{batch_fp}".encode()).hexdigest()[:16]
-    with conn:  # one transaction per timeframe - all-or-nothing for this TF
+    with conn:  # one transaction per timeframe: inserts + audit record commit together
         merged = md.merge_candles(conn, dataset_id=dataset_id, instrument=instrument,
                                   timeframe=timeframe, rows=candles, policy="fetch")
-        if merged["conflicts"]:
-            raise _Conflict(merged["conflicts"])
         res["duplicates_skipped"] += merged["duplicates_skipped"]
+        res["representation_diffs"] = int(merged.get("representation_diffs") or 0)
+        res["conflicts"] = len(merged["conflicts"])
+        res["conflict_details"] = merged.get("conflict_details") or []
         res["appended"] = merged["inserted"]
-        if merged["inserted"]:
+        if merged["inserted"] or merged["conflicts"]:
             inserted_rows = [c for c in candles
                              if c["ts"] not in _stored_ts_set(conn, instrument, timeframe, dataset_id)]
             gaps, largest = md.gap_stats(inserted_rows or candles, step)
-            md.record_dataset(
-                conn, dataset_id=dataset_id, instrument=instrument, timeframe=timeframe,
-                source_file=f"mt5-fetch:{broker_server}", source_sha256=batch_fp, source_bytes=0,
-                row_count=merged["inserted"], duplicates_collapsed=merged["duplicates_skipped"],
-                gaps_found=gaps, largest_gap_seconds=largest,
-                first_ts=inserted_rows[0]["ts_iso"] if inserted_rows else None,
-                last_ts=inserted_rows[-1]["ts_iso"] if inserted_rows else None,
-                content_fingerprint=batch_fp, location=str(store_db_path()),
-                imported_at=md.iso_now(), validation_result="PASS",
-                validation_report={"kind": "mt5-fetch", "timezone": "UTC epoch seconds",
-                                   "requested_from": res["requested_from"],
-                                   "requested_to": res["requested_to"],
-                                   "received": res["received"],
-                                   "incomplete_dropped": res["incomplete_dropped"],
-                                   "invalid_rejected": res["invalid_rejected"],
-                                   "invalid_timestamps_rejected": res["invalid_timestamps_rejected"]},
-                status="AVAILABLE")
-    res["status"] = "UPDATED" if res["appended"] else "UP_TO_DATE"
+            if not conn.execute("SELECT 1 FROM datasets WHERE dataset_id = ?",
+                                (dataset_id,)).fetchone():
+                md.record_dataset(
+                    conn, dataset_id=dataset_id, instrument=instrument, timeframe=timeframe,
+                    source_file=f"mt5-fetch:{broker_server}", source_sha256=batch_fp, source_bytes=0,
+                    row_count=merged["inserted"], duplicates_collapsed=merged["duplicates_skipped"],
+                    gaps_found=gaps, largest_gap_seconds=largest,
+                    first_ts=inserted_rows[0]["ts_iso"] if inserted_rows else None,
+                    last_ts=inserted_rows[-1]["ts_iso"] if inserted_rows else None,
+                    content_fingerprint=batch_fp, location=str(store_db_path()),
+                    imported_at=md.iso_now(), validation_result="PASS",
+                    validation_report={"kind": "mt5-fetch", "timezone": "UTC epoch seconds",
+                                       "operation_id": operation_id,
+                                       "requested_from": res["requested_from"],
+                                       "requested_to": res["requested_to"],
+                                       "received": res["received"],
+                                       "incomplete_dropped": res["incomplete_dropped"],
+                                       "invalid_rejected": res["invalid_rejected"],
+                                       "representation_diffs": res["representation_diffs"],
+                                       "conflicts": res["conflicts"],
+                                       "conflict_details": res["conflict_details"],
+                                       "invalid_timestamps_rejected": res["invalid_timestamps_rejected"]},
+                    status="AVAILABLE" if merged["inserted"] else "CONFLICT_RECORDED")
+    if res["conflicts"]:
+        res["status"] = "PARTIAL"
+        res["error"] = (f"{res['conflicts']} terminal candle(s) conflict with stored history "
+                        f"and were isolated (stored values preserved, see conflict_details); "
+                        f"{res['appended']} new candle(s) appended, "
+                        f"{res['duplicates_skipped']} duplicate(s) skipped")
+    else:
+        res["status"] = "UPDATED" if res["appended"] else "UP_TO_DATE"
     latest_after = md.latest_ts(conn, instrument, timeframe)
     res["latest_stored_ts"] = md.ts_iso_of(latest_after) if latest_after else None
+    _op_event(operation_id, "timeframe_fetch_complete", instrument=instrument,
+              timeframe=timeframe, status=res["status"], appended=res["appended"],
+              duplicates_skipped=res["duplicates_skipped"], conflicts=res["conflicts"],
+              representation_diffs=res["representation_diffs"],
+              latest_stored_ts=res["latest_stored_ts"],
+              severity="WARNING" if res["status"] == "PARTIAL" else "INFO")
     return res
-
-
-class _Conflict(Exception):
-    def __init__(self, ts_list: List[int]):
-        super().__init__(f"conflicting stored candles at {ts_list[:5]}")
-        self.ts_list = ts_list
 
 
 def _stored_ts_set(conn, instrument: str, timeframe: str, exclude_dataset: str) -> set:
@@ -414,9 +470,18 @@ def _stored_ts_set(conn, instrument: str, timeframe: str, exclude_dataset: str) 
         (instrument, timeframe, exclude_dataset))}
 
 
-def fetch(instrument: str, timeframes: List[str]) -> Dict[str, Any]:
-    """Incrementally fetch completed candles for the given timeframes."""
+def fetch(instrument: str, timeframes: List[str],
+          operation_id: Optional[str] = None) -> Dict[str, Any]:
+    """Incrementally fetch completed candles for the given timeframes.
+
+    Every stage is recorded as a persistent event carrying `operation_id`
+    (generated when the caller did not supply one), so the whole operation
+    can be reconstructed in the LOG tab.
+    """
     sym = instrument.strip().upper()
+    operation_id = (operation_id or "").strip() or new_operation_id()
+    _op_event(operation_id, "fetch_request_received", instrument=sym,
+              timeframes=list(timeframes), store=str(store_db_path()))
     mt5 = mt5_connection.mt5_module()
     if mt5 is None:
         raise FetchError("MT5_UNAVAILABLE",
@@ -433,6 +498,8 @@ def fetch(instrument: str, timeframes: List[str]) -> Dict[str, Any]:
     account = result.get("account") or {}
     terminal = result.get("terminal") or {}
     broker_server = account.get("server") or terminal.get("company") or "unknown-server"
+    _op_event(operation_id, "mt5_connection_verified", instrument=sym,
+              broker_server=broker_server)
 
     # MT5 rate timestamps and the canonical store are both UTC epoch seconds.
     # No broker offset is measured, rounded or applied anywhere in this path.
@@ -447,25 +514,19 @@ def fetch(instrument: str, timeframes: List[str]) -> Dict[str, Any]:
             try:
                 results.append(_fetch_one(mt5, conn, instrument=sym,
                                           timeframe=tf, utc_now=utc_now,
-                                          broker_server=broker_server))
-            except _Conflict as exc:
-                results.append({
-                    "timeframe": tf, "status": "FAILED", "requested_from": None,
-                    "requested_to": md.ts_iso_of(utc_now), "received": 0, "appended": 0,
-                    "duplicates_skipped": 0, "incomplete_dropped": 0, "invalid_rejected": 0,
-                    "invalid_timestamps_rejected": 0, "invalid_examples": [],
-                    "conflicts": len(exc.ts_list), "latest_stored_ts": None,
-                    "error": (f"terminal history conflicts with stored candles at "
-                              f"{[md.ts_iso_of(t) for t in exc.ts_list[:5]]} - stored history "
-                              f"was NOT overwritten; timeframe left untouched"),
-                })
+                                          broker_server=broker_server,
+                                          operation_id=operation_id))
             except Exception as exc:  # noqa: BLE001 - one TF must not sink the rest
+                _op_event(operation_id, "timeframe_fetch_failed", instrument=sym,
+                          timeframe=tf, severity="ERROR",
+                          error=f"{type(exc).__name__}: {exc}")
                 results.append({
                     "timeframe": tf, "status": "FAILED", "requested_from": None,
                     "requested_to": md.ts_iso_of(utc_now), "received": 0, "appended": 0,
                     "duplicates_skipped": 0, "incomplete_dropped": 0, "invalid_rejected": 0,
                     "invalid_timestamps_rejected": 0, "invalid_examples": [],
                     "conflicts": 0, "latest_stored_ts": None,
+                    "valid_records": 0, "representation_diffs": 0, "conflict_details": [],
                     "error": f"{type(exc).__name__}: {exc}",
                 })
         if any(r["status"] == "UPDATED" for r in results):
@@ -473,9 +534,15 @@ def fetch(instrument: str, timeframes: List[str]) -> Dict[str, Any]:
     finally:
         conn.close()
 
-    succeeded = sum(1 for r in results if r["status"] != "FAILED")
-    overall = ("COMPLETE" if results and succeeded == len(results)
-               else "PARTIAL" if succeeded else "FAILED")
+    clean = sum(1 for r in results if r["status"] in ("UPDATED", "UP_TO_DATE"))
+    processed = sum(1 for r in results if r["status"] != "FAILED")
+    overall = ("COMPLETE" if results and clean == len(results)
+               else "PARTIAL" if processed else "FAILED")
+    _op_event(operation_id, "fetch_operation_completed", instrument=sym,
+              status=overall, broker_server=broker_server,
+              severity="INFO" if overall == "COMPLETE" else "WARNING" if overall == "PARTIAL" else "ERROR",
+              results=[{"timeframe": r["timeframe"], "status": r["status"],
+                        "appended": r["appended"], "conflicts": r["conflicts"]} for r in results])
     time_block = {
         "rule": "UTC epoch seconds; MT5 rate time is stored verbatim after validation; "
                 "no broker/server offset is applied",
@@ -485,6 +552,7 @@ def fetch(instrument: str, timeframes: List[str]) -> Dict[str, Any]:
     }
     return {
         "instrument": sym,
+        "operation_id": operation_id,
         "broker_server": broker_server,
         "status": overall,
         "time": time_block,

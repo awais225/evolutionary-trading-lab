@@ -301,3 +301,13 @@ this entry).
   419,013 candles rebuilt from the repo CSVs, verified identical to the old
   external store, restart-persistent, dashboard==SQLite. Windows NOT VERIFIED
   (owner: git pull, START.bat, START_DIAGNOSTIC step 5b).
+
+- ISSUE-050/051: DATA tab added (HistoricalDataPanel moved out of Manual
+  Nodes above the new NodeDashboard: timeframe + colored spec-direction
+  badges, parent/child lineage, filters); fetch conflicts classified and
+  isolated (representation diffs counted, genuine conflicts recorded with
+  stored-vs-MT5 diffs, stored candles preserved, PARTIAL status); fetch
+  operation ids traced through the persistent event store; LOG tab is now
+  a real filterable view of that store. Backend 199 passed / 1 skipped
+  (200 collected); frontend 50/50; build clean; launcher audit PASS.
+  Genuine Windows terminal conflict values still NOT VERIFIED.

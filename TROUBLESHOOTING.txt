@@ -403,4 +403,89 @@ Status: LMS verified end-to-end (import, restart persistence, re-import
 SKIPPED x7, dashboard==SQLite). GitHub verified (remote tree lists the seven
 CSVs). Windows: NOT VERIFIED at time of writing - owner to run
 START_DIAGNOSTIC.bat step 5b and confirm the dashboard counts.
+================================================================================
+ISSUE-050 - FETCH DATA reports PARTIAL: "terminal history conflicts with
+stored candles" and whole timeframes stay untouched
+================================================================================
+Exact symptom (Windows, 2026-11-07): FETCH DATA with scope ALL returns
+PARTIAL. Several timeframes fail with "terminal history conflicts with stored
+candles" at timestamps such as 2026-10-16 12:31:00 / 12:30:00 / 10:45:00 /
+12:00:00, while others update. No new candles are saved for the failed
+timeframes even though the terminal has newer history.
 
+CONFIRMED causes (code-verified 2026-11-07; terminal-side candle values can
+only be captured on Windows - see "evidence still required" below):
+1. The cited conflict timestamps are EXACTLY each timeframe's latest stored
+   candle (M1 2026-10-16 12:31, M5/M30 12:30, M15 10:45, H1 12:00 UTC) - i.e.
+   the two-candle overlap the fetcher deliberately requests. Every fetch
+   therefore re-examines the boundary candles first.
+2. The old comparison (store.candle_equal) required ALL fields to match,
+   including `spread` and `volume`. The supplied CSVs store VOL as exported
+   (all-zero for XAUUSD) and the History-Center SPREAD; the terminal reports
+   its own spread/real-volume for the same historical bar, so boundary
+   candles conflicted even when prices were identical.
+3. The old merge aborted the ENTIRE timeframe transaction on the first
+   conflict (_Conflict), discarding every valid new candle with it.
+
+Stored boundary candles (canonical DB, provenance = the permanent CSVs):
+  M1  2026-10-16 12:31:00  O 4177.35 H 4179.79 L 4177.32 C 4179.59
+      tickvol 286  vol 0.0  spread 10   (XAUUSD_M1.csv)
+  M5  2026-10-16 12:30:00  O 4176.15 H 4180.43 L 4175.63 C 4180.24
+      tickvol 930  vol 0.0  spread 5    (XAUUSD_M5.csv)
+  M15 2026-10-16 10:45:00  O 4181.83 H 4182.47 L 4181.02 C 4181.71
+      tickvol 536  vol 0.0  spread 5    (XAUUSD_M15.csv)
+  H1  2026-10-16 12:00:00  O 4171.89 H 4180.43 L 4171.50 C 4176.62
+      tickvol 13718 vol 0.0  spread 5   (XAUUSD_H1.csv)
+These are the last candles of the CSV exports; a terminal may legitimately
+hold a revised/final version of a candle that was still forming at export
+time (category C below), or differ only in spread/volume (category B).
+
+Fix (conflict policy, categories A-D):
+- store.classify_overlap(): A exact duplicate (all fields) -> skip;
+  B OHLC+tick_volume equal but volume/spread differ -> representation
+  difference, skip and count separately; C/D price or tick-volume differs
+  -> CONFLICT: the stored candle is preserved untouched, the difference is
+  recorded (conflict_details with stored vs incoming per-field values in
+  the fetch report AND in the datasets.validation_report audit row), and
+  the remaining valid new candles still append in the same transaction.
+- Timeframe status: UPDATED (appended, no conflicts), UP_TO_DATE,
+  PARTIAL (conflicts isolated, with or without appends), FAILED (only for
+  real failures). Overall COMPLETE/PARTIAL/FAILED follows the same rule.
+- No force-overwrite exists. A verified revision-acceptance policy is a
+  separate, future, owner-approved change; conflicts stay visible until
+  then.
+
+Evidence still required (Windows): run FETCH DATA once and return one
+conflict_details block (or the LOG-tab trace for the operation id). That
+shows the terminal's actual values next to the stored ones above and
+settles B (representation) vs C (broker revision) per timeframe.
+
+================================================================================
+ISSUE-051 - LOG tab was a placeholder; fetch operations were not traceable
+================================================================================
+Symptom: The LOG tab showed a Phase-6 placeholder and FETCH DATA failures
+could not be reconstructed (only a final error message).
+
+Fix: the LOG tab now reads the persistent registry event store (the existing
+DATA-backed logging architecture - no competing system). Every FETCH DATA
+carries an operation id (client-generated FETCH-YYYYMMDD-HHMMSS-XXXXXX, or
+server-generated) and the backend records lifecycle stages under it:
+fetch_request_received (with the resolved canonical DB path),
+mt5_connection_verified, latest_stored_candle_identified,
+mt5_history_response_received, candle_validation_complete,
+timeframe_fetch_complete / timeframe_fetch_failed (stage + exception), and
+fetch_operation_completed. Frontend user actions (DATA tab open, fetch
+click, scope/filter changes, node inspect) are logged through POST /events
+with the same operation id. The LOG tab filters by severity, component,
+operation id, instrument and free text (server-side search over message +
+payload); filters are display-only and never delete history. Events survive
+backend restarts (verified on Linux: a failed MT5_UNAVAILABLE fetch still
+leaves its fetch_request_received event, searchable by operation id).
+
+DATA tab (same issue): the historical market-data panel and the generated
+nodes dashboard now live together under the new DATA navigation tab
+(market data on top, nodes below; the panel was MOVED out of Manual Nodes,
+not duplicated). The node table shows each node's own timeframe, its saved
+spec direction as a colored badge (LONG green, SHORT red, BOTH amber,
+missing = explicit NO DIRECTION / NO TF), origin colors, parent name+id
+navigation, child counts and version lineage from the persisted registry.

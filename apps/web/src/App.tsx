@@ -9,7 +9,9 @@ import { TopBar } from './components/TopBar'
 import { GlobalLiveFeed } from './components/GlobalLiveFeed'
 import { ManualNodes } from './pages/ManualNodes'
 import { Settings } from './pages/Settings'
-import { WWWResearch, InteractiveWWW, DeepTesting, FineTuning, LiveTesting, LogView } from './pages/_placeholderPages'
+import { WWWResearch, InteractiveWWW, DeepTesting, FineTuning, LiveTesting } from './pages/_placeholderPages'
+import { DataPage } from './pages/Data'
+import { LogView } from './pages/Log'
 
 function Frame() {
   const { open } = useFeed()
@@ -26,6 +28,7 @@ function Frame() {
             <Routes>
               <Route path="/" element={<Navigate to="/manual-nodes" replace />} />
               <Route path="/manual-nodes" element={<ManualNodes />} />
+              <Route path="/data" element={<DataPage />} />
               <Route path="/www-research" element={<WWWResearch />} />
               <Route path="/interactive-www" element={<InteractiveWWW />} />
               <Route path="/deeptesting" element={<DeepTesting />} />

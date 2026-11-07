@@ -2,6 +2,7 @@ import { NavLink } from 'react-router-dom'
 
 const ITEMS = [
   { to: '/manual-nodes', label: 'Manual Nodes', phase: 'P1', icon: 'M4 6h16M4 12h10M4 18h16' },
+  { to: '/data', label: 'DATA', phase: 'P4', icon: 'M4 5h16M4 10h16M4 15h16M4 20h10' },
   { to: '/www-research', label: 'WWW Research', phase: 'P7', icon: 'M12 3a9 9 0 019 9M12 7a5 5 0 015 5M3 12h6m2.5-7L9 12l2.5 7' },
   { to: '/interactive-www', label: 'Interactive WWW', phase: 'P7', icon: 'M8 10h.01M12 10h.01M16 10h.01M21 12a8 8 0 01-11.6 7.1L4 21l1.9-5.4A8 8 0 1121 12z' },
   { to: '/deeptesting', label: 'DeepTesting', phase: 'P4', icon: 'M4 5h16M4 10h16M4 15h10M4 20h7' },

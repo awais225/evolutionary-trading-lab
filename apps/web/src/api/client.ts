@@ -48,15 +48,17 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 export const api = {
   health: () => request<HealthOut>('GET', '/health'),
   instruments: () => request<{ instruments: Instrument[] }>('GET', '/api/v1/instruments').then((r) => r.instruments),
-  events: (params: { instrument?: string; category?: string; severity?: string; limit?: number } = {}) => {
+  events: (params: { instrument?: string; category?: string; severity?: string; subsystem?: string; search?: string; limit?: number } = {}) => {
     const q = new URLSearchParams()
     if (params.instrument) q.set('instrument', params.instrument)
     if (params.category) q.set('category', params.category)
     if (params.severity) q.set('severity', params.severity)
+    if (params.subsystem) q.set('subsystem', params.subsystem)
+    if (params.search) q.set('search', params.search)
     if (params.limit) q.set('limit', String(params.limit))
     return request<EventListOut>('GET', `/api/v1/events?${q}`)
   },
-  postEvent: (body: { category: string; severity?: string; instrument?: string; subsystem?: string; message: string }) =>
+  postEvent: (body: { category: string; severity?: string; instrument?: string; subsystem?: string; message: string; payload?: Record<string, unknown> }) =>
     request<HeroEventCreated>('POST', '/api/v1/events', body),
   nodes: {
     list: (instrument: string, params: { origin?: string; starred?: boolean; limit?: number; timeframe?: string[] } = {}) => {
@@ -113,8 +115,8 @@ export const api = {
   },
   marketData: {
     get: (instrument: string) => request<MarketDataAvailability>('GET', `/api/v1/instruments/${instrument}/market-data`),
-    fetch: (instrument: string, timeframe = 'ALL') =>
-      request<MarketDataFetchReport>('POST', `/api/v1/instruments/${instrument}/market-data/fetch`, { timeframe }),
+    fetch: (instrument: string, timeframe = 'ALL', operationId?: string) =>
+      request<MarketDataFetchReport>('POST', `/api/v1/instruments/${instrument}/market-data/fetch`, { timeframe, operation_id: operationId }),
   },
   metadata: {
     get: (instrument: string) => request<InstrumentMetadataView>('GET', `/api/v1/instruments/${instrument}/metadata`),

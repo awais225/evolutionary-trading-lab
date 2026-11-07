@@ -306,7 +306,7 @@ def test_fetch_appends_only_new_completed_candles(fake_mt5, client, monkeypatch)
     assert avail["timeframes"]["M5"]["row_count"] == 3
 
 
-def test_fetch_conflict_aborts_timeframe_and_preserves_history(fake_mt5, client, monkeypatch):
+def test_fetch_conflict_is_isolated_and_preserves_history(fake_mt5, client, monkeypatch):
     latest = BASE + 10 * STEP_M5
     _seed_store("BTCUSD", "M5", [_candle(latest, 100.0)], dataset_id="seeddataset00002")
     fake_mt5.account = dict(ACCOUNT)
@@ -315,9 +315,13 @@ def test_fetch_conflict_aborts_timeframe_and_preserves_history(fake_mt5, client,
     fake_mt5.rates = {FakeMT5.TIMEFRAME_M5: [_rate(latest, 555.0)]}  # rewritten history
     r = client.post("/api/v1/instruments/BTCUSD/market-data/fetch", json={"timeframe": "M5"})
     res = r.json()["results"][0]
-    assert res["status"] == "FAILED"
+    # ISSUE-050: the conflict is isolated (stored history preserved, diff
+    # recorded) instead of aborting the timeframe; nothing new to append.
+    assert res["status"] == "PARTIAL"
     assert res["conflicts"] == 1
-    assert "NOT overwritten" in res["error"]
+    assert res["appended"] == 0
+    assert res["conflict_details"][0]["differing_fields"]["close"]["stored"] == 100.0
+    assert res["conflict_details"][0]["differing_fields"]["close"]["incoming"] == 555.0
     from hero1_market_data import store as md
     from app.market_data_service import store_db_path
     conn = md.connect_store(store_db_path())

@@ -363,6 +363,17 @@ AND the batch-scope panels of DeepTesting / Fine Tuning / Live Testing — Selec
 always applies to the currently visible (filtered) set only.
 
 ### Honesty gates
+Update (2026-11-07, ISSUE-049..051): a canonical market-data store DOES now
+exist (`DATA/MARKET_DATA/market_data.db`, CSV baseline + MT5 incremental
+fetch; see docs/DATA_LAYOUT.md). The DATA navigation tab hosts the
+historical market-data panel (moved out of Manual Nodes) above the
+generated-nodes dashboard (per-node timeframe, saved-spec direction badges,
+parent/child lineage). Fetch conflicts are classified
+(exact/representation/genuine) and isolated — stored candles are never
+overwritten, valid new candles still append, and operations are traced by
+operation id through the persistent registry event store surfaced in the
+LOG tab. The stale Phase-4 note below predates this:
+
 No market-data store exists; saved multi-timeframe nodes are DRAFT/PENDING and render
 `AWAITING MARKET DATA · DATA UNAVAILABLE — Phase 4` in the inspector. No backtest,
 validation, qualification or live-readiness claim is made anywhere in this flow.

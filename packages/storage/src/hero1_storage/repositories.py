@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Dict, Iterable, List, Optional
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from . import registry_models as rm
@@ -104,8 +104,13 @@ class EventRepository:
 
     def list(self, *, instrument: Optional[str] = None, category: Optional[str] = None,
              severity: Optional[str] = None, subsystem: Optional[str] = None,
-             since_id: Optional[int] = None, limit: int = 100) -> List[rm.GlobalEvent]:
+             since_id: Optional[int] = None, limit: int = 100,
+             search: Optional[str] = None) -> List[rm.GlobalEvent]:
         stmt = select(rm.GlobalEvent).order_by(rm.GlobalEvent.id)
+        if search:
+            like = f"%{search}%"
+            stmt = stmt.where(or_(rm.GlobalEvent.message.like(like),
+                                  rm.GlobalEvent.payload.like(like)))
         if instrument:
             stmt = stmt.where(rm.GlobalEvent.instrument_id == instrument.upper())
         if category:

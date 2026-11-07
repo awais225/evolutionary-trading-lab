@@ -28,6 +28,8 @@ def list_events(
     severity: str | None = Query(default=None),
     subsystem: str | None = Query(default=None, max_length=48),
     since_id: int | None = Query(default=None, ge=0),
+    search: str | None = Query(default=None, max_length=120,
+                               description="matches message and payload (operation ids, timeframes, errors)"),
     limit: int = Query(default=100, ge=1, le=500),
     registry: Session = Depends(get_registry_session),
 ) -> EventListOut:
@@ -39,7 +41,8 @@ def list_events(
         raise HTTPException(422, f"unknown severity: {severity!r}")
     repo = EventRepository(registry)
     rows = repo.list(instrument=_symbol_filter(instrument), category=cat, severity=sev,
-                     subsystem=subsystem, since_id=since_id, limit=limit)
+                     subsystem=subsystem, since_id=since_id, limit=limit,
+                     search=(search.strip() or None) if search else None)
     events = events_to_dicts(rows)
     return EventListOut(limit=limit, count=len(events), events=[EventOut(**e) for e in events])
 

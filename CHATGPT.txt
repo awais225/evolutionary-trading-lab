@@ -1040,3 +1040,15 @@ WINDOWS: resolves [project]\DATA\MARKET_DATA\market_data.db; after git pull
   the baseline imports automatically (API lifespan ensure_baseline +
   START_INTERNAL stage 6). WINDOWS STILL NOT VERIFIED - owner to run
   START_DIAGNOSTIC.bat step 5b and confirm dashboard counts.
+
+ISSUE-050/051 UPDATE:
+DATA TAB: new nav tab - historical market data (moved from Manual Nodes)
+  above the generated-nodes dashboard (per-node TF, LONG/SHORT/BOTH badges
+  from saved specs, parent links, child counts, lineage).
+FETCH CONFLICTS: classified exact/representation/genuine; genuine conflicts
+  isolated + recorded (conflict_details), stored candles NEVER overwritten,
+  valid new candles still append, timeframe reports PARTIAL. Old behavior
+  aborted whole timeframes on one conflict and compared spread/volume too.
+LOGGING: every fetch has an operation id; backend stages + frontend actions
+  persist in the registry event store; LOG tab filters severity/component/
+  operation/search (display-only, no deletion). WINDOWS STILL NOT VERIFIED.

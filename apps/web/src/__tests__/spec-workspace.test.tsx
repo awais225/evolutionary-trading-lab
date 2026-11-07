@@ -72,17 +72,11 @@ describe('Manual Nodes — spec workspace (Phase 2)', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/MetaTrader5 package not importable/i)
   })
 
-  it('shows stored historical coverage separately and reports a failed fetch honestly', async () => {
+  it('historical data moved to the DATA tab (no duplicate controls here)', async () => {
     renderNodes()
-    expect(await screen.findByText(/Historical data/)).toBeInTheDocument()
-    expect(await screen.findByText(/1\/7 timeframes available/)).toBeInTheDocument()
-    expect(await screen.findByText(/3 total candles/)).toBeInTheDocument()
-    expect(await screen.findByText('2026-07-07 18:41:00')).toBeInTheDocument()
-    expect(screen.getByText(/OHLC never substitutes for MT5 symbol metadata/)).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /fetch data/i }))
-    expect((await screen.findAllByText(/^FAILED$/)).length).toBeGreaterThan(0)
-    expect(await screen.findByText(/mock terminal unavailable/)).toBeInTheDocument()
-    expect(screen.queryByText(/^COMPLETED$/)).not.toBeInTheDocument()
+    expect(await screen.findByText(/Registry · XAUUSD/)).toBeInTheDocument()
+    expect(screen.queryByText(/Historical data/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /fetch data/i })).not.toBeInTheDocument()
   })
 
   it('Direction defaults to BOTH in a blank strategy and is editable in Conditions', async () => {
