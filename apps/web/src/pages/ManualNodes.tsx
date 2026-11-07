@@ -11,7 +11,7 @@ import { useTimeframeScope } from '../state/timeframeScope'
 import { emptyComparison } from '../builder/specTree'
 import { SUPPORTED_TIMEFRAMES } from '../lib/timeframes'
 import { nextAutoName } from '../lib/nodeNames'
-import type { Node, NodeOrigin, ValidationIssue, ValidationReport, CompileResult, NodeVersionList, BrokerMeta } from '../api/types'
+import type { Node, NodeOrigin, ValidationIssue, ValidationReport, CompileResult, NodeVersionList, InstrumentMetadataView } from '../api/types'
 
 const ORIGINS: NodeOrigin[] = ['CUSTOM', 'WWW', 'INTERACTIVE', 'FINE_TUNED']
 
@@ -69,9 +69,10 @@ export function ManualNodes() {
   const [editBusy, setEditBusy] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
   const [nodeName, setNodeName] = useState('')
-  const [pipSize, setPipSize] = useState('')
-  const [tickSize, setTickSize] = useState('')
-  const [pointSize, setPointSize] = useState('')
+  const [metadata, setMetadata] = useState<InstrumentMetadataView | null>(null)
+  const [metadataBusy, setMetadataBusy] = useState(false)
+  const [metadataError, setMetadataError] = useState<string | null>(null)
+  const [metadataLoadedFor, setMetadataLoadedFor] = useState<string | null>(null)
   const [busy, setBusy] = useState<null | 'validate' | 'compile' | 'save' | 'version'>(null)
   const [specParseError, setSpecParseError] = useState<string | null>(null)
   const [validation, setValidation] = useState<ValidationReport | null>(null)
@@ -202,14 +203,30 @@ export function ManualNodes() {
     }
   }
 
-  // ------------------------------------------------- spec helpers
-  const buildBrokerMeta = (): BrokerMeta | undefined => {
-    const meta: Record<string, number> = {}
-    const pip = Number(pipSize); if (pipSize.trim() && Number.isFinite(pip) && pip > 0) meta.pip_size = pip
-    const tick = Number(tickSize); if (tickSize.trim() && Number.isFinite(tick) && tick > 0) meta.tick_size = tick
-    const point = Number(pointSize); if (pointSize.trim() && Number.isFinite(point) && point > 0) meta.point_size = point
-    return Object.keys(meta).length ? { [instrument]: meta } : undefined
+  // ------------------------------------------------- broker metadata (from MT5 via the backend)
+  const loadMetadata = useCallback(async () => {
+    try {
+      setMetadata(await api.metadata.get(instrument))
+      setMetadataError(null)
+      setMetadataLoadedFor(instrument)
+    } catch (err) {
+      setMetadata(null)
+      setMetadataLoadedFor(instrument)
+      setMetadataError(err instanceof ApiError ? err.message : 'metadata lookup failed')
+    }
+  }, [instrument])
+
+  const refreshMetadata = async () => {
+    setMetadataBusy(true); setMetadataError(null)
+    try {
+      setMetadata(await api.metadata.refresh(instrument))
+      setMetadataLoadedFor(instrument)
+    } catch (err) {
+      setMetadataError(err instanceof ApiError ? err.message : 'MT5 metadata refresh failed')
+    } finally { setMetadataBusy(false) }
   }
+
+  useEffect(() => { loadMetadata() }, [loadMetadata])
 
   const parseEditor = (): Record<string, unknown> | null => {
     try {
@@ -265,7 +282,7 @@ export function ManualNodes() {
   const startBlankSpec = () => {
     const blank = {
       schema_version: '1.0.0',
-      identity: { name: resolveNodeName(), description: '', instrument, timeframe: referenceTf, direction: 'LONG', origin: 'CUSTOM', tags: [], metadata: {} },
+      identity: { name: resolveNodeName(), description: '', instrument, timeframe: referenceTf, direction: 'BOTH', origin: 'CUSTOM', tags: [], metadata: {} },
       execution: { entry_timing: 'next_bar_open', candle: 'completed', permit_forming_candle: false, order_type: 'market', position_handling: 'single' },
       entry: { type: 'and', children: [emptyComparison()] },
       exits: {},
@@ -295,7 +312,7 @@ export function ManualNodes() {
     const spec = resolveSpec(); if (!spec) return
     setBusy('validate'); setActionError(null); setNotice(null)
     try {
-      setValidation(await api.nodes.validate(instrument, spec, buildBrokerMeta()))
+      setValidation(await api.nodes.validate(instrument, spec))
       setCompiled(null)
     } catch (err) {
       if (err instanceof ApiError) setActionError({ message: err.message, code: err.code, issues: asIssues(err) })
@@ -307,7 +324,7 @@ export function ManualNodes() {
     const spec = resolveSpec(); if (!spec) return
     setBusy('compile'); setActionError(null); setNotice(null)
     try {
-      const result = await api.nodes.compile(instrument, spec, buildBrokerMeta())
+      const result = await api.nodes.compile(instrument, spec)
       setCompiled(result)
     } catch (err) {
       setCompiled(null)
@@ -331,8 +348,7 @@ export function ManualNodes() {
         description: selectedTfs.length > 1
           ? `Generated from one strategy across ${selectedTfs.length} timeframes (server-validated + compiled).`
           : 'Saved from the spec workspace (server-validated + compiled).',
-        broker_meta: buildBrokerMeta(),
-      })
+        })
       const created = result.created
       setNotice(created.length === 1
         ? `Saved as node #${created[0].id} ${created[0].name} (${created[0].timeframe}) · fingerprint ${created[0].spec_hash?.slice(0, 12)}…`
@@ -352,7 +368,7 @@ export function ManualNodes() {
     setBusy('version'); setActionError(null); setNotice(null)
     try {
       const created = await api.nodes.versions(instrument, selected.id, {
-        spec, broker_meta: buildBrokerMeta(),
+        spec,
         name: resolveNodeName(),
       })
       setNotice(`Created v${created.version} of the lineage as node #${created.id} (parent #${selected.id}) · fingerprint ${created.spec_hash?.slice(0, 12)}…`)
@@ -445,7 +461,7 @@ export function ManualNodes() {
 
       <div className="banner" role="note">
         <span aria-hidden="true">ⓘ</span>
-        <span><strong>Phase 2 scope.</strong> Specs saved here are validated then compiled to a declarative IR and SHA-256 fingerprinted by the server — client-supplied hashes are never authoritative. Nothing is backtested, optimized or executed from this screen. Broker metadata (pip/tick sizes) is supplied per instrument and never assumed. Ordinary metadata edits stay possible; strategy semantics are immutable — changing a spec creates a new version linked to its parent.</span>
+        <span><strong>Phase 2 scope.</strong> Specs saved here are validated then compiled to a declarative IR and SHA-256 fingerprinted by the server — client-supplied hashes are never authoritative. Nothing is backtested, optimized or executed from this screen. Broker metadata (digits/point/tick/contract) comes from the actual MT5 terminal per broker/server and is never assumed — without it, pip/tick/point distances report NEEDS_METADATA. Strategy semantics are immutable — changing a spec creates a new version linked to its parent.</span>
       </div>
 
       <div className="panel-grid">
@@ -485,7 +501,7 @@ export function ManualNodes() {
                   <button className="btn btn-primary btn-sm" type="button" onClick={startBlankSpec}>New blank strategy</button>
                   <button className="btn btn-ghost btn-sm" type="button" onClick={loadExample}>Load bullish engulfing example</button>
                 </div>
-                <p className="faint" style={{ fontSize: 11 }}>The underlying spec is created with identity, execution defaults, an empty AND entry group and 1% fixed risk. No exits are invented — add them explicitly in section 2.</p>
+                <p className="faint" style={{ fontSize: 11 }}>The spec starts with identity (direction BOTH), execution defaults and an empty AND entry group. Exits are never invented — add them in section 2. Sizing/risk parameters are intentionally not part of this workflow; they belong to DeepTesting / Live Testing.</p>
               </div>
             ) : (
               <StrategyBuilder spec={spec} onChange={syncFromVisual} jsonError={specParseError}
@@ -507,11 +523,47 @@ export function ManualNodes() {
           )}
 
           <div className="field" style={{ marginTop: 10 }}>
-            <label htmlFor="broker-pip">Broker metadata <span className="faint">(per {instrument} — resolved externally, NEVER assumed; leave blank to see NEEDS_METADATA)</span></label>
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-              <input id="broker-pip" className="input mono" style={{ maxWidth: 150 }} inputMode="decimal" placeholder="pip_size" aria-label="pip size" value={pipSize} onChange={(e) => setPipSize(e.target.value)} />
-              <input id="broker-tick" className="input mono" style={{ maxWidth: 150 }} inputMode="decimal" placeholder="tick_size" aria-label="tick size" value={tickSize} onChange={(e) => setTickSize(e.target.value)} />
-              <input id="broker-point" className="input mono" style={{ maxWidth: 150 }} inputMode="decimal" placeholder="point_size" aria-label="point size" value={pointSize} onChange={(e) => setPointSize(e.target.value)} />
+            <label id="broker-meta-label">Broker metadata <span className="faint">(per {instrument} — read from the actual MT5 terminal per broker/server; NEVER assumed; validation uses the stored snapshot server-side)</span></label>
+            <div className="broker-meta-panel" aria-labelledby="broker-meta-label">
+              {metadataLoadedFor !== instrument && !metadata && (
+                <p className="faint" style={{ margin: 0 }}>loading stored metadata…</p>
+              )}
+              {metadata?.available && metadata.snapshot ? (
+                <>
+                  <div className="meta-row">
+                    <span className="meta-chip ok">STORED</span>
+                    <span className="mono">{metadata.snapshot.broker_server}</span>
+                    <span className="faint">source {metadata.snapshot.source} · retrieved {metadata.snapshot.retrieved_at ? new Date(metadata.snapshot.retrieved_at).toLocaleString() : '—'}</span>
+                  </div>
+                  <div className="meta-row mono meta-grid">
+                    <span>digits <strong>{metadata.snapshot.digits ?? '—'}</strong></span>
+                    <span>point <strong>{metadata.snapshot.derived?.point_size ?? '—'}</strong></span>
+                    <span>tick size <strong>{metadata.snapshot.derived?.tick_size ?? '—'}</strong></span>
+                    <span>pip size <strong>{metadata.snapshot.derived?.pip_size ?? '—'}</strong></span>
+                    <span>contract <strong>{metadata.snapshot.derived?.contract_size ?? '—'}</strong></span>
+                  </div>
+                  <div className="meta-row faint" style={{ fontSize: 11 }}>
+                    vol {metadata.snapshot.volume_min ?? '—'}–{metadata.snapshot.volume_max ?? '—'} step {metadata.snapshot.volume_step ?? '—'}
+                    {metadata.snapshot.stops_level != null && <> · stops level {metadata.snapshot.stops_level}</>}
+                    {metadata.snapshot.account_login != null && <> · from account #{metadata.snapshot.account_login}</>}
+                    {metadata.snapshot.validation && !metadata.snapshot.validation.ok && (
+                      <span className="field-error" style={{ marginLeft: 8 }}>missing: {metadata.snapshot.validation.missing.join(', ')}</span>
+                    )}
+                  </div>
+                </>
+              ) : metadata && !metadata.available ? (
+                <div className="meta-missing">
+                  <p style={{ margin: 0 }}><span className="meta-chip warn">NOT STORED</span> No broker metadata for {instrument} yet — pip/tick/point distances will report <strong>NEEDS_METADATA</strong> (the server will not guess).</p>
+                  <p className="faint" style={{ margin: '6px 0 0', fontSize: 11 }}>On Windows with MT5 running, press <strong>Refresh from MT5</strong>. Without MT5, POST the broker&apos;s symbol_info to <code>/api/v1/instruments/{instrument}/metadata/import</code> (see docs/WINDOWS_SETUP.md). Absolute/ATR distances need no broker metadata.</p>
+                </div>
+              ) : null}
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' }}>
+                <button className="btn btn-ghost btn-sm" type="button" onClick={refreshMetadata} disabled={metadataBusy}>
+                  {metadataBusy ? 'Refreshing from MT5…' : 'Refresh from MT5'}
+                </button>
+                <span className="faint" style={{ fontSize: 10.5 }}>metadata is per broker/server — it never overwrites another broker&apos;s {instrument}</span>
+              </div>
+              {metadataError && <div className="field-error" role="alert" style={{ marginTop: 6 }}>{metadataError}</div>}
             </div>
             <div className="faint" style={{ fontSize: 10.5, marginTop: 6 }}>
               Validate/Compile preview uses the first selected timeframe as the <strong>reference</strong> (<span className="mono">{referenceTf}</span>) — identical conditions are replicated to every selected timeframe on save; timeframe is part of each node's identity and fingerprint.

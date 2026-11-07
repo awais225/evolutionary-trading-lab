@@ -1,3 +1,3 @@
-from . import health, instruments, settings, events, nodes
+from . import health, instruments, settings, events, nodes, mt5, metadata
 
-__all__ = ["health", "instruments", "settings", "events", "nodes"]
+__all__ = ["health", "instruments", "settings", "events", "nodes", "mt5", "metadata"]

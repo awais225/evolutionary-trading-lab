@@ -23,11 +23,23 @@ function route(url: string, method: string, bodyText?: string): Response {
   const body = bodyText ? JSON.parse(bodyText) : undefined
   if (url.endsWith('/health')) return json({ status: 'ok', version: '1.0.0', checks: { registry_db: { status: 'healthy' }, ollama: { status: 'healthy' }, mt5: { status: 'unavailable' } } })
 
+  if (url.includes('/metadata/refresh')) {
+    return json({ detail: { code: 'MT5_UNAVAILABLE', message: 'MetaTrader5 package not importable: not installed.', platform: 'Linux', package_available: false } }, 503)
+  }
+  if (url.includes('/metadata')) {
+    const override = (globalThis as { __hero1Metadata?: unknown }).__hero1Metadata
+    if (override) return json(override)
+    return json({ instrument: 'XAUUSD', available: false, snapshot_count: 0, metadata_root: '<test-root>/MARKET_METADATA', snapshots: [], reason: 'no stored MT5 metadata for this instrument.' })
+  }
+  if (url.includes('/api/v1/mt5/')) {
+    return json({ ok: false, checked_at: '2026-11-07T00:00:00Z', platform: 'Linux', package_available: false, import_error: 'not installed', session: {}, terminal: null, account: null, active_terminal_path: null })
+  }
   if (url.includes('/api/v1/instruments/') && url.includes('/nodes')) {
     // Phase 2 spec pipeline endpoints
     if (url.includes('/validate')) {
       const spec = body?.spec ?? {}
-      const needsMeta = JSON.stringify(spec).includes('"pips"') && !body?.broker_meta
+      const metaStored = Boolean((globalThis as { __hero1Metadata?: { available?: boolean } }).__hero1Metadata?.available)
+      const needsMeta = JSON.stringify(spec).includes('"pips"') && !body?.broker_meta && !metaStored
       return json({
         instrument: 'XAUUSD',
         status: needsMeta ? 'NEEDS_METADATA' : 'VALID',
@@ -37,7 +49,8 @@ function route(url: string, method: string, bodyText?: string): Response {
       })
     }
     if (url.includes('/compile')) {
-      if (JSON.stringify(body?.spec ?? {}).includes('"pips"') && !body?.broker_meta) {
+      const metaStoredC = Boolean((globalThis as { __hero1Metadata?: { available?: boolean } }).__hero1Metadata?.available)
+      if (JSON.stringify(body?.spec ?? {}).includes('"pips"') && !body?.broker_meta && !metaStoredC) {
         return json({ detail: { code: 'SPEC_NEEDS_METADATA', message: 'specification is needs_metadata and cannot be saved/compiled', status: 'NEEDS_METADATA', issues: [{ code: 'RISK_METADATA_REQUIRED', path: 'exits.stop_loss.distance', message: 'pip_size is required', severity: 'NEEDS_METADATA', remediation: 'supply broker_meta' }] } }, 422)
       }
       return json({
@@ -115,6 +128,7 @@ beforeEach(() => {
   localStorage.clear()
   delete (globalThis as { __hero1NodeItems?: unknown[] }).__hero1NodeItems
   delete (globalThis as { __hero1Instruments?: unknown[] }).__hero1Instruments
+  delete (globalThis as { __hero1Metadata?: unknown }).__hero1Metadata
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
     route(String(input), init?.method ?? 'GET', typeof init?.body === 'string' ? init.body : undefined)))
   // Deterministic WS that never opens: feed stays in connecting state, no timers storm

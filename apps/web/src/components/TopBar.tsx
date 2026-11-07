@@ -4,6 +4,7 @@ import { useFeed } from '../state/feed'
 import { api } from '../api/client'
 import type { HealthOut } from '../api/types'
 import { InstrumentSelect } from './InstrumentSelect'
+import { Mt5Select } from './Mt5Select'
 
 function Pill({ label, status }: { label: string; status?: string }) {
   const cls = status === 'healthy' || status === 'ok' ? 'ok' : status === 'unavailable' || status === 'not_detectable' || status === 'unconfigured' ? 'warn' : status === 'error' ? 'err' : 'warn'
@@ -40,6 +41,7 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
       <div className="topbar-spacer" />
       <div className="status-cluster" aria-label="System status and instrument">
         <InstrumentSelect />
+        <Mt5Select />
         {!selectionEnabled && !instrumentsLoading && (
           <span className="instrument-warn" role="status">selected instrument unavailable — operations will be rejected by the backend</span>
         )}

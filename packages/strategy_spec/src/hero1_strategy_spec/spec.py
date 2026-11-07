@@ -18,6 +18,20 @@ MAX_TAGS = 16
 
 
 class Direction(str, Enum):
+    """Declared side(s) the strategy trades. Contract for the DeepTesting and
+    Live Testing stages (never silently reversed):
+
+    LONG   - the strategy is evaluated for LONG opportunities only.
+    SHORT  - the strategy is evaluated for SHORT opportunities only.
+    BOTH   - the strategy is evaluated for both sides; direction-sensitive
+             semantics must be mirrored symmetrically by the consumer (never
+             as a silent duplicate of one side's reading).
+
+    Direction is part of the semantic fingerprint (renaming the node does not
+    change it; changing LONG<->SHORT / ->BOTH forks the strategy identity).
+    A strategy whose entry logic is inherently one-sided must declare that
+    direction; BOTH is the default for new blank strategies.
+    """
     LONG = "LONG"
     SHORT = "SHORT"
     BOTH = "BOTH"

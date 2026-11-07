@@ -123,3 +123,100 @@ export interface NodeVersionList {
 }
 
 export type BrokerMeta = Record<string, Record<string, number>>
+
+// ---- MT5 / broker metadata (added 2026-11-07, V1.4.1 milestone) ----
+export interface Mt5Terminal {
+  name: string
+  path: string
+  origin: string
+}
+
+export interface Mt5ConnectionResult {
+  ok: boolean
+  checked_at: string
+  platform: string
+  package_available: boolean
+  import_error?: string | null
+  error_code?: string | null
+  error?: string | null
+  warning?: string
+  path_note?: string | null
+  active_terminal_path?: string | null
+  last_error?: unknown[] | null
+  session?: Record<string, unknown>
+  terminal?: {
+    path?: string
+    connected?: boolean
+    build?: number
+    company?: string
+    name?: string
+    language?: string
+    trade_allowed?: boolean
+    trade_expert?: boolean
+    data_path?: string
+    raw?: Record<string, unknown>
+  } | null
+  account?: Mt5Account | null
+}
+
+export interface Mt5Account {
+  login?: number
+  server?: string
+  company?: string
+  currency?: string
+  balance?: number
+  equity?: number
+  margin?: number
+  margin_free?: number
+  margin_level?: number
+  leverage?: number
+  trade_mode?: number
+  trade_mode_name?: 'DEMO' | 'CONTEST' | 'REAL' | null
+  raw?: Record<string, unknown>
+}
+
+export interface Mt5TerminalsOut {
+  platform_windows: boolean
+  package_available: boolean
+  import_error?: string | null
+  saved_terminal_path?: string | null
+  terminals: Mt5Terminal[]
+  note: string
+}
+
+export interface InstrumentMetadataView {
+  instrument: string
+  available: boolean
+  snapshot_count: number
+  metadata_root: string
+  reason?: string
+  snapshots: Array<Record<string, unknown>>
+  saved?: Record<string, unknown>
+  snapshot?: {
+    broker_server?: string
+    terminal?: Record<string, unknown>
+    account_login?: number | null
+    source?: string
+    retrieved_at?: string
+    fingerprint?: string
+    digits?: number
+    derived?: {
+      point_size?: number
+      tick_size?: number
+      pip_size?: number
+      contract_size?: number
+      digits_rule?: string
+    }
+    validation?: { ok: boolean; missing: string[]; required_for_validation: string[] }
+    tick?: Record<string, unknown>
+    stops_level?: number
+    freeze_level?: number
+    volume_min?: number
+    volume_max?: number
+    volume_step?: number
+    currency_base?: string
+    currency_profit?: string
+    currency_margin?: string
+    trade_mode?: number
+  }
+}

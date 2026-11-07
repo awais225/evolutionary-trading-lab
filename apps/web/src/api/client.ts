@@ -1,4 +1,4 @@
-import type { BrokerMeta, CompileResult, EventListOut, HealthOut, Instrument, Node, NodeGenerateOut, NodeListOut, NodeOrigin, NodeVersionList, SettingsOut, ValidationReport } from './types'
+import type { BrokerMeta, CompileResult, EventListOut, HealthOut, Instrument, InstrumentMetadataView, Mt5ConnectionResult, Mt5TerminalsOut, Node, NodeGenerateOut, NodeListOut, NodeOrigin, NodeVersionList, SettingsOut, ValidationReport } from './types'
 
 class ApiError extends Error {
   constructor(public status: number, message: string,
@@ -103,6 +103,21 @@ export const api = {
   settings: {
     get: () => request<SettingsOut>('GET', '/api/v1/settings'),
     put: (settings: Record<string, unknown>) => request<SettingsOut>('PUT', '/api/v1/settings', { settings }),
+  },
+  mt5: {
+    status: () => request<Mt5ConnectionResult>('GET', '/api/v1/mt5/status'),
+    terminals: () => request<Mt5TerminalsOut>('GET', '/api/v1/mt5/terminals'),
+    connect: (terminal_path?: string) =>
+      request<Mt5ConnectionResult>('POST', '/api/v1/mt5/connect', terminal_path ? { terminal_path } : {}),
+    disconnect: () => request<{ ok: boolean; detail: string }>('POST', '/api/v1/mt5/disconnect'),
+  },
+  metadata: {
+    get: (instrument: string) => request<InstrumentMetadataView>('GET', `/api/v1/instruments/${instrument}/metadata`),
+    refresh: (instrument: string) => request<InstrumentMetadataView>('POST', `/api/v1/instruments/${instrument}/metadata/refresh`),
+    import: (instrument: string, body: {
+      broker_server: string; symbol_info: Record<string, unknown>; tick?: Record<string, unknown>;
+      terminal_identity?: Record<string, unknown>; account_login?: number; source?: string;
+    }) => request<InstrumentMetadataView>('POST', `/api/v1/instruments/${instrument}/metadata/import`, body),
   },
 }
 

@@ -12,8 +12,7 @@ import {
   emptyComparison, type Path,
 } from '../builder/specTree'
 
-const TIMEFRAMES = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1']
-const DIR_OPTIONS = ['LONG', 'SHORT', 'BOTH']
+const DIR_OPTIONS = ['LONG', 'SHORT', 'BOTH'] as const
 const SL_ANCHORS = ['entry_price', 'signal_low', 'signal_high', 'atr']
 const DIST_UNITS = [
   { value: 'absolute', label: 'ABSOLUTE' },
@@ -43,7 +42,6 @@ export function StrategyBuilder({ spec, onChange, jsonError, onRevertJson, instr
 
   const entry = spec?.entry
   const exits = spec?.exits ?? {}
-  const risk = spec?.risk ?? { sizing: { mode: 'fixed_risk', risk_pct: 1.0 } }
   const identity = spec?.identity ?? {}
   const execution = spec?.execution ?? {}
 
@@ -65,7 +63,6 @@ export function StrategyBuilder({ spec, onChange, jsonError, onRevertJson, instr
   const patchIdentity = (key: string, value: unknown) => patch(['identity', key], value)
   const patchExec = (key: string, value: unknown) => patch(['execution', key], value)
   const patchExits = (value: any) => patch(['exits'], value)
-  const patchSizing = (value: any) => patch(['risk', 'sizing'], value)
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -301,6 +298,27 @@ export function StrategyBuilder({ spec, onChange, jsonError, onRevertJson, instr
       {/* ================= SECTION 1 — ENTRY CONDITIONS ================= */}
       <section className="builder-section" aria-labelledby="sec-entry">
         <h4 id="sec-entry"><span className="section-num">1</span> Entry Conditions</h4>
+        <fieldset className="direction-block" aria-describedby="sec-entry">
+          <legend className="direction-legend">Direction <span className="faint">— part of the strategy identity &amp; fingerprint; cannot be flipped later without forking</span></legend>
+          <div className="segmented direction-segmented" role="radiogroup" aria-label="Strategy direction">
+            {DIR_OPTIONS.map((d) => {
+              const current = identity?.direction ?? 'BOTH'
+              return (
+                <button key={d} type="button" role="radio" aria-checked={current === d}
+                        className={current === d ? 'active dir-' + d.toLowerCase() : `dir-${d.toLowerCase()}`}
+                        disabled={damaged}
+                        onClick={() => patchIdentity('direction', d)}>
+                  {d === 'BOTH' ? 'BOTH (long + short)' : d}
+                </button>
+              )
+            })}
+          </div>
+          <p className="faint direction-hint">
+            {(identity?.direction ?? 'BOTH') === 'LONG' && 'This strategy will only evaluate long opportunities.'}
+            {(identity?.direction ?? 'BOTH') === 'SHORT' && 'This strategy will only evaluate short opportunities.'}
+            {(identity?.direction ?? 'BOTH') === 'BOTH' && 'This strategy evaluates both long and short opportunities (default).'}
+          </p>
+        </fieldset>
         <div className="entry-layout">
           <aside className="indicator-library">
             <input className="input input-sm" placeholder="Search indicators…" value={query}
@@ -432,69 +450,13 @@ export function StrategyBuilder({ spec, onChange, jsonError, onRevertJson, instr
         )}
       </section>
 
-      {/* ================= SECTION 3 — RISK MANAGEMENT ================= */}
-      <section className="builder-section" aria-labelledby="sec-risk">
-        <h4 id="sec-risk"><span className="section-num">3</span> Risk Management</h4>
-        <div className="risk-grid">
-          <label className="mini-field">Position sizing
-            <select className="input input-sm" value={risk?.sizing?.mode ?? 'fixed_risk'} disabled={damaged}
-                    onChange={(e) => patchSizing(e.target.value === 'fixed_risk'
-                      ? { mode: 'fixed_risk', risk_pct: 1.0 }
-                      : { mode: 'fixed_volume', volume: 1.0 })}>
-              <option value="fixed_risk">Fixed fractional risk</option>
-              <option value="fixed_volume">Fixed volume (lots)</option>
-            </select></label>
-          {risk?.sizing?.mode !== 'fixed_volume' && (
-            <>
-              <div className="segmented mini" role="group" aria-label="Risk basis">
-                <button type="button" className={risk?.sizing?.risk_pct != null ? 'active' : ''}
-                        onClick={() => patchSizing({ mode: 'fixed_risk', risk_pct: 1.0 })}>risk %</button>
-                <button type="button" className={risk?.sizing?.risk_amount != null ? 'active' : ''}
-                        onClick={() => patchSizing({ mode: 'fixed_risk', risk_amount: 250 })}>fixed amount</button>
-              </div>
-              {risk?.sizing?.risk_pct != null && (
-                <label className="mini-field">Risk % of equity (0–100]
-                  <input className="input input-xs num" type="number" min={0} max={100} step="0.1" value={risk.sizing.risk_pct}
-                         onChange={(e) => { const v = parseNum(e.target.value); if (v !== null && v > 0 && v <= 100) patchSizing({ mode: 'fixed_risk', risk_pct: v }) }} />
-                </label>
-              )}
-              {risk?.sizing?.risk_amount != null && (
-                <label className="mini-field">Fixed risk amount
-                  <input className="input input-xs num" type="number" min={0} step="any" value={risk.sizing.risk_amount}
-                         onChange={(e) => { const v = parseNum(e.target.value); if (v !== null && v > 0) patchSizing({ mode: 'fixed_risk', risk_amount: v }) }} />
-                </label>
-              )}
-            </>
-          )}
-          {risk?.sizing?.mode === 'fixed_volume' && (
-            <label className="mini-field">Volume (lots)
-              <input className="input input-xs num" type="number" min={0} step="0.01" value={risk?.sizing?.volume ?? 1}
-                     onChange={(e) => { const v = parseNum(e.target.value); if (v !== null && v > 0) patchSizing({ mode: 'fixed_volume', volume: v }) }} />
-            </label>
-          )}
-          <p className="faint">Distance units stay explicit (ABSOLUTE / POINTS / TICKS / PIPS / ATR_MULTIPLE). Missing broker metadata keeps the backend NEEDS_METADATA behaviour — nothing is assumed. Direction-specific overrides are JSON-editor only.</p>
-        </div>
-      </section>
-
-      {/* ================= SECTION 4 — STRATEGY INFORMATION ================= */}
-      <section className="builder-section" aria-labelledby="sec-info">
-        <h4 id="sec-info"><span className="section-num">4</span> Strategy Information</h4>
+      {/* ================= SECTION 3 — EXECUTION & DESCRIPTION ================= */}
+      <section className="builder-section" aria-labelledby="sec-exec">
+        <h4 id="sec-exec"><span className="section-num">3</span> Execution &amp; description</h4>
         <div className="info-grid">
-          <label className="mini-field wide">Description
+          <label className="mini-field wide">Description <span className="faint">(display only — not part of the semantic fingerprint)</span>
             <textarea className="input input-sm" rows={2} value={identity?.description ?? ''} disabled={damaged}
                       onChange={(e) => patchIdentity('description', e.target.value)} placeholder="What does this strategy do?" /></label>
-          <label className="mini-field">Direction
-            <select className="input input-sm" value={identity?.direction ?? 'LONG'} disabled={damaged} onChange={(e) => patchIdentity('direction', e.target.value)}>
-              {DIR_OPTIONS.map((d) => <option key={d} value={d}>{d}</option>)}
-            </select></label>
-          <label className="mini-field">Timeframe <span className="faint">(whole spec)</span>
-            <select className="input input-sm" value={identity?.timeframe ?? 'H1'} disabled={damaged} onChange={(e) => patchIdentity('timeframe', e.target.value)}>
-              {TIMEFRAMES.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select></label>
-          <label className="mini-field">Tags <span className="faint">(comma separated)</span>
-            <input className="input input-sm" value={(identity?.tags ?? []).join(', ')} disabled={damaged}
-                   onChange={(e) => patchIdentity('tags', e.target.value.split(',').map((t) => t.trim()).filter(Boolean).slice(0, 16))} /></label>
-          <div className="mini-field">Origin<span className="origin-chip">CUSTOM</span></div>
         </div>
         <div className="execution-row">
           <span className="faint">Execution:</span>
@@ -505,6 +467,7 @@ export function StrategyBuilder({ spec, onChange, jsonError, onRevertJson, instr
           <label className="check small"><input type="checkbox" checked={execution?.permit_forming_candle === true}
                  onChange={(e) => { patchExec('permit_forming_candle', e.target.checked); patchExec('candle', e.target.checked ? 'forming' : 'completed') }} /> permit forming candle</label>
         </div>
+        <p className="faint" style={{ marginTop: 6 }}>Sizing, risk %, stop placement overrides and capital allocation are <strong>not</strong> configured here — they belong to DeepTesting / Live Testing stages.</p>
       </section>
 
       {/* ================= INDICATOR VALUE PREVIEW ================= */}
@@ -639,7 +602,5 @@ function buildSummary(spec: any, depth: number): string {
   if (ex.max_holding_candles != null) exits.push(`max ${ex.max_holding_candles} candles`)
   if (ex.time_exit_utc) exits.push(`exit @ ${ex.time_exit_utc}Z`)
   if (ex.explicit_exit) exits.push('explicit exit')
-  const sizing = spec.risk?.sizing
-  const size = sizing?.mode === 'fixed_volume' ? `${sizing.volume} lots` : sizing?.risk_pct != null ? `${sizing.risk_pct}% risk` : `${sizing?.risk_amount ?? '?'} fixed`
-  return `Entry: ${count} node(s) · ${rootType} · depth ${depth}   |   Exits: ${exits.length ? exits.join(' · ') : 'NONE (invalid)'}   |   Size: ${size}   |   ${spec.identity?.direction ?? '?'} · ${spec.identity?.timeframe ?? '?'}`
+  return `Entry: ${count} node(s) · ${rootType} · depth ${depth}   |   Exits: ${exits.length ? exits.join(' · ') : 'NONE (invalid)'}   |   ${spec.identity?.direction ?? 'BOTH'} · ${spec.identity?.timeframe ?? '?'}`
 }

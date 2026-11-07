@@ -19,8 +19,21 @@ from hero1_strategy_spec import (
 from hero1_strategy_spec.validation import ReportStatus
 
 
+def _resolve_broker_meta(instrument: str, broker_meta: Optional[dict]) -> Optional[dict]:
+    """Broker metadata precedence: explicit request body -> stored MT5 snapshot
+    (DATA/MARKET_METADATA) -> None (validation then reports NEEDS_METADATA)."""
+    if broker_meta:
+        return broker_meta
+    try:
+        from app import metadata_service
+        return metadata_service.snapshot_broker_meta(instrument)
+    except Exception:  # metadata store must never break validation wholesale
+        return None
+
+
 def spec_to_report(data: Any, instrument: str, broker_meta: Optional[dict]) -> ValidationReport:
-    return validate_spec(data, expected_instrument=instrument, broker_meta=broker_meta)
+    return validate_spec(data, expected_instrument=instrument,
+                         broker_meta=_resolve_broker_meta(instrument, broker_meta))
 
 
 def report_payload(report: ValidationReport) -> dict:
@@ -41,6 +54,7 @@ def spec_blocking_response(report: ValidationReport) -> dict:
 
 
 def compile_or_raise(data: Any, instrument: str, broker_meta: Optional[dict]):
+    broker_meta = _resolve_broker_meta(instrument, broker_meta)
     report = validate_spec(data, expected_instrument=instrument, broker_meta=broker_meta)
     if report.status in (ReportStatus.INVALID, ReportStatus.NEEDS_METADATA):
         raise SpecCompilationError(report)
