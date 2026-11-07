@@ -271,3 +271,21 @@ this entry).
 - Canonical Windows deployment and the 14-point acceptance checklist are in
   `docs/WINDOWS_SETUP.md`. Do not delete `/home/user/hero1-scratch-data` until
   the owner verifies that Windows deployment.
+## 2026-11-07 — Historical CSV import, market-data registry and MT5 incremental fetch repair
+
+- Workspace cleanup first: removed only regenerable artifacts (frontend
+  `dist`, pytest cache, project `__pycache__`). After canonical deployment was
+  verified, the redundant old scratch store (server-epoch convention) was
+  removed; supplied CSVs remain preserved in `/home/user/uploads` and are
+  referenced by SHA-256 in the manifest.
+- Imported all seven supplied XAUUSD CSVs into the canonical Linux DATA root
+  `/home/user/hero1-workspace-data`: 419,013 candles, 7/7 AVAILABLE, rerun
+  7/7 SKIPPED, SQLite `integrity_check` ok, zero duplicates/invalid OHLC,
+  first/middle/last samples match source CSVs. Stored ranges are UTC (see
+  TROUBLESHOOTING ISSUE-045..048).
+- Repaired FETCH DATA to the UTC convention (no-baseline refusal, overlap,
+  invalid-timestamp rejection, COMPLETE/PARTIAL/FAILED) and made the
+  dashboard read the canonical registry. Backend 190 passed / 1 skipped;
+  frontend 44/44; build clean. Genuine Windows MT5 fetch is NOT verified.
+- Commit `fbd4a45973bc86402919b38853e80bf8095e8261`; HERO-V1.5.0 tag target is unchanged
+  (awaiting Windows acceptance) - this repair is on `main` after the tag.

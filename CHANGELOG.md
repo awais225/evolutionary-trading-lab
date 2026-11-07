@@ -5,6 +5,30 @@ exact commit SHA and tag. Claims only for what was implemented AND verified.
 
 ---
 
+## [Unreleased] — 2026-11-07 — HERO V1.5.0 repair — canonical CSV deployment, UTC registry, incremental fetch fix — AWAITING WINDOWS ACCEPTANCE
+
+- Implementation commit: `fbd4a45973bc86402919b38853e80bf8095e8261` (on top of HERO-V1.5.0
+  `56e178c0fe9c52e324713227321f624dd3f500f1`; the existing tag is NOT moved).
+- Canonical store convention changed to **UTC epoch seconds**: supplied CSV
+  server wall time is converted once at import using the legacy-verified
+  IC Markets GMT+2/+3 US-DST rule; MT5 rate timestamps are validated and
+  stored verbatim; no tick-derived or broker offset is applied during fetch.
+- FETCH DATA: refuses timeframes without a stored CSV baseline (no epoch-0
+  backfill), starts at the latest valid stored candle with a two-candle
+  overlap, uses timezone-aware UTC boundaries, drops incomplete candles,
+  rejects invalid timestamps (1970/2926/millisecond magnitudes) with source
+  values, preserves conflicts, and reports COMPLETE/PARTIAL/FAILED.
+- Availability is now a registry: summary + per-timeframe status, UTC range,
+  count, source, last import/MT5 update, timezone and gap/invalid warnings.
+- Linux canonical deployment verified: all seven supplied CSVs imported into
+  `/home/user/hero1-workspace-data/MARKET_DATA/market_data.db` (419,013
+  candles), rerun 7/7 SKIPPED, SQLite integrity ok, first/middle/last samples
+  match the CSVs, and the dashboard API returns identical counts/ranges.
+- Tests: backend 190 passed / 1 skipped (191 collected); frontend 44/44;
+  production build clean. Real Windows MT5 fetch remains **not yet verified**.
+
+---
+
 ## [Unreleased] — 2026-11-07 — HERO V1.5.0 — Windows MT5 lifecycle, canonical market data, FETCH DATA (TASK 13) — AWAITING WINDOWS ACCEPTANCE
 
 **Status:** implementation and Linux/mocked/static verification are complete.

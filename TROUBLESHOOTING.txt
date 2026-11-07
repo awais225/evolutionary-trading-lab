@@ -262,6 +262,81 @@ Source: services/api/app/api/routers/metadata.py;
   tests/test_mt5_windows_integration.py
 
 --------------------------------------------------------------------------------
+SYMPTOM: ISSUE-045 - Dashboard shows zero stored candles although a scratch
+  import reported 419,013 candles imported successfully
+Verified cause: The verified TASK 12/13 import lived in a scratch DATA root,
+  not in the canonical DATA root the running dashboard resolves through
+  HERO1_DATA_ROOT / <repo>\DATA. A scratch success is not a deployment: the
+  dashboard read a canonical store that did not exist yet, so every timeframe
+  honestly showed no stored candles.
+Verified fix: Import the seven supplied CSVs into the resolved canonical DATA
+  root with scripts\import_market_data.py --data-root <CANONICAL_DATA_ROOT>.
+  In the Linux workstation the canonical root is
+  /home/user/hero1-workspace-data and the dashboard API now returns all seven
+  timeframes AVAILABLE with 419,013 candles. On Windows, first verify the
+  actual configured DATA path (START_DIAGNOSTIC prints it) instead of trusting
+  rendered text such as E:\evolutionary-trading-lab\DATA.
+Source: services/api/app/market_data_service.py availability();
+  packages/storage engine data_root(); canonical import + API verification
+  2026-11-07; commit fbd4a45973bc86402919b38853e80bf8095e8261
+
+--------------------------------------------------------------------------------
+SYMPTOM: ISSUE-046 - FETCH DATA returns copy_rates_range returned None
+  (last_error=(-2, 'Terminal: Invalid params'))
+Verified cause: For timeframes with no stored baseline the old fetch built a
+  backfill request starting at epoch 0 (1969/1970) spanning decades to a
+  century depending on timeframe, and built boundaries by converting stored
+  epochs through a broker-server offset. MT5 rejected those ranges with
+  Invalid params; D1 alone accepted an all-history request and appended
+  thousands of candles that were never part of the supplied baseline.
+Verified fix: FETCH DATA now refuses a timeframe with no stored baseline
+  ("import the supplied CSV history first"), starts from the latest valid
+  stored candle with a two-candle overlap, and builds timezone-aware UTC
+  datetimes directly from stored UTC epoch seconds. A None response is a
+  FAILED timeframe with the requested UTC range and last_error shown; it
+  modifies nothing.
+Source: services/api/app/market_data_service.py _fetch_one();
+  tests/test_mt5_windows_integration.py (no-baseline + invalid-timestamp
+  tests, mocked); commit fbd4a45973bc86402919b38853e80bf8095e8261
+
+--------------------------------------------------------------------------------
+SYMPTOM: ISSUE-047 - FETCH DATA shows impossible dates (2926-11-06,
+  1970-01-01, 2926-98-29) and offset -28800s (measured from live tick)
+Verified cause: Timestamp conventions were mixed: stored candles were naive
+  broker-server epochs, request boundaries were shifted by a broker offset,
+  and a "current offset" was measured from a live tick (raw -27496s snapped
+  to -28800s) even though a tick is not a reliable historical-timezone source.
+  Unit-mixed or malformed rate timestamps were also not range-validated
+  before storage/display, so impossible years could be rendered.
+Verified fix: One canonical convention everywhere: UTC epoch seconds in the
+  database. CSV server wall time (IC Markets GMT+2/+3, US DST dates) is
+  converted to UTC once at import; MT5 rate time is stored verbatim only
+  after validate_timestamp() accepts it (1980..2100, whole seconds - 1970,
+  2926 and millisecond magnitudes are rejected with the source value named).
+  Fetch boundaries and completion use current UTC time; no tick-derived or
+  broker offset is measured, rounded or applied in the fetch path.
+Source: packages/market_data store validate_timestamp();
+  packages/mt5_adapter server_time (import-boundary conversion only);
+  tests/test_legacy_parity.py; tests/test_mt5_windows_integration.py; fbd4a45973bc86402919b38853e80bf8095e8261
+
+--------------------------------------------------------------------------------
+SYMPTOM: ISSUE-048 - Candle availability reporting is wrong (six timeframes
+  empty, D1 suddenly shows 7,538 candles after a failed fetch)
+Verified cause: Availability only counted rows in whatever store existed and
+  fetch could create/backfill a store from epoch 0, so an accidental D1
+  all-history download looked like a registered dataset while the supplied
+  CSV baselines were absent. The panel also lacked per-timeframe status,
+  source, last import/MT5 update, timezone and gap warnings.
+Verified fix: The Manual Nodes Historical Data panel now renders the
+  canonical registry: summary (available timeframes, total candles, overall
+  range, last update) plus per-timeframe AVAILABLE/EMPTY/ERROR status, first
+  and latest UTC candle, count, source, last import, last MT5 update, UTC
+  convention and gap/invalid-timestamp warnings - all calculated from the
+  canonical database and manifest, refreshed after import and fetch.
+Source: services/api/app/market_data_service.py availability();
+  apps/web/src/pages/ManualNodes.tsx; commit fbd4a45973bc86402919b38853e80bf8095e8261
+
+--------------------------------------------------------------------------------
 IF YOUR PROBLEM IS NOT IN THIS FILE
 -----------------------------------
 1. Run START_DIAGNOSTIC.bat (read-only; it cannot change or create data).
