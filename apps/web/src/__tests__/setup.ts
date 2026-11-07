@@ -35,6 +35,20 @@ function route(url: string, method: string, bodyText?: string): Response {
     return json({ ok: false, checked_at: '2026-11-07T00:00:00Z', platform: 'Linux', package_available: false, import_error: 'not installed', session: {}, terminal: null, account: null, active_terminal_path: null })
   }
   if (url.includes('/market-data')) {
+    if (url.includes('/fetch/start')) {
+      return json({ operation_id: 'FETCH-TEST-OP1', state: 'QUEUED', instrument: 'XAUUSD', timeframes: ['M1'], existing: false, started_at: 1792000000 })
+    }
+    if (/\/fetch\/operations\/.+/.test(url)) {
+      return json({ operation_id: 'FETCH-TEST-OP1', state: 'COMPLETED', instrument: 'XAUUSD',
+        report: { instrument: 'XAUUSD', operation_id: 'FETCH-TEST-OP1', broker_server: 'ICMarketsSC-Demo', ok: false, status: 'FAILED',
+          time: { rule: 'UTC epoch seconds', utc_now: '2026-11-07 00:00:00', offset_seconds: 0, offset_source: 'not applied (UTC canonical store)' },
+          results: [{ timeframe: 'M1', status: 'FAILED', requested_from: null, requested_to: null, received: 0, appended: 0, duplicates_skipped: 0, incomplete_dropped: 0, invalid_rejected: 0, conflicts: 0, latest_stored_ts: null, error: 'mock terminal unavailable' }],
+          fetched_at: '2026-11-07T00:00:00Z' },
+        error: null })
+    }
+    if (url.includes('/fetch/operations')) {
+      return json({ operation_id: null, state: 'IDLE', instrument: 'XAUUSD', timeframes: [], report: null, error: null })
+    }
     if (url.includes('/fetch')) {
       return json({ instrument: 'XAUUSD', broker_server: 'ICMarketsSC-Demo', ok: false, status: 'FAILED',
         time: { rule: 'UTC epoch seconds', utc_now: '2026-11-07 00:00:00', offset_seconds: 0, offset_source: 'not applied (UTC canonical store)' },
@@ -136,7 +150,7 @@ function route(url: string, method: string, bodyText?: string): Response {
   if (url.includes('/api/v1/events')) {
     if (method === 'POST') return json({ id: 42 })
     const evts = (globalThis as { __hero1Events?: unknown[] }).__hero1Events ?? []
-    return json({ limit: 50, count: evts.length, events: evts })
+    return json({ limit: 50, count: evts.length, total: evts.length, events: evts })
   }
   return json({ detail: 'not found' }, 404)
 }

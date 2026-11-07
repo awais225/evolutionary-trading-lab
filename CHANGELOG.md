@@ -26,6 +26,15 @@ exact commit SHA and tag. Claims only for what was implemented AND verified.
   match the CSVs, and the dashboard API returns identical counts/ranges.
 - Tests: backend 190 passed / 1 skipped (191 collected); frontend 44/44;
   production build clean. Real Windows MT5 fetch remains **not yet verified**.
+- **ISSUE-052 (fetch hang / LOG diagnostics)**: FETCH DATA is now a
+  background operation — `POST /fetch/start` returns an operation id
+  immediately, duplicate starts return the running operation, the DATA tab
+  polls and resumes operations across navigation, and a per-timeframe MT5
+  timeout (180 s default) fails loudly at `MT5_HISTORY_REQUEST` instead of
+  hanging. Full lifecycle stage events with stack traces land in the
+  persistent log (including unhandled-500 capture), and the LOG tab gains
+  server pagination with an honest total plus **COPY ALL LOGS** and
+  **SAVE LOGS TO TXT** exporting the complete filtered dataset.
 - **ISSUE-050/051 (DATA tab, fetch conflicts, LOG)**: new DATA navigation tab
   (historical market data moved — not duplicated — above a generated-nodes
   dashboard showing per-node timeframe, spec-direction badges LONG green /

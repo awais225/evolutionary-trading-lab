@@ -105,7 +105,8 @@ class EventRepository:
     def list(self, *, instrument: Optional[str] = None, category: Optional[str] = None,
              severity: Optional[str] = None, subsystem: Optional[str] = None,
              since_id: Optional[int] = None, limit: int = 100,
-             search: Optional[str] = None) -> List[rm.GlobalEvent]:
+             search: Optional[str] = None, offset: int = 0,
+             desc: bool = False) -> List[rm.GlobalEvent]:
         stmt = select(rm.GlobalEvent).order_by(rm.GlobalEvent.id)
         if search:
             like = f"%{search}%"
@@ -121,8 +122,30 @@ class EventRepository:
             stmt = stmt.where(rm.GlobalEvent.subsystem == subsystem)
         if since_id is not None:
             stmt = stmt.where(rm.GlobalEvent.id > int(since_id))
-        stmt = stmt.limit(max(1, min(int(limit), 500)))
+        if desc:
+            stmt = stmt.order_by(None).order_by(rm.GlobalEvent.id.desc())
+        stmt = stmt.limit(max(1, min(int(limit), 500))).offset(max(0, int(offset)))
         return list(self.s.execute(stmt).scalars())
+
+    def count(self, *, instrument: Optional[str] = None, category: Optional[str] = None,
+              severity: Optional[str] = None, subsystem: Optional[str] = None,
+              search: Optional[str] = None) -> int:
+        """Total matching events (pagination must never guess - ISSUE-052)."""
+        from sqlalchemy import func
+        stmt = select(func.count()).select_from(rm.GlobalEvent)
+        if search:
+            like = f"%{search}%"
+            stmt = stmt.where(or_(rm.GlobalEvent.message.like(like),
+                                  rm.GlobalEvent.payload.like(like)))
+        if instrument:
+            stmt = stmt.where(rm.GlobalEvent.instrument_id == instrument.upper())
+        if category:
+            stmt = stmt.where(rm.GlobalEvent.category == category.upper())
+        if severity:
+            stmt = stmt.where(rm.GlobalEvent.severity == severity.upper())
+        if subsystem:
+            stmt = stmt.where(rm.GlobalEvent.subsystem == subsystem)
+        return int(self.s.execute(stmt).scalar_one())
 
 
 # ---------------------------------------------------------- instrument

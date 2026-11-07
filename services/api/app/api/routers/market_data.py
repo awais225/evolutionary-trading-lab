@@ -33,6 +33,53 @@ def read_availability(instrument: str = Depends(get_instrument_context)) -> dict
     return market_data_service.availability(instrument)
 
 
+@router.post("/fetch/start")
+def start_fetch_data(body: Optional[FetchRequest] = None,
+                     instrument: str = Depends(get_instrument_context)) -> dict:
+    """Start a fetch as a BACKGROUND operation (202-style contract).
+
+    The HTTP request returns immediately with the operation id; the DATA
+    tab polls the operation status, so a slow terminal can never wedge the
+    UI or the server, navigation never loses the operation, and a second
+    click returns the already-running operation instead of duplicating it.
+    """
+    tf = (body.timeframe if body else "ALL").strip().upper()
+    if tf == "ALL":
+        timeframes = list(TIMEFRAME_ORDER)
+    elif tf in TIMEFRAME_STEPS:
+        timeframes = [tf]
+    else:
+        raise HTTPException(422, detail={"code": "TIMEFRAME_UNSUPPORTED",
+                                         "message": f"timeframe must be ALL or one of "
+                                                    f"{', '.join(TIMEFRAME_ORDER)}; got {tf!r}"})
+    started = market_data_service.start_fetch(
+        instrument, timeframes, operation_id=(body.operation_id if body else None))
+    get_event_publisher().publish(
+        category="SYSTEM", severity="INFO", subsystem="market-data",
+        message=f"[{started['operation_id']}] FETCH operation {'already running' if started['existing'] else 'started'} [{instrument}] {tf}",
+        instrument=instrument,
+        payload={"operation_id": started["operation_id"], "stage": "OPERATION_CREATED",
+                 "timeframe": tf, "existing": started["existing"]})
+    return started
+
+
+@router.get("/fetch/operations/{operation_id}")
+def fetch_operation(operation_id: str,
+                    instrument: str = Depends(get_instrument_context)) -> dict:
+    rec = market_data_service.operation_status(operation_id)
+    if rec is None or rec["instrument"] != instrument:
+        raise HTTPException(404, detail={"code": "OPERATION_NOT_FOUND",
+                                         "message": f"no fetch operation {operation_id!r} for {instrument}"})
+    return rec
+
+
+@router.get("/fetch/operations")
+def latest_fetch_operation(instrument: str = Depends(get_instrument_context)) -> dict:
+    rec = market_data_service.latest_operation(instrument)
+    return rec or {"operation_id": None, "state": "IDLE", "instrument": instrument,
+                   "timeframes": [], "report": None, "error": None}
+
+
 @router.post("/fetch")
 def fetch_data(body: Optional[FetchRequest] = None,
                instrument: str = Depends(get_instrument_context)) -> dict:

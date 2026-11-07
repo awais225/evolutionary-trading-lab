@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { ApiError, api } from '../api/client'
-import type { MarketDataAvailability, MarketDataFetchReport } from '../api/types'
+import type { MarketDataAvailability, MarketDataFetchReport, MarketDataOperation } from '../api/types'
 import { SUPPORTED_TIMEFRAMES } from '../lib/timeframes'
 import { useInstrument } from '../state/instrument'
 import { logUserAction, newOperationId } from '../lib/opLog'
@@ -78,6 +78,57 @@ export function HistoricalDataPanel() {
   const [marketDataError, setMarketDataError] = useState<string | null>(null)
   const [fetchTimeframe, setFetchTimeframe] = useState('ALL')
   const [fetchReport, setFetchReport] = useState<MarketDataFetchReport | null>(null)
+  const [operation, setOperation] = useState<MarketDataOperation | null>(null)
+  const pollRef = useRef<number | null>(null)
+
+  const stopPolling = useCallback(() => {
+    if (pollRef.current != null) {
+      window.clearInterval(pollRef.current)
+      pollRef.current = null
+    }
+  }, [])
+
+  // Resume whatever operation the backend already has for this instrument:
+  // reopening DATA never starts a duplicate and never loses a running fetch.
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const latest = await api.marketData.latestOperation(instrument)
+        if (cancelled || !latest.operation_id) return
+        setOperation(latest)
+        if (latest.report) setFetchReport(latest.report)
+        if (latest.state === 'QUEUED' || latest.state === 'RUNNING') {
+          pollRef.current = window.setInterval(() => { void pollOnce(latest.operation_id as string) }, 700)
+        }
+      } catch { /* no operation yet — idle state is fine */ }
+    })()
+    return () => { cancelled = true; stopPolling() }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [instrument])
+
+  const pollOnce = async (operationId: string) => {
+    try {
+      const rec = await api.marketData.operation(instrument, operationId)
+      setOperation(rec)
+      if (rec.state !== 'QUEUED' && rec.state !== 'RUNNING') {
+        stopPolling()
+        if (rec.report) {
+          setFetchReport(rec.report)
+        } else if (rec.error) {
+          setMarketDataError(`[${rec.error.code ?? 'FETCH_FAILED'}] ${rec.error.message ?? 'fetch failed'}`)
+        }
+        logUserAction(`[${operationId}] dashboard refreshed after fetch (${rec.state})`, {
+          operationId, instrument, subsystem: 'market-data-web',
+          severity: rec.state === 'FAILED' ? 'ERROR' : 'INFO',
+        })
+        await loadMarketData()
+      }
+    } catch (err) {
+      stopPolling()
+      setMarketDataError(err instanceof ApiError ? err.message : 'fetch status lookup failed')
+    }
+  }
 
   const loadMarketData = useCallback(async () => {
     try {
@@ -93,24 +144,33 @@ export function HistoricalDataPanel() {
 
   useEffect(() => { loadMarketData() }, [loadMarketData])
 
+  const fetchBusy = marketDataBusy || operation?.state === 'QUEUED' || operation?.state === 'RUNNING'
+
   const fetchMarketData = async () => {
+    if (fetchBusy) return // one operation at a time; the backend enforces this too
     const operationId = newOperationId('FETCH')
-    logUserAction(`[${operationId}] user clicked FETCH DATA`, {
+    logUserAction(`[${operationId}] FETCH_CLICKED scope=${fetchTimeframe}`, {
       operationId, instrument, timeframe: fetchTimeframe, subsystem: 'market-data-web',
     })
     setMarketDataBusy(true); setMarketDataError(null); setFetchReport(null)
     try {
-      const report = await api.marketData.fetch(instrument, fetchTimeframe, operationId)
-      setFetchReport(report)
-      logUserAction(`[${operationId}] fetch completed: ${report.status ?? 'unknown'}`, {
-        operationId, instrument, timeframe: fetchTimeframe, subsystem: 'market-data-web',
-        severity: report.status === 'COMPLETE' ? 'INFO' : 'WARNING',
+      // Background operation: this request returns immediately; progress is
+      // polled, so the tab (and the whole app) stays responsive even if the
+      // terminal takes minutes to answer.
+      const started = await api.marketData.startFetch(instrument, fetchTimeframe, operationId)
+      setOperation(started)
+      logUserAction(`[${started.operation_id}] REQUEST_SUBMITTED scope=${fetchTimeframe}${started.existing ? ' (already running — resumed)' : ''}`, {
+        operationId: started.operation_id ?? operationId, instrument,
+        timeframe: fetchTimeframe, subsystem: 'market-data-web',
       })
-      await loadMarketData()
+      if (started.operation_id) {
+        stopPolling()
+        pollRef.current = window.setInterval(() => { void pollOnce(started.operation_id as string) }, 700)
+      }
     } catch (err) {
       const message = err instanceof ApiError ? err.message : 'MT5 fetch failed'
       setMarketDataError(message)
-      logUserAction(`[${operationId}] fetch failed: ${message}`, {
+      logUserAction(`[${operationId}] fetch failed to start: ${message}`, {
         operationId, instrument, timeframe: fetchTimeframe, subsystem: 'market-data-web',
         severity: 'ERROR',
       })
@@ -185,7 +245,7 @@ export function HistoricalDataPanel() {
         </>
       )}
       <div className="market-data-actions">
-        <FetchTimeframeSelect value={fetchTimeframe} disabled={marketDataBusy}
+        <FetchTimeframeSelect value={fetchTimeframe} disabled={fetchBusy}
                               onChange={(next) => {
                                 setFetchTimeframe(next)
                                 logUserAction(`fetch scope changed to ${next}`, {
@@ -193,9 +253,18 @@ export function HistoricalDataPanel() {
                                 })
                               }} />
         <button className="btn btn-primary btn-sm market-fetch-button" type="button"
-                onClick={fetchMarketData} disabled={marketDataBusy}>
-          {marketDataBusy ? 'FETCHING…' : 'FETCH DATA'}
+                onClick={fetchMarketData} disabled={fetchBusy}>
+          {fetchBusy ? 'FETCHING…' : 'FETCH DATA'}
         </button>
+        {operation?.operation_id && (
+          <span className="mono faint" style={{ fontSize: 10.5 }} role="status">
+            op {operation.operation_id} · {operation.state}
+            {operation.stage ? ` · stage ${operation.stage}` : ''}
+            {(operation.state === 'QUEUED' || operation.state === 'RUNNING')
+              ? ' — safe to navigate away; reopening DATA resumes this operation'
+              : ''}
+          </span>
+        )}
         <span className="faint" style={{ fontSize: 10.5 }}>
           Appends only completed, validated MT5 candles. Conflicting history is isolated and recorded — never overwritten.
         </span>

@@ -372,7 +372,12 @@ parent/child lineage). Fetch conflicts are classified
 (exact/representation/genuine) and isolated — stored candles are never
 overwritten, valid new candles still append, and operations are traced by
 operation id through the persistent registry event store surfaced in the
-LOG tab. The stale Phase-4 note below predates this:
+LOG tab. Update (ISSUE-052): fetches execute as background operations with
+queryable state (start/status/latest endpoints, duplicate-start
+protection, per-timeframe MT5 timeout), lifecycle stage events carry full
+stack traces on failure, and the LOG tab paginates server-side with
+COPY ALL / SAVE TO TXT full-dataset export. The stale Phase-4 note below
+predates this:
 
 No market-data store exists; saved multi-timeframe nodes are DRAFT/PENDING and render
 `AWAITING MARKET DATA · DATA UNAVAILABLE — Phase 4` in the inspector. No backtest,

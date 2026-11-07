@@ -1052,3 +1052,13 @@ FETCH CONFLICTS: classified exact/representation/genuine; genuine conflicts
 LOGGING: every fetch has an operation id; backend stages + frontend actions
   persist in the registry event store; LOG tab filters severity/component/
   operation/search (display-only, no deletion). WINDOWS STILL NOT VERIFIED.
+
+ISSUE-052 UPDATE:
+FETCH IS NOW A BACKGROUND OPERATION: POST /fetch/start returns at once;
+  duplicate start returns the running op; DATA tab polls/resumes across
+  navigation; per-TF MT5 timeout 180s (HERO1_FETCH_TF_TIMEOUT_S) fails at
+  stage MT5_HISTORY_REQUEST. Lifecycle stages + FULL STACK TRACES persist
+  in the event store (also for unhandled 500s). LOG: server pagination
+  with total, COPY ALL LOGS, SAVE LOGS TO TXT (complete filtered export,
+  HERO1_LOGS_*.txt). The original Windows exception was never captured -
+  after this patch any recurrence appears in LOG as an ERROR event.

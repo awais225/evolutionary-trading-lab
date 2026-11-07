@@ -71,7 +71,21 @@ export interface HeroEvent {
 export interface EventListOut {
   limit: number
   count: number
+  total?: number
   events: HeroEvent[]
+}
+
+export interface MarketDataOperation {
+  operation_id: string | null
+  state: 'IDLE' | 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'PARTIAL' | 'FAILED' | 'CANCELLED' | string
+  instrument?: string
+  timeframes?: string[]
+  stage?: string
+  started_at?: number | null
+  finished_at?: number | null
+  report?: MarketDataFetchReport | null
+  error?: { code?: string; message?: string } | null
+  existing?: boolean
 }
 
 export interface SettingsOut {

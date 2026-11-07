@@ -489,3 +489,79 @@ not duplicated). The node table shows each node's own timeframe, its saved
 spec direction as a colored badge (LONG green, SHORT red, BOTH amber,
 missing = explicit NO DIRECTION / NO TF), origin colors, parent name+id
 navigation, child counts and version lineage from the persisted registry.
+================================================================================
+ISSUE-052 - FETCH DATA appears stuck, other tabs return Internal Server
+Error, LOG shows only a few INFO events (no stage, no exception)
+================================================================================
+Exact symptom (Windows, 2026-11-07, operation FETCH-20261107-090358-B7E4F1):
+After clicking FETCH DATA in the new DATA tab the operation seemed stuck;
+navigating away and back produced "Internal Server Error"; the LOG tab
+showed ~12 mostly-INFO events with no processing stage or exception.
+
+Investigation (the operation id was generated on the owner's Windows
+machine; it does not exist in the LMS event store - searched and absent -
+so the exact Windows exception was NOT captured by the old code. That
+absence is itself one of the confirmed defects below.)
+
+CONFIRMED defects (code-verified 2026-11-07):
+1. One blocking request: the DATA tab awaited a single synchronous
+   POST /fetch for the whole ALL-timeframe fetch. There was no operation
+   state, no polling and no resume - if the terminal took minutes
+   (copy_rates_range can block while MT5 synchronizes/downloads history)
+   or the request was interrupted, the UI could only spin, and reopening
+   DATA started from nothing (busy state lived only in the unmounted
+   component). Duplicate fetches were possible.
+2. No timeout anywhere on the MT5 history call: a terminal that never
+   answers would hold the request forever.
+3. Failures left almost no trace: FetchError exits (MT5 unavailable /
+   login required / connect failed) were raised after a single
+   fetch_request_received event; per-timeframe exceptions were converted
+   to result rows without recording stack traces; unhandled 500s were
+   logged only to the server console, never to the persistent event
+   store the LOG tab reads. Hence "only INFO events".
+4. LOG loading silently truncated: GET /events returned the OLDEST events
+   (ascending, limit-capped) with no total and no pagination, so the
+   newest diagnostics could be invisible, and there was no COPY ALL /
+   SAVE TO TXT export.
+
+POSSIBLE cause of the Windows 500s (unproven - the old code captured no
+evidence): the blocked fetch thread plus per-event registry writes and
+concurrent tab requests contending on the SQLite registry, or an
+exception in a worker thread. After this fix, any recurrence is recorded
+in the LOG tab as an ERROR event with the full stack trace (stage
+UNHANDLED_EXCEPTION or TIMEFRAME_FETCH_FAILED), which will settle it.
+
+Fix:
+- Fetch is now a BACKGROUND OPERATION: POST /market-data/fetch/start
+  returns the operation id immediately (state QUEUED/RUNNING/COMPLETED/
+  PARTIAL/FAILED). One running operation per instrument - a duplicate
+  start returns the existing operation. GET /fetch/operations/{id} and
+  GET /fetch/operations (latest) let reopening DATA resume the same
+  operation; the DATA tab polls status (700 ms) and refreshes
+  availability only when the operation lands. Other tabs/APIs stay
+  responsive while a fetch runs (verified live).
+- Per-timeframe MT5 timeout (default 180 s, HERO1_FETCH_TF_TIMEOUT_S):
+  the call runs on a worker; on timeout the timeframe fails loudly at
+  stage MT5_HISTORY_REQUEST and no data is modified. (A native terminal
+  call cannot be killed; the abandoned worker is daemonized and the
+  operation still completes/fails cleanly.)
+- Full lifecycle stages under the operation id: OPERATION_CREATED,
+  BACKEND_REQUEST_RECEIVED, DATABASE_PATH_RESOLVED, MT5_CONNECTION_CHECK,
+  STORED_BASELINE_READ, TIMEFRAME_FETCH_STARTED, MT5_HISTORY_REQUEST,
+  MT5_HISTORY_RESPONSE, TIMESTAMP_VALIDATION, CANDLE_VALIDATION,
+  DUPLICATE_CHECK, CONFLICT_CHECK, DATABASE_TRANSACTION_STARTED,
+  DATABASE_COMMIT, POST_COMMIT_VERIFICATION, TIMEFRAME_COMPLETED,
+  OPERATION_COMPLETED / OPERATION_FAILED / TIMEFRAME_FETCH_FAILED -
+  failures carry exception type, message and full stack trace.
+  Unhandled API exceptions are also published to the event store.
+- LOG tab: server-side pagination (total + Load older), COPY ALL LOGS
+  and SAVE LOGS TO TXT export the COMPLETE filtered dataset page by page
+  (oldest-first plain text, full details/stack traces, UTF-8 file
+  HERO1_LOGS_YYYY-MM-DD_HH-MM-SS.txt). Clearing filters never deletes.
+- The synchronous POST /fetch remains for API compatibility.
+
+Live Linux verification: an ALL-scope operation went RUNNING -> FAILED
+(honest MT5_UNAVAILABLE on this host) with a 6-event trace; the events
+API reported total=30 with paging; unrelated APIs answered throughout;
+the canonical DB was byte-identical afterwards (419,013 candles,
+integrity ok, zero duplicate timestamps).

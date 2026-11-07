@@ -21,7 +21,12 @@ produces. Fetch rules (binding):
 from __future__ import annotations
 
 import hashlib
+import os
+import threading
 import time as _time
+import traceback
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeout
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -115,6 +120,7 @@ def _op_event(operation_id: str, stage: str, *, severity: str = "INFO",
     Never raises and never logs secrets: a logging failure must not break a
     fetch, and a fetch failure must still be visible in the LOG tab.
     """
+    _op_touch(operation_id, stage=stage)
     try:
         from hero1_eventbus import get_event_publisher
         get_event_publisher().publish(
@@ -125,6 +131,104 @@ def _op_event(operation_id: str, stage: str, *, severity: str = "INFO",
                      "timeframe": timeframe, **ctx})
     except Exception:  # noqa: BLE001 - logging must never sink the operation
         pass
+
+
+def _op_exception(operation_id: str, stage: str, exc: BaseException, *,
+                  instrument: str | None = None, timeframe: str | None = None,
+                  **ctx: Any) -> None:
+    """Record a failure with its FULL stack trace in the persistent log.
+
+    The LOG tab must expose the actual backend exception - a generic
+    "Internal Server Error" is never the only evidence (ISSUE-052).
+    """
+    _op_event(operation_id, stage, severity="ERROR", instrument=instrument,
+              timeframe=timeframe, exception_type=type(exc).__name__,
+              exception_message=str(exc), traceback=traceback.format_exc()[-6000:], **ctx)
+
+
+# --------------------------------------------------------------------------
+# Fetch operation registry: one RUNNING operation per instrument, executed
+# on a background thread so a slow/stuck terminal call can never wedge the
+# HTTP request (or the UI) again. State is queryable so reopening the DATA
+# tab resumes the SAME operation instead of starting a duplicate.
+# --------------------------------------------------------------------------
+_OPS: Dict[str, Dict[str, Any]] = {}
+_OPS_LOCK = threading.Lock()
+
+
+def _op_touch(operation_id: str, **kw: Any) -> None:
+    with _OPS_LOCK:
+        rec = _OPS.get(operation_id)
+        if rec is not None:
+            rec.update(kw)
+
+
+def _tf_timeout() -> float:
+    """Per-timeframe MT5 history-call timeout (seconds)."""
+    try:
+        return float(os.environ.get("HERO1_FETCH_TF_TIMEOUT_S", "180"))
+    except ValueError:
+        return 180.0
+
+
+def start_fetch(instrument: str, timeframes: List[str],
+                operation_id: Optional[str] = None) -> Dict[str, Any]:
+    """Start (or return the already-running) fetch operation for an instrument."""
+    sym = instrument.strip().upper()
+    with _OPS_LOCK:
+        for rec in _OPS.values():
+            if rec["instrument"] == sym and rec["state"] in ("QUEUED", "RUNNING"):
+                return {"operation_id": rec["operation_id"], "state": rec["state"],
+                        "instrument": sym, "timeframes": list(rec["timeframes"]),
+                        "existing": True, "started_at": rec["started_at"]}
+        op_id = (operation_id or "").strip() or new_operation_id()
+        rec = {"operation_id": op_id, "instrument": sym,
+               "timeframes": list(timeframes), "state": "QUEUED",
+               "stage": "OPERATION_CREATED", "started_at": _utc_now_epoch(),
+               "finished_at": None, "report": None, "error": None}
+        _OPS[op_id] = rec
+    _op_event(op_id, "OPERATION_CREATED", instrument=sym,
+              timeframes=list(timeframes), store=str(store_db_path()))
+
+    def _run() -> None:
+        _op_touch(op_id, state="RUNNING")
+        try:
+            report = fetch(sym, list(timeframes), operation_id=op_id)
+            state = {"COMPLETE": "COMPLETED", "PARTIAL": "PARTIAL"}.get(
+                report.get("status"), "FAILED")
+            _op_touch(op_id, state=state, report=report,
+                      finished_at=_utc_now_epoch(), stage="OPERATION_COMPLETED")
+        except FetchError as exc:
+            _op_exception(op_id, "OPERATION_FAILED", exc, instrument=sym,
+                          error_code=exc.code)
+            _op_touch(op_id, state="FAILED", finished_at=_utc_now_epoch(),
+                      stage="OPERATION_FAILED",
+                      error={"code": exc.code, "message": exc.message})
+        except Exception as exc:  # noqa: BLE001 - the operation must always land
+            _op_exception(op_id, "OPERATION_FAILED", exc, instrument=sym)
+            _op_touch(op_id, state="FAILED", finished_at=_utc_now_epoch(),
+                      stage="OPERATION_FAILED",
+                      error={"code": type(exc).__name__, "message": str(exc)})
+
+    threading.Thread(target=_run, name=f"hero1-{op_id}", daemon=True).start()
+    return {"operation_id": op_id, "state": rec["state"], "instrument": sym,
+            "timeframes": list(timeframes), "existing": False,
+            "started_at": rec["started_at"]}
+
+
+def operation_status(operation_id: str) -> Optional[Dict[str, Any]]:
+    with _OPS_LOCK:
+        rec = _OPS.get(operation_id)
+        return dict(rec) if rec is not None else None
+
+
+def latest_operation(instrument: str) -> Optional[Dict[str, Any]]:
+    sym = instrument.strip().upper()
+    with _OPS_LOCK:
+        recs = [r for r in _OPS.values() if r["instrument"] == sym]
+        if not recs:
+            return None
+        return dict(max(recs, key=lambda r: r["started_at"]))
 
 
 def _utc_now_epoch() -> int:
@@ -322,8 +426,10 @@ def _fetch_one(mt5, conn, *, instrument: str, timeframe: str, utc_now: int,
                         "refusing to build a request from it (no data modified)")
         return res
     res["latest_stored_ts"] = md.ts_iso_of(latest)
-    _op_event(operation_id, "latest_stored_candle_identified", instrument=instrument,
+    _op_event(operation_id, "STORED_BASELINE_READ", instrument=instrument,
               timeframe=timeframe, latest_stored_ts=res["latest_stored_ts"])
+    _op_event(operation_id, "TIMEFRAME_FETCH_STARTED", instrument=instrument,
+              timeframe=timeframe)
     from_ts = max(md.MIN_TS, latest - 2 * step)  # small overlap for boundary safety
     to_ts = (int(utc_now) // step) * step
     if to_ts <= from_ts:
@@ -340,7 +446,32 @@ def _fetch_one(mt5, conn, *, instrument: str, timeframe: str, utc_now: int,
     if tf_const is None:
         res["error"] = f"terminal module exposes no TIMEFRAME_{timeframe} constant"
         return res
-    rates = mt5.copy_rates_range(instrument, tf_const, from_dt, to_dt)
+    _op_event(operation_id, "MT5_HISTORY_REQUEST", instrument=instrument,
+              timeframe=timeframe, requested_from=res["requested_from"],
+              requested_to=res["requested_to"], timeout_s=_tf_timeout())
+    _call_started = _time.monotonic()
+    _executor = ThreadPoolExecutor(max_workers=1)
+    try:
+        rates = _executor.submit(
+            mt5.copy_rates_range, instrument, tf_const, from_dt, to_dt,
+        ).result(timeout=_tf_timeout())
+    except FuturesTimeout:
+        # The native terminal call cannot be killed safely; it is abandoned
+        # on a daemon worker while this timeframe fails loudly with its stage.
+        res["error"] = (f"MT5 history request timed out after {_tf_timeout():.0f}s "
+                        f"at stage MT5_HISTORY_REQUEST for UTC range "
+                        f"{res['requested_from']}..{res['requested_to']} - the terminal "
+                        f"did not answer; no data was modified for this timeframe")
+        _op_event(operation_id, "MT5_HISTORY_REQUEST", instrument=instrument,
+                  timeframe=timeframe, severity="ERROR", timed_out=True,
+                  timeout_s=_tf_timeout(), requested_from=res["requested_from"],
+                  requested_to=res["requested_to"])
+        return res
+    finally:
+        _executor.shutdown(wait=False)
+    _op_event(operation_id, "MT5_HISTORY_RESPONSE", instrument=instrument,
+              timeframe=timeframe, received=(len(rates) if rates is not None else 0),
+              elapsed_ms=int((_time.monotonic() - _call_started) * 1000))
     if rates is None:
         err = None
         try:
@@ -353,9 +484,6 @@ def _fetch_one(mt5, conn, *, instrument: str, timeframe: str, utc_now: int,
 
     raw_rows = list(rates)
     res["received"] = len(raw_rows)
-    _op_event(operation_id, "mt5_history_response_received", instrument=instrument,
-              timeframe=timeframe, received=res["received"],
-              requested_from=res["requested_from"], requested_to=res["requested_to"])
     candles: List[Dict[str, Any]] = []
     batch_conflicts: List[int] = []
     seen: Dict[int, Dict[str, Any]] = {}
@@ -403,13 +531,18 @@ def _fetch_one(mt5, conn, *, instrument: str, timeframe: str, utc_now: int,
         return res
 
     res["valid_records"] = len(candles)
-    _op_event(operation_id, "candle_validation_complete", instrument=instrument,
+    _op_event(operation_id, "TIMESTAMP_VALIDATION", instrument=instrument,
+              timeframe=timeframe, invalid_timestamps_rejected=res["invalid_timestamps_rejected"],
+              invalid_examples=res["invalid_examples"][:3])
+    _op_event(operation_id, "CANDLE_VALIDATION", instrument=instrument,
               timeframe=timeframe, valid_records=res["valid_records"],
               invalid_rejected=res["invalid_rejected"],
               incomplete_dropped=res["incomplete_dropped"])
     batch_fp = md.canonical_fingerprint(candles)
     dataset_id = hashlib.sha256(
         f"{instrument}|{timeframe}|mt5-fetch|{batch_fp}".encode()).hexdigest()[:16]
+    _op_event(operation_id, "DATABASE_TRANSACTION_STARTED", instrument=instrument,
+              timeframe=timeframe, store=str(store_db_path()))
     with conn:  # one transaction per timeframe: inserts + audit record commit together
         merged = md.merge_candles(conn, dataset_id=dataset_id, instrument=instrument,
                                   timeframe=timeframe, rows=candles, policy="fetch")
@@ -445,6 +578,14 @@ def _fetch_one(mt5, conn, *, instrument: str, timeframe: str, utc_now: int,
                                        "conflict_details": res["conflict_details"],
                                        "invalid_timestamps_rejected": res["invalid_timestamps_rejected"]},
                     status="AVAILABLE" if merged["inserted"] else "CONFLICT_RECORDED")
+    _op_event(operation_id, "DUPLICATE_CHECK", instrument=instrument, timeframe=timeframe,
+              duplicates_skipped=res["duplicates_skipped"],
+              representation_diffs=res["representation_diffs"])
+    _op_event(operation_id, "CONFLICT_CHECK", instrument=instrument, timeframe=timeframe,
+              conflicts=res["conflicts"],
+              severity="WARNING" if res["conflicts"] else "INFO")
+    _op_event(operation_id, "DATABASE_COMMIT", instrument=instrument, timeframe=timeframe,
+              appended=res["appended"])
     if res["conflicts"]:
         res["status"] = "PARTIAL"
         res["error"] = (f"{res['conflicts']} terminal candle(s) conflict with stored history "
@@ -455,7 +596,10 @@ def _fetch_one(mt5, conn, *, instrument: str, timeframe: str, utc_now: int,
         res["status"] = "UPDATED" if res["appended"] else "UP_TO_DATE"
     latest_after = md.latest_ts(conn, instrument, timeframe)
     res["latest_stored_ts"] = md.ts_iso_of(latest_after) if latest_after else None
-    _op_event(operation_id, "timeframe_fetch_complete", instrument=instrument,
+    _op_event(operation_id, "POST_COMMIT_VERIFICATION", instrument=instrument,
+              timeframe=timeframe, latest_stored_ts=res["latest_stored_ts"],
+              stored_count=md.series_stats(conn, instrument, timeframe)["row_count"])
+    _op_event(operation_id, "TIMEFRAME_COMPLETED", instrument=instrument,
               timeframe=timeframe, status=res["status"], appended=res["appended"],
               duplicates_skipped=res["duplicates_skipped"], conflicts=res["conflicts"],
               representation_diffs=res["representation_diffs"],
@@ -480,26 +624,35 @@ def fetch(instrument: str, timeframes: List[str],
     """
     sym = instrument.strip().upper()
     operation_id = (operation_id or "").strip() or new_operation_id()
-    _op_event(operation_id, "fetch_request_received", instrument=sym,
-              timeframes=list(timeframes), store=str(store_db_path()))
+    _op_event(operation_id, "BACKEND_REQUEST_RECEIVED", instrument=sym,
+              timeframes=list(timeframes))
+    _op_event(operation_id, "DATABASE_PATH_RESOLVED", instrument=sym,
+              store=str(store_db_path()))
     mt5 = mt5_connection.mt5_module()
     if mt5 is None:
+        _op_event(operation_id, "MT5_CONNECTION_CHECK", instrument=sym, severity="ERROR",
+                  error_code="MT5_UNAVAILABLE", stage_failed="MT5_CONNECTION_CHECK")
         raise FetchError("MT5_UNAVAILABLE",
                          f"MetaTrader5 package not importable: {mt5_connection.import_error()}. "
                          f"FETCH DATA needs the Windows machine with the terminal (see TROUBLESHOOTING.txt).")
     result = mt5_connection.connect(None)
     if result.get("state") == mt5_connection.STATE_CONNECTED:
+        _op_event(operation_id, "MT5_CONNECTION_CHECK", instrument=sym, severity="ERROR",
+                  error_code="MT5_LOGIN_REQUIRED", state=result.get("state"))
         raise FetchError("MT5_LOGIN_REQUIRED",
                          "terminal is running but no account is logged in; log in inside "
                          "MT5, reconnect, and only then FETCH DATA")
     if result.get("state") != mt5_connection.STATE_ACCOUNT_LOADED:
+        _op_event(operation_id, "MT5_CONNECTION_CHECK", instrument=sym, severity="ERROR",
+                  error_code=result.get("error_code") or "MT5_CONNECT_FAILED",
+                  state=result.get("state"))
         raise FetchError(result.get("error_code") or "MT5_CONNECT_FAILED",
                          result.get("error") or "MT5 connection failed")
     account = result.get("account") or {}
     terminal = result.get("terminal") or {}
     broker_server = account.get("server") or terminal.get("company") or "unknown-server"
-    _op_event(operation_id, "mt5_connection_verified", instrument=sym,
-              broker_server=broker_server)
+    _op_event(operation_id, "MT5_CONNECTION_CHECK", instrument=sym,
+              state=result.get("state"), broker_server=broker_server)
 
     # MT5 rate timestamps and the canonical store are both UTC epoch seconds.
     # No broker offset is measured, rounded or applied anywhere in this path.
@@ -517,9 +670,9 @@ def fetch(instrument: str, timeframes: List[str],
                                           broker_server=broker_server,
                                           operation_id=operation_id))
             except Exception as exc:  # noqa: BLE001 - one TF must not sink the rest
-                _op_event(operation_id, "timeframe_fetch_failed", instrument=sym,
-                          timeframe=tf, severity="ERROR",
-                          error=f"{type(exc).__name__}: {exc}")
+                _op_exception(operation_id, "TIMEFRAME_FETCH_FAILED", exc,
+                              instrument=sym, timeframe=tf,
+                              transaction_rolled_back=True)
                 results.append({
                     "timeframe": tf, "status": "FAILED", "requested_from": None,
                     "requested_to": md.ts_iso_of(utc_now), "received": 0, "appended": 0,
@@ -538,7 +691,7 @@ def fetch(instrument: str, timeframes: List[str],
     processed = sum(1 for r in results if r["status"] != "FAILED")
     overall = ("COMPLETE" if results and clean == len(results)
                else "PARTIAL" if processed else "FAILED")
-    _op_event(operation_id, "fetch_operation_completed", instrument=sym,
+    _op_event(operation_id, "OPERATION_COMPLETED", instrument=sym,
               status=overall, broker_server=broker_server,
               severity="INFO" if overall == "COMPLETE" else "WARNING" if overall == "PARTIAL" else "ERROR",
               results=[{"timeframe": r["timeframe"], "status": r["status"],

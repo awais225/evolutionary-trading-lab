@@ -1,4 +1,4 @@
-import type { BrokerMeta, CompileResult, EventListOut, HealthOut, Instrument, InstrumentMetadataView, MarketDataAvailability, MarketDataFetchReport, Mt5ConnectionResult, Mt5TerminalsOut, Node, NodeGenerateOut, NodeListOut, NodeOrigin, NodeVersionList, SettingsOut, ValidationReport } from './types'
+import type { BrokerMeta, CompileResult, EventListOut, HealthOut, Instrument, InstrumentMetadataView, MarketDataAvailability, MarketDataFetchReport, MarketDataOperation, Mt5ConnectionResult, Mt5TerminalsOut, Node, NodeGenerateOut, NodeListOut, NodeOrigin, NodeVersionList, SettingsOut, ValidationReport } from './types'
 
 class ApiError extends Error {
   constructor(public status: number, message: string,
@@ -48,7 +48,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 export const api = {
   health: () => request<HealthOut>('GET', '/health'),
   instruments: () => request<{ instruments: Instrument[] }>('GET', '/api/v1/instruments').then((r) => r.instruments),
-  events: (params: { instrument?: string; category?: string; severity?: string; subsystem?: string; search?: string; limit?: number } = {}) => {
+  events: (params: { instrument?: string; category?: string; severity?: string; subsystem?: string; search?: string; limit?: number; offset?: number; order?: 'asc' | 'desc' } = {}) => {
     const q = new URLSearchParams()
     if (params.instrument) q.set('instrument', params.instrument)
     if (params.category) q.set('category', params.category)
@@ -56,6 +56,8 @@ export const api = {
     if (params.subsystem) q.set('subsystem', params.subsystem)
     if (params.search) q.set('search', params.search)
     if (params.limit) q.set('limit', String(params.limit))
+    if (params.offset) q.set('offset', String(params.offset))
+    if (params.order) q.set('order', params.order)
     return request<EventListOut>('GET', `/api/v1/events?${q}`)
   },
   postEvent: (body: { category: string; severity?: string; instrument?: string; subsystem?: string; message: string; payload?: Record<string, unknown> }) =>
@@ -117,6 +119,12 @@ export const api = {
     get: (instrument: string) => request<MarketDataAvailability>('GET', `/api/v1/instruments/${instrument}/market-data`),
     fetch: (instrument: string, timeframe = 'ALL', operationId?: string) =>
       request<MarketDataFetchReport>('POST', `/api/v1/instruments/${instrument}/market-data/fetch`, { timeframe, operation_id: operationId }),
+    startFetch: (instrument: string, timeframe = 'ALL', operationId?: string) =>
+      request<MarketDataOperation>('POST', `/api/v1/instruments/${instrument}/market-data/fetch/start`, { timeframe, operation_id: operationId }),
+    operation: (instrument: string, operationId: string) =>
+      request<MarketDataOperation>('GET', `/api/v1/instruments/${instrument}/market-data/fetch/operations/${operationId}`),
+    latestOperation: (instrument: string) =>
+      request<MarketDataOperation>('GET', `/api/v1/instruments/${instrument}/market-data/fetch/operations`),
   },
   metadata: {
     get: (instrument: string) => request<InstrumentMetadataView>('GET', `/api/v1/instruments/${instrument}/metadata`),

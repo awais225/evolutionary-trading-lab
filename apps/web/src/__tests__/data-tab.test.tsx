@@ -62,7 +62,9 @@ describe('DATA tab — historical data above generated nodes (ISSUE-051)', () =>
   it('reports a failed fetch honestly (never COMPLETE)', async () => {
     renderAt('/data')
     fireEvent.click(await screen.findByRole('button', { name: /fetch data/i }))
-    expect((await screen.findAllByText(/^FAILED$/)).length).toBeGreaterThan(0)
+    // background operation: the panel polls the operation until it lands
+    expect(await screen.findByText(/op FETCH-TEST-OP1/)).toBeInTheDocument()
+    expect((await screen.findAllByText(/^FAILED$/, {}, { timeout: 4000 })).length).toBeGreaterThan(0)
     expect(await screen.findByText(/mock terminal unavailable/)).toBeInTheDocument()
     expect(screen.queryByText(/^COMPLETE$/)).not.toBeInTheDocument()
   })
@@ -105,5 +107,28 @@ describe('LOG tab — persistent event store (ISSUE-051)', () => {
     fireEvent.click(screen.getByText(/timeframe_fetch_complete \(H1\)/))
     expect(await screen.findByText(/"appended": 12/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Clear filters/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /COPY ALL LOGS/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /SAVE LOGS TO TXT/ })).toBeInTheDocument()
+    expect(screen.getByText(/Showing 2 of 2 matching events/)).toBeInTheDocument()
+  })
+})
+
+import { formatLogsText, logExportFilename } from '../lib/logExport'
+import type { HeroEvent } from '../api/types'
+
+describe('log export formatting (ISSUE-052)', () => {
+  it('exports chronological plain text with full details and no truncation', () => {
+    const text = formatLogsText(EVENTS as unknown as HeroEvent[], {
+      exportedAt: new Date('2026-11-07T09:30:00Z'),
+      filters: { severity: 'ALL', operation_id: 'FETCH-20261107-084512-ABC123' },
+      totalMatching: 2,
+    })
+    expect(text).toContain('HERO1 — APPLICATION LOG EXPORT')
+    expect(text).toContain('Total exported events: 2')
+    expect(text).toContain('operation=FETCH-20261107-084512-ABC123')
+    expect(text).toContain('"appended": 12')
+    // chronological: timeframe event (id 7) before completion (id 8)
+    expect(text.indexOf('timeframe_fetch_complete')).toBeLessThan(text.indexOf('fetch_operation_completed'))
+    expect(logExportFilename(new Date(2026, 10, 7, 9, 5, 3))).toBe('HERO1_LOGS_2026-11-07_09-05-03.txt')
   })
 })

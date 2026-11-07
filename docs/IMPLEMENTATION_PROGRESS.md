@@ -311,3 +311,12 @@ this entry).
   a real filterable view of that store. Backend 199 passed / 1 skipped
   (200 collected); frontend 50/50; build clean; launcher audit PASS.
   Genuine Windows terminal conflict values still NOT VERIFIED.
+
+- ISSUE-052: fetch operations are background, stateful and resumable
+  (start/status/latest endpoints; duplicate-start protection; DATA tab
+  polling); per-timeframe MT5 timeout; canonical lifecycle stage names
+  with stack-trace events; unhandled exceptions recorded in the event
+  store; LOG pagination (total/offset/order) + COPY ALL LOGS + SAVE LOGS
+  TO TXT (full filtered export). Backend 204 passed / 1 skipped (205);
+  frontend 51/51; build clean. Windows exception from the original hang
+  was never captured by the old code - NOT VERIFIED there.

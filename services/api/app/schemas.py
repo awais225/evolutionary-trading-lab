@@ -136,6 +136,7 @@ class EventOut(BaseModel):
 class EventListOut(BaseModel):
     limit: int
     count: int
+    total: int = 0
     events: List[EventOut]
 
 

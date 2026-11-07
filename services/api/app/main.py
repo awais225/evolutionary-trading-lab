@@ -56,6 +56,17 @@ def create_app() -> FastAPI:
     @app.exception_handler(Exception)
     async def unhandled(request, exc):  # noqa: ANN001
         log.exception("unhandled error", extra={"path": str(request.url.path)})
+        try:  # the LOG tab must expose the real exception, not just a 500
+            import traceback as _tb
+            from hero1_eventbus import get_event_publisher
+            get_event_publisher().publish(
+                category="ERROR", severity="ERROR", subsystem="api",
+                message=f"unhandled exception at {request.url.path}: {type(exc).__name__}: {exc}",
+                payload={"stage": "UNHANDLED_EXCEPTION", "path": str(request.url.path),
+                         "exception_type": type(exc).__name__, "exception_message": str(exc),
+                         "traceback": _tb.format_exc()[-6000:]})
+        except Exception:  # noqa: BLE001 - never mask the original error
+            pass
         return JSONResponse(status_code=500, content={"error": {"code": "internal_error", "message": "internal server error"}})
 
     @app.exception_handler(KeyError)
