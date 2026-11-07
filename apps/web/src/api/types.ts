@@ -129,10 +129,16 @@ export interface Mt5Terminal {
   name: string
   path: string
   origin: string
+  running?: boolean | null
+  state?: 'DISCOVERED' | 'RUNNING' | string
 }
 
 export interface Mt5ConnectionResult {
   ok: boolean
+  state?: 'DISCOVERED' | 'RUNNING' | 'INITIALIZING' | 'CONNECTED' | 'ACCOUNT_LOADED' | 'FAILED' | 'UNAVAILABLE' | 'NOT_CONNECTED' | string
+  launched?: boolean
+  login_required?: boolean
+  launch?: Record<string, unknown>
   checked_at: string
   platform: string
   package_available: boolean
@@ -161,6 +167,7 @@ export interface Mt5ConnectionResult {
 
 export interface Mt5Account {
   login?: number
+  name?: string
   server?: string
   company?: string
   currency?: string
@@ -170,6 +177,9 @@ export interface Mt5Account {
   margin_free?: number
   margin_level?: number
   leverage?: number
+  profit?: number
+  trade_allowed?: boolean
+  trade_expert?: boolean
   trade_mode?: number
   trade_mode_name?: 'DEMO' | 'CONTEST' | 'REAL' | null
   raw?: Record<string, unknown>
@@ -182,6 +192,63 @@ export interface Mt5TerminalsOut {
   saved_terminal_path?: string | null
   terminals: Mt5Terminal[]
   note: string
+}
+
+export interface MarketDataTimeframeStats {
+  row_count: number
+  first_ts?: string | null
+  last_ts?: string | null
+}
+
+export interface MarketDataDataset {
+  dataset_id: string
+  instrument: string
+  timeframe: string
+  source_file?: string
+  row_count?: number
+  first_ts?: string | null
+  last_ts?: string | null
+  validation_result?: string
+  status?: string
+  imported_at?: string
+}
+
+export interface MarketDataAvailability {
+  instrument: string
+  available: boolean
+  store: string
+  reason?: string
+  timeframes: Record<string, MarketDataTimeframeStats | null>
+  datasets: MarketDataDataset[]
+}
+
+export interface MarketDataFetchResult {
+  timeframe: string
+  status: 'UPDATED' | 'UP_TO_DATE' | 'FAILED' | string
+  requested_from?: string | null
+  requested_to?: string | null
+  received: number
+  appended: number
+  duplicates_skipped: number
+  incomplete_dropped: number
+  invalid_rejected: number
+  conflicts: number
+  latest_stored_ts?: string | null
+  error?: string | null
+}
+
+export interface MarketDataFetchReport {
+  instrument: string
+  broker_server: string
+  server_time: {
+    rule: string
+    server_now: string
+    offset_seconds: number
+    offset_source: string
+  }
+  ok: boolean
+  results: MarketDataFetchResult[]
+  fetched_at: string
 }
 
 export interface InstrumentMetadataView {

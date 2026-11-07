@@ -60,6 +60,11 @@ def refresh_metadata(instrument: str = Depends(get_instrument_context)) -> dict:
             "platform": __import__("platform").system(),
         })
     result = mt5_connection.connect(None)  # reuse the live session or initialize default
+    if result.get("state") == mt5_connection.STATE_CONNECTED:
+        raise HTTPException(503, detail={"code": "MT5_LOGIN_REQUIRED",
+                                         "message": result.get("warning") or
+                                                    "terminal connected but no account is logged in",
+                                         "last_error": result.get("last_error")})
     if not result.get("ok"):
         raise HTTPException(503, detail={"code": result.get("error_code") or "MT5_CONNECT_FAILED",
                                          "message": result.get("error"),

@@ -65,6 +65,16 @@ if not exist "%VENV_PY%" (
 "%VENV_PY%" --version 1>> "%STARTUP_LOG%" 2>&1
 "%VENV_PY%" --version 2>&1
 call :LOG "  venv python : %VENV_PY%"
+call :LOG "  MetaTrader5 package check (same interpreter; report-only at startup):"
+"%VENV_PY%" "%ROOT%\scripts\check_mt5_env.py"
+set "RC=%errorlevel%"
+call :LOG "  MetaTrader5 env rc : %RC%  (0=importable, 1=missing, 2=broken install)"
+if not "%RC%"=="0" (
+  echo  [WARN] MetaTrader5 is not importable in the backend venv.
+  echo         MT5 connection and FETCH DATA will stay unavailable until fixed.
+  echo         Run PREREQUISITES.bat, then: "%VENV_PY%" "%ROOT%\scripts\check_mt5_env.py"
+  echo [%DATE% %TIME%] [WARN] MetaTrader5 env rc=%RC% in %VENV_PY% >> "%STARTUP_LOG%"
+)
 call :LOG "[PASS] stage 2"
 echo.
 
@@ -253,18 +263,37 @@ echo.
 REM ---- STAGE 10/10: browser launch + monitor ---------------------------------
 call :LOG "[STAGE 10/10] Browser launch"
 set "FAILED_STAGE=10"
-start "" "http://127.0.0.1:5173/?v=%HERO1_START_TOKEN%"
+set "DASHBOARD_URL=http://127.0.0.1:5173/?v=%HERO1_START_TOKEN%"
+if "%FRONTEND_REUSE%"=="1" (
+  call :LOG "  frontend was already running; browser auto-open skipped to avoid a duplicate tab"
+  echo  Dashboard already running: http://127.0.0.1:5173/
+  echo  Browser auto-open skipped to avoid opening a duplicate tab.
+  goto :BROWSER_OPEN_DONE
+)
+start "" "%DASHBOARD_URL%"
 set "RC=%errorlevel%"
 call :LOG "  browser launch rc : %RC%  (0 = auto-open requested)"
+call :LOG "  browser launch URL: %DASHBOARD_URL%"
 if not "%RC%"=="0" (
   echo.
   echo  [WARN] The browser did not open automatically - start rc=%RC%
+  echo         Trying the Windows URL handler fallback...
+  rundll32 url.dll,FileProtocolHandler "%DASHBOARD_URL%"
+  set "RC=%errorlevel%"
+  call :LOG "  browser fallback rc: %RC%"
+  call :LOG "  browser fallback URL: %DASHBOARD_URL%"
+)
+if not "%RC%"=="0" (
+  echo.
+  echo  [WARN] The browser did not open automatically - final rc=%RC%
   echo         Hero1 itself IS running normally. Open this address in
   echo         your browser manually:  http://127.0.0.1:5173/
+  echo         Full launch URL: %DASHBOARD_URL%
   echo         Or search "browser" in TROUBLESHOOTING.txt - repository root.
-  echo [%DATE% %TIME%] [WARN] browser auto-open failed rc=%RC% - manual open http://127.0.0.1:5173/ >> "%STARTUP_LOG%"
+  echo [%DATE% %TIME%] [WARN] browser auto-open failed rc=%RC% - manual open http://127.0.0.1:5173/ full-url=%DASHBOARD_URL% >> "%STARTUP_LOG%"
   echo.
 )
+:BROWSER_OPEN_DONE
 call :LOG "[PASS] stage 10 - HERO1 IS RUNNING"
 echo.
 echo ===========================================================

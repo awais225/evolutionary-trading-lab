@@ -14,9 +14,10 @@ from .metadata import build_snapshot, broker_meta_from_snapshot, normalize_symbo
 from .sizing import pip_size_from_digits, points_per_pip_from_digits, round_price_to_tick, normalize_volume
 
 __all__ = [
-    "probe_mt5_availability", "connection", "metadata", "sizing",
+    "probe_mt5_availability", "connection", "metadata", "server_time", "sizing",
     "MT5_PACKAGE_AVAILABLE", "MT5_IMPORT_ERROR",
     "package_available", "discover_terminals", "normalize_terminal_path",
+    "terminal_running", "launch_terminal",
     "connect", "status", "account_snapshot", "disconnect",
     "build_snapshot", "broker_meta_from_snapshot", "normalize_symbol_info", "normalize_tick",
     "pip_size_from_digits", "points_per_pip_from_digits", "round_price_to_tick", "normalize_volume",

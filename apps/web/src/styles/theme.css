@@ -570,6 +570,15 @@ tr:hover .name-edit-btn, .name-text:focus-visible + .name-edit-btn { opacity: 1;
 .meta-row { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; font-size: 12px; }
 .meta-grid { gap: 18px; }
 .meta-chip { display: inline-flex; align-items: center; font-size: 9px; font-weight: 800; letter-spacing: 1.4px; border-radius: 6px; padding: 2px 8px; border: 1px solid transparent; }
+.market-data-grid { display: grid; gap: 3px; }
+.market-data-row { display: flex; gap: 10px; align-items: baseline; border-top: 1px solid rgba(148,184,220,.08); padding-top: 3px; font-size: 10.5px; }
+.market-data-row strong { min-width: 34px; color: var(--accent-strong); }
+.market-data-actions { display: flex; gap: 12px; align-items: end; flex-wrap: wrap; margin-top: 4px; }
+.fetch-timeframe-select { min-width: 170px; }
+.market-fetch-button { letter-spacing: 1.1px; font-weight: 900; min-height: 34px; }
+.fetch-report { display: grid; gap: 5px; border-top: 1px solid var(--border); padding-top: 8px; }
+.fetch-result-row { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; font-size: 10.5px; }
+.fetch-result-row > strong { min-width: 34px; color: var(--accent-strong); }
 .meta-chip.ok { color: #34d399; border-color: rgba(52,211,153,.4); background: rgba(52,211,153,.08); }
 .meta-chip.warn { color: #fbbf24; border-color: rgba(251,191,36,.4); background: rgba(251,191,36,.07); }
 .meta-chip.err { color: #f87171; border-color: rgba(248,113,113,.4); background: rgba(248,113,113,.07); }

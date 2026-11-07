@@ -1,4 +1,4 @@
-import type { BrokerMeta, CompileResult, EventListOut, HealthOut, Instrument, InstrumentMetadataView, Mt5ConnectionResult, Mt5TerminalsOut, Node, NodeGenerateOut, NodeListOut, NodeOrigin, NodeVersionList, SettingsOut, ValidationReport } from './types'
+import type { BrokerMeta, CompileResult, EventListOut, HealthOut, Instrument, InstrumentMetadataView, MarketDataAvailability, MarketDataFetchReport, Mt5ConnectionResult, Mt5TerminalsOut, Node, NodeGenerateOut, NodeListOut, NodeOrigin, NodeVersionList, SettingsOut, ValidationReport } from './types'
 
 class ApiError extends Error {
   constructor(public status: number, message: string,
@@ -110,6 +110,11 @@ export const api = {
     connect: (terminal_path?: string) =>
       request<Mt5ConnectionResult>('POST', '/api/v1/mt5/connect', terminal_path ? { terminal_path } : {}),
     disconnect: () => request<{ ok: boolean; detail: string }>('POST', '/api/v1/mt5/disconnect'),
+  },
+  marketData: {
+    get: (instrument: string) => request<MarketDataAvailability>('GET', `/api/v1/instruments/${instrument}/market-data`),
+    fetch: (instrument: string, timeframe = 'ALL') =>
+      request<MarketDataFetchReport>('POST', `/api/v1/instruments/${instrument}/market-data/fetch`, { timeframe }),
   },
   metadata: {
     get: (instrument: string) => request<InstrumentMetadataView>('GET', `/api/v1/instruments/${instrument}/metadata`),

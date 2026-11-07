@@ -77,15 +77,21 @@ export function Mt5Select() {
   const account = status?.account ?? null
   const terminal = status?.terminal ?? null
   const connected = Boolean(status?.ok && account)
+  const loginRequired = Boolean(status?.login_required || status?.state === 'CONNECTED')
+  const lifecycleState = status?.state ?? (connected ? 'ACCOUNT_LOADED' : status?.package_available ? 'NOT_CONNECTED' : 'UNAVAILABLE')
   const dot = connected ? 'ok' : status?.package_available ? 'warn' : 'err'
   const triggerLabel = connected
     ? `#${account?.login ?? '—'}`
-    : status?.package_available
-      ? 'NOT CONNECTED'
-      : 'UNAVAILABLE'
+    : loginRequired
+      ? 'LOGIN REQUIRED'
+      : status?.package_available
+        ? lifecycleState.replaceAll('_', ' ')
+        : 'UNAVAILABLE'
   const triggerSub = connected
     ? `${account?.server ?? terminal?.company ?? ''} · ${account?.trade_mode_name ?? ''} · ${account?.currency ?? ''}`.replace(/\s+·\s*$/, '').replace(/^\s*·\s*/, '')
-    : (status?.import_error ? 'package missing' : 'click to select terminal')
+    : loginRequired
+      ? 'log in inside MT5, then reconnect'
+      : (status?.import_error ? 'package missing' : 'click to select terminal')
 
   return (
     <div ref={wrapRef} className="mt5-select-wrap" onKeyDown={(e) => { if (e.key === 'Escape' && open) { setOpen(false); triggerRef.current?.focus() } }}>
@@ -109,8 +115,9 @@ export function Mt5Select() {
             <div className="mt5-row selected" aria-disabled="true">
               <div className="mt5-row-main">
                 <span>#{account.login} · {account.server}</span>
-                <span className="mt5-row-sub">{account.company ?? ''} · {account.currency ?? ''} · leverage 1:{account.leverage ?? '—'}</span>
-                <span className="mt5-row-sub">balance {account.balance ?? '—'} · equity {account.equity ?? '—'} · free margin {account.margin_free ?? '—'}{account.margin_level != null ? ` · margin level ${account.margin_level}%` : ''}</span>
+                <span className="mt5-row-sub">{account.name ?? 'Account holder unavailable'} · {account.company ?? ''} · {account.currency ?? ''} · leverage 1:{account.leverage ?? '—'}</span>
+                <span className="mt5-row-sub">balance {account.balance ?? '—'} · equity {account.equity ?? '—'} · profit {account.profit ?? '—'} · margin {account.margin ?? '—'} · free {account.margin_free ?? '—'}{account.margin_level != null ? ` · level ${account.margin_level}%` : ''}</span>
+                <span className="mt5-row-sub">trading {account.trade_allowed ? 'allowed' : 'not allowed'} · expert advisors {account.trade_expert ? 'allowed' : 'not allowed'} · state {lifecycleState}</span>
               </div>
               <span className={`mt5-row-badge ${String(account.trade_mode_name ?? '').toLowerCase()}`}>{account.trade_mode_name ?? 'UNKNOWN'}</span>
             </div>
@@ -122,6 +129,12 @@ export function Mt5Select() {
           {terminals && terminals.import_error && (
             <div className="mt5-panel-note">MetaTrader5 package: {terminals.import_error}</div>
           )}
+          <div className="mt5-panel-note">Connection state: <strong>{lifecycleState}</strong>{status?.launched ? ' · terminal launched by Hero1' : ''}</div>
+          {loginRequired && (
+            <div className="mt5-panel-note" role="status">The terminal is running but no account is loaded. Log in inside MetaTrader 5 (File → Login to Trade Account), then choose the terminal again. Hero1 never asks for or stores passwords.</div>
+          )}
+          {status?.warning && <div className="mt5-panel-note" role="status">{status.warning}</div>}
+          {status?.error && !connected && <div className="mt5-panel-error" role="alert">{status.error}</div>}
           {terminals?.terminals.map((t) => (
             <button key={t.path} type="button" className={`mt5-row${terminals.saved_terminal_path === t.path ? ' selected' : ''}`}
                     disabled={busy}
@@ -130,7 +143,7 @@ export function Mt5Select() {
                 <span>{t.name}</span>
                 <span className="mt5-row-sub">{t.path}</span>
               </div>
-              <span className="mt5-row-badge">{t.origin === 'config' ? 'SAVED' : 'DISCOVERED'}</span>
+              <span className="mt5-row-badge">{t.state ?? (t.origin === 'config' ? 'SAVED' : 'DISCOVERED')}</span>
             </button>
           ))}
           {terminals && terminals.terminals.length === 0 && terminals.platform_windows && (

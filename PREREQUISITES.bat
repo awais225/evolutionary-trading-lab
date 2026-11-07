@@ -138,7 +138,7 @@ cd /d "%ROOT%" || (set "FAIL_STEP=Project root" & set "FAIL_DETAIL=Cannot enter 
 set "HERO1_DATA_ROOT=%DATA_ROOT%"
 call :step "Installing Hero1 Python packages (editable, documented commands)"
 "%VENV_PY%" -m pip install -e ".\packages\storage" -e ".\packages\eventbus" -e ".\packages\ai_orchestrator" -e ".\packages\strategy_spec" -e ".\packages\exec_semantics" >> "%LOG%" 2>&1 || (set "FAIL_STEP=Python package installation (packages/* part 1)" & set "FAIL_DETAIL=pip install of packages failed. See %LOG%." & goto :fail)
-"%VENV_PY%" -m pip install -e ".\packages\indicators" -e ".\packages\research" -e ".\packages\mt5_adapter" >> "%LOG%" 2>&1 || (set "FAIL_STEP=Python package installation (packages/* part 2)" & set "FAIL_DETAIL=pip install of packages failed. See %LOG%." & goto :fail)
+"%VENV_PY%" -m pip install -e ".\packages\indicators" -e ".\packages\research" -e ".\packages\mt5_adapter" -e ".\packages\market_data" >> "%LOG%" 2>&1 || (set "FAIL_STEP=Python package installation (packages/* part 2)" & set "FAIL_DETAIL=pip install of packages failed. See %LOG%." & goto :fail)
 call :step "Installing Hero1 API service (editable)"
 "%VENV_PY%" -m pip install -e ".\services\api" >> "%LOG%" 2>&1 || (set "FAIL_STEP=Python package installation (services/api)" & set "FAIL_DETAIL=pip install -e .\services\api failed. See %LOG%." & goto :fail)
 call :step "Installing development requirements"
@@ -151,6 +151,13 @@ set "PYTHONPATH=%ROOT%\services\api"
 call :step "Verifying backend imports with the .venv interpreter"
 "%VENV_PY%" -c "import hero1_storage, hero1_eventbus, hero1_ai_orchestrator, hero1_strategy_spec, hero1_exec_semantics, hero1_indicators, hero1_research, hero1_mt5_adapter; print('core packages import OK')" >> "%LOG%" 2>&1 || (set "FAIL_STEP=Backend import verification (core packages)" & set "FAIL_DETAIL=A required hero1_* package failed to import. See %LOG%." & goto :fail)
 "%VENV_PY%" -c "import sys; sys.path.insert(0, r'%ROOT%\services\api'); import app.main; print('backend app.main import OK')" >> "%LOG%" 2>&1 || (set "FAIL_STEP=Backend import verification (app.main)" & set "FAIL_DETAIL=The FastAPI application failed to import. See %LOG%." & goto :fail)
+
+rem ------------------------------------------------ Step 6b: MetaTrader5 package
+call :step "Verifying the MetaTrader5 package inside the backend .venv"
+call :ENSURE_MT5
+if not "%MT5ENV_RC%"=="0" goto :fail
+"%VENV_PY%" "%ROOT%\scripts\check_mt5_env.py"
+call :log "MetaTrader5 package importable in the backend .venv interpreter"
 
 rem ------------------------------------------------ Step 7: frontend
 call :step "Installing frontend dependencies (npm ci)"
@@ -215,6 +222,34 @@ exit /b 0
 
 :log
 >> "%LOG%" echo [%DATE% %TIME%] %~1
+exit /b 0
+
+rem ---- MetaTrader5: the package must import in the EXACT backend venv ----
+rem ---- interpreter. Missing -> install into THIS venv; broken -> reinstall;
+rem ---- still failing -> FAIL loudly (never silently continue).          ----
+:ENSURE_MT5
+"%VENV_PY%" "%ROOT%\scripts\check_mt5_env.py" >> "%LOG%" 2>&1
+set "MT5ENV_RC=%errorlevel%"
+if "%MT5ENV_RC%"=="0" exit /b 0
+echo MetaTrader5 is not importable in the backend interpreter:
+echo   %VENV_PY%
+echo Installing MetaTrader5 into THIS venv - output goes to %LOG% ...
+set "MT5PIP_ARGS=MetaTrader5"
+if "%MT5ENV_RC%"=="2" set "MT5PIP_ARGS=--force-reinstall MetaTrader5"
+"%VENV_PY%" -m pip install %MT5PIP_ARGS% >> "%LOG%" 2>&1
+set "MT5PIP_RC=%errorlevel%"
+if not "%MT5PIP_RC%"=="0" (
+  set "FAIL_STEP=MetaTrader5 installation"
+  set "FAIL_DETAIL=pip install MetaTrader5 failed with rc=%MT5PIP_RC% inside the backend venv. Run the venv python with -m pip install MetaTrader5 manually, then see %LOG%."
+  exit /b 1
+)
+"%VENV_PY%" "%ROOT%\scripts\check_mt5_env.py" >> "%LOG%" 2>&1
+set "MT5ENV_RC=%errorlevel%"
+if not "%MT5ENV_RC%"=="0" (
+  set "FAIL_STEP=MetaTrader5 verification"
+  set "FAIL_DETAIL=MetaTrader5 is still not importable in the backend venv after installation, check rc=%MT5ENV_RC%. Run the venv python on scripts\check_mt5_env.py for the exact interpreter report."
+  exit /b 1
+)
 exit /b 0
 
 rem ============================ failure path ==================================

@@ -49,6 +49,10 @@ def mt5_status(registry: Session = Depends(get_registry_session)) -> dict:
 @router.get("/terminals")
 def mt5_terminals(registry: Session = Depends(get_registry_session)) -> dict:
     terms = mt5_connection.discover_terminals()
+    for t in terms:  # DISCOVERED vs RUNNING is factual process state, not a guess
+        running = mt5_connection.terminal_running(t["path"])
+        t["running"] = running
+        t["state"] = "RUNNING" if running else "DISCOVERED"
     saved = _saved_terminal_path(registry)
     return {
         "platform_windows": __import__("platform").system() == "Windows",
@@ -65,7 +69,10 @@ def mt5_terminals(registry: Session = Depends(get_registry_session)) -> dict:
 def mt5_connect(body: Mt5ConnectRequest, registry: Session = Depends(get_registry_session)) -> dict:
     path = (body.terminal_path or "").strip() or _saved_terminal_path(registry) or None
     result = mt5_connection.connect(path)
-    if result.get("ok"):
+    # ACCOUNT_LOADED is full success; CONNECTED means the terminal is up but
+    # the user must log in inside it - that is a displayed state with the
+    # selection kept, not a 503. Everything else is a structured 503.
+    if result.get("ok") or result.get("state") == mt5_connection.STATE_CONNECTED:
         if path:
             try:
                 SettingsRepository(registry).set(_SETTING_TERMINAL, path, updated_by="mt5-topbar")

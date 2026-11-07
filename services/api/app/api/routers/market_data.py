@@ -1,0 +1,57 @@
+"""Historical market-data endpoints: availability + incremental MT5 fetch.
+
+Availability reads the canonical store only (no terminal needed). Fetch
+requires a live MT5 session and never fabricates a result: without the
+terminal it answers 503 MT5_UNAVAILABLE, and per-timeframe failures are
+reported inside the fetch report - never as SUCCESS.
+"""
+from __future__ import annotations
+
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+
+from app import market_data_service
+from app.deps import get_instrument_context
+from hero1_eventbus import get_event_publisher
+from hero1_market_data.store import TIMEFRAME_ORDER, TIMEFRAME_STEPS
+
+router = APIRouter(prefix="/api/v1/instruments/{instrument}/market-data", tags=["market-data"])
+
+
+class FetchRequest(BaseModel):
+    timeframe: str = Field(default="ALL", description="ALL or one of M1 M5 M15 M30 H1 H4 D1")
+
+
+@router.get("")
+def read_availability(instrument: str = Depends(get_instrument_context)) -> dict:
+    """Stored historical coverage for this instrument, per timeframe (read-only)."""
+    return market_data_service.availability(instrument)
+
+
+@router.post("/fetch")
+def fetch_data(body: Optional[FetchRequest] = None,
+               instrument: str = Depends(get_instrument_context)) -> dict:
+    """Fetch completed candles from the connected MT5 terminal and append
+    only genuinely new ones to the canonical store (see market_data_service)."""
+    tf = (body.timeframe if body else "ALL").strip().upper()
+    if tf == "ALL":
+        timeframes = list(TIMEFRAME_ORDER)
+    elif tf in TIMEFRAME_STEPS:
+        timeframes = [tf]
+    else:
+        raise HTTPException(422, detail={"code": "TIMEFRAME_UNSUPPORTED",
+                                         "message": f"timeframe must be ALL or one of "
+                                                    f"{', '.join(TIMEFRAME_ORDER)}; got {tf!r}"})
+    try:
+        report = market_data_service.fetch(instrument, timeframes)
+    except market_data_service.FetchError as exc:
+        raise HTTPException(exc.status_code, detail={"code": exc.code, "message": exc.message}) from exc
+    get_event_publisher().publish(
+        category="SYSTEM", severity="INFO", subsystem="market-data",
+        message=(f"MT5 fetch [{instrument}] {tf}: "
+                 + ", ".join(f"{r['timeframe']}={r['status']}(+{r['appended']})" for r in report["results"])),
+        payload={"instrument": instrument, "timeframe": tf, "ok": report["ok"],
+                 "broker_server": report["broker_server"]})
+    return report

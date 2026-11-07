@@ -13,7 +13,7 @@ os.environ["HERO1_DATA_ROOT"] = str(_TMP_DATA)
 os.environ["HERO1_REPO_ROOT"] = str(REPO_ROOT)
 
 for pkg in ("storage", "eventbus", "ai_orchestrator", "strategy_spec",
-            "exec_semantics", "indicators", "mt5_adapter", "research"):
+            "exec_semantics", "indicators", "mt5_adapter", "market_data", "research"):
     sys.path.insert(0, str(REPO_ROOT / "packages" / pkg / "src"))
 sys.path.insert(0, str(REPO_ROOT / "services" / "api"))
 

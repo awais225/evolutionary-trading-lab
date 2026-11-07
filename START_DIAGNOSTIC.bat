@@ -98,6 +98,16 @@ call :STEP "7. Environment"
 call :ROW "HERO1_DATA_ROOT" "%HERO1_DATA_ROOT%" "(this session)"
 call :ROW "PATH contains venv" "" "(not required - launcher uses absolute paths)"
 echo   see %LOG% for the full log.
+echo.
+
+call :STEP "8. MetaTrader5 package in backend venv (read-only)"
+echo     Command: "%VENV_PY%" %ROOT%\scripts\check_mt5_env.py --json
+"%VENV_PY%" "%ROOT%\scripts\check_mt5_env.py" --json > "%TEMP%\hero1_diag_mt5.tmp" 2>&1
+set "RC=%errorlevel%"
+type "%TEMP%\hero1_diag_mt5.tmp"
+type "%TEMP%\hero1_diag_mt5.tmp" >> "%LOG%"
+del "%TEMP%\hero1_diag_mt5.tmp" >nul 2>&1
+call :ROW "MetaTrader5 env" %RC% "0=importable, 1=missing, 2=broken install"
 
 :DIAG_END
 echo.

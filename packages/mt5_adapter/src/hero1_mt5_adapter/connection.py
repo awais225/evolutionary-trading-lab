@@ -192,15 +192,19 @@ def _account_view(ai: Any) -> Dict[str, Any]:
         int(trade_mode) if isinstance(trade_mode, (int, float)) else -1, None)
     return {
         "login": d.get("login"),
+        "name": d.get("name"),
         "server": d.get("server"),
         "company": d.get("company"),
         "currency": d.get("currency"),
         "balance": d.get("balance"),
         "equity": d.get("equity"),
+        "profit": d.get("profit"),
         "margin": d.get("margin"),
         "margin_free": d.get("margin_free"),
         "margin_level": d.get("margin_level"),
         "leverage": d.get("leverage"),
+        "trade_allowed": d.get("trade_allowed"),
+        "trade_expert": d.get("trade_expert"),
         "trade_mode": trade_mode,
         "trade_mode_name": trade_mode_name,
         "limit_orders": d.get("limit_orders"),
@@ -209,33 +213,183 @@ def _account_view(ai: Any) -> Dict[str, Any]:
     }
 
 
-def connect(terminal_path: Optional[str] = None) -> Dict[str, Any]:
+# Connection lifecycle states (dashboard contract - never blur them):
+#   DISCOVERED     terminal exe found on disk (says nothing about running)
+#   RUNNING        terminal process exists (says nothing about API/account)
+#   INITIALIZING   terminal launched by us; mt5.initialize() not yet answering
+#   CONNECTED      mt5.initialize() OK + terminal_info() present, but NO
+#                  account logged in (user must log in inside the terminal)
+#   ACCOUNT_LOADED connected AND account_info() returned an account
+#   FAILED         a step failed; the payload names which and why
+STATE_DISCOVERED = "DISCOVERED"
+STATE_RUNNING = "RUNNING"
+STATE_INITIALIZING = "INITIALIZING"
+STATE_CONNECTED = "CONNECTED"
+STATE_ACCOUNT_LOADED = "ACCOUNT_LOADED"
+STATE_FAILED = "FAILED"
+STATE_UNAVAILABLE = "UNAVAILABLE"
+STATE_NOT_CONNECTED = "NOT_CONNECTED"
+
+
+def _os_name() -> str:
+    """Platform name seam (tests simulate Windows launch paths on Linux)."""
+    return platform.system()
+
+
+def _terminal_process_running(exe_path: str) -> Optional[bool]:
+    """Is a terminal process running? Windows: tasklist image query.
+
+    Returns True/False on Windows, None when the answer is unknowable
+    (other platforms, query failure). The image-name query cannot prove
+    WHICH install is running when several exist - initialize(path=...) is
+    the authority; this only decides whether a launch attempt is needed.
+    """
+    if _os_name() != "Windows" or not exe_path:
+        return None
+    import csv
+    import io
+    import subprocess
+    from pathlib import Path
+
+    image = Path(exe_path).name.lower()
+    if image not in COMMON_EXE_NAMES:
+        image = "terminal64.exe"
+    try:
+        proc = subprocess.run(
+            ["tasklist", "/FI", f"IMAGENAME eq {image}", "/FO", "CSV", "/NH"],
+            capture_output=True, text=True, timeout=15)
+    except Exception:  # noqa: BLE001
+        return None
+    if proc.returncode != 0:
+        return None
+    for row in csv.reader(io.StringIO(proc.stdout or "")):
+        if row and row[0].strip().lower() == image:
+            return True
+    return False
+
+
+def terminal_running(exe_path: str) -> Optional[bool]:
+    return _terminal_process_running(exe_path)
+
+
+def _popen_detached(exe_path: str) -> Any:
+    """Launch the terminal GUI detached (it must outlive this request)."""
+    import subprocess
+    from pathlib import Path
+
+    kwargs: Dict[str, Any] = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL,
+                              "stderr": subprocess.DEVNULL, "close_fds": True}
+    if _os_name() == "Windows":
+        kwargs["creationflags"] = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    return subprocess.Popen([exe_path], cwd=str(Path(exe_path).parent), **kwargs)
+
+
+def launch_terminal(exe_path: str) -> Dict[str, Any]:
+    """Launch the terminal executable if it is not already running.
+
+    Discovery is not connection: this only starts the process. The caller
+    must still initialize the API and verify terminal/account info.
+    """
+    from pathlib import Path
+
+    out: Dict[str, Any] = {"launched": False, "already_running": False,
+                           "state": STATE_DISCOVERED, "error": None, "path": exe_path}
+    if _os_name() != "Windows":
+        out["error"] = "terminal launch is Windows-only"
+        out["state"] = STATE_FAILED
+        return out
+    if not exe_path or not Path(exe_path).is_file():
+        out["error"] = f"terminal executable not found: {exe_path!r}"
+        out["state"] = STATE_FAILED
+        return out
+    running = _terminal_process_running(exe_path)
+    if running:
+        out["already_running"] = True
+        out["state"] = STATE_RUNNING
+        return out
+    try:
+        _popen_detached(exe_path)
+    except Exception as exc:  # noqa: BLE001
+        out["error"] = f"launch failed: {type(exc).__name__}: {exc}"
+        out["state"] = STATE_FAILED
+        return out
+    out["launched"] = True
+    out["state"] = STATE_INITIALIZING
+    return out
+
+
+def _api_version() -> Optional[List[Any]]:
+    if _MT5 is None:
+        return None
+    try:
+        v = _MT5.version()
+        return list(v) if isinstance(v, (list, tuple)) else [v]
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def connect(terminal_path: Optional[str] = None, *, timeout_seconds: float = 45.0,
+            launch: bool = True) -> Dict[str, Any]:
     """Initialize MT5 (optionally with an explicit terminal path). Read-only.
 
-    Never places, checks or modifies an order. Returns a plain dict so the API
-    can serialize it as-is. On any failure the payload says exactly why.
+    Lifecycle (the `state` field is the contract; `ok` means ACCOUNT_LOADED):
+      package missing -> FAILED/MT5_UNAVAILABLE (names this interpreter + fix)
+      exe missing     -> FAILED/MT5_TERMINAL_NOT_FOUND
+      not running     -> launch it, then poll initialize() until the deadline
+      initialize OK but account_info() is None -> CONNECTED (login_required) -
+        the terminal is up; the USER must log in inside the terminal. We say
+        so instead of retrying blindly.
+      account present -> ACCOUNT_LOADED, ok=True.
+    Never places, checks or modifies an order; never touches credentials.
     """
+    import time
+
     with SESSION_LOCK:
         out: Dict[str, Any] = {
-            "ok": False, "checked_at": _iso_now(), "platform": platform.system(),
+            "ok": False, "state": STATE_FAILED, "checked_at": _iso_now(),
+            "platform": platform.system(),
             "package_available": MT5_PACKAGE_AVAILABLE, "error_code": None, "error": None,
             "terminal": None, "account": None, "last_error": None, "path_note": None,
+            "launched": False, "login_required": False, "api_version": None,
         }
         if _MT5 is None:
+            import sys
             out["error_code"] = "MT5_UNAVAILABLE"
-            out["error"] = (f"MetaTrader5 package not importable: {MT5_IMPORT_ERROR or 'not installed'}. "
-                            "On Windows: pip install MetaTrader5 inside the venv, with a running terminal.")
+            out["error"] = (f"MetaTrader5 package not importable in the backend interpreter "
+                            f"{sys.executable}: {MT5_IMPORT_ERROR or 'not installed'}. "
+                            f"Fix: \"{sys.executable}\" -m pip install MetaTrader5 "
+                            f"(or run scripts/check_mt5_env.py with that interpreter).")
             _SESSION["last_connection_error"] = out["error"]
             return out
+        out["api_version"] = _api_version()
 
         path, note = (normalize_terminal_path(terminal_path) if terminal_path else ("", None))
         out["path_note"] = note
-        kwargs = {"path": path} if path else {}
-        try:
-            ok = bool(_MT5.initialize(**kwargs))
-        except Exception as exc:  # noqa: BLE001
-            ok = False
-            out["error"] = f"initialize raised {type(exc).__name__}: {exc}"
+        if terminal_path and note and "does not exist" in note:
+            out["error_code"] = "MT5_TERMINAL_NOT_FOUND"
+            out["error"] = f"terminal path unusable: {terminal_path!r} ({note})"
+            _SESSION["last_connection_error"] = out["error"]
+            return out
+
+        def _try_initialize() -> bool:
+            try:
+                return bool(_MT5.initialize(**({"path": path} if path else {})))
+            except Exception as exc:  # noqa: BLE001
+                out["error"] = f"initialize raised {type(exc).__name__}: {exc}"
+                return False
+
+        ok = _try_initialize()
+        if not ok and launch and path:
+            lr = launch_terminal(path)
+            out["launched"] = bool(lr.get("launched"))
+            out["launch"] = lr
+            if lr.get("state") != STATE_FAILED:
+                deadline = time.monotonic() + max(0.0, timeout_seconds)
+                while not ok and time.monotonic() < deadline:
+                    time.sleep(1.0)
+                    ok = _try_initialize()
+            elif lr.get("error"):
+                out["error"] = (out["error"] or "") + f" launch: {lr['error']}"
 
         if not ok:
             err = _last_error()
@@ -252,15 +406,24 @@ def connect(terminal_path: Optional[str] = None) -> Dict[str, Any]:
         _SESSION.update({"initialized": True, "path": path, "generation": _SESSION["generation"] + 1,
                          "last_connection_error": None})
         out.update({
-            "ok": True,
             "terminal": _terminal_view(ti, path),
-            "account": _account_view(ai),
+            "account": _account_view(ai) if ai is not None else None,
             "last_error": _last_error(),
         })
         if ai is None:
-            out["warning"] = "terminal initialized but account_info() is None - is a broker account logged in on that terminal?"
+            out["state"] = STATE_CONNECTED
+            out["login_required"] = True
+            out["warning"] = ("terminal initialized but account_info() is None - no broker account "
+                              "is logged in on that terminal. Log in inside the MT5 terminal "
+                              "(File > Login to Trade Account), then press Connect again. "
+                              "Hero1 never asks for or stores account passwords.")
+        else:
+            out["state"] = STATE_ACCOUNT_LOADED
+            out["ok"] = True
         if ti is not None and not bool(as_dict(ti).get("connected", True)):
-            out["warning"] = (out.get("warning") or "") + ("terminal reports connected=false - check the terminal's connection status." if out.get("warning") else "terminal reports connected=false - check the terminal's connection status.")
+            out["warning"] = ((out.get("warning") or "") +
+                              " terminal reports connected=false - check the terminal's "
+                              "connection to the broker (bottom-right status in MT5).").strip()
         return out
 
 
@@ -282,12 +445,15 @@ def account_snapshot() -> Dict[str, Any]:
 def status() -> Dict[str, Any]:
     """Non-initializing status: package, platform, live-session view if any."""
     out: Dict[str, Any] = {
-        "ok": False, "checked_at": _iso_now(), "platform": platform.system(),
+        "ok": False, "state": STATE_UNAVAILABLE, "checked_at": _iso_now(),
+        "platform": platform.system(),
         "package_available": MT5_PACKAGE_AVAILABLE, "import_error": MT5_IMPORT_ERROR or None,
+        "api_version": None,
         "session": dict(_SESSION), "terminal": None, "account": None,
     }
     if _MT5 is None:
         return out
+    out["api_version"] = _api_version()
     try:
         ti = _MT5.terminal_info()
         if ti is not None:
@@ -300,7 +466,14 @@ def status() -> Dict[str, Any]:
             out["account"] = _account_view(ai)
     except Exception:  # noqa: BLE001
         pass
-    out["ok"] = out["terminal"] is not None
+    if out["account"] is not None:
+        out["state"] = STATE_ACCOUNT_LOADED
+    elif out["terminal"] is not None:
+        out["state"] = STATE_CONNECTED
+    else:
+        out["state"] = STATE_NOT_CONNECTED
+    out["ok"] = out["account"] is not None
+    out["login_required"] = out["terminal"] is not None and out["account"] is None
     return out
 
 

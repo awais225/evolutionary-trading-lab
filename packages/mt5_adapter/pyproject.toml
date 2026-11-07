@@ -6,6 +6,10 @@ name = "hero1-mt5-adapter"
 version = "0.1.0"
 description = "Hero1 MT5 adapter (Windows-only at runtime) — probe + contract in Phase 1"
 requires-python = ">=3.11"
-dependencies = []
+# The official MetaTrader5 package is Windows-only. The environment marker is
+# the whole point: installing this package on Windows pulls MetaTrader5 into
+# the SAME .venv the backend runs from; on Linux/macOS the marker is false and
+# nothing is installed (the adapter then honestly reports MT5 unavailable).
+dependencies = ["MetaTrader5; sys_platform == 'win32'"]
 [tool.setuptools.packages.find]
 where = ["src"]

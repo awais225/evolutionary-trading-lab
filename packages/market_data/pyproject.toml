@@ -1,0 +1,11 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+[project]
+name = "hero1-market-data"
+version = "0.1.0"
+description = "Hero1 canonical market-data store (candles + provenance datasets) shared by the CSV importer and the MT5 incremental fetch"
+requires-python = ">=3.11"
+dependencies = []
+[tool.setuptools.packages.find]
+where = ["src"]

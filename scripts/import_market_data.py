@@ -49,14 +49,13 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-TIMEFRAME_STEPS = {"M1": 60, "M5": 300, "M15": 900, "M30": 1800,
-                   "H1": 3600, "H4": 14400, "D1": 86400}
-TF_ALIASES = {"Daily": "D1", "D1": "D1", "M1": "M1", "M5": "M5", "M15": "M15",
-              "M30": "M30", "H1": "H1", "H4": "H4"}
+from hero1_market_data import store as _store
+
+TIMEFRAME_STEPS = _store.TIMEFRAME_STEPS
+TF_ALIASES = _store.TF_ALIASES
 FILENAME_RE = re.compile(r"^(?P<instrument>[A-Za-z0-9]{3,16})_(?P<tf>Daily|D1|M1|M5|M15|M30|H1|H4)\.csv$")
 REQUIRED_COLS = ("DATE", "OPEN", "HIGH", "LOW", "CLOSE")
 OPTIONAL_COLS = ("TIME", "TICKVOL", "VOL", "SPREAD")
-EPS = 1e-9
 MAX_ERRORS_KEEP = 20
 
 
@@ -138,37 +137,17 @@ def parse_rows(path: Path) -> dict:
                 errors.append(f"line {line_no}: unparseable timestamp DATE={date_s!r} TIME={time_s!r}")
                 continue
             ts, ts_iso = parsed
-            o, h, l, c = (_num(row.get(k)) for k in ("OPEN", "HIGH", "LOW", "CLOSE"))
-            if None in (o, h, l, c):
-                errors.append(f"line {line_no}: non-numeric OHLC {[row.get(k) for k in ('OPEN','HIGH','LOW','CLOSE')]}")
+            candle = {"ts": ts, "ts_iso": ts_iso,
+                      "open": _num(row.get("OPEN")), "high": _num(row.get("HIGH")),
+                      "low": _num(row.get("LOW")), "close": _num(row.get("CLOSE")),
+                      "tick_volume": _int(row.get("TICKVOL", "0") or "0"),
+                      "volume": _num(row.get("VOL", "0") or "0"),
+                      "spread": _int(row.get("SPREAD", "0") or "0")}
+            err = _store.validate_candle(candle)
+            if err is not None:
+                errors.append(f"line {line_no}: {err}")
                 continue
-            if not all(v is not None and v > 0 for v in (o, h, l, c)):
-                errors.append(f"line {line_no}: non-positive price(s) O={o} H={h} L={l} C={c}")
-                continue
-            if h + EPS < l:
-                errors.append(f"line {line_no}: HIGH {h} < LOW {l}")
-                continue
-            if h + EPS < max(o, c):
-                errors.append(f"line {line_no}: HIGH {h} < max(OPEN,CLOSE) = {max(o, c)}")
-                continue
-            if l - EPS > min(o, c):
-                errors.append(f"line {line_no}: LOW {l} > min(OPEN,CLOSE) = {min(o, c)}")
-                continue
-            tickvol = _int(row.get("TICKVOL", "0") or "0")
-            if tickvol is None or tickvol < 0:
-                errors.append(f"line {line_no}: TICKVOL not a non-negative integer: {row.get('TICKVOL')!r}")
-                continue
-            volume = _num(row.get("VOL", "0") or "0")
-            if volume is None or volume < 0:
-                errors.append(f"line {line_no}: VOL not a non-negative number: {row.get('VOL')!r}")
-                continue
-            spread = _int(row.get("SPREAD", "0") or "0")
-            if spread is None or spread < 0:
-                errors.append(f"line {line_no}: SPREAD not a non-negative integer: {row.get('SPREAD')!r}")
-                continue
-            candles.append({"ts": ts, "ts_iso": ts_iso, "open": o, "high": h,
-                            "low": l, "close": c,
-                            "tick_volume": tickvol, "volume": volume, "spread": spread})
+            candles.append(candle)
 
     # de-duplicate / conflict detection on timestamps (never silently discard)
     candles.sort(key=lambda r: r["ts"])
@@ -181,7 +160,7 @@ def parse_rows(path: Path) -> dict:
             merged.append(group[0])
             continue
         first = group[0]
-        same = all(_candle_equal(first, g) for g in group[1:])
+        same = all(_store.candle_equal(first, g) for g in group[1:])
         if same:
             duplicates_collapsed += len(group) - 1
             merged.append(first)
@@ -206,87 +185,16 @@ def _groupby(seq, key):
         yield k, list(g)
 
 
-def _candle_equal(a: dict, b: dict) -> bool:
-    keys = ("open", "high", "low", "close", "tick_volume", "volume", "spread")
-    return all(a[k] == b[k] for k in keys)
-
-
 def canonical_fingerprint(rows: list[dict]) -> str:
-    h = hashlib.sha256()
-    for r in rows:
-        h.update(f"{r['ts']}|{r['open']}|{r['high']}|{r['low']}|{r['close']}|"
-                 f"{r['tick_volume']}|{r['volume']}|{r['spread']}\n".encode("utf-8"))
-    return h.hexdigest()
-
-
-_SCHEMA = """
-CREATE TABLE IF NOT EXISTS candles (
-  dataset_id    TEXT NOT NULL,
-  instrument    TEXT NOT NULL,
-  timeframe     TEXT NOT NULL,
-  ts            INTEGER NOT NULL,
-  ts_iso        TEXT NOT NULL,
-  open          REAL NOT NULL,
-  high          REAL NOT NULL,
-  low           REAL NOT NULL,
-  close         REAL NOT NULL,
-  tick_volume   INTEGER,
-  volume        REAL,
-  spread        INTEGER,
-  PRIMARY KEY (instrument, timeframe, ts)
-);
-CREATE INDEX IF NOT EXISTS ix_candles_dataset ON candles(dataset_id);
-CREATE TABLE IF NOT EXISTS datasets (
-  dataset_id            TEXT PRIMARY KEY,
-  instrument            TEXT NOT NULL,
-  timeframe             TEXT NOT NULL,
-  source_file           TEXT NOT NULL,
-  source_sha256         TEXT NOT NULL,
-  source_bytes          INTEGER NOT NULL,
-  row_count             INTEGER NOT NULL,
-  duplicates_collapsed  INTEGER NOT NULL,
-  gaps_found            INTEGER NOT NULL,
-  largest_gap_seconds   INTEGER,
-  first_ts              TEXT,
-  last_ts               TEXT,
-  content_fingerprint   TEXT NOT NULL,
-  location              TEXT NOT NULL,
-  imported_at           TEXT NOT NULL,
-  validation_result     TEXT NOT NULL,
-  validation_report     TEXT NOT NULL,
-  status                TEXT NOT NULL
-);
-"""
+    return _store.canonical_fingerprint(rows)
 
 
 def _connect(db_path: Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(str(db_path))
-    conn.executescript(_SCHEMA)
-    return conn
+    return _store.connect_store(db_path)
 
 
 def _rebuild_manifest(conn: sqlite3.Connection, db_path: Path) -> None:
-    rows = conn.execute(
-        "SELECT dataset_id, instrument, timeframe, source_file, source_sha256, source_bytes,"
-        " row_count, duplicates_collapsed, gaps_found, largest_gap_seconds, first_ts, last_ts,"
-        " content_fingerprint, location, imported_at, validation_result, status"
-        " FROM datasets ORDER BY instrument, timeframe, imported_at").fetchall()
-    manifest = {
-        "schema_version": 1,
-        "generated_at": _iso_now(),
-        "store": str(db_path),
-        "datasets": [
-            {"dataset_id": r[0], "instrument": r[1], "timeframe": r[2], "source_file": r[3],
-             "source_sha256": r[4], "source_bytes": r[5], "row_count": r[6],
-             "duplicates_collapsed": r[7], "gaps_found": r[8], "largest_gap_seconds": r[9],
-             "first_ts": r[10], "last_ts": r[11], "fingerprint": r[12], "location": r[13],
-             "imported_at": r[14], "validation_result": r[15], "status": r[16]}
-            for r in rows],
-    }
-    out = db_path.parent / "import_manifest.json"
-    tmp = out.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-    os.replace(tmp, out)
+    _store.rebuild_manifest(conn, db_path)
 
 
 def import_file(path: Path, *, instrument: str, timeframe: str,
@@ -299,14 +207,8 @@ def import_file(path: Path, *, instrument: str, timeframe: str,
     dataset_id = hashlib.sha256(f"{instrument}|{timeframe}|{source_sha}".encode()).hexdigest()[:16]
 
     parsed = parse_rows(path)
-    # recompute gap stats with the known timeframe step
-    gaps = 0
-    largest_gap = None
-    for prev, cur in zip(parsed["rows"], parsed["rows"][1:]):
-        delta = cur["ts"] - prev["ts"]
-        if delta > int(step * 1.5):
-            gaps += 1
-            largest_gap = max(largest_gap or 0, delta)
+    # gap stats with the known timeframe step (reported, never filled)
+    gaps, largest_gap = _store.gap_stats(parsed["rows"], step)
     parsed["gaps"] = gaps
     parsed["largest_gap_seconds"] = largest_gap
 

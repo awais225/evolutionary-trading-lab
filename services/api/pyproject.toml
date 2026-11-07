@@ -18,6 +18,7 @@ dependencies = [
     "hero1-eventbus>=1.0.0",
     "hero1-ai-orchestrator>=1.0.0",
     "hero1-mt5-adapter>=0.1.0",
+    "hero1-market-data>=0.1.0",
 ]
 
 [tool.setuptools.packages.find]

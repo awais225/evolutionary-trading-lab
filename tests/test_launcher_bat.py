@@ -78,10 +78,13 @@ def test_internal_marks_all_ten_stages_and_failure_stages():
 def test_stage10_browser_autopen_captures_rc_warns_never_fails():
     text = (REPO / "scripts" / "START_INTERNAL.bat").read_text(encoding="ascii")
     stage10 = text[text.index("[STAGE 10/10]"):text.index(":MONITOR_LOOP")]
-    assert 'start "" "http://127.0.0.1:5173/' in stage10          # the auto-open itself
+    assert 'set "DASHBOARD_URL=http://127.0.0.1:5173/' in stage10  # canonical launch URL
+    assert 'start "" "%DASHBOARD_URL%"' in stage10                 # the auto-open itself
     assert 'set "RC=%errorlevel%"' in stage10                     # rc captured...
     assert (stage10.index('start ""') < stage10.index('set "RC=%errorlevel%"')
             < stage10.index("[PASS] stage 10"))                   # ...before claiming PASS
+    assert "rundll32 url.dll,FileProtocolHandler" in stage10       # Windows URL-handler fallback
+    assert "FRONTEND_REUSE" in stage10 and "duplicate tab" in stage10
     assert "manually" in stage10                                  # manual-open fallback printed
     assert "goto :STAGE_FAILED" not in stage10                    # browser failure never fails startup
     handler = text[text.index("\n:STAGE_FAILED"):]  # label definition at line start (goto targets are mid-line)

@@ -181,7 +181,14 @@ def build_snapshot(*, broker_server: str, symbol: str, raw_symbol: Any,
     tick = normalize_tick(raw_tick) if raw_tick is not None else {}
     missing = list(fields.get("_missing", [])) + list(tick.get("_missing", []))
 
-    derived = fields.get("_derived", {})
+    derived = dict(fields.get("_derived", {}))
+    # live spread from the tick itself (arithmetic on broker values only)
+    bid, ask, point = _num(tick.get("bid")), _num(tick.get("ask")), _num(fields.get("point"))
+    if bid is not None and ask is not None and ask >= bid:
+        derived["spread_price"] = round(ask - bid, 10)
+        if point:
+            derived["spread_points"] = round((ask - bid) / point, 6)
+        derived["spread_source"] = "symbol_info_tick (ask-bid) at snapshot time"
     semantic = {
         "instrument": sym,
         "broker_server": str(broker_server).strip(),

@@ -34,6 +34,17 @@ function route(url: string, method: string, bodyText?: string): Response {
   if (url.includes('/api/v1/mt5/')) {
     return json({ ok: false, checked_at: '2026-11-07T00:00:00Z', platform: 'Linux', package_available: false, import_error: 'not installed', session: {}, terminal: null, account: null, active_terminal_path: null })
   }
+  if (url.includes('/market-data')) {
+    if (url.includes('/fetch')) {
+      return json({ instrument: 'XAUUSD', broker_server: 'ICMarketsSC-Demo', ok: false,
+        server_time: { rule: 'IC Markets server time', server_now: '2026-07-21 00:00:00', offset_seconds: 10800, offset_source: 'calendar rule' },
+        results: [{ timeframe: 'M1', status: 'FAILED', requested_from: null, requested_to: null, received: 0, appended: 0, duplicates_skipped: 0, incomplete_dropped: 0, invalid_rejected: 0, conflicts: 0, latest_stored_ts: null, error: 'mock terminal unavailable' }],
+        fetched_at: '2026-11-07T00:00:00Z' })
+    }
+    return json({ instrument: 'XAUUSD', available: true, store: '<test-root>/MARKET_DATA/market_data.db',
+      timeframes: { M1: { row_count: 3, first_ts: '2026-07-07 21:41:00', last_ts: '2026-07-07 21:43:00' },
+        M5: null, M15: null, M30: null, H1: null, H4: null, D1: null }, datasets: [] })
+  }
   if (url.includes('/api/v1/instruments/') && url.includes('/nodes')) {
     // Phase 2 spec pipeline endpoints
     if (url.includes('/validate')) {

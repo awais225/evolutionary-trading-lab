@@ -138,8 +138,15 @@ def audit(path: Path) -> list[str]:
         # PASS is claimed, and a failed auto-open must warn with a manual-open
         # URL - it must never route to :STAGE_FAILED (the services are healthy;
         # only the browser convenience failed)
-        i_start = text.find('start "" "http://127.0.0.1:5173/')
+        i_url = text.find('set "DASHBOARD_URL=http://127.0.0.1:5173/')
+        i_start = text.find('start "" "%DASHBOARD_URL%"')
         i_pass10 = text.find("[PASS] stage 10")
+        if i_url < 0 or i_start < 0 or i_url > i_start:
+            errors.append("START_INTERNAL.bat: stage 10 dashboard URL must be assigned before browser auto-open")
+        if "FRONTEND_REUSE" not in text or "duplicate tab" not in text:
+            errors.append("START_INTERNAL.bat: stage 10 must avoid duplicate tabs when reusing the frontend")
+        if "rundll32 url.dll,FileProtocolHandler" not in text:
+            errors.append("START_INTERNAL.bat: stage 10 must try the Windows URL-handler fallback")
         if i_start < 0 or i_pass10 < 0 or i_start > i_pass10:
             errors.append("START_INTERNAL.bat: stage 10 browser auto-open missing or misplaced")
         else:

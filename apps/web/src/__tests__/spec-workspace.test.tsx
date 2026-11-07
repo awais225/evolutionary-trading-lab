@@ -72,6 +72,17 @@ describe('Manual Nodes — spec workspace (Phase 2)', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/MetaTrader5 package not importable/i)
   })
 
+  it('shows stored historical coverage separately and reports a failed fetch honestly', async () => {
+    renderNodes()
+    expect(await screen.findByText(/Historical data/)).toBeInTheDocument()
+    expect(await screen.findByText(/3 candles/)).toBeInTheDocument()
+    expect(screen.getByText(/OHLC never substitutes for MT5 symbol metadata/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /fetch data/i }))
+    expect(await screen.findByText(/PARTIAL \/ FAILED/)).toBeInTheDocument()
+    expect(await screen.findByText(/mock terminal unavailable/)).toBeInTheDocument()
+    expect(screen.queryByText(/^COMPLETED$/)).not.toBeInTheDocument()
+  })
+
   it('Direction defaults to BOTH in a blank strategy and is editable in Conditions', async () => {
     renderNodes()
     fireEvent.click((await screen.findAllByRole('button', { name: /new blank strategy/i }))[0])
