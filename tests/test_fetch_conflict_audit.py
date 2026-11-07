@@ -20,6 +20,7 @@ import pytest
 from app import market_data_service as svc
 from hero1_market_data import store as md
 from hero1_mt5_adapter import connection as mt5_connection
+from hero1_mt5_adapter import server_time as _server_time
 
 STEP = 3600
 LATEST = 1601503200
@@ -32,7 +33,7 @@ def _candle(ts, close=1901.0, spread=12):
 
 
 def _rate(c):
-    return {"time": c["ts"], "open": c["open"], "high": c["high"], "low": c["low"],
+    return {"time": _server_time.utc_to_server_epoch(c["ts"]), "open": c["open"], "high": c["high"], "low": c["low"],
             "close": c["close"], "tick_volume": c["tick_volume"],
             "volume_real": c["volume"], "spread": c["spread"]}
 

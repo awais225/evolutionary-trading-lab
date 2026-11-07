@@ -1105,3 +1105,19 @@ reopen, Mon-Thu 21:00-22:00 UTC break with last bar 20:59 UTC), so the
 owner's Saturday fetch ending Friday 23:56 is CURRENT; "Market closed -
 stored data is current" chip added. Dropdown untouched. 15 conflicts still
 UNRESOLVED. Backend 242, frontend 66/66, build clean. Windows NOT VERIFIED.
+[2026-11-07] ISSUE-059: Compared the owner's real DBs in /tmp
+(original 419,013 vs updated 447,237 candles): 0 missing/changed/dupe -
+persistence perfect. ROOT CAUSE PROVEN: fetch stored MT5 server epochs
+verbatim in the true-UTC store (importer converted); all 15 conflicts
+are identical candles at ts-3h (GMT+3). Fix: server->UTC conversion once
+at ingestion (_rate_to_candle via server_time.server_to_utc_epoch);
+data_quality: in-period unresolved conflicts => NOT_READY, conflicts
+range-scoped, candles_after_range reported. scripts/repair_mt5_timeshift.py
+(dry-run/backup/one txn; stored never overwritten; collisions become
+UNRESOLVED audit rows) validated on a /tmp copy: 28,224 shifted ->
+27,981 moved, 236 dupes dropped, 7 collisions audited; seam continuous;
+446,994 candles integrity ok. Uploaded DBs unmodified; repair NOT yet run
+on Windows (owner action) - Oct16-Nov6 stays NOT READY until then.
+Backend 250, frontend 66/66. Workspace .git had rolled back (remote/HEAD
+lost); origin re-added, HEAD realigned to eb369db76, files untouched;
+tracked updatedmarket.db pointer removed from index (hygiene).

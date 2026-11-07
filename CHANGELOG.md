@@ -62,6 +62,18 @@ exact commit SHA and tag. Claims only for what was implemented AND verified.
   frontend 66/66, production build clean. Genuine Windows MT5 auto-connect,
   metadata retrieval and Saturday-availability confirmation remain
   **NOT VERIFIED** until the owner runs START.bat.
+- **ISSUE-059 (database comparison + integrity rectification)**: the owner's
+  updated Windows database (447,237 candles, via LFS commit eb369db76) was
+  compared against the original (419,013) entirely from /tmp: zero missing,
+  zero changed, zero duplicated candles - persistence was never broken.
+  The 15 conflicts are root-caused with proof: MT5 `copy_rates_range()`
+  returns broker SERVER epochs and the fetch stored them verbatim into the
+  true-UTC store (CSV import converted once), so every conflict is the
+  same candle 3h apart (15/15 exact matches). Fix: convert server->UTC
+  exactly once at ingestion; in-range unresolved conflicts now make
+  DeepTesting readiness NOT_READY; new `scripts/repair_mt5_timeshift.py`
+  re-labels already-shifted fetched candles (backup + dry-run + audit
+  preservation). Backend 250 tests, frontend 66/66, build clean.
 - **ISSUE-054 (fetch conflict audit + node delete + Duplicate & Edit)**:
   conflicts are now persisted durably (`fetch_conflicts`: stored + incoming
   values, both provenances, field diffs, UNRESOLVED by default) with

@@ -227,3 +227,49 @@ rollback/restart, Saturday/weekday/Sunday freshness). Backend 242 passed
 / 1 skipped; frontend 66/66; production build clean. Genuine Windows MT5
 (auto-connect to a running terminal, live metadata, Saturday availability
 on the owner's database) remains NOT VERIFIED - owner to run START.bat.
+
+## ISSUE-059 - MT5 server-epoch storage: the 15 conflicts root-caused and fixed (2026-11-07)
+
+**Evidence (owner's actual databases, compared in /tmp/hero1_market_audit).**
+Original (419,013 candles) vs updated (447,237): identical schemas; the
+updated DB adds exactly the post-2026-10-16 candles per timeframe
+(M1 +21,334 ... D1 +18); 0 records missing, 0 OHLC/volume/spread
+differences on shared timestamps, 0 duplicate timestamps either side,
+integrity ok. Persistence, duplicate detection and conflict handling
+were all working correctly.
+
+**Root cause (CONFIRMED, not hypothesis).** `copy_rates_range()` returns
+broker SERVER epoch seconds, but the fetch path stored them verbatim
+into the true-UTC canonical store - while the CSV importer converted
+server->UTC once. All 15 recorded conflicts are byte-identical candles
+exactly 3 hours earlier in stored history (15/15 EXACT OHLC matches at
+ts-3h; GMT+3 in Oct 2026 daylight time): the same candles, two labels.
+Every appended candle sat 2-3h ahead of its true instant (offset steps
++3 -> +2 at the Nov 1 US DST end), ending Friday's data at a phantom
+23:56 label and jumping +3.75 USD across the seam.
+
+**Fix.** `_rate_to_candle` converts server epoch -> UTC exactly once via
+`hero1_mt5_adapter.server_time.server_to_utc_epoch` (same rule as the
+importer); absurd magnitudes still reject politely (no crash path). The
+operation report's time block now states the conversion. `data_quality`
+(scopes conflicts to the requested period; in-period unresolved
+conflicts make readiness NOT_READY; candles after the range are counted
+and reported, never silently used).
+
+**Repair of already-shifted data.** `scripts/repair_mt5_timeshift.py`:
+dry-run by default; `--apply` backs up first, then in one transaction
+re-labels only mt5-fetch candles (236 exact/representation duplicates
+dropped on the owner's data, 7 final-export-bar collisions preserved as
+new UNRESOLVED audit conflicts with both values; stored candles and the
+15 existing conflict rows untouched). Validated on a /tmp scratch copy:
+446,994 candles, seam continuous (12:31 C4179.59 -> 12:32 O4179.54),
+integrity ok, zero duplicates, M1 unverified gaps back to the baseline
+3 (12 phantom gap intervals were shift artefacts).
+
+**DeepTesting verdict.** Periods spanning the 2026-10-16 seam or the
+Oct 16-Nov 6 appended range are NOT READY on the owner's Windows DB
+until the repair runs there; after repair they match baseline quality
+(0 invalid timestamps, 0 malformed OHLC, strict chronology). The 22
+unresolved conflict timestamps stay NOT_READY until per-record
+resolution. Backend 250 passed / 1 skipped; frontend 66/66; build clean.
+Windows genuine-MT5 behaviour remains NOT VERIFIED.

@@ -20,6 +20,7 @@ from pathlib import Path
 import pytest
 
 from hero1_mt5_adapter import connection
+from hero1_mt5_adapter import server_time as _server_time
 from hero1_mt5_adapter.metadata import normalize_symbol_info  # noqa: F401  (parity import guard)
 from hero1_strategy_spec import bullish_engulfing
 
@@ -257,8 +258,9 @@ def _candle(ts, close=100.0):
 
 def _rate(ts, close=100.0):
     """MT5 copy_rates_range record shape (time / volume_real), as the real
-    terminal returns - the fake must speak the API's language, not the store's."""
-    return {"time": ts, "open": close, "high": close + 1, "low": close - 1,
+    terminal returns - the fake must speak the API's language, not the store's.
+    `time` is a broker SERVER epoch; the app converts to UTC (ISSUE-059)."""
+    return {"time": _server_time.utc_to_server_epoch(ts), "open": close, "high": close + 1, "low": close - 1,
             "close": close, "tick_volume": 10, "volume_real": 0.0, "spread": 5}
 
 
@@ -277,7 +279,7 @@ def test_fetch_appends_only_new_completed_candles(fake_mt5, client, monkeypatch)
         _rate(latest, 100.0),                        # duplicate of stored
         _rate(latest + STEP_M5, 101.0),              # new + complete
         _rate(latest + 2 * STEP_M5, 102.0),          # incomplete (still forming)
-        {"time": latest - 2 * STEP_M5, "open": 1, "high": 0.5, "low": 2,
+        {"time": _server_time.utc_to_server_epoch(latest - 2 * STEP_M5), "open": 1, "high": 0.5, "low": 2,
          "close": 1, "tick_volume": 1, "volume_real": 0, "spread": 1},  # invalid OHLC
     ]}
     r = client.post("/api/v1/instruments/BTCUSD/market-data/fetch", json={"timeframe": "M5"})

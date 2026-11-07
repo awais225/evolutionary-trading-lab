@@ -426,9 +426,14 @@ W1/MN1 are not in the supported registry and are deliberately not selectable.
   = no-op); backups in BACKUPS/pre-0003-2026-11-06/.
 - Windows .bat files remain UNTESTED on Windows (no Windows in this environment).
 - REPAIR (2026-11-07, fbd4a45973bc86402919b38853e80bf8095e8261): the canonical candle timestamp is now
-  UTC epoch seconds end-to-end (CSV server wall converted once at import;
-  MT5 rate time validated and stored verbatim; no tick/broker offset in the
-  fetch path). FETCH DATA requires a stored baseline, overlaps the latest
+  UTC epoch seconds end-to-end (CSV server wall AND MT5 rate time are each
+  converted from broker server epoch to UTC exactly once at ingestion via
+  hero1_mt5_adapter.server_time - GMT+2/+3 on America/New_York DST dates).
+  Before ISSUE-059 the fetch path stored MT5 server epochs verbatim, which
+  shifted every fetched candle +2-3h and manufactured the 15 seam
+  conflicts (proven byte-identical 3h earlier in stored history);
+  scripts/repair_mt5_timeshift.py re-labels already-shifted mt5-fetch
+  candles explicitly (backup first, stored candles never overwritten). FETCH DATA requires a stored baseline, overlaps the latest
   candle by two bars for dedupe, and availability is a per-timeframe registry
   (status/source/updates/gaps) read from the canonical DB + manifest. Real
   Windows MT5 fetch remains unverified; mocked tests are not terminal proof.

@@ -18,7 +18,10 @@ overlap skips, conflicting overlap refuses - absorb any boundary candle).
 
 `mt5.copy_rates_range()` wants timezone-aware UTC datetimes; the values it
 returns carry server-epoch `time`. Use server_to_utc_dt() for requests and
-store returned times verbatim.
+convert returned times with server_to_utc_epoch() before storing them
+verbatim into anything. The canonical store is TRUE UTC epoch seconds;
+storing server epochs verbatim was the ISSUE-059 root cause (15/15 seam
+conflicts were byte-identical candles 3h earlier in stored history).
 """
 from __future__ import annotations
 
@@ -49,7 +52,10 @@ def is_us_dst_on(d: date) -> bool:
 
 def server_offset_seconds(server_epoch: int) -> int:
     """UTC offset of the server wall clock at a naive server epoch."""
-    wall = datetime.fromtimestamp(int(server_epoch), tz=timezone.utc).date()
+    try:
+        wall = datetime.fromtimestamp(int(server_epoch), tz=timezone.utc).date()
+    except (OverflowError, OSError, ValueError):
+        return STD_OFFSET  # absurd inputs: defined result; validation rejects them
     return DST_OFFSET if is_us_dst_on(wall) else STD_OFFSET
 
 

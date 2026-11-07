@@ -355,3 +355,12 @@ this entry).
   switching unchanged. Backend 242 tests, frontend 66/66, build clean.
   Windows genuine-MT5 behaviour NOT VERIFIED.
 
+- ISSUE-059 (2026-11-07): compared the owner's actual original vs updated
+  databases from /tmp (zero missing/changed/duplicated candles) and
+  root-caused the 15 conflicts: MT5 server epochs were stored verbatim in
+  a true-UTC store. Fetch now converts server->UTC once at ingestion;
+  readiness refuses periods with unresolved conflicts; a backup-first
+  repair script re-labels already-shifted Windows candles. Backend 250
+  tests, frontend 66/66, build clean. Owner must run the repair before
+  DeepTesting the Oct 16-Nov 6 range; Windows NOT VERIFIED.
+

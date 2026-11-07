@@ -33,6 +33,7 @@ from typing import Any, Dict, List, Optional
 
 from hero1_market_data import store as md
 from hero1_mt5_adapter import connection as mt5_connection
+from hero1_mt5_adapter import server_time as mt5_server_time
 from hero1_storage.engine import data_root
 
 MAX_BACKFILL_CANDLES = 100_000  # mirrors the MT export cap for a first fetch
@@ -458,6 +459,17 @@ def _rate_to_candle(rate: Any) -> Optional[Dict[str, Any]]:
     ts = _i("time")
     if ts is None:
         return None
+    # copy_rates_range() returns BROKER SERVER epoch seconds (IC Markets
+    # GMT+2/+3, America/New_York DST dates - see hero1_mt5_adapter
+    # .server_time). The canonical store is TRUE UTC, so convert exactly
+    # once here, at ingestion - the same conversion the CSV importer
+    # applies. (Root cause of the 15 seam conflicts, ISSUE-059: before
+    # this, server epochs were stored verbatim into a UTC store, so every
+    # MT5 candle sat 2-3h ahead of its true UTC instant.)
+    try:
+        ts = mt5_server_time.server_to_utc_epoch(ts)
+    except (OverflowError, OSError, ValueError):
+        pass  # absurd magnitudes stay raw; validate_candle rejects them below
     return {"ts": ts, "ts_iso": md.ts_iso_of(ts),
             "open": _f("open"), "high": _f("high"), "low": _f("low"), "close": _f("close"),
             "tick_volume": _i("tick_volume"),
@@ -487,7 +499,8 @@ def _fetch_one(mt5, conn, *, instrument: str, timeframe: str, utc_now: int,
 
     Boundaries are UTC datetimes built directly from stored UTC epoch
     seconds. A small overlap (two candles) is requested so boundary candles
-    are deduplicated instead of skipped. Without a stored baseline this
+    are deduplicated instead of skipped. Returned rate times are broker
+    server epochs and are converted to UTC exactly once in _rate_to_candle. Without a stored baseline this
     refuses - the supplied CSV history must be imported first; FETCH DATA is
     an updater, not a history substitute.
     """
@@ -619,7 +632,9 @@ def _fetch_one(mt5, conn, *, instrument: str, timeframe: str, utc_now: int,
     res["valid_records"] = len(candles)
     _op_event(operation_id, "TIMESTAMP_VALIDATION", instrument=instrument,
               timeframe=timeframe, invalid_timestamps_rejected=res["invalid_timestamps_rejected"],
-              invalid_examples=res["invalid_examples"][:3])
+              invalid_examples=res["invalid_examples"][:3],
+              time_conversion="MT5 server epoch -> UTC once at ingestion",
+              time_conversion_rule=mt5_server_time.RULE_NAME)
     _op_event(operation_id, "CANDLE_VALIDATION", instrument=instrument,
               timeframe=timeframe, valid_records=res["valid_records"],
               invalid_rejected=res["invalid_rejected"],
@@ -867,11 +882,11 @@ def fetch(instrument: str, timeframes: List[str],
               results=[{"timeframe": r["timeframe"], "status": r["status"],
                         "appended": r["appended"], "conflicts": r["conflicts"]} for r in results])
     time_block = {
-        "rule": "UTC epoch seconds; MT5 rate time is stored verbatim after validation; "
-                "no broker/server offset is applied",
+        "rule": "UTC epoch seconds; MT5 server-epoch rate times are converted to UTC "
+                "exactly once at ingestion; the CSV importer applies the same rule once",
         "utc_now": md.ts_iso_of(utc_now),
-        "offset_seconds": 0,
-        "offset_source": "not applied (UTC canonical store)",
+        "offset_seconds": "broker server offset (GMT+2/+3) removed per candle",
+        "offset_source": mt5_server_time.RULE_NAME,
     }
     return {
         "instrument": sym,
@@ -969,7 +984,7 @@ def data_quality(instrument: str, timeframe: str, *,
                     and (to_epoch is None or t <= to_epoch)]
         gaps = md.classify_gaps(in_range, step)
         datasets = [d for d in md.list_datasets(conn, sym) if d.get("timeframe") == tf]
-        conflicts = {"unresolved": 0, "resolved": 0}
+        conflicts = {"unresolved": 0, "resolved": 0, "unresolved_in_range": 0}
         for row in conn.execute(
                 "SELECT resolution, COUNT(*) FROM fetch_conflicts"
                 " WHERE instrument = ? AND timeframe = ? GROUP BY resolution", (sym, tf)):
@@ -977,6 +992,10 @@ def data_quality(instrument: str, timeframe: str, *,
                 conflicts["unresolved"] = int(row[1])
             else:
                 conflicts["resolved"] += int(row[1])
+        conflicts["unresolved_in_range"] = int(conn.execute(
+                "SELECT COUNT(*) FROM fetch_conflicts WHERE instrument = ? AND timeframe = ?"
+            " AND resolution = 'UNRESOLVED' AND (? IS NULL OR ts >= ?) AND (? IS NULL OR ts <= ?)",
+            (sym, tf, from_epoch, from_epoch, to_epoch, to_epoch)).fetchone()[0])
     finally:
         conn.close()
     reasons: List[str] = []
@@ -992,16 +1011,23 @@ def data_quality(instrument: str, timeframe: str, *,
             reasons.append(
                 f"{gaps['unverified_intervals']} unverified gap interval(s) in range "
                 f"(~{gaps['unverified_missing_candles_est']} candles if the market was open)")
-        if conflicts["unresolved"]:
-            reasons.append(f"{conflicts['unresolved']} unresolved CSV-vs-MT5 conflict(s) for this timeframe")
+        if conflicts["unresolved_in_range"]:
+            reasons.append(
+                f"{conflicts['unresolved_in_range']} unresolved CSV-vs-MT5 conflict(s) INSIDE "
+                "the requested period - two different values exist for the same candle, "
+                "so the true values are unknown there")
         readiness = "CAUTION" if reasons else "READY"
         if (from_epoch is not None and all_ts[0] > from_epoch) or \
-                (to_epoch is not None and all_ts[-1] < to_epoch) or not in_range:
-            # the requested range is not fully covered by stored history -
-            # a backtest over it would silently test less than asked
+                (to_epoch is not None and all_ts[-1] < to_epoch) or not in_range \
+                or conflicts["unresolved_in_range"]:
+            # the requested range is not fully covered by stored history (a
+            # backtest would silently test less than asked), or it contains
+            # unresolved conflicting candles (truth unknown) - never READY
             readiness = "NOT_READY"
     report.update({
         "candles_total": len(all_ts), "candles_in_range": len(in_range),
+        "candles_after_range": (sum(1 for t in all_ts if t > to_epoch)
+                                if to_epoch is not None else 0),
         "first_ts": md.ts_iso_of(all_ts[0]) if all_ts else None,
         "last_ts": md.ts_iso_of(all_ts[-1]) if all_ts else None,
         "gaps": gaps, "conflicts": conflicts,

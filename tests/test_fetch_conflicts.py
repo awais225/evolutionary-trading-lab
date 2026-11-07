@@ -20,6 +20,7 @@ import pytest
 from app import market_data_service as svc
 from hero1_market_data import store as md
 from hero1_mt5_adapter import connection as mt5_connection
+from hero1_mt5_adapter import server_time as _server_time
 
 STEP = 3600
 LATEST = 1601503200  # 2020-09-30 22:00:00 UTC, H1-aligned
@@ -32,7 +33,7 @@ def _candle(ts: int, close: float = 1901.0, spread: int = 12) -> dict:
 
 
 def _rate(c: dict) -> dict:
-    return {"time": c["ts"], "open": c["open"], "high": c["high"], "low": c["low"],
+    return {"time": _server_time.utc_to_server_epoch(c["ts"]), "open": c["open"], "high": c["high"], "low": c["low"],
             "close": c["close"], "tick_volume": c["tick_volume"],
             "volume_real": c["volume"], "spread": c["spread"]}
 
@@ -145,8 +146,14 @@ def test_large_fetch_is_not_quadratic(seeded, monkeypatch):
     report = svc.fetch("XAUUSD", ["H1"], operation_id="FETCH-TEST-LARGE")
     elapsed = _t.perf_counter() - started
     (r,) = report["results"]
-    assert r["status"] == "UPDATED" and r["appended"] == 6000
+    # the 6,000 synthetic hours cross two DST transitions; the documented
+    # date-granular conversion may collapse at most one hour per transition
+    # (market closed then), so the exact expectation is the count of
+    # DISTINCT converted timestamps not already stored
+    from hero1_mt5_adapter import server_time as _st
+    distinct_new = {_st.server_to_utc_epoch(r_["time"]) for r_ in rates}
+    assert r["status"] == "UPDATED" and r["appended"] == len(distinct_new), r
     assert elapsed < 10, f"large fetch took {elapsed:.1f}s - quadratic lookup is back"
     conn = sqlite3.connect(seeded)
-    assert conn.execute("SELECT COUNT(*) FROM candles").fetchone()[0] == 3 + 6000
+    assert conn.execute("SELECT COUNT(*) FROM candles").fetchone()[0] == 3 + len(distinct_new)
     conn.close()

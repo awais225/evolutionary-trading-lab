@@ -310,8 +310,11 @@ Verified cause: Timestamp conventions were mixed: stored candles were naive
   before storage/display, so impossible years could be rendered.
 Verified fix: One canonical convention everywhere: UTC epoch seconds in the
   database. CSV server wall time (IC Markets GMT+2/+3, US DST dates) is
-  converted to UTC once at import; MT5 rate time is stored verbatim only
-  after validate_timestamp() accepts it (1980..2100, whole seconds - 1970,
+  converted to UTC once at import; MT5 rate time is ALSO converted from
+  broker server epoch to UTC once at ingestion (ISSUE-059: verbatim
+  storage shifted candles +2-3h and fabricated seam conflicts) and only
+  then accepted after validate_timestamp() (1980..2100, whole seconds -
+  1970,
   2926 and millisecond magnitudes are rejected with the source value named).
   Fetch boundaries and completion use current UTC time; no tick-derived or
   broker offset is measured, rounded or applied in the fetch path.
