@@ -5,6 +5,63 @@ exact commit SHA and tag. Claims only for what was implemented AND verified.
 
 ---
 
+## [Unreleased] — 2026-11-07 — HERO V1.5.0 — Windows MT5 lifecycle, canonical market data, FETCH DATA (TASK 13) — AWAITING WINDOWS ACCEPTANCE
+
+**Status:** implementation and Linux/mocked/static verification are complete.
+This is **not** a fully accepted Windows release until the owner runs the
+14-point checklist in `docs/WINDOWS_SETUP.md` against the real IC Markets
+terminal. Starting SHA: `a84279646421f883707ceaada6450898b4eccb88`.
+Implementation SHA: `78f63ae96e0d0377d5378a13a5c358441b0f529f`.
+The documentation/tag commit is the `HERO-V1.5.0` tag target; verify it with
+`git rev-list -n 1 HERO-V1.5.0` after fetching tags.
+
+**Added**
+- Windows-only `MetaTrader5` dependency for the adapter, exact-interpreter
+  `scripts/check_mt5_env.py`, and PREREQUISITES Step 6b enforcement.
+- MT5 lifecycle: terminal DISCOVERED/RUNNING detection, launch, bounded
+  initialize wait, CONNECTED login-required, ACCOUNT_LOADED, FAILED and
+  UNAVAILABLE states; account profit and trading/expert permissions are shown.
+- Shared `packages/market_data` candle store used by both the CSV importer and
+  the new MT5 FETCH DATA service, preserving one canonical
+  `DATA/MARKET_DATA/market_data.db` + `import_manifest.json`.
+- `GET /api/v1/instruments/{s}/market-data` and
+  `POST /api/v1/instruments/{s}/market-data/fetch` for ALL or one timeframe;
+  timezone-aware UTC requests, completed-candle-only append, conflict refusal,
+  per-timeframe transactions/results, and manifest updates.
+- Manual Nodes HISTORICAL DATA panel with a themed FETCH DATA control and
+  per-timeframe counts/ranges/results; broker metadata remains separate.
+- `hero1_mt5_adapter.server_time`: IC Markets GMT+2/GMT+3 on US DST transition
+  dates, with tick-measured current offset reporting. All 14 first/last
+  vectors derived from the owner's stored candles match the legacy audit UTC
+  table.
+- `docs/CUSTOM_INDICATORS.md`: documentation-only, controlled-registry design
+  for future named/versioned indicators such as FVG. No runtime implementation.
+
+**Fixed**
+- ISSUE-041: MetaTrader5 was never installed because the adapter declared no
+  dependency.
+- ISSUE-042: connect did not launch terminals or state login-required clearly.
+- ISSUE-043: stage-10 browser opening lacked a fallback and duplicate-tab guard.
+- ISSUE-044: historical data and broker metadata were not distinguished in the
+  node workflow; `NEEDS_METADATA` remains intentionally unweakened.
+
+**Tests**
+- Backend: **188 passed / 1 skipped** (189 collected), including 15 mocked
+  Windows/MT5 integration tests and 27 legacy-parity tests.
+- Frontend: **44/44** Vitest; production build clean (JS 279.09 kB, CSS
+  35.93 kB). Launcher audit PASS; launcher tests 9/9.
+- Fresh Linux trial in `/tmp`: all seven owner CSVs imported 419,013 candles;
+  immediate rerun skipped 7/7. The temporary trial was removed and scratch
+  data was retained. Canonical Windows DATA deployment is an owner action.
+
+**Known limitations**
+- No genuine Windows, real-terminal, real-account, real XAUUSD metadata,
+  Windows DATA deployment, live FETCH DATA, or START.bat double-click result
+  has been observed in this environment. Mocked MT5 tests are labeled mocked,
+  never real integration.
+
+---
+
 ## [Unreleased] — 2026-11-07 — HERO V1.4.2 — broker metadata, MT5 account selection, market-data importer (TASK 12)
 
 **Added**

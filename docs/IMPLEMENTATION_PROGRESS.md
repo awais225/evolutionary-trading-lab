@@ -247,3 +247,27 @@ this entry).
   live-checked (metadata 200 available:false; refresh 503 MT5_UNAVAILABLE;
   validate NEEDS_METADATA). Live DATA root untouched by all checks.
 - Still NOT proven: Windows + real MT5 terminal; Windows stage-10 double-click.
+## 2026-11-07 — TASK 13: Windows MT5 lifecycle, market-data deployment path, FETCH DATA, node metadata activation (HERO-V1.5.0)
+
+- Starting SHA `a84279646421f883707ceaada6450898b4eccb88`; implementation
+  commit `78f63ae96e0d0377d5378a13a5c358441b0f529f`. The annotated
+  `HERO-V1.5.0` tag points at the following documentation commit and is
+  explicitly **awaiting Windows acceptance**.
+- Root causes fixed: ISSUE-041 (adapter declared no MetaTrader5 dependency),
+  ISSUE-042 (initialize-only connect had no launch/lifecycle/login-required
+  state), ISSUE-043 (stage-10 browser launch lacked fallback/duplicate-tab
+  handling), ISSUE-044 (historical OHLC and broker metadata were not separated
+  in the node workflow; no incremental fetch existed).
+- Added shared `packages/market_data`, canonical availability/fetch API,
+  Manual Nodes HISTORICAL DATA + FETCH DATA, MT5 lifecycle states/account
+  permissions, `server_time.py`, and exact-interpreter diagnostics.
+- Verification labels: backend **188 passed / 1 skipped** (Linux verified);
+  frontend **44/44** and build clean (Linux verified); launcher audit PASS
+  (static audit); fake-terminal lifecycle/fetch tests (mocked); fresh `/tmp`
+  import of all seven CSVs = 419,013 candles with 7/7 idempotent skip (Linux
+  verified, temporary trial removed; scratch retained). Real Windows terminal,
+  account, XAUUSD metadata, Windows DATA, live fetch, and browser double-click
+  are **not yet verified**.
+- Canonical Windows deployment and the 14-point acceptance checklist are in
+  `docs/WINDOWS_SETUP.md`. Do not delete `/home/user/hero1-scratch-data` until
+  the owner verifies that Windows deployment.

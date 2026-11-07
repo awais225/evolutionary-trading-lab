@@ -170,9 +170,20 @@ Domain errors → `{"detail": "…"}`; unhandled → 500 `{"error":{"code":"inte
   (all-or-nothing, duplicates collapsed-or-fatal, gaps reported never filled,
   naive broker-server timestamps). 419,013 XAUUSD candles imported and
   verified on Linux.
+- IMPLEMENTED (HERO V1.5.0, TASK 13; awaiting Windows acceptance): the
+  adapter now declares the Windows-only MetaTrader5 dependency; connection is
+  a lifecycle (DISCOVERED/RUNNING/INITIALIZING/CONNECTED/ACCOUNT_LOADED/
+  FAILED/UNAVAILABLE) with terminal launch and bounded initialize wait. A
+  shared `packages/market_data` store backs both CSV import and incremental
+  MT5 FETCH DATA (`copy_rates_range` with timezone-aware UTC datetimes;
+  completed candles only; conflicts never overwritten). Stored timestamps
+  remain naive broker-server epochs; `server_time.py` bridges to UTC using
+  the legacy-verified IC Markets GMT+2/GMT+3 US-DST rule. Manual Nodes shows
+  historical coverage separately from broker metadata.
 - UNVERIFIED: everything against a real terminal on Windows; MetaTrader5 is
   not installable on Linux, where every MT5 path verifiably answers
-  `MT5_UNAVAILABLE` instead of simulating data.
+  `MT5_UNAVAILABLE` instead of simulating data. Mocked MT5 tests exercise the
+  lifecycle/fetch logic but are not real-terminal evidence.
 - NOT SUPPORTED (by design): any order placement, modification, cancellation;
   live execution; approval issuance. Phase 5 only, after Phase 4.
 

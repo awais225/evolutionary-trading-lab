@@ -11,6 +11,7 @@ Original instructions are never silently rewritten.
 | PHASE_1_2_GITHUB_PUBLISH.md | Phase 1.2 — GitHub authentication & publishing attempt | Completed 2026-11-06; push BLOCKED (token cannot create repos; 403) |
 | PHASE_1_3_HERO_V1_REPOSITORY_MIGRATION.md | Phase 1.3 — HERO V1 migration into existing repository | Completed 2026-11-06 (HERO-V1.0.0); remotely verified |
 | PHASE_2_STRATEGY_SPECIFICATION_COMPILER.md | Phase 2 — Strategy specification, validation & deterministic compiler | Implemented 2026-11-06 (HERO-V1.1.0); OUTCOME appended in the release commit |
+| TASK_13_HERO_V1_5_0.md | TASK 13 — HERO-V1.5.0 Windows MT5 + market data | Implemented 2026-11-07; awaiting Windows acceptance (archive reconstructed after context compaction; see file note) |
 | WINDOWS_LAUNCHER.md | Two-BAT Windows launcher + LMS workspace dashboard preview | Archived BEFORE implementation 2026-11-06; outcome appended after execution |
 
 Rules:

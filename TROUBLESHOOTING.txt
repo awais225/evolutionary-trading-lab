@@ -200,6 +200,68 @@ Source: scripts/import_market_data.py (gaps_found, largest_gap_seconds,
   exports, 419013 candles
 
 --------------------------------------------------------------------------------
+SYMPTOM: ISSUE-041 - ModuleNotFoundError: No module named 'MetaTrader5'
+Verified cause: The TASK 12 mt5_adapter package declared no dependencies, so
+  MetaTrader5 was never installed into the Windows backend .venv even when a
+  terminal64.exe was discovered. The terminal and the Python package are
+  separate installations; discovering one does not install the other.
+Verified fix: Run PREREQUISITES.bat (Step 6b installs/verifies against the
+  exact backend interpreter), then run:
+  .venv\Scripts\python.exe scripts\check_mt5_env.py --json
+  The report must name .venv\Scripts\python.exe and package_installed=true.
+  Windows result is pending owner acceptance; Linux/static verification only.
+Source: packages/mt5_adapter/pyproject.toml; scripts/check_mt5_env.py;
+  PREREQUISITES.bat; tests/test_mt5_windows_integration.py
+
+--------------------------------------------------------------------------------
+SYMPTOM: ISSUE-042 - MT5 terminal is discovered but Connect fails, or it says
+  the terminal is connected while account fields are empty
+Verified cause: TASK 12 initialize-only code did not launch a stopped
+  terminal, did not expose the launch/initialize/account lifecycle, and treated
+  initialize-success with account_info()=None too weakly. That state means the
+  terminal is up but no broker account is logged in inside MT5.
+Verified fix: Select the discovered terminal again. Hero1 now launches it if
+  needed, waits for initialize(), reports CONNECTED + LOGIN REQUIRED when no
+  account is loaded, and reports ACCOUNT LOADED only when account_info()
+  returns an account. Log in inside MT5 (File > Login to Trade Account), then
+  reconnect. Hero1 never asks for or stores the password. Windows result is
+  pending owner acceptance; lifecycle behavior is covered by mocked tests.
+Source: packages/mt5_adapter/src/hero1_mt5_adapter/connection.py;
+  tests/test_mt5_windows_integration.py
+
+--------------------------------------------------------------------------------
+SYMPTOM: ISSUE-043 - START.bat finishes but the browser does not open, or a
+  second launch opens another dashboard tab
+Verified cause: Stage 10 used a bare start command for a tokenized URL. Its
+  exit code was captured in TASK 12, but there was no URL-handler fallback and
+  no distinction between a newly started frontend and an already-running one.
+Verified fix: Stage 10 now builds one DASHBOARD_URL, tries start, then
+  rundll32 url.dll,FileProtocolHandler on failure, logs the full URL and both
+  return codes, and skips auto-open when stage 8 reused an existing frontend.
+  Browser failure warns and prints the manual URL; it never fails healthy
+  backend/frontend services. Windows double-click acceptance is still pending.
+Source: scripts/START_INTERNAL.bat stage 10; scripts/audit_launcher.py;
+  tests/test_launcher_bat.py
+
+--------------------------------------------------------------------------------
+SYMPTOM: ISSUE-044 - Node generation still says metadata unavailable even
+  though XAUUSD candles are stored
+Verified cause: Historical OHLC and broker metadata are different inputs.
+  Stored candles prove candle coverage only; validation needs a genuine
+  broker/server symbol snapshot (digits, point, tick size/value, contract and
+  volume rules). TASK 12/13 could not create that snapshot while the Python
+  package was missing, no terminal session was loaded, or canonical Windows
+  DATA had not yet received the market-data deployment.
+Verified fix: Fix ISSUE-041, connect until ACCOUNT LOADED, then use Refresh
+  from MT5 for the exact instrument. Confirm the panel says STORED with the
+  broker/server and derived pip/tick values before expecting VALID. Importing
+  candles or pressing FETCH DATA does not replace Refresh from MT5, and
+  NEEDS_METADATA must not be bypassed. Windows result is pending acceptance.
+Source: services/api/app/api/routers/metadata.py;
+  services/api/app/market_data_service.py; tests/test_metadata_mt5.py;
+  tests/test_mt5_windows_integration.py
+
+--------------------------------------------------------------------------------
 IF YOUR PROBLEM IS NOT IN THIS FILE
 -----------------------------------
 1. Run START_DIAGNOSTIC.bat (read-only; it cannot change or create data).

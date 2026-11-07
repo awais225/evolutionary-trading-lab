@@ -137,10 +137,16 @@ python scripts\\doctor.py          # expect: data root OK, DBs OK, ollama OK, MT
 python -m uvicorn services.api.app.main:app --host 127.0.0.1 --port 8788
 ```
 
-## 4. MT5 availability, broker metadata, and market data (HERO V1.4.2)
+## 4. MT5 availability, broker metadata, and market data (HERO V1.5.0 — awaiting Windows acceptance)
 
-- On Windows only, `pip install MetaTrader5` makes the official package importable;
-  `scripts/doctor.py` then reports MT5 as **available** (package import check only).
+- TASK 13 root cause (ISSUE-041): the TASK 12 adapter declared no dependency,
+  so the package was never installed into the backend `.venv`. Run
+  `PREREQUISITES.bat` (Step 6b installs/verifies against that exact
+  interpreter), then prove the interpreter/package/import with:
+  `.venv\Scripts\python.exe scripts\check_mt5_env.py --json`.
+  The JSON must name `.venv\Scripts\python.exe`, report
+  `package_installed: true`, and have no import error. Installing MetaTrader5
+  into any other Python does not count.
 - A **deep** probe (`python scripts/doctor.py --mt5`) additionally initializes the
   terminal and reads account/terminal info. It never places, modifies or cancels orders.
 - Without the package or a running terminal, MT5 status is reported as
@@ -150,8 +156,12 @@ python -m uvicorn services.api.app.main:app --host 127.0.0.1 --port 8788
 Broker metadata (required before any strategy can validate as VALID):
 
 1. Open the MT5 terminal and log in to the broker/server you trade with.
+   Hero1 can also launch a discovered-but-stopped terminal when you select it.
 2. In the dashboard, pick the terminal/account in the TopBar MT5 selector
-   (this selection applies to Live Testing only).
+   (this selection applies to Live Testing only). `CONNECTED` means the
+   terminal is running but **LOGIN REQUIRED** inside MT5; only
+   `ACCOUNT_LOADED` means account fields are real. Hero1 never asks for or
+   stores the account password.
 3. Use Metadata → Refresh for the instrument (e.g. XAUUSD). Hero1 stores a
    snapshot per broker/server/symbol under `DATA\MARKET_METADATA\<server>\`;
    one broker's snapshot is never applied to another broker or server.
@@ -177,6 +187,63 @@ Historical candles (MT History Center CSV exports):
   separately for deeper history.
 - If a strategy still says `NEEDS_METADATA`, or an import says REJECTED,
   search the exact words in `TROUBLESHOOTING.txt` (repository root).
+
+### Canonical Windows deployment of the verified 419,013 candles
+
+The Linux workstation cannot write the owner's Windows DATA root. Run this on
+Windows from the Hero1 repository root in PowerShell. It backs up any existing
+canonical store first and uses the existing importer — no second database:
+
+```powershell
+git pull --ff-only
+.\PREREQUISITES.bat
+.\.venv\Scripts\python.exe scripts\check_mt5_env.py --json
+$DataRoot = if ($env:HERO1_DATA_ROOT) { $env:HERO1_DATA_ROOT } else { Join-Path $PWD "DATA" }
+$Store = Join-Path $DataRoot "MARKET_DATA\market_data.db"
+if (Test-Path $Store) {
+  $Backup = "$Store.bak-$(Get-Date -Format yyyyMMdd-HHmmss)"
+  Copy-Item $Store $Backup
+  Write-Host "Existing store backed up to $Backup"
+}
+$Exports = "<EXPORT_FOLDER>"  # folder containing the seven XAUUSD_*.csv files
+.\.venv\Scripts\python.exe scripts\import_market_data.py --data-root $DataRoot `
+  "$Exports\XAUUSD_Daily.csv" "$Exports\XAUUSD_H1.csv" "$Exports\XAUUSD_H4.csv" `
+  "$Exports\XAUUSD_M1.csv" "$Exports\XAUUSD_M5.csv" "$Exports\XAUUSD_M15.csv" `
+  "$Exports\XAUUSD_M30.csv"
+# Run the same command again: all seven must say SKIPPED and total 419,013.
+```
+
+Expected counts: D1 1,560; H4 9,349; H1 35,738; M30 71,441; M15 100,856;
+M5 100,012; M1 100,057. Do not delete the Linux scratch store until this
+Windows deployment and the rerun are both verified.
+
+### FETCH DATA acceptance flow
+
+In Manual Nodes, **Historical data** is separate from **Broker metadata**.
+Choose `ALL (M1–D1)` or one timeframe in the themed **Fetch scope** dropdown
+and press **FETCH DATA**. A result is successful only when the MT5 request
+succeeded; per-timeframe rows show received / appended / duplicates /
+incomplete / invalid / conflicts / latest stored timestamp. The server stores
+only completed validated candles and never overwrites conflicting history.
+
+### HERO-V1.5.0 Windows acceptance checklist (14 points)
+
+Do not call the release accepted until every item is observed on Windows:
+
+1. `git rev-parse HEAD` equals the pushed HERO-V1.5.0 tag target and the tree is clean.
+2. `PREREQUISITES.bat` completes, including Step 6b MetaTrader5 verification.
+3. `.venv\Scripts\python.exe scripts\check_mt5_env.py --json` exits 0 and names that exact interpreter, package version, and successful import.
+4. `START_DIAGNOSTIC.bat` section 8 reports MetaTrader5 env rc 0.
+5. `START.bat` passes stages 1–10 and opens one browser tab at `http://127.0.0.1:5173/`; a second launch while the frontend is already running does not open a duplicate.
+6. The MT5 selector lists the IC Markets terminal as DISCOVERED or RUNNING with its full `terminal64.exe` path.
+7. Selecting a stopped terminal launches it; status progresses to CONNECTED or ACCOUNT_LOADED within the bounded wait.
+8. With no account logged in, the UI says LOGIN REQUIRED; after logging in inside MT5 and reconnecting, it says ACCOUNT_LOADED (never enter the password in Hero1).
+9. Account panel shows login, holder name, broker/company, server, currency, balance, equity, profit, used/free margin, margin level, leverage, and trade/expert permissions (do not publish personal values).
+10. Refresh XAUUSD metadata from MT5 and record digits, point, tick size/value, pip size, contract size, volume limits/step, and stops/freeze levels from that broker/server.
+11. Back up any existing canonical store, import all seven CSVs, verify the counts above, then rerun and verify 7/7 SKIPPED.
+12. Test FETCH DATA for one timeframe and then ALL; verify appended counts, zero silent duplicates, incomplete candle dropped, and the manifest timestamp updated.
+13. In Manual Nodes, validate → compile → save a spec; then switch MT5 terminal/account and verify the saved node's fingerprint/spec and stored candle counts are unchanged.
+14. Save the startup/diagnostic logs and report the exact HEAD, tag target, test results, and any failed checklist item back before the release is called accepted.
 
 ## 5. Ollama & GPU reality check
 

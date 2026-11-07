@@ -998,3 +998,24 @@ NEEDS_METADATA, /mt5/status unavailable. WORKSTATION STATE: preview backend
 real MT5 terminal end-to-end (metadata refresh, selector, live account) and
 the Windows stage-10 double-click - owner machine required; see
 TROUBLESHOOTING.txt and docs/WINDOWS_SETUP.md section 4.
+TASK 13 - HERO-V1.5.0 (2026-11-07) - AWAITING WINDOWS ACCEPTANCE
+START: a84279646421f883707ceaada6450898b4eccb88
+IMPLEMENTATION: 78f63ae96e0d0377d5378a13a5c358441b0f529f
+TAG: HERO-V1.5.0 (annotated; target is the documentation commit that follows
+  the implementation commit; verify with git rev-list -n 1 HERO-V1.5.0)
+DONE: MetaTrader5 backend-venv dependency/diagnostic; terminal discovery,
+  launch, initialize lifecycle and ACCOUNT_LOADED vs LOGIN_REQUIRED states;
+  account profit/permissions; shared packages/market_data; canonical
+  availability + incremental FETCH DATA; Manual Nodes historical panel;
+  IC Markets GMT+2/GMT+3 US-DST server_time bridge (14/14 owner-data vectors
+  match the legacy audit UTC table); stage-10 browser fallback + duplicate-tab
+  guard; ISSUE-041..044; custom-indicator architecture documentation only.
+TESTS: backend 188 passed / 1 skipped; frontend 44/44; build clean; launcher
+  audit PASS; fake-MT5 tests are MOCKED, not real integration.
+DATA: fresh Linux /tmp import = 419,013 candles and 7/7 idempotent skip;
+  trial removed, scratch retained. Canonical Windows DATA deployment remains
+  an owner action with exact commands in docs/WINDOWS_SETUP.md.
+NOT VERIFIED: genuine Windows import/launch/connect, real IC Markets account,
+  real XAUUSD metadata, Windows canonical DATA, live FETCH DATA, node flow
+  against that real snapshot, and START.bat browser double-click. Do not call
+  HERO-V1.5.0 fully accepted until the 14-point Windows checklist passes.
