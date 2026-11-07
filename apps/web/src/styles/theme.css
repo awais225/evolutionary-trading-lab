@@ -571,7 +571,8 @@ tr:hover .name-edit-btn, .name-text:focus-visible + .name-edit-btn { opacity: 1;
 .meta-grid { gap: 18px; }
 .meta-chip { display: inline-flex; align-items: center; font-size: 9px; font-weight: 800; letter-spacing: 1.4px; border-radius: 6px; padding: 2px 8px; border: 1px solid transparent; }
 .market-data-grid { display: grid; gap: 3px; }
-.market-data-row { display: flex; gap: 10px; align-items: baseline; border-top: 1px solid rgba(148,184,220,.08); padding-top: 3px; font-size: 10.5px; }
+.market-data-row { display: grid; grid-template-columns: 38px 92px 150px 150px 76px minmax(180px, 1fr); gap: 10px; align-items: baseline; border-top: 1px solid rgba(148,184,220,.08); padding-top: 3px; font-size: 10.5px; }
+.market-data-head { color: var(--muted); font-size: 9px; font-weight: 800; letter-spacing: 1.1px; text-transform: uppercase; }
 .market-data-row strong { min-width: 34px; color: var(--accent-strong); }
 .market-data-actions { display: flex; gap: 12px; align-items: end; flex-wrap: wrap; margin-top: 4px; }
 .fetch-timeframe-select { min-width: 170px; }

@@ -65,9 +65,9 @@ def test_daily_without_time_column_parses(tmp_path):
     parsed = imp.parse_rows(f)
     assert parsed["errors"] == []
     assert len(parsed["rows"]) == 2
-    assert parsed["rows"][0]["ts_iso"] == "2020-10-01 00:00:00"
-    # naive broker-server time tagged as UTC for ordering only (never converted)
-    assert parsed["rows"][0]["ts"] == 1601510400
+    # CSV server wall 2020-10-01 00:00 (GMT+3, US DST) converted ONCE to UTC
+    assert parsed["rows"][0]["ts_iso"] == "2020-09-30 21:00:00"
+    assert parsed["rows"][0]["ts"] == 1601499600
     assert parsed["rows"][0]["tick_volume"] == 155252
     assert parsed["rows"][0]["volume"] == 0.0
     assert parsed["rows"][0]["spread"] == 2
@@ -213,7 +213,7 @@ def test_rollforward_overwrite_accounting_is_honest(tmp_path):
     conn = sqlite3.connect(str(_db(tmp_path)))
     assert conn.execute("SELECT COUNT(*) FROM candles").fetchone()[0] == 4
     close_0200 = conn.execute(
-        "SELECT close FROM candles WHERE timeframe='H1' AND ts_iso='2020-10-01 02:00:00'"
+        "SELECT close FROM candles WHERE timeframe='H1' AND ts_iso='2020-09-30 23:00:00'"
     ).fetchone()[0]
     assert close_0200 == 2001.0  # the revised value won, explicitly
     # both source datasets remain on record - provenance is never erased
@@ -234,8 +234,8 @@ def test_manifest_records_full_provenance(tmp_path):
     assert entry["source_file"] == str(f)
     assert len(entry["source_sha256"]) == 64
     assert entry["row_count"] == 2
-    assert entry["first_ts"] == "2020-10-01 01:00:00"
-    assert entry["last_ts"] == "2020-10-01 02:00:00"
+    assert entry["first_ts"] == "2020-09-30 22:00:00"  # 01:00 server (GMT+3) in UTC
+    assert entry["last_ts"] == "2020-09-30 23:00:00"
     assert entry["fingerprint"] == res["content_fingerprint"]
     assert entry["validation_result"] == "PASS"
     assert entry["status"] == "AVAILABLE"  # AVAILABLE only after PASS

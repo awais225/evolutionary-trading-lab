@@ -198,6 +198,19 @@ export interface MarketDataTimeframeStats {
   row_count: number
   first_ts?: string | null
   last_ts?: string | null
+  first_epoch?: number | null
+  last_epoch?: number | null
+  status?: 'AVAILABLE' | 'EMPTY' | 'IMPORTING' | 'UPDATING' | 'PARTIAL' | 'ERROR' | string
+  timezone?: string
+  source?: string | null
+  sources?: string[]
+  last_successful_import?: string | null
+  last_successful_update?: string | null
+  last_mt5_update?: string | null
+  gaps_found?: number
+  largest_gap_seconds?: number | null
+  invalid_timestamp_count?: number
+  warnings?: string[]
 }
 
 export interface MarketDataDataset {
@@ -218,6 +231,14 @@ export interface MarketDataAvailability {
   available: boolean
   store: string
   reason?: string
+  timezone?: string
+  summary?: {
+    available_timeframes: number
+    total_candles: number
+    first_ts?: string | null
+    last_ts?: string | null
+    last_successful_update?: string | null
+  }
   timeframes: Record<string, MarketDataTimeframeStats | null>
   datasets: MarketDataDataset[]
 }
@@ -232,6 +253,8 @@ export interface MarketDataFetchResult {
   duplicates_skipped: number
   incomplete_dropped: number
   invalid_rejected: number
+  invalid_timestamps_rejected?: number
+  invalid_examples?: string[]
   conflicts: number
   latest_stored_ts?: string | null
   error?: string | null
@@ -240,9 +263,17 @@ export interface MarketDataFetchResult {
 export interface MarketDataFetchReport {
   instrument: string
   broker_server: string
-  server_time: {
+  status?: 'COMPLETE' | 'PARTIAL' | 'FAILED' | string
+  time?: {
     rule: string
-    server_now: string
+    utc_now: string
+    offset_seconds: number
+    offset_source: string
+  }
+  server_time?: {
+    rule: string
+    utc_now?: string
+    server_now?: string
     offset_seconds: number
     offset_source: string
   }

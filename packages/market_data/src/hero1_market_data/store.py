@@ -10,8 +10,10 @@ Store layout inside the DATA root:
     <DATA_ROOT>/MARKET_DATA/import_manifest.json
 
 Conventions (binding, from the importer):
-  * `ts` is the naive broker-server epoch (server wall time tagged as UTC for
-    ordering only; never converted here - see hero1_mt5_adapter.server_time);
+  * `ts` is UTC epoch SECONDS (the one canonical internal convention).
+    CSV source wall time is converted to UTC once, at import; MT5 rate
+    `time` values are UTC epoch seconds and are stored verbatim after
+    validation. No broker offset is ever applied inside the store;
   * candles are never invented; merges never silently overwrite a conflicting
     stored candle (policy-dependent, see merge_candles);
   * VOL / TICKVOL / SPREAD are separate columns, never merged;
@@ -33,6 +35,12 @@ TIMEFRAME_ORDER = ["M1", "M5", "M15", "M30", "H1", "H4", "D1"]
 TF_ALIASES = {"Daily": "D1", "D1": "D1", "M1": "M1", "M5": "M5", "M15": "M15",
               "M30": "M30", "H1": "H1", "H4": "H4"}
 EPS = 1e-9
+
+# Plausible stored-candle range. Anything outside is a malformed/unit-mixed
+# timestamp (1970 epoch accidents, 2926-style garbage, milliseconds or
+# nanoseconds mistaken for seconds) and must be rejected, never repaired.
+MIN_TS = 315_532_800    # 1980-01-01T00:00:00Z
+MAX_TS = 4_102_444_800  # 2100-01-01T00:00:00Z (exclusive)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS candles (
@@ -76,12 +84,33 @@ CREATE TABLE IF NOT EXISTS datasets (
 _CANDLE_KEYS = ("open", "high", "low", "close", "tick_volume", "volume", "spread")
 
 
+def validate_timestamp(ts: Any) -> Optional[str]:
+    """First timestamp error for a candidate stored `ts`, or None.
+
+    The canonical unit is UTC epoch seconds. Booleans, non-integral values,
+    millisecond/nanosecond magnitudes and out-of-range years are rejected
+    with the offending value named - never silently rescaled.
+    """
+    if isinstance(ts, bool) or ts is None:
+        return f"invalid timestamp {ts!r}: not a UTC epoch-second integer"
+    try:
+        value = int(ts)
+    except (TypeError, ValueError):
+        return f"invalid timestamp {ts!r}: not a UTC epoch-second integer"
+    if float(ts) != value:
+        return f"invalid timestamp {ts!r}: not a whole UTC epoch second"
+    if not (MIN_TS <= value < MAX_TS):
+        return (f"invalid timestamp {ts!r}: outside the plausible candle range "
+                f"1980-01-01..2100-01-01 UTC (wrong unit or malformed value)")
+    return None
+
+
 def iso_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 def ts_iso_of(ts: int) -> str:
-    """Naive server-time rendering of a stored epoch (matches the importer)."""
+    """UTC rendering of a stored UTC epoch-second timestamp."""
     return datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
 
@@ -99,6 +128,9 @@ def validate_candle(c: Dict[str, Any]) -> Optional[str]:
     non-negative integer tick volume / spread, non-negative volume. A candle
     that fails is NEVER repaired - the caller rejects it and says why.
     """
+    ts_error = validate_timestamp(c.get("ts"))
+    if ts_error is not None:
+        return ts_error
     o, h, l, cl = (c.get("open"), c.get("high"), c.get("low"), c.get("close"))
     if None in (o, h, l, cl):
         return f"non-numeric OHLC {[c.get(k) for k in ('open', 'high', 'low', 'close')]}"
@@ -260,20 +292,22 @@ def series_stats(conn: sqlite3.Connection, instrument: str, timeframe: str) -> D
 
 def list_datasets(conn: sqlite3.Connection, instrument: Optional[str] = None) -> List[Dict[str, Any]]:
     q = ("SELECT dataset_id, instrument, timeframe, source_file, row_count, first_ts, last_ts,"
-         " validation_result, status, imported_at FROM datasets")
+         " validation_result, status, imported_at, duplicates_collapsed, gaps_found,"
+         " largest_gap_seconds, source_sha256 FROM datasets")
     args: Tuple[Any, ...] = ()
     if instrument:
         q += " WHERE instrument = ?"
         args = (instrument,)
     q += " ORDER BY timeframe, imported_at"
     cols = ("dataset_id", "instrument", "timeframe", "source_file", "row_count",
-            "first_ts", "last_ts", "validation_result", "status", "imported_at")
+            "first_ts", "last_ts", "validation_result", "status", "imported_at",
+            "duplicates_collapsed", "gaps_found", "largest_gap_seconds", "source_sha256")
     return [dict(zip(cols, r)) for r in conn.execute(q, args)]
 
 
 __all__ = [
     "TIMEFRAME_STEPS", "TIMEFRAME_ORDER", "TF_ALIASES", "SCHEMA",
-    "iso_now", "ts_iso_of", "connect_store", "validate_candle", "candle_equal",
+    "iso_now", "ts_iso_of", "connect_store", "validate_timestamp", "validate_candle", "candle_equal",
     "canonical_fingerprint", "gap_stats", "merge_candles", "record_dataset",
     "rebuild_manifest", "latest_ts", "series_stats", "list_datasets",
 ]

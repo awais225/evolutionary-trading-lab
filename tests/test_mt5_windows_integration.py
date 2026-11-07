@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from hero1_mt5_adapter import connection, server_time
+from hero1_mt5_adapter import connection
 from hero1_mt5_adapter.metadata import normalize_symbol_info  # noqa: F401  (parity import guard)
 from hero1_strategy_spec import bullish_engulfing
 
@@ -266,12 +266,13 @@ STEP_M5 = 300
 BASE = 1792000000 - (1792000000 % STEP_M5)   # grid-aligned server epoch
 
 
-def test_fetch_appends_only_new_completed_candles(fake_mt5, client):
+def test_fetch_appends_only_new_completed_candles(fake_mt5, client, monkeypatch):
     latest = BASE
     _seed_store("BTCUSD", "M5", [_candle(latest - STEP_M5, 99.0), _candle(latest, 100.0)])
     server_now = latest + 2 * STEP_M5 + 120
     fake_mt5.account = dict(ACCOUNT)
-    fake_mt5.tick = {"bid": 1.0, "ask": 1.1, "time": server_now}
+    from app import market_data_service
+    monkeypatch.setattr(market_data_service, "_utc_now_epoch", lambda: server_now)
     fake_mt5.rates = {FakeMT5.TIMEFRAME_M5: [
         _rate(latest, 100.0),                        # duplicate of stored
         _rate(latest + STEP_M5, 101.0),              # new + complete
@@ -290,11 +291,13 @@ def test_fetch_appends_only_new_completed_candles(fake_mt5, client):
     assert res["duplicates_skipped"] == 1
     assert res["incomplete_dropped"] == 1
     assert res["invalid_rejected"] == 1
-    # range requested as timezone-aware UTC datetimes from the next needed bar
+    # range requested as timezone-aware UTC datetimes, with a 2-candle overlap
+    # so boundary candles are deduplicated rather than skipped
+    from datetime import datetime, timezone
     sym, tf, from_dt, to_dt = fake_mt5.range_requests[-1]
     assert from_dt.tzinfo is not None
-    assert from_dt == server_time.server_to_utc_dt(latest + STEP_M5)
-    assert to_dt == server_time.server_to_utc_dt(server_now)
+    assert from_dt == datetime.fromtimestamp(latest - 2 * STEP_M5, tz=timezone.utc)
+    assert to_dt == datetime.fromtimestamp((server_now // STEP_M5) * STEP_M5, tz=timezone.utc)
     # second fetch: nothing new, no duplicates written
     r2 = client.post("/api/v1/instruments/BTCUSD/market-data/fetch", json={"timeframe": "M5"})
     res2 = r2.json()["results"][0]
@@ -303,11 +306,12 @@ def test_fetch_appends_only_new_completed_candles(fake_mt5, client):
     assert avail["timeframes"]["M5"]["row_count"] == 3
 
 
-def test_fetch_conflict_aborts_timeframe_and_preserves_history(fake_mt5, client):
+def test_fetch_conflict_aborts_timeframe_and_preserves_history(fake_mt5, client, monkeypatch):
     latest = BASE + 10 * STEP_M5
     _seed_store("BTCUSD", "M5", [_candle(latest, 100.0)], dataset_id="seeddataset00002")
     fake_mt5.account = dict(ACCOUNT)
-    fake_mt5.tick = {"bid": 1.0, "ask": 1.1, "time": latest + STEP_M5 + 60}
+    from app import market_data_service
+    monkeypatch.setattr(market_data_service, "_utc_now_epoch", lambda: latest + STEP_M5 + 60)
     fake_mt5.rates = {FakeMT5.TIMEFRAME_M5: [_rate(latest, 555.0)]}  # rewritten history
     r = client.post("/api/v1/instruments/BTCUSD/market-data/fetch", json={"timeframe": "M5"})
     res = r.json()["results"][0]
@@ -323,12 +327,14 @@ def test_fetch_conflict_aborts_timeframe_and_preserves_history(fake_mt5, client)
     assert close == 100.0     # stored history preserved
 
 
-def test_fetch_all_continues_after_one_timeframe_fails(fake_mt5, client):
+def test_fetch_all_continues_after_one_timeframe_fails(fake_mt5, client, monkeypatch):
     latest = BASE + 20 * STEP_M5
     _seed_store("BTCUSD", "M5", [_candle(latest, 100.0)], dataset_id="seeddataset00003")
     fake_mt5.account = dict(ACCOUNT)
-    fake_mt5.tick = {"bid": 1.0, "ask": 1.1, "time": latest + 2 * STEP_M5 + 60}
+    from app import market_data_service
+    monkeypatch.setattr(market_data_service, "_utc_now_epoch", lambda: latest + 2 * STEP_M5 + 60)
     fake_mt5.rates = {FakeMT5.TIMEFRAME_M5: [_rate(latest + STEP_M5, 101.0)]}
+    _seed_store("BTCUSD", "M1", [_candle(latest, 100.0)], dataset_id="seeddataset00004")
     fake_mt5.rates_error_for = {FakeMT5.TIMEFRAME_M1}   # M1 IPC dies
     r = client.post("/api/v1/instruments/BTCUSD/market-data/fetch", json={"timeframe": "ALL"})
     report = r.json()
@@ -350,7 +356,9 @@ def test_fetch_without_terminal_is_honest_503(client):
 def test_availability_distinguishes_missing_store(client):
     body = client.get("/api/v1/instruments/EURUSD/market-data").json()
     assert body["available"] is False       # EURUSD never seeded/fetched in this suite
-    assert body["timeframes"]["M5"] is None
+    assert body["timeframes"]["M5"]["status"] == "EMPTY"
+    assert body["timeframes"]["M5"]["row_count"] == 0
+    assert body["summary"]["total_candles"] == 0
 
 
 # ------------------------------------------- node pipeline + selection safety
@@ -405,3 +413,35 @@ def test_check_mt5_env_reports_this_interpreter():
         assert proc.returncode == 1
         assert report["package_installed"] is False
         assert "No module named 'MetaTrader5'" in report["import_error"]
+
+
+def test_fetch_rejects_invalid_rate_timestamps_without_storing(fake_mt5, client, monkeypatch):
+    latest = BASE + 40 * STEP_M5
+    _seed_store("BTCUSD", "M5", [_candle(latest, 100.0)], dataset_id="seeddataset00005")
+    fake_mt5.account = dict(ACCOUNT)
+    from app import market_data_service
+    monkeypatch.setattr(market_data_service, "_utc_now_epoch", lambda: latest + 3 * STEP_M5)
+    bad_year_2926 = 30185606400  # 2926-09-06 approx: impossible candle year
+    fake_mt5.rates = {FakeMT5.TIMEFRAME_M5: [
+        _rate(bad_year_2926, 101.0),
+        _rate(0, 101.0),                              # 1970 epoch accident
+        _rate((latest + STEP_M5) * 1000, 101.0),      # milliseconds mistaken for seconds
+        _rate(latest + STEP_M5, 101.0),               # the one valid new candle
+    ]}
+    r = client.post("/api/v1/instruments/BTCUSD/market-data/fetch", json={"timeframe": "M5"})
+    res = r.json()["results"][0]
+    assert res["invalid_timestamps_rejected"] == 3
+    assert res["appended"] == 1
+    assert any("2926" not in e and "invalid timestamp" in e for e in res["invalid_examples"])
+    avail = client.get("/api/v1/instruments/BTCUSD/market-data").json()
+    assert avail["timeframes"]["M5"]["invalid_timestamp_count"] == 0  # nothing bad entered
+
+
+def test_fetch_without_baseline_refuses_and_never_calls_terminal(fake_mt5, client):
+    fake_mt5.account = dict(ACCOUNT)
+    r = client.post("/api/v1/instruments/EURUSD/market-data/fetch", json={"timeframe": "M5"})
+    res = r.json()["results"][0]
+    assert res["status"] == "FAILED"
+    assert "no stored baseline" in res["error"]
+    assert fake_mt5.range_requests == []  # no epoch-0 / giant backfill request was built
+    assert r.json()["status"] == "FAILED"

@@ -3,9 +3,11 @@
 Reads/writes the canonical store (hero1_market_data) under
 <DATA_ROOT>/MARKET_DATA/ - the same database and manifest the CSV importer
 produces. Fetch rules (binding):
-  * ranges are requested from the terminal with timezone-aware UTC datetimes
-    (hero1_mt5_adapter.server_time converts the stored naive server epochs);
-  * only COMPLETED candles are appended (ts + step <= server now);
+  * the store's canonical timestamp is UTC epoch seconds; ranges are
+    requested from the terminal with timezone-aware UTC datetimes built
+    directly from those epochs - NO broker/server offset is applied, and no
+    offset is ever derived from a live tick;
+  * only COMPLETED candles are appended (ts + step <= current UTC time);
   * identical overlaps are duplicates; conflicting overlaps abort that
     timeframe untouched - stored history is never silently overwritten;
   * invalid candles are rejected and counted, never repaired;
@@ -22,7 +24,6 @@ from typing import Any, Dict, List, Optional
 
 from hero1_market_data import store as md
 from hero1_mt5_adapter import connection as mt5_connection
-from hero1_mt5_adapter import server_time
 from hero1_storage.engine import data_root
 
 MAX_BACKFILL_CANDLES = 100_000  # mirrors the MT export cap for a first fetch
@@ -44,29 +45,101 @@ def manifest_path() -> Path:
     return store_db_path().parent / "import_manifest.json"
 
 
+def _utc_now_epoch() -> int:
+    """Current UTC epoch seconds (seam for deterministic tests)."""
+    return int(_time.time())
+
+
 def availability(instrument: str) -> Dict[str, Any]:
+    """Canonical-store availability, calculated from actual stored records.
+
+    Every timeframe carries its own status (AVAILABLE only when validated
+    candles exist), first/last candle, count, source, last successful import,
+    last successful MT5 update, gap/validation warnings and the UTC timezone
+    convention. Nothing here is hardcoded.
+    """
     sym = instrument.strip().upper()
     db = store_db_path()
     out: Dict[str, Any] = {
         "instrument": sym, "available": False, "store": str(db),
+        "timezone": "UTC (epoch seconds)",
         "timeframes": {tf: None for tf in md.TIMEFRAME_ORDER},
         "datasets": [],
+        "summary": {"available_timeframes": 0, "total_candles": 0,
+                    "first_ts": None, "last_ts": None, "last_successful_update": None},
     }
     if not db.exists():
-        out["reason"] = ("no market-data store yet - import the MT CSV exports "
-                          "(scripts/import_market_data.py) or FETCH DATA from a connected terminal")
+        out["reason"] = ("no market-data store yet - import the supplied MT CSV exports "
+                          "(scripts/import_market_data.py) before using FETCH DATA")
+        for tf in md.TIMEFRAME_ORDER:
+            out["timeframes"][tf] = {"row_count": 0, "first_ts": None, "last_ts": None,
+                                     "status": "EMPTY", "timezone": out["timezone"],
+                                     "source": None, "last_successful_import": None,
+                                     "last_successful_update": None, "last_mt5_update": None,
+                                     "gaps_found": 0, "largest_gap_seconds": None,
+                                     "invalid_timestamp_count": 0, "warnings": []}
         return out
     conn = md.connect_store(db)
     try:
+        datasets = md.list_datasets(conn, sym)
+        out["datasets"] = datasets
         for tf in md.TIMEFRAME_ORDER:
             stats = md.series_stats(conn, sym, tf)
+            tf_datasets = [d for d in datasets if d.get("timeframe") == tf]
+            successful = [d for d in tf_datasets if d.get("status") == "AVAILABLE"
+                          and d.get("validation_result") == "PASS"]
+            csv_imports = [d for d in successful if not str(d.get("source_file", "")).startswith("mt5-fetch")]
+            mt5_updates = [d for d in successful if str(d.get("source_file", "")).startswith("mt5-fetch")]
+            invalid_ts = 0
+            first_epoch = last_epoch = None
             if stats["row_count"]:
-                out["timeframes"][tf] = stats
-        out["datasets"] = md.list_datasets(conn, sym)
+                invalid_ts = int(conn.execute(
+                    "SELECT COUNT(*) FROM candles WHERE instrument = ? AND timeframe = ?"
+                    " AND (ts < ? OR ts >= ?)",
+                    (sym, tf, md.MIN_TS, md.MAX_TS)).fetchone()[0])
+                first_epoch, last_epoch = conn.execute(
+                    "SELECT MIN(ts), MAX(ts) FROM candles WHERE instrument = ? AND timeframe = ?",
+                    (sym, tf)).fetchone()
+            warnings: List[str] = []
+            gaps = sum(int(d.get("gaps_found") or 0) for d in successful)
+            largest = max((int(d["largest_gap_seconds"]) for d in successful
+                           if d.get("largest_gap_seconds") is not None), default=None)
+            if gaps:
+                warnings.append(f"{gaps} recorded gap interval(s); gaps are reported, never filled")
+            if invalid_ts:
+                warnings.append(f"{invalid_ts} stored candle(s) have invalid timestamps and need correction")
+            status = "EMPTY" if not stats["row_count"] else ("ERROR" if invalid_ts else "AVAILABLE")
+            stats.update({
+                "status": status,
+                "first_epoch": int(first_epoch) if first_epoch is not None else None,
+                "last_epoch": int(last_epoch) if last_epoch is not None else None,
+                "timezone": out["timezone"],
+                "source": (tf_datasets[-1].get("source_file") if tf_datasets else None),
+                "sources": sorted({str(d.get("source_file")) for d in successful if d.get("source_file")}),
+                "last_successful_import": max((d["imported_at"] for d in csv_imports), default=None),
+                "last_mt5_update": max((d["imported_at"] for d in mt5_updates), default=None),
+                "gaps_found": gaps, "largest_gap_seconds": largest,
+                "invalid_timestamp_count": invalid_ts, "warnings": warnings,
+            })
+            stats["last_successful_update"] = max(
+                (v for v in (stats["last_successful_import"], stats["last_mt5_update"]) if v),
+                default=None)
+            out["timeframes"][tf] = stats
     finally:
         conn.close()
-    out["available"] = any(v is not None for v in out["timeframes"].values())
-    if not out["available"]:
+    present = [v for v in out["timeframes"].values() if v and v["row_count"]]
+    out["available"] = any(v["status"] == "AVAILABLE" for v in present)
+    firsts = [v["first_ts"] for v in present if v.get("first_ts")]
+    lasts = [v["last_ts"] for v in present if v.get("last_ts")]
+    updates = [v["last_successful_update"] for v in present if v.get("last_successful_update")]
+    out["summary"] = {
+        "available_timeframes": sum(1 for v in present if v["status"] == "AVAILABLE"),
+        "total_candles": sum(int(v["row_count"]) for v in present),
+        "first_ts": min(firsts) if firsts else None,
+        "last_ts": max(lasts) if lasts else None,
+        "last_successful_update": max(updates) if updates else None,
+    }
+    if not present:
         out["reason"] = f"store exists but holds no candles for {sym} yet"
     return out
 
@@ -108,42 +181,76 @@ def _rate_to_candle(rate: Any) -> Optional[Dict[str, Any]]:
             "spread": _i("spread")}
 
 
-def _fetch_one(mt5, conn, *, instrument: str, timeframe: str, server_now: int,
+def _raw_rate_time(rate: Any) -> Any:
+    """The untouched `time` value of one MT5 rate record (for error reports)."""
+    if isinstance(rate, dict):
+        return rate.get("time")
+    if hasattr(rate, "_asdict"):
+        try:
+            return dict(rate._asdict()).get("time")  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001
+            return None
+    try:
+        return rate[0]
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _fetch_one(mt5, conn, *, instrument: str, timeframe: str, utc_now: int,
                broker_server: str = "unknown-server") -> Dict[str, Any]:
+    """Incrementally fetch ONE timeframe from its latest valid stored candle.
+
+    Boundaries are UTC datetimes built directly from stored UTC epoch
+    seconds. A small overlap (two candles) is requested so boundary candles
+    are deduplicated instead of skipped. Without a stored baseline this
+    refuses - the supplied CSV history must be imported first; FETCH DATA is
+    an updater, not a history substitute.
+    """
     step = md.TIMEFRAME_STEPS[timeframe]
     res: Dict[str, Any] = {
         "timeframe": timeframe, "status": "FAILED",
-        "requested_from": None, "requested_to": md.ts_iso_of(server_now),
+        "requested_from": None, "requested_to": None,
         "received": 0, "appended": 0, "duplicates_skipped": 0,
-        "incomplete_dropped": 0, "invalid_rejected": 0, "conflicts": 0,
-        "latest_stored_ts": None, "error": None,
+        "incomplete_dropped": 0, "invalid_rejected": 0,
+        "invalid_timestamps_rejected": 0, "invalid_examples": [],
+        "conflicts": 0, "latest_stored_ts": None, "error": None,
     }
     latest = md.latest_ts(conn, instrument, timeframe)
-    if latest is not None:
-        res["latest_stored_ts"] = md.ts_iso_of(latest)
-        from_server = latest + step
-    else:
-        from_server = max(0, server_now - step * MAX_BACKFILL_CANDLES)
-        from_server -= from_server % step
-    res["requested_from"] = md.ts_iso_of(from_server)
-    if from_server > server_now:
-        res["status"] = "UP_TO_DATE"
+    if latest is None:
+        res["error"] = ("no stored baseline for this timeframe - import the supplied "
+                        "CSV history first; FETCH DATA only appends newer candles")
         return res
+    ts_error = md.validate_timestamp(latest)
+    if ts_error is not None:
+        res["error"] = (f"latest stored candle is unusable: {ts_error}; "
+                        "refusing to build a request from it (no data modified)")
+        return res
+    res["latest_stored_ts"] = md.ts_iso_of(latest)
+    from_ts = max(md.MIN_TS, latest - 2 * step)  # small overlap for boundary safety
+    to_ts = (int(utc_now) // step) * step
+    if to_ts <= from_ts:
+        res["status"] = "UP_TO_DATE"
+        res["requested_from"] = md.ts_iso_of(from_ts)
+        res["requested_to"] = md.ts_iso_of(to_ts)
+        return res
+    from_dt = datetime.fromtimestamp(from_ts, tz=timezone.utc)
+    to_dt = datetime.fromtimestamp(to_ts, tz=timezone.utc)
+    res["requested_from"] = md.ts_iso_of(from_ts)
+    res["requested_to"] = md.ts_iso_of(to_ts)
 
     tf_const = getattr(mt5, f"TIMEFRAME_{timeframe}", None)
     if tf_const is None:
         res["error"] = f"terminal module exposes no TIMEFRAME_{timeframe} constant"
         return res
-    rates = mt5.copy_rates_range(instrument, tf_const,
-                                 server_time.server_to_utc_dt(from_server),
-                                 server_time.server_to_utc_dt(server_now))
+    rates = mt5.copy_rates_range(instrument, tf_const, from_dt, to_dt)
     if rates is None:
         err = None
         try:
             err = mt5.last_error()
         except Exception:  # noqa: BLE001
             pass
-        res["error"] = f"copy_rates_range returned None (last_error={err})"
+        res["error"] = (f"copy_rates_range returned None (last_error={err}) "
+                        f"for UTC range {res['requested_from']}..{res['requested_to']}")
         return res
 
     raw_rows = list(rates)
@@ -152,15 +259,30 @@ def _fetch_one(mt5, conn, *, instrument: str, timeframe: str, server_now: int,
     batch_conflicts: List[int] = []
     seen: Dict[int, Dict[str, Any]] = {}
     for rate in raw_rows:
+        raw_time = _raw_rate_time(rate)
+        time_error = md.validate_timestamp(raw_time)
+        if time_error is not None:
+            res["invalid_rejected"] += 1
+            res["invalid_timestamps_rejected"] += 1
+            if len(res["invalid_examples"]) < 3:
+                res["invalid_examples"].append(f"time={raw_time!r}: {time_error}")
+            continue
         c = _rate_to_candle(rate)
         if c is None:
             res["invalid_rejected"] += 1
+            if len(res["invalid_examples"]) < 3:
+                res["invalid_examples"].append(f"time={raw_time!r}: malformed rate record")
             continue
-        if c["ts"] + step > server_now:
+        if c["ts"] + step > int(utc_now):
             res["incomplete_dropped"] += 1  # live, unfinished bar - never stored
             continue
-        if md.validate_candle(c) is not None:
+        validation_error = md.validate_candle(c)
+        if validation_error is not None:
             res["invalid_rejected"] += 1
+            if validation_error.startswith("invalid timestamp"):
+                res["invalid_timestamps_rejected"] += 1
+            if len(res["invalid_examples"]) < 3:
+                res["invalid_examples"].append(f"time={raw_time!r}: {validation_error}")
             continue
         prior = seen.get(c["ts"])
         if prior is not None:
@@ -195,19 +317,20 @@ def _fetch_one(mt5, conn, *, instrument: str, timeframe: str, server_now: int,
             gaps, largest = md.gap_stats(inserted_rows or candles, step)
             md.record_dataset(
                 conn, dataset_id=dataset_id, instrument=instrument, timeframe=timeframe,
-                source_file=f"mt5-fetch", source_sha256=batch_fp, source_bytes=0,
+                source_file=f"mt5-fetch:{broker_server}", source_sha256=batch_fp, source_bytes=0,
                 row_count=merged["inserted"], duplicates_collapsed=merged["duplicates_skipped"],
                 gaps_found=gaps, largest_gap_seconds=largest,
                 first_ts=inserted_rows[0]["ts_iso"] if inserted_rows else None,
                 last_ts=inserted_rows[-1]["ts_iso"] if inserted_rows else None,
                 content_fingerprint=batch_fp, location=str(store_db_path()),
                 imported_at=md.iso_now(), validation_result="PASS",
-                validation_report={"kind": "mt5-fetch",
+                validation_report={"kind": "mt5-fetch", "timezone": "UTC epoch seconds",
                                    "requested_from": res["requested_from"],
                                    "requested_to": res["requested_to"],
                                    "received": res["received"],
                                    "incomplete_dropped": res["incomplete_dropped"],
-                                   "invalid_rejected": res["invalid_rejected"]},
+                                   "invalid_rejected": res["invalid_rejected"],
+                                   "invalid_timestamps_rejected": res["invalid_timestamps_rejected"]},
                 status="AVAILABLE")
     res["status"] = "UPDATED" if res["appended"] else "UP_TO_DATE"
     latest_after = md.latest_ts(conn, instrument, timeframe)
@@ -236,20 +359,20 @@ def fetch(instrument: str, timeframes: List[str]) -> Dict[str, Any]:
                          f"MetaTrader5 package not importable: {mt5_connection.import_error()}. "
                          f"FETCH DATA needs the Windows machine with the terminal (see TROUBLESHOOTING.txt).")
     result = mt5_connection.connect(None)
-    if result.get("state") not in (mt5_connection.STATE_ACCOUNT_LOADED, mt5_connection.STATE_CONNECTED):
+    if result.get("state") == mt5_connection.STATE_CONNECTED:
+        raise FetchError("MT5_LOGIN_REQUIRED",
+                         "terminal is running but no account is logged in; log in inside "
+                         "MT5, reconnect, and only then FETCH DATA")
+    if result.get("state") != mt5_connection.STATE_ACCOUNT_LOADED:
         raise FetchError(result.get("error_code") or "MT5_CONNECT_FAILED",
                          result.get("error") or "MT5 connection failed")
     account = result.get("account") or {}
     terminal = result.get("terminal") or {}
     broker_server = account.get("server") or terminal.get("company") or "unknown-server"
 
-    with mt5_connection.SESSION_LOCK:
-        tick = mt5_connection.as_dict(mt5.symbol_info_tick(sym))
-    utc_now = int(_time.time())
-    tick_time = tick.get("time") if isinstance(tick.get("time"), (int, float)) else None
-    server_now = server_time.server_now_epoch(int(tick_time) if tick_time else None, utc_now)
-    offset, offset_source = server_time.estimate_offset_from_tick(
-        int(tick_time) if tick_time else None, utc_now)
+    # MT5 rate timestamps and the canonical store are both UTC epoch seconds.
+    # No broker offset is measured, rounded or applied anywhere in this path.
+    utc_now = _utc_now_epoch()
 
     db = store_db_path()
     db.parent.mkdir(parents=True, exist_ok=True)
@@ -259,13 +382,14 @@ def fetch(instrument: str, timeframes: List[str]) -> Dict[str, Any]:
         for tf in timeframes:
             try:
                 results.append(_fetch_one(mt5, conn, instrument=sym,
-                                          timeframe=tf, server_now=server_now,
+                                          timeframe=tf, utc_now=utc_now,
                                           broker_server=broker_server))
             except _Conflict as exc:
                 results.append({
                     "timeframe": tf, "status": "FAILED", "requested_from": None,
-                    "requested_to": md.ts_iso_of(server_now), "received": 0, "appended": 0,
+                    "requested_to": md.ts_iso_of(utc_now), "received": 0, "appended": 0,
                     "duplicates_skipped": 0, "incomplete_dropped": 0, "invalid_rejected": 0,
+                    "invalid_timestamps_rejected": 0, "invalid_examples": [],
                     "conflicts": len(exc.ts_list), "latest_stored_ts": None,
                     "error": (f"terminal history conflicts with stored candles at "
                               f"{[md.ts_iso_of(t) for t in exc.ts_list[:5]]} - stored history "
@@ -274,8 +398,9 @@ def fetch(instrument: str, timeframes: List[str]) -> Dict[str, Any]:
             except Exception as exc:  # noqa: BLE001 - one TF must not sink the rest
                 results.append({
                     "timeframe": tf, "status": "FAILED", "requested_from": None,
-                    "requested_to": md.ts_iso_of(server_now), "received": 0, "appended": 0,
+                    "requested_to": md.ts_iso_of(utc_now), "received": 0, "appended": 0,
                     "duplicates_skipped": 0, "incomplete_dropped": 0, "invalid_rejected": 0,
+                    "invalid_timestamps_rejected": 0, "invalid_examples": [],
                     "conflicts": 0, "latest_stored_ts": None,
                     "error": f"{type(exc).__name__}: {exc}",
                 })
@@ -284,16 +409,23 @@ def fetch(instrument: str, timeframes: List[str]) -> Dict[str, Any]:
     finally:
         conn.close()
 
+    succeeded = sum(1 for r in results if r["status"] != "FAILED")
+    overall = ("COMPLETE" if results and succeeded == len(results)
+               else "PARTIAL" if succeeded else "FAILED")
+    time_block = {
+        "rule": "UTC epoch seconds; MT5 rate time is stored verbatim after validation; "
+                "no broker/server offset is applied",
+        "utc_now": md.ts_iso_of(utc_now),
+        "offset_seconds": 0,
+        "offset_source": "not applied (UTC canonical store)",
+    }
     return {
         "instrument": sym,
         "broker_server": broker_server,
-        "server_time": {
-            "rule": server_time.RULE_NAME,
-            "server_now": md.ts_iso_of(server_now),
-            "offset_seconds": offset,
-            "offset_source": offset_source,
-        },
-        "ok": all(r["status"] != "FAILED" for r in results),
+        "status": overall,
+        "time": time_block,
+        "server_time": time_block,  # backward-compatible alias; values are UTC, not server time
+        "ok": overall == "COMPLETE",
         "results": results,
         "fetched_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }

@@ -677,16 +677,39 @@ export function ManualNodes() {
                   {!marketData.available && marketData.reason && (
                     <p className="faint" style={{ margin: 0, fontSize: 11 }}>{marketData.reason}</p>
                   )}
+                  {marketData.summary && (
+                    <div className="meta-row mono" style={{ fontSize: 11 }}>
+                      <span>{marketData.summary.available_timeframes}/7 timeframes available</span>
+                      <span>{marketData.summary.total_candles.toLocaleString()} total candles</span>
+                      <span>{marketData.summary.first_ts ?? '—'} → {marketData.summary.last_ts ?? '—'} UTC</span>
+                      <span className="faint">last update {marketData.summary.last_successful_update ?? '—'}</span>
+                    </div>
+                  )}
                   <div className="market-data-grid" role="table" aria-label={`Stored ${instrument} candle coverage`}>
+                    <div className="market-data-row market-data-head" role="row">
+                      <strong>TF</strong><span>Status</span><span>First candle (UTC)</span><span>Latest candle (UTC)</span><span>Candles</span><span>Source / updates</span>
+                    </div>
                     {SUPPORTED_TIMEFRAMES.map((tf) => {
                       const stats = marketData.timeframes?.[tf]
+                      const status = stats?.status ?? (stats?.row_count ? 'AVAILABLE' : 'EMPTY')
                       return (
                         <div className="market-data-row" role="row" key={tf}>
                           <strong className="mono">{tf}</strong>
-                          {stats ? (
-                            <span className="mono">{stats.row_count.toLocaleString()} candles · {stats.first_ts ?? '—'} → {stats.last_ts ?? '—'}</span>
+                          <span className={`meta-chip ${status === 'AVAILABLE' ? 'ok' : status === 'ERROR' ? 'err' : 'warn'}`}>{status}</span>
+                          {stats?.row_count ? (
+                            <>
+                              <span className="mono">{stats.first_ts ?? '—'}</span>
+                              <span className="mono">{stats.last_ts ?? '—'}</span>
+                              <span className="mono">{stats.row_count.toLocaleString()}</span>
+                              <span className="faint" style={{ fontSize: 10 }}>
+                                {stats.source ?? 'stored dataset'} · UTC epoch seconds
+                                {stats.last_successful_import ? ` · imported ${stats.last_successful_import}` : ''}
+                                {stats.last_mt5_update ? ` · MT5 ${stats.last_mt5_update}` : ''}
+                                {stats.warnings?.length ? ` · ${stats.warnings.join('; ')}` : ''}
+                              </span>
+                            </>
                           ) : (
-                            <span className="faint">no stored candles</span>
+                            <span className="faint">no stored candles — import the supplied CSV first</span>
                           )}
                         </div>
                       )
@@ -707,10 +730,10 @@ export function ManualNodes() {
               {fetchReport && (
                 <div className="fetch-report" role="status">
                   <div className="meta-row">
-                    <span className={`meta-chip ${fetchReport.ok ? 'ok' : 'err'}`}>{fetchReport.ok ? 'COMPLETED' : 'PARTIAL / FAILED'}</span>
+                    <span className={`meta-chip ${fetchReport.status === 'COMPLETE' ? 'ok' : fetchReport.status === 'PARTIAL' ? 'warn' : 'err'}`}>{fetchReport.status ?? (fetchReport.ok ? 'COMPLETE' : 'FAILED')}</span>
                     <span className="mono" style={{ fontSize: 11 }}>{fetchReport.broker_server}</span>
                     <span className="faint" style={{ fontSize: 10.5 }}>
-                      server now {fetchReport.server_time.server_now} · offset {fetchReport.server_time.offset_seconds}s ({fetchReport.server_time.offset_source})
+                      UTC now {fetchReport.time?.utc_now ?? fetchReport.server_time?.utc_now ?? '—'} · no broker offset applied
                     </span>
                   </div>
                   {fetchReport.results.map((r) => (
@@ -718,7 +741,8 @@ export function ManualNodes() {
                       <strong className="mono">{r.timeframe}</strong>
                       <span className={`meta-chip ${r.status === 'FAILED' ? 'err' : r.status === 'UPDATED' ? 'ok' : 'warn'}`}>{r.status}</span>
                       <span className="mono">
-                        {r.requested_from ?? '—'} → {r.requested_to ?? '—'} · received {r.received} · appended {r.appended} · duplicates {r.duplicates_skipped} · incomplete {r.incomplete_dropped} · invalid {r.invalid_rejected} · conflicts {r.conflicts} · latest {r.latest_stored_ts ?? '—'}
+                        {r.requested_from ?? '—'} → {r.requested_to ?? '—'} UTC · received {r.received} · appended {r.appended} · duplicates {r.duplicates_skipped} · incomplete {r.incomplete_dropped} · invalid {r.invalid_rejected} · invalid timestamps {r.invalid_timestamps_rejected ?? 0} · conflicts {r.conflicts} · latest {r.latest_stored_ts ?? '—'}
+                        {r.invalid_examples?.length ? ` · rejected: ${r.invalid_examples.join('; ')}` : ''}
                       </span>
                       {r.error && <span className="field-error">{r.error}</span>}
                     </div>

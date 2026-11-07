@@ -36,14 +36,16 @@ function route(url: string, method: string, bodyText?: string): Response {
   }
   if (url.includes('/market-data')) {
     if (url.includes('/fetch')) {
-      return json({ instrument: 'XAUUSD', broker_server: 'ICMarketsSC-Demo', ok: false,
+      return json({ instrument: 'XAUUSD', broker_server: 'ICMarketsSC-Demo', ok: false, status: 'FAILED',
+        time: { rule: 'UTC epoch seconds', utc_now: '2026-11-07 00:00:00', offset_seconds: 0, offset_source: 'not applied (UTC canonical store)' },
         server_time: { rule: 'IC Markets server time', server_now: '2026-07-21 00:00:00', offset_seconds: 10800, offset_source: 'calendar rule' },
         results: [{ timeframe: 'M1', status: 'FAILED', requested_from: null, requested_to: null, received: 0, appended: 0, duplicates_skipped: 0, incomplete_dropped: 0, invalid_rejected: 0, conflicts: 0, latest_stored_ts: null, error: 'mock terminal unavailable' }],
         fetched_at: '2026-11-07T00:00:00Z' })
     }
-    return json({ instrument: 'XAUUSD', available: true, store: '<test-root>/MARKET_DATA/market_data.db',
-      timeframes: { M1: { row_count: 3, first_ts: '2026-07-07 21:41:00', last_ts: '2026-07-07 21:43:00' },
-        M5: null, M15: null, M30: null, H1: null, H4: null, D1: null }, datasets: [] })
+    return json({ instrument: 'XAUUSD', available: true, store: '<test-root>/MARKET_DATA/market_data.db', timezone: 'UTC (epoch seconds)',
+      summary: { available_timeframes: 1, total_candles: 3, first_ts: '2026-07-07 18:41:00', last_ts: '2026-07-07 18:43:00', last_successful_update: '2026-11-07T00:00:00+00:00' },
+      timeframes: { M1: { row_count: 3, first_ts: '2026-07-07 18:41:00', last_ts: '2026-07-07 18:43:00', status: 'AVAILABLE', timezone: 'UTC (epoch seconds)', source: 'XAUUSD_M1.csv', warnings: [] },
+        M5: { row_count: 0, status: 'EMPTY' }, M15: { row_count: 0, status: 'EMPTY' }, M30: { row_count: 0, status: 'EMPTY' }, H1: { row_count: 0, status: 'EMPTY' }, H4: { row_count: 0, status: 'EMPTY' }, D1: { row_count: 0, status: 'EMPTY' } }, datasets: [] })
   }
   if (url.includes('/api/v1/instruments/') && url.includes('/nodes')) {
     // Phase 2 spec pipeline endpoints

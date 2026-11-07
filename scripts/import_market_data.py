@@ -18,10 +18,11 @@ Binding guarantees (enforced, not aspirational):
     timeframe) file; the instrument/timeframe comes from the filename or the
     explicit flags, never guessed from content
   * gaps are REPORTED, never filled
-  * timestamps stay NAIVE broker-server time (ICMarkets: GMT+2 winter /
-    GMT+3 summer). `ts` stores epoch seconds tagged as UTC *only* for stable
-    ordering; it is never converted to or from real UTC and must not be
-    compared against other feeds
+  * source timestamps are broker-server wall time (IC Markets: GMT+2 winter /
+    GMT+3 summer, US DST transition dates). They are converted ONCE, here at
+    the import boundary, to the store's canonical convention: UTC epoch
+    seconds. Stored `ts_iso` is the UTC rendering; no other component may
+    add or subtract a broker offset again
   * `VOL` is stored as-reported (broker exports it all-zero for XAUUSD);
     `TICKVOL` is stored separately as `tick_volume`; `SPREAD` is stored
     separately. Columns are never merged silently
@@ -50,6 +51,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from hero1_market_data import store as _store
+from hero1_mt5_adapter import server_time as _server_time
 
 TIMEFRAME_STEPS = _store.TIMEFRAME_STEPS
 TF_ALIASES = _store.TF_ALIASES
@@ -95,8 +97,9 @@ def _parse_ts(date_s: str, time_s: str | None) -> tuple[int, str] | None:
         return None
     if dt.year < 1980 or dt.year > 2100:
         return None
-    ts = calendar.timegm(dt.utctimetuple())  # naive broker time tagged UTC - ordering only
-    return ts, dt.strftime("%Y-%m-%d %H:%M:%S")
+    wall_ts = calendar.timegm(dt.utctimetuple())  # server wall time as naive epoch
+    ts = _server_time.server_to_utc_epoch(wall_ts)  # converted ONCE to UTC epoch seconds
+    return ts, _store.ts_iso_of(ts)
 
 
 def parse_rows(path: Path) -> dict:
