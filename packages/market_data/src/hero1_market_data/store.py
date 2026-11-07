@@ -233,6 +233,64 @@ def canonical_fingerprint(rows: List[Dict[str, Any]]) -> str:
     return h.hexdigest()
 
 
+# ------------------------------------------------------------ gap analysis
+# Session model (UTC, documented approximation of spot-XAUUSD hours on the
+# ICMarkets-style feed): markets close over the weekend (any gap covering a
+# Saturday) and pause for a short nightly rollover break (weekday evenings,
+# roughly 21:00-24:00 UTC, well under 4h). Everything else is UNVERIFIED:
+# this code cannot see broker holiday calendars, so it never claims a
+# weekday gap is "confirmed missing" - it counts the candles that WOULD be
+# missing if the market was open, and says so.
+_WEEKEND_WD = 5  # Saturday (datetime.weekday(): Mon=0 .. Sun=6)
+
+
+def _gap_overlaps_saturday(start_ts: int, end_ts: int) -> bool:
+    from datetime import datetime, timezone
+    d = datetime.fromtimestamp(start_ts, tz=timezone.utc).date()
+    end_d = datetime.fromtimestamp(end_ts, tz=timezone.utc).date()
+    cur = d
+    import datetime as _dt
+    while cur <= end_d:
+        if cur.weekday() == _WEEKEND_WD:
+            return True
+        cur += _dt.timedelta(days=1)
+    return False
+
+
+def classify_gaps(ts_list: List[int], step: int) -> Dict[str, Any]:
+    """Classify every interval > 1.5 steps between consecutive candles.
+
+    Returns counts per class plus the estimated candles missing from
+    UNVERIFIED intervals. Expected-closure intervals are the normal
+    weekend/session rhythm and must never be reported as missing data.
+    """
+    from datetime import datetime, timezone
+    out = {"total_intervals": 0, "expected_closure": 0, "expected_session_break": 0,
+           "unverified_intervals": 0, "unverified_missing_candles_est": 0,
+           "largest_gap_seconds": None, "largest_unverified_seconds": None}
+    ts_sorted = sorted(int(t) for t in ts_list)
+    for prev_ts, cur_ts in zip(ts_sorted, ts_sorted[1:]):
+        delta = cur_ts - prev_ts
+        if delta <= int(step * 1.5):
+            continue
+        out["total_intervals"] += 1
+        out["largest_gap_seconds"] = max(out["largest_gap_seconds"] or 0, delta)
+        if _gap_overlaps_saturday(prev_ts, cur_ts):
+            out["expected_closure"] += 1
+            continue
+        start = datetime.fromtimestamp(prev_ts, tz=timezone.utc)
+        end = datetime.fromtimestamp(cur_ts, tz=timezone.utc)
+        if (start.date() == end.date() and start.weekday() < 5
+                and start.hour >= 20 and delta <= 4 * 3600):
+            out["expected_session_break"] += 1
+            continue
+        out["unverified_intervals"] += 1
+        out["unverified_missing_candles_est"] += max(0, delta // step - 1)
+        out["largest_unverified_seconds"] = max(
+            out["largest_unverified_seconds"] or 0, delta)
+    return out
+
+
 def gap_stats(rows: List[Dict[str, Any]], step: int) -> Tuple[int, Optional[int]]:
     gaps = 0
     largest: Optional[int] = None

@@ -209,6 +209,17 @@ export interface Mt5TerminalsOut {
 }
 
 export interface MarketDataTimeframeStats {
+  missing_completed_candles?: number
+  up_to_date?: boolean
+  gap_analysis?: {
+    total_intervals: number
+    expected_closure: number
+    expected_session_break: number
+    unverified_intervals: number
+    unverified_missing_candles_est: number
+    largest_gap_seconds: number | null
+    largest_unverified_seconds: number | null
+  } | null
   row_count: number
   first_ts?: string | null
   last_ts?: string | null
@@ -290,6 +301,10 @@ export interface MarketDataAvailability {
     last_successful_import?: string | null
     last_mt5_update?: string | null
     mt5_fetch_required_timeframes?: string[]
+    up_to_date_timeframes?: string[]
+    unresolved_conflicts?: number
+    unverified_gap_intervals?: number
+    unverified_missing_candles_est?: number
   }
   timeframes: Record<string, MarketDataTimeframeStats | null>
   datasets: MarketDataDataset[]

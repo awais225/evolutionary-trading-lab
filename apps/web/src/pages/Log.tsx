@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { loadSortPref, nextSortState, saveSortPref, type SortColumn, type SortState } from '../lib/tableSort'
 import { ApiError, api } from '../api/client'
 import type { HeroEvent } from '../api/types'
 import { useInstrument } from '../state/instrument'
@@ -49,6 +50,22 @@ export function LogView() {
   const [loadingOlder, setLoadingOlder] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [severity, setSeverity] = useState<string>('ALL')
+  // Universal sorting (ISSUE-055): SERVER-SIDE - the backend orders the full
+  // filtered dataset before pagination. Persisted per table like other prefs.
+  const LOG_SORT_COLUMNS: SortColumn<HeroEvent>[] = [
+    { key: 'ts', label: 'Time', type: 'date', get: (e) => e.ts },
+    { key: 'severity', label: 'Severity', type: 'text', get: (e) => e.severity },
+    { key: 'subsystem', label: 'Component', type: 'text', get: (e) => e.subsystem },
+    { key: 'instrument', label: 'Instrument', type: 'text', get: (e) => e.instrument },
+    { key: 'message', label: 'Message', type: 'text', get: (e) => e.message },
+  ]
+  const [sortState, setSortState] = useState<SortState>(
+    () => loadSortPref('log', LOG_SORT_COLUMNS.map((c) => c.key)) ?? { key: 'ts', dir: 'desc' })
+  useEffect(() => { saveSortPref('log', sortState) }, [sortState])
+  const toggleLogSort = (key: string) => {
+    const col = LOG_SORT_COLUMNS.find((c) => c.key === key)
+    if (col) setSortState((cur) => nextSortState(cur, col))
+  }
   const [component, setComponent] = useState('')
   const [operationId, setOperationId] = useState('')
   const [search, setSearch] = useState('')
@@ -64,8 +81,8 @@ export function LogView() {
     severity: severity === 'ALL' ? undefined : severity,
     subsystem: component.trim() || undefined,
     search: [operationId.trim(), search.trim()].filter(Boolean).join(' ') || undefined,
-    limit, offset, order: 'desc' as const,
-  }), [instrument, allInstruments, severity, component, operationId, search])
+    limit, offset, order: sortState.dir, sort: sortState.key,
+  }), [instrument, allInstruments, severity, component, operationId, search, sortState])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -234,6 +251,24 @@ export function LogView() {
             ? 'The persistent event store is empty for this scope.'
             : 'Adjust or clear the filters — clearing filters never deletes log history.'}</div>
       ) : (
+        <>
+        <div className="log-sort-row" role="row" aria-label="Sort events">
+          <span className="faint" style={{ fontSize: 10, marginRight: 2 }}>SORT</span>
+          {LOG_SORT_COLUMNS.map((col) => {
+            const active = sortState.key === col.key
+            return (
+              <button key={col.key} type="button" className="sort-btn"
+                      title={`Sort by ${col.label.toLowerCase()}`}
+                      onClick={() => toggleLogSort(col.key)}>
+                <span>{col.label}</span>
+                <span className={active ? 'sort-ind' : 'sort-ind idle'} aria-hidden="true">
+                  {active ? (sortState.dir === 'asc' ? '▲' : '▼') : '⇅'}
+                </span>
+              </button>
+            )
+          })}
+          <span className="faint" style={{ fontSize: 10 }}>applies to the full filtered log, not just this page</span>
+        </div>
         <div className="log-list" role="log" aria-label="Application events">
           {events.map((e) => {
             const oid = eventOperationId(e)
@@ -262,6 +297,7 @@ export function LogView() {
             )
           })}
         </div>
+        </>
       )}
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 10 }}>
         <p className="faint" style={{ fontSize: 10.5, margin: 0 }}>

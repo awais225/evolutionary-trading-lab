@@ -48,7 +48,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 export const api = {
   health: () => request<HealthOut>('GET', '/health'),
   instruments: () => request<{ instruments: Instrument[] }>('GET', '/api/v1/instruments').then((r) => r.instruments),
-  events: (params: { instrument?: string; category?: string; severity?: string; subsystem?: string; search?: string; limit?: number; offset?: number; order?: 'asc' | 'desc' } = {}) => {
+  events: (params: { instrument?: string; category?: string; severity?: string; subsystem?: string; search?: string; limit?: number; offset?: number; order?: 'asc' | 'desc'; sort?: string } = {}) => {
     const q = new URLSearchParams()
     if (params.instrument) q.set('instrument', params.instrument)
     if (params.category) q.set('category', params.category)
@@ -57,6 +57,7 @@ export const api = {
     if (params.search) q.set('search', params.search)
     if (params.limit) q.set('limit', String(params.limit))
     if (params.offset) q.set('offset', String(params.offset))
+    if (params.sort) q.set('sort', params.sort)
     if (params.order) q.set('order', params.order)
     return request<EventListOut>('GET', `/api/v1/events?${q}`)
   },
@@ -144,6 +145,12 @@ export const api = {
       const qs = q.toString()
       return request<{ instrument: string; conflicts: FetchConflict[]; total: number }>(
         'GET', `/api/v1/instruments/${instrument}/market-data/conflicts${qs ? `?${qs}` : ''}`)
+    },
+    quality: (instrument: string, timeframe: string, fromTs?: number, toTs?: number) => {
+      const q = new URLSearchParams({ timeframe })
+      if (fromTs != null) q.set('from_ts', String(fromTs))
+      if (toTs != null) q.set('to_ts', String(toTs))
+      return request<Record<string, unknown>>('GET', `/api/v1/instruments/${instrument}/market-data/quality?${q}`)
     },
     resolveConflict: (instrument: string, conflictId: number, action: 'KEPT_STORED' | 'ACCEPTED_INCOMING', note?: string) =>
       request<{ conflict: FetchConflict; before: Record<string, unknown>; after: Record<string, unknown> }>(

@@ -102,11 +102,14 @@ class EventRepository:
         self.s.refresh(ev)
         return ev
 
+    _SORT_COLUMNS = {"id": None, "ts": None, "severity": None, "category": None,
+                     "subsystem": None, "instrument": None, "message": None}
+
     def list(self, *, instrument: Optional[str] = None, category: Optional[str] = None,
              severity: Optional[str] = None, subsystem: Optional[str] = None,
              since_id: Optional[int] = None, limit: int = 100,
              search: Optional[str] = None, offset: int = 0,
-             desc: bool = False) -> List[rm.GlobalEvent]:
+             desc: bool = False, sort: Optional[str] = None) -> List[rm.GlobalEvent]:
         stmt = select(rm.GlobalEvent).order_by(rm.GlobalEvent.id)
         if search:
             like = f"%{search}%"
@@ -122,7 +125,12 @@ class EventRepository:
             stmt = stmt.where(rm.GlobalEvent.subsystem == subsystem)
         if since_id is not None:
             stmt = stmt.where(rm.GlobalEvent.id > int(since_id))
-        if desc:
+        if sort in ("ts", "severity", "category", "subsystem", "instrument", "message"):
+            col = getattr(rm.GlobalEvent, "instrument_id" if sort == "instrument" else sort)
+            # id as a stable tiebreaker keeps equal values deterministic
+            stmt = stmt.order_by(None).order_by(col.desc() if desc else col.asc(),
+                                                rm.GlobalEvent.id.asc())
+        elif desc:
             stmt = stmt.order_by(None).order_by(rm.GlobalEvent.id.desc())
         stmt = stmt.limit(max(1, min(int(limit), 500))).offset(max(0, int(offset)))
         return list(self.s.execute(stmt).scalars())

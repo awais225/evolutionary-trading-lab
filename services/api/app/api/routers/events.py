@@ -32,6 +32,7 @@ def list_events(
                                description="matches message and payload (operation ids, timeframes, errors)"),
     offset: int = Query(default=0, ge=0),
     order: str = Query(default="desc", pattern="^(asc|desc)$"),
+    sort: str = Query(default="ts", pattern="^(ts|severity|category|subsystem|instrument|message|id)$"),
     limit: int = Query(default=100, ge=1, le=500),
     registry: Session = Depends(get_registry_session),
 ) -> EventListOut:
@@ -45,7 +46,8 @@ def list_events(
     search_value = (search.strip() or None) if search else None
     rows = repo.list(instrument=_symbol_filter(instrument), category=cat, severity=sev,
                      subsystem=subsystem, since_id=since_id, limit=limit,
-                     search=search_value, offset=offset, desc=(order == "desc"))
+                     search=search_value, offset=offset, desc=(order == "desc"),
+                     sort=sort)
     total = repo.count(instrument=_symbol_filter(instrument), category=cat, severity=sev,
                        subsystem=subsystem, search=search_value)
     events = events_to_dicts(rows)

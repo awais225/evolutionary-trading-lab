@@ -336,3 +336,11 @@ this entry).
   conflicts of the latest Windows fetch are classified UNRESOLVED pending
   Windows-side value inspection; no stored candle was overwritten.
 
+- ISSUE-055 (2026-11-07): universal table sorting (shared comparator
+  system, per-table persistence; LOG server-side) across Manual Nodes,
+  DATA dashboards and LOG; market-data gap classification
+  (closure/session-break/unverified), corrected freshness semantics and a
+  data-quality readiness endpoint. The 15 Windows CSV-vs-MT5 conflicts
+  remain UNRESOLVED with stored values preserved. Backend 227 tests,
+  frontend 66/66, build clean.
+

@@ -143,3 +143,17 @@ def resolve_fetch_conflict(conflict_id: int, body: ConflictResolveRequest,
     except ValueError as exc:
         raise HTTPException(409, detail={"code": "CONFLICT_ALREADY_RESOLVED", "message": str(exc)}) from None
 
+
+@router.get("/quality")
+def read_data_quality(instrument: str = Depends(get_instrument_context),
+                      timeframe: str = "M15",
+                      from_ts: Optional[int] = None,
+                      to_ts: Optional[int] = None) -> dict:
+    """Backtesting-readiness report (ISSUE-055 B7): coverage, unverified
+    gaps, unresolved conflicts, sources, READY/CAUTION/NOT_READY."""
+    try:
+        return market_data_service.data_quality(instrument, timeframe,
+                                                from_epoch=from_ts, to_epoch=to_ts)
+    except ValueError as exc:
+        raise HTTPException(422, detail={"code": "TIMEFRAME_UNSUPPORTED", "message": str(exc)}) from None
+

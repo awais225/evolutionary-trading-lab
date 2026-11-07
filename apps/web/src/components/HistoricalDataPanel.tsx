@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useId, useRef, useState } from 'react'
 import { ApiError, api } from '../api/client'
 import type { FetchConflict, MarketDataAvailability, MarketDataFetchReport, MarketDataOperation } from '../api/types'
+import { useTableSort, type SortColumn } from '../lib/tableSort'
 import { SUPPORTED_TIMEFRAMES } from '../lib/timeframes'
 import { useInstrument } from '../state/instrument'
 import { logUserAction, newOperationId } from '../lib/opLog'
@@ -70,6 +71,25 @@ function FetchTimeframeSelect({ value, onChange, disabled }: {
  * availability (queried live from the running backend's own database) plus
  * incremental MT5 FETCH DATA with operation-id tracing.
  */
+interface MarketRow {
+  tf: string
+  stats: MarketDataAvailability['timeframes'][string]
+  status: string
+  first_ts: string | null
+  last_ts: string | null
+  row_count: number
+  source: string
+}
+
+const MARKET_SORT_COLUMNS: SortColumn<MarketRow>[] = [
+  { key: 'tf', label: 'TF', type: 'natural', get: (r) => r.tf },
+  { key: 'status', label: 'Status', type: 'text', get: (r) => r.status },
+  { key: 'first', label: 'First candle (UTC)', type: 'date', get: (r) => r.first_ts },
+  { key: 'last', label: 'Latest candle (UTC)', type: 'date', get: (r) => r.last_ts },
+  { key: 'candles', label: 'Candles', type: 'number', get: (r) => r.row_count },
+  { key: 'source', label: 'Source / updates', type: 'text', get: (r) => r.source },
+]
+
 export function HistoricalDataPanel() {
   const { instrument } = useInstrument()
   const [marketData, setMarketData] = useState<MarketDataAvailability | null>(null)
@@ -79,6 +99,7 @@ export function HistoricalDataPanel() {
   const [fetchTimeframe, setFetchTimeframe] = useState('ALL')
   const [fetchReport, setFetchReport] = useState<MarketDataFetchReport | null>(null)
   const [conflicts, setConflicts] = useState<FetchConflict[]>([])
+  const panelSort = useTableSort('data-market', MARKET_SORT_COLUMNS, { key: 'tf', dir: 'asc' })
   const [conflictBusyId, setConflictBusyId] = useState<number | null>(null)
   const [conflictNotice, setConflictNotice] = useState<string | null>(null)
   const [operation, setOperation] = useState<MarketDataOperation | null>(null)
@@ -233,18 +254,47 @@ export function HistoricalDataPanel() {
               <span className="faint">last MT5 update {marketData.summary.last_mt5_update ?? '—'}</span>
               <span className="faint">last update {marketData.summary.last_successful_update ?? '—'}</span>
               {marketData.summary.mt5_fetch_required_timeframes?.length ? (
-                <span className="meta-chip warn">MT5 FETCH required: {marketData.summary.mt5_fetch_required_timeframes.join(', ')}</span>
+                <span className="meta-chip warn" title="At least one completed candle after the latest stored candle has closed for these timeframes. A fetch appends newer completed candles; market-closure periods cannot be distinguished from the clock alone.">
+                  MT5 update available: {marketData.summary.mt5_fetch_required_timeframes.join(', ')}
+                </span>
               ) : (
-                <span className="meta-chip ok">MT5 fetch not required</span>
+                <span className="meta-chip ok" title="Every timeframe's latest stored candle is the last completed bar.">MT5 data up to date</span>
+              )}
+              {(marketData.summary.unresolved_conflicts ?? 0) > 0 && (
+                <span className="meta-chip warn">{marketData.summary.unresolved_conflicts} unresolved conflict(s) — see below</span>
+              )}
+              {(marketData.summary.unverified_gap_intervals ?? 0) > 0 && (
+                <span className="meta-chip warn" title="Weekday intervals longer than the market rhythm. They may include broker holidays; they are never filled automatically.">
+                  {marketData.summary.unverified_gap_intervals} unverified gap(s) (~{marketData.summary.unverified_missing_candles_est ?? 0} candles if the market was open)
+                </span>
               )}
             </div>
           )}
           <div className="market-data-grid" role="table" aria-label={`Stored ${instrument} candle coverage`}>
-            <div className="market-data-row market-data-head" role="row">
-              <strong>TF</strong><span>Status</span><span>First candle (UTC)</span><span>Latest candle (UTC)</span><span>Candles</span><span>Source / updates</span>
+            <div className="market-sort-row" role="row">
+              {MARKET_SORT_COLUMNS.map((col) => {
+                const active = panelSort.state?.key === col.key
+                return (
+                  <button key={col.key} type="button" className="sort-btn"
+                          title={`Sort by ${col.label}`}
+                          onClick={() => panelSort.toggle(col.key)}>
+                    <span>{col.label}</span>
+                    <span className={active ? 'sort-ind' : 'sort-ind idle'} aria-hidden="true">
+                      {active ? (panelSort.state!.dir === 'asc' ? '▲' : '▼') : '⇅'}
+                    </span>
+                  </button>
+                )
+              })}
             </div>
-            {SUPPORTED_TIMEFRAMES.map((tf) => {
-              const stats = marketData.timeframes?.[tf]
+            {panelSort.sorted(SUPPORTED_TIMEFRAMES.map((tf) => ({
+              tf, stats: marketData.timeframes?.[tf],
+              status: marketData.timeframes?.[tf]?.status ?? (marketData.timeframes?.[tf]?.row_count ? 'AVAILABLE' : 'EMPTY'),
+              first_ts: marketData.timeframes?.[tf]?.first_ts ?? null,
+              last_ts: marketData.timeframes?.[tf]?.last_ts ?? null,
+              row_count: marketData.timeframes?.[tf]?.row_count ?? 0,
+              source: marketData.timeframes?.[tf]?.source ?? '',
+            }))).map(({ tf, stats }) => {
+              
               const status = stats?.status ?? (stats?.row_count ? 'AVAILABLE' : 'EMPTY')
               return (
                 <div className="market-data-row" role="row" key={tf}>

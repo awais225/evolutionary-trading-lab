@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ApiError, api } from '../api/client'
 import type { Node, NodeVersionList } from '../api/types'
+import { useTableSort, type SortColumn } from '../lib/tableSort'
+import { SortHeader } from './SortHeader'
 import { SUPPORTED_TIMEFRAMES } from '../lib/timeframes'
 import { useInstrument } from '../state/instrument'
 import { logUserAction } from '../lib/opLog'
@@ -43,7 +45,7 @@ export function NodeDashboard() {
   const [tfFilter, setTfFilter] = useState('ALL')
   const [dirFilter, setDirFilter] = useState('ALL')
   const [statusFilter, setStatusFilter] = useState('ALL')
-  const [sort, setSort] = useState<'new' | 'old' | 'name'>('new')
+
   const [inspectId, setInspectId] = useState<number | null>(null)
   const [lineage, setLineage] = useState<NodeVersionList | null>(null)
   const rowRefs = useRef(new Map<number, HTMLTableRowElement>())
@@ -76,6 +78,18 @@ export function NodeDashboard() {
   const statuses = useMemo(
     () => [...new Set(nodes.map((n) => n.status))].sort(), [nodes])
 
+  const dashColumns: SortColumn<Node>[] = [
+    { key: 'id', label: 'ID', type: 'natural', get: (n) => n.id },
+    { key: 'name', label: 'Name', type: 'natural', get: (n) => n.name },
+    { key: 'timeframe', label: 'TF', type: 'text', get: (n) => n.timeframe },
+    { key: 'direction', label: 'Direction', type: 'text', get: (n) => nodeDirection(n) },
+    { key: 'status', label: 'Status / stage', type: 'text', get: (n) => n.status },
+    { key: 'parent', label: 'Parent', type: 'natural', get: (n) => n.parent_node_id },
+    { key: 'children', label: 'Children', type: 'number', get: (n) => childCounts.get(n.id) ?? 0 },
+    { key: 'version', label: 'v', type: 'number', get: (n) => n.version },
+  ]
+  const dashSort = useTableSort<Node>('data-nodes', dashColumns, { key: 'id', dir: 'desc' })
+
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase()
     const out = nodes.filter((n) => {
@@ -85,10 +99,8 @@ export function NodeDashboard() {
       if (q && !`${n.name} #${n.id}`.toLowerCase().includes(q)) return false
       return true
     })
-    out.sort((a, b) => (sort === 'name' ? a.name.localeCompare(b.name)
-      : sort === 'old' ? a.id - b.id : b.id - a.id))
-    return out
-  }, [nodes, search, tfFilter, dirFilter, statusFilter, sort])
+    return dashSort.sorted(out)
+  }, [nodes, search, tfFilter, dirFilter, statusFilter, dashSort])
 
   const inspected = inspectId != null ? byId.get(inspectId) ?? null : null
 
@@ -150,12 +162,6 @@ export function NodeDashboard() {
           <option value="ALL">Status: all</option>
           {statuses.map((st) => <option key={st} value={st}>{st}</option>)}
         </select>
-        <select className="input" style={{ maxWidth: 150 }} aria-label="Sort nodes"
-                value={sort} onChange={(e) => setSort(e.target.value as typeof sort)}>
-          <option value="new">Newest first</option>
-          <option value="old">Oldest first</option>
-          <option value="name">Name A–Z</option>
-        </select>
       </div>
 
       {loading ? (
@@ -172,8 +178,16 @@ export function NodeDashboard() {
         <div style={{ overflowX: 'auto' }}>
           <table className="node-table" aria-label={`Generated nodes for ${instrument}`}>
             <thead><tr>
-              <th>ID</th><th>Name</th><th>Instrument</th><th>TF</th><th>Direction</th>
-              <th>Status / stage</th><th>Parent</th><th>Children</th><th>v</th><th></th>
+              <SortHeader label="ID" columnKey="id" state={dashSort.state} onToggle={dashSort.toggle} />
+              <SortHeader label="Name" columnKey="name" state={dashSort.state} onToggle={dashSort.toggle} />
+              <th>Instrument</th>
+              <SortHeader label="TF" columnKey="timeframe" state={dashSort.state} onToggle={dashSort.toggle} />
+              <SortHeader label="Direction" columnKey="direction" state={dashSort.state} onToggle={dashSort.toggle} />
+              <SortHeader label="Status / stage" columnKey="status" state={dashSort.state} onToggle={dashSort.toggle} />
+              <SortHeader label="Parent" columnKey="parent" state={dashSort.state} onToggle={dashSort.toggle} />
+              <SortHeader label="Children" columnKey="children" state={dashSort.state} onToggle={dashSort.toggle} />
+              <SortHeader label="v" columnKey="version" state={dashSort.state} onToggle={dashSort.toggle} />
+              <th></th>
             </tr></thead>
             <tbody>
               {visible.map((n) => {

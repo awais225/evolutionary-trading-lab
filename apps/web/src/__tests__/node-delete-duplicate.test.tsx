@@ -59,8 +59,7 @@ describe('Manual Nodes — delete & Duplicate & Edit (ISSUE-054)', () => {
 
   it('bulk delete via selection reports the selected count', async () => {
     renderAt('/manual-nodes')
-    const boxes = await screen.findAllByLabelText(/^select node \d+$/i)
-    fireEvent.click(boxes[2])
+    fireEvent.click(await screen.findByLabelText('Select node 3'))
     fireEvent.click(await screen.findByRole('button', { name: /delete selected \(1\)/i }))
     expect(await screen.findByRole('dialog')).toHaveTextContent(/Delete 1 selected nodes?|Delete node?/)
     fireEvent.click(screen.getByRole('button', { name: /delete 1 nodes|delete node/i }))

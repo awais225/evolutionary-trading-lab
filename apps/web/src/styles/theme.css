@@ -659,3 +659,11 @@ tr:hover .name-edit-btn, .name-text:focus-visible + .name-edit-btn { opacity: 1;
 .modal-card h3 { margin: 0 0 8px; font-size: 14px; }
 .conflict-row { border-top: 1px solid rgba(148,184,220,.12); padding: 8px 0; font-size: 11px; }
 .conflict-grid { display: grid; grid-template-columns: 86px 1fr 1fr; gap: 4px 10px; font-size: 10.5px; }
+
+/* ---------------- Universal table sorting (ISSUE-055) ---------------- */
+.sort-btn { background: none; border: 0; color: inherit; font: inherit; cursor: pointer; display: inline-flex; gap: 4px; align-items: center; padding: 0; white-space: nowrap; }
+.sort-btn:hover { color: var(--accent-strong); }
+.sort-ind { color: var(--accent-strong); font-size: 8.5px; line-height: 1; }
+.sort-ind.idle { opacity: .28; color: inherit; }
+.market-sort-row { display: grid; grid-template-columns: 38px 92px 148px 148px 76px minmax(0, 1fr); gap: 10px; align-items: baseline; padding-bottom: 2px; }
+.log-sort-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 4px 2px 8px; font-size: 11px; }

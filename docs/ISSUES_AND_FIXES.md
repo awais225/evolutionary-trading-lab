@@ -140,3 +140,47 @@ Tests: `tests/test_node_delete_duplicate.py`,
 `node-delete-duplicate.test.tsx` (57 total). Windows genuine-MT5 conflict
 classification remains the owner's verification step.
 
+## ISSUE-055 - universal table sorting; gap classification; status semantics
+
+**Sorting.** Shared `apps/web/src/lib/tableSort.ts` + `SortHeader`:
+columns declare a type (number, absNumber, natural, date, text); the first
+click applies the type's default (metrics desc, drawdown by ABSOLUTE
+magnitude so -500 precedes -100, names/IDs natural asc so C2 < C10, dates
+desc, text asc), the second reverses. Missing values (null/''/'N/A') are
+never treated as zero and always sort last in both directions; ordering is
+stable and non-mutating. Preferences persist per table
+(`hero1.sort.<tableId>` in localStorage, the same mechanism as the
+instrument/starred/timeframe scopes) and restore across tabs and restarts.
+Applied to Manual Nodes, the DATA generated-nodes dashboard (replacing its
+ad-hoc Newest/Oldest/Name select), the DATA market-data coverage rows and
+the LOG. LOG sorting is server-side: `/api/v1/events?sort=...&order=...`
+orders the full filtered dataset BEFORE pagination (stable tiebreak on id).
+
+**Gaps.** `classify_gaps` in the market-data store: an interval overlapping
+a Saturday is an EXPECTED_CLOSURE; a short same-weekday-evening interval
+(>=20:00 UTC, <=4h) is an EXPECTED_SESSION_BREAK; anything else is
+UNVERIFIED with an estimated missing-candle count. On the baseline copy,
+D1's "319 gaps" become 315 weekend closures + 4 unverified; M30's 1563
+become 315 + 1203 + 45. Broker holidays (e.g. Christmas) are NOT
+auto-classified as closures - no broker calendar exists in the app, so
+they remain honestly unverified instead of "confirmed missing".
+
+**"MT5 FETCH required".** The flag was `latest_stored + step <= now` - it
+fired almost always, including right after a successful fetch, and sat
+next to "7/7 available", reading as an error. Availability (history
+exists), recency (`last_mt5_update`) and freshness are now separate:
+`up_to_date` / `missing_completed_candles` count only COMPLETED bars after
+the latest stored candle, the summary also separates unresolved conflicts
+and unverified gaps, and the chip reads "MT5 update available" (with the
+market-closure caveat) or "MT5 data up to date". `GET
+/market-data/quality?timeframe=&from_ts=&to_ts=` returns a
+READY/CAUTION/NOT_READY backtesting-readiness report.
+
+**Conflicts.** The 15 CSV-vs-MT5 conflicts from the Windows fetches remain
+UNRESOLVED (stored preserved, per-record Keep/Accept available since
+ISSUE-054). Local evidence gathered: sampled M1->M5 aggregation of the CSV
+baseline is exact, so the CSV side shows no internal timeframe shift; the
+CSV-vs-MT5 root cause stays officially unknown until the Windows-side
+values are inspected. No bulk acceptance was implemented - no reliable
+source-level rule has been established.
+

@@ -1081,3 +1081,14 @@ retrievable here) - nothing overwritten. Added durable fetch_conflicts audit
 opt-in; backtest/deeptest/live/approval records block, never cascade).
 (3) Duplicate & Edit: POST /nodes/{id}/duplicate, new independent node,
 parent=source, existing duplicate rules. Backend 220, frontend 57/57.
+[2026-11-07] ISSUE-055: (B) Gap classifier (weekend closure / session break /
+UNVERIFIED with estimated candles; holidays honestly unverified) in
+availability per TF; "MT5 FETCH required" was availability-vs-freshness
+conflation - now up_to_date + missing_completed_candles are separate facts
+and the chip says "MT5 update available"; GET /market-data/quality returns
+READY/CAUTION/NOT_READY. 15 Windows CSV-vs-MT5 conflicts still UNRESOLVED
+(values are on Windows); local CSV M1->M5 aggregation is exact (no internal
+shift). (A) Universal sorting: lib/tableSort.ts (number/absNumber/natural/
+date/text, nulls last, stable), SortHeader, per-table localStorage prefs;
+applied to Manual Nodes, DATA node dashboard, DATA market rows, LOG
+(server-side sort param). Backend 227, frontend 66/66.

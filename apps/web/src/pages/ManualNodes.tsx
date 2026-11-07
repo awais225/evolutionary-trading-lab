@@ -12,6 +12,19 @@ import { emptyComparison } from '../builder/specTree'
 import { SUPPORTED_TIMEFRAMES } from '../lib/timeframes'
 import { nextAutoName } from '../lib/nodeNames'
 import type { Node, NodeOrigin, ValidationIssue, ValidationReport, CompileResult, NodeVersionList, InstrumentMetadataView } from '../api/types'
+import { useTableSort, type SortColumn } from '../lib/tableSort'
+import { SortHeader } from '../components/SortHeader'
+
+const NODE_SORT_COLUMNS: SortColumn<Node>[] = [
+  { key: 'id', label: 'ID', type: 'natural', get: (n) => n.id },
+  { key: 'name', label: 'Name', type: 'natural', get: (n) => n.name },
+  { key: 'origin', label: 'Origin', type: 'text', get: (n) => n.origin },
+  { key: 'timeframe', label: 'TF', type: 'text', get: (n) => n.timeframe },
+  { key: 'version', label: 'v', type: 'number', get: (n) => n.version },
+  { key: 'spec', label: 'Spec', type: 'text', get: (n) => n.spec_hash },
+  { key: 'status', label: 'Status', type: 'text', get: (n) => n.status },
+  { key: 'approval', label: 'Approval', type: 'text', get: (n) => n.approval_state },
+]
 
 const ORIGINS: NodeOrigin[] = ['CUSTOM', 'WWW', 'INTERACTIVE', 'FINE_TUNED']
 
@@ -93,10 +106,13 @@ export function ManualNodes() {
   const selected = useMemo(() => nodes.find((n) => n.id === selectedId) ?? null, [nodes, selectedId])
 
   // Group-by-timeframe rendering: supported order, then drafts-without-TF last
+  const nodeSort = useTableSort<Node>('manual-nodes', NODE_SORT_COLUMNS, { key: 'id', dir: 'desc' })
+  const sortedNodes = useMemo(() => nodeSort.sorted(nodes), [nodeSort, nodes])
+
   const grouped = useMemo(() => {
-    if (!groupByTf) return [{ key: 'all', label: null as string | null, items: nodes }]
+    if (!groupByTf) return [{ key: 'all', label: null as string | null, items: sortedNodes }]
     const byTf = new Map<string, Node[]>()
-    for (const n of nodes) {
+    for (const n of sortedNodes) {
       const k = (n.timeframe ?? '').toUpperCase()
       const arr = byTf.get(k) ?? []
       arr.push(n)
@@ -110,7 +126,7 @@ export function ManualNodes() {
     const noTf = byTf.get('') ?? []
     if (noTf.length) out.push({ key: 'none', label: `NO TIMEFRAME (drafts) · ${noTf.length}`, items: noTf })
     return out
-  }, [groupByTf, nodes])
+  }, [groupByTf, sortedNodes])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -173,7 +189,7 @@ export function ManualNodes() {
     }
   }
 
-  const visibleIds = nodes.map((n) => n.id)
+  const visibleIds = sortedNodes.map((n) => n.id)
   const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id))
   const someVisibleSelected = visibleIds.some((id) => selectedIds.has(id))
   const toggleOne = (id: number) => {
@@ -850,7 +866,15 @@ export function ManualNodes() {
                         checked={allVisibleSelected} data-indeterminate={someVisibleSelected && !allVisibleSelected}
                         onChange={toggleAllVisible} ref={(el) => { if (el) el.indeterminate = someVisibleSelected && !allVisibleSelected }} /></th>
                   <th className="star-col" aria-label="Starred">★</th>
-                  <th>ID</th><th>Name</th><th>Origin</th><th>TF</th><th>v</th><th>Spec</th><th>Status</th><th>Approval</th><th></th>
+                  <SortHeader label="ID" columnKey="id" state={nodeSort.state} onToggle={nodeSort.toggle} />
+                  <SortHeader label="Name" columnKey="name" state={nodeSort.state} onToggle={nodeSort.toggle} />
+                  <SortHeader label="Origin" columnKey="origin" state={nodeSort.state} onToggle={nodeSort.toggle} />
+                  <SortHeader label="TF" columnKey="timeframe" state={nodeSort.state} onToggle={nodeSort.toggle} />
+                  <SortHeader label="v" columnKey="version" state={nodeSort.state} onToggle={nodeSort.toggle} />
+                  <SortHeader label="Spec" columnKey="spec" state={nodeSort.state} onToggle={nodeSort.toggle} />
+                  <SortHeader label="Status" columnKey="status" state={nodeSort.state} onToggle={nodeSort.toggle} />
+                  <SortHeader label="Approval" columnKey="approval" state={nodeSort.state} onToggle={nodeSort.toggle} />
+                  <th></th>
                 </tr></thead>
                 <tbody>
                   {grouped.map((group) => (

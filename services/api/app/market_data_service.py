@@ -296,8 +296,25 @@ def availability(instrument: str) -> Dict[str, Any]:
             if invalid_ts:
                 warnings.append(f"{invalid_ts} stored candle(s) have invalid timestamps and need correction")
             status = "EMPTY" if not stats["row_count"] else ("ERROR" if invalid_ts else "AVAILABLE")
+            # DB-derived gap classification (ISSUE-055): weekend closures and
+            # nightly session breaks are EXPECTED market rhythm, not missing
+            # data; only UNVERIFIED weekday intervals count candles that
+            # would be missing IF the market was open (no broker calendar is
+            # available, so they are never labelled "confirmed missing").
+            gap_analysis = None
+            if stats["row_count"]:
+                ts_list = [int(r[0]) for r in conn.execute(
+                    "SELECT ts FROM candles WHERE instrument = ? AND timeframe = ?"
+                    " ORDER BY ts", (sym, tf))]
+                gap_analysis = md.classify_gaps(ts_list, md.TIMEFRAME_STEPS[tf])
+                if gap_analysis["unverified_intervals"]:
+                    warnings.append(
+                        f"{gap_analysis['unverified_intervals']} unverified gap interval(s) "
+                        f"(~{gap_analysis['unverified_missing_candles_est']} candles if the market "
+                        "was open; may include holidays) - reported, never filled")
             stats.update({
                 "status": status,
+                "gap_analysis": gap_analysis,
                 "first_epoch": int(first_epoch) if first_epoch is not None else None,
                 "last_epoch": int(last_epoch) if last_epoch is not None else None,
                 "timezone": out["timezone"],
@@ -308,9 +325,21 @@ def availability(instrument: str) -> Dict[str, Any]:
                 "gaps_found": gaps, "largest_gap_seconds": largest,
                 "invalid_timestamp_count": invalid_ts, "warnings": warnings,
             })
-            stats["mt5_fetch_required"] = bool(
-                stats["row_count"] and last_epoch is not None
-                and int(last_epoch) + md.TIMEFRAME_STEPS[tf] <= _utc_now_epoch())
+            # Freshness semantics (ISSUE-055): availability (history exists),
+            # MT5 recency (last_mt5_update) and "a fetch would append newer
+            # COMPLETED candles" are three different facts. fetch_required is
+            # true only when at least one completed bar after the latest
+            # stored candle has closed - market closures cannot be inferred
+            # from the clock, so the UI phrases it neutrally.
+            _step = md.TIMEFRAME_STEPS[tf]
+            _now = _utc_now_epoch()
+            _last_completed = (_now // _step) * _step - _step  # open time of last closed bar
+            _missing = 0
+            if last_epoch is not None and int(last_epoch) < _last_completed:
+                _missing = (_last_completed - int(last_epoch)) // _step
+            stats["missing_completed_candles"] = int(_missing)
+            stats["up_to_date"] = bool(stats["row_count"]) and _missing == 0
+            stats["mt5_fetch_required"] = bool(stats["row_count"]) and _missing > 0
             stats["baseline_missing"] = not bool(stats["row_count"])
             stats["last_successful_update"] = max(
                 (v for v in (stats["last_successful_import"], stats["last_mt5_update"]) if v),
@@ -335,8 +364,26 @@ def availability(instrument: str) -> Dict[str, Any]:
         "mt5_fetch_required_timeframes": [v_tf for v_tf, v in
                                           ((tf, out["timeframes"][tf]) for tf in md.TIMEFRAME_ORDER)
                                           if v and v.get("mt5_fetch_required")],
+        "up_to_date_timeframes": [v_tf for v_tf, v in
+                                  ((tf, out["timeframes"][tf]) for tf in md.TIMEFRAME_ORDER)
+                                  if v and v.get("up_to_date")],
+        "unverified_gap_intervals": sum(int((v.get("gap_analysis") or {}).get("unverified_intervals") or 0)
+                                        for v in out["timeframes"].values() if v),
+        "unverified_missing_candles_est": sum(int((v.get("gap_analysis") or {}).get("unverified_missing_candles_est") or 0)
+                                              for v in out["timeframes"].values() if v),
         "last_successful_update": max(updates) if updates else None,
     }
+    try:
+        _c2 = md.connect_store(db)
+        try:
+            _unresolved = _c2.execute(
+                "SELECT COUNT(*) FROM fetch_conflicts WHERE instrument = ? AND resolution = 'UNRESOLVED'",
+                (sym,)).fetchone()[0]
+        finally:
+            _c2.close()
+    except Exception:  # noqa: BLE001 - pre-ISSUE-054 store without the table
+        _unresolved = 0
+    out["summary"]["unresolved_conflicts"] = int(_unresolved)
     if not present:
         out["reason"] = f"store exists but holds no candles for {sym} yet"
     return out
@@ -794,4 +841,85 @@ def resolve_conflict(instrument: str, conflict_id: int, action: str,
               ts=result["conflict"]["ts_iso"], before=result["before"],
               after=result["after"], note=note)
     return result
+
+
+# ------------------------------------------------- data-quality report (B7)
+def data_quality(instrument: str, timeframe: str, *,
+                 from_epoch: Optional[int] = None,
+                 to_epoch: Optional[int] = None) -> Dict[str, Any]:
+    """Backtesting-readiness report for one instrument/timeframe.
+
+    Answers, from the canonical store only: how much history exists, does
+    the requested range contain UNVERIFIED gaps (never silently "confirmed
+    missing" - no broker calendar is available), do unresolved CSV-vs-MT5
+    conflicts exist, which sources the data came from, and whether the
+    range is suitable for a trustworthy backtest without synthetic data.
+    """
+    sym = instrument.strip().upper()
+    tf = timeframe.strip().upper()
+    if tf not in md.TIMEFRAME_STEPS:
+        raise ValueError(f"unsupported timeframe {tf!r}")
+    db = store_db_path()
+    report: Dict[str, Any] = {
+        "instrument": sym, "timeframe": tf, "store": str(db),
+        "timezone": "UTC (epoch seconds)",
+        "range": {"from": md.ts_iso_of(from_epoch) if from_epoch else None,
+                  "to": md.ts_iso_of(to_epoch) if to_epoch else None},
+        "synthetic_data_used": False,
+    }
+    if not db.exists():
+        report.update({"candles_total": 0, "candles_in_range": 0,
+                       "readiness": "NOT_READY", "reasons": ["no market-data store"]})
+        return report
+    conn = md.connect_store(db)
+    try:
+        step = md.TIMEFRAME_STEPS[tf]
+        all_ts = [int(r[0]) for r in conn.execute(
+            "SELECT ts FROM candles WHERE instrument = ? AND timeframe = ? ORDER BY ts",
+            (sym, tf))]
+        in_range = [t for t in all_ts
+                    if (from_epoch is None or t >= from_epoch)
+                    and (to_epoch is None or t <= to_epoch)]
+        gaps = md.classify_gaps(in_range, step)
+        datasets = [d for d in md.list_datasets(conn, sym) if d.get("timeframe") == tf]
+        conflicts = {"unresolved": 0, "resolved": 0}
+        for row in conn.execute(
+                "SELECT resolution, COUNT(*) FROM fetch_conflicts"
+                " WHERE instrument = ? AND timeframe = ? GROUP BY resolution", (sym, tf)):
+            if row[0] == "UNRESOLVED":
+                conflicts["unresolved"] = int(row[1])
+            else:
+                conflicts["resolved"] += int(row[1])
+    finally:
+        conn.close()
+    reasons: List[str] = []
+    if not all_ts:
+        readiness = "NOT_READY"
+        reasons.append("no stored history for this timeframe")
+    else:
+        if from_epoch is not None and all_ts[0] > from_epoch:
+            reasons.append("requested range starts before stored history")
+        if to_epoch is not None and all_ts[-1] < to_epoch:
+            reasons.append("requested range ends after stored history")
+        if gaps["unverified_intervals"]:
+            reasons.append(
+                f"{gaps['unverified_intervals']} unverified gap interval(s) in range "
+                f"(~{gaps['unverified_missing_candles_est']} candles if the market was open)")
+        if conflicts["unresolved"]:
+            reasons.append(f"{conflicts['unresolved']} unresolved CSV-vs-MT5 conflict(s) for this timeframe")
+        readiness = "CAUTION" if reasons else "READY"
+        if (from_epoch is not None and all_ts[0] > from_epoch) or \
+                (to_epoch is not None and all_ts[-1] < to_epoch) or not in_range:
+            # the requested range is not fully covered by stored history -
+            # a backtest over it would silently test less than asked
+            readiness = "NOT_READY"
+    report.update({
+        "candles_total": len(all_ts), "candles_in_range": len(in_range),
+        "first_ts": md.ts_iso_of(all_ts[0]) if all_ts else None,
+        "last_ts": md.ts_iso_of(all_ts[-1]) if all_ts else None,
+        "gaps": gaps, "conflicts": conflicts,
+        "sources": sorted({str(d.get("source_file")) for d in datasets if d.get("source_file")}),
+        "readiness": readiness, "reasons": reasons,
+    })
+    return report
 

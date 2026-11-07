@@ -173,6 +173,12 @@ Domain errors → `{"detail": "…"}`; unhandled → 500 `{"error":{"code":"inte
   repository (descendants opt-in; dependent testing/live records
   block), and Duplicate & Edit creates an independent node with
   parent lineage via `POST /nodes/{id}/duplicate`.
+- Data-quality semantics (ISSUE-055): availability is computed per
+  timeframe with DB-derived gap classification (weekend closure /
+  session break / unverified) and completed-bar freshness;
+  `data_quality()` exposes a READY/CAUTION/NOT_READY report for
+  backtesting readiness. Table sorting is standardized on
+  `apps/web/src/lib/tableSort.ts` with per-table persisted state.
 - Fetch write path (ISSUE-053): stored timestamps are read once per
   timeframe before the transaction and new candles are inserted with a
   single `executemany` batch, keeping write cost linear in the incoming

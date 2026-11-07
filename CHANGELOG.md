@@ -26,6 +26,19 @@ exact commit SHA and tag. Claims only for what was implemented AND verified.
   match the CSVs, and the dashboard API returns identical counts/ranges.
 - Tests: backend 190 passed / 1 skipped (191 collected); frontend 44/44;
   production build clean. Real Windows MT5 fetch remains **not yet verified**.
+- **ISSUE-055 (universal sorting + market-data integrity)**: every table
+  (Manual Nodes, DATA node dashboard, DATA market-data rows, LOG) now sorts
+  via one shared system (`tableSort.ts`: numeric-desc / absolute-drawdown /
+  natural-ID / date / text comparators, missing values always last, stable,
+  first-click-default two-state headers) with per-table persistence in
+  localStorage; LOG sorting is server-side (sort applied before
+  pagination). Market data: gap intervals are classified (weekend closure
+  and nightly session breaks are expected market rhythm; only unverified
+  weekday intervals estimate missing candles - holidays stay honestly
+  unverified); the old `MT5 FETCH required` flag conflated availability
+  with freshness and is replaced by separate up-to-date / missing-completed
+  -candles facts; new `GET /market-data/quality` readiness report
+  (READY/CAUTION/NOT_READY). Backend 227 tests, frontend 66/66.
 - **ISSUE-054 (fetch conflict audit + node delete + Duplicate & Edit)**:
   conflicts are now persisted durably (`fetch_conflicts`: stored + incoming
   values, both provenances, field diffs, UNRESOLVED by default) with
