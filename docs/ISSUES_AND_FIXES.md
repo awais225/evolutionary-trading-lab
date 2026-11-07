@@ -273,3 +273,37 @@ until the repair runs there; after repair they match baseline quality
 unresolved conflict timestamps stay NOT_READY until per-record
 resolution. Backend 250 passed / 1 skipped; frontend 66/66; build clean.
 Windows genuine-MT5 behaviour remains NOT VERIFIED.
+
+## ISSUE-060 - practical, range-scoped DeepTesting readiness (2026-11-07)
+
+**Verification of the owner's current state (from their dashboard numbers,
+reproduced exactly in /tmp/hero1_market_audit):** the repaired database has
+446,994 forecast count, 158 unverified gap intervals and ~2,815 estimated
+candles - identical to the ISSUE-059 repair simulation, so the repair HAS
+been applied on Windows. The 7 remaining unresolved conflicts are the
+repair-generated final-export-bar collisions (D1 2026-10-15 21:00, H4
+2026-10-16 09:00, M15 10:45, H1 12:00, M5/M30 12:30, M1 12:31 UTC), stored
+(CSV) values retained, incoming preserved for explicit decisions. Mirror
+checks: all timeframes strictly chronological, 0 duplicates, 0 invalid
+OHLC/timestamps. (The current Windows DB file itself is not in the LMS -
+verification is by exact numeric reproduction, stated honestly.)
+
+**Readiness v2 (`data_quality`).** Three states - READY /
+READY_WITH_WARNINGS / BLOCKED - always scoped to the requested
+instrument + timeframe + period. BLOCKS (material): range beyond stored
+coverage, no candles in period, duplicate timestamps, invalid
+timestamps (including ts_iso mismatch), invalid OHLC, unresolved
+conflicts whose differing fields include OHLC inside the period (the
+correct candle cannot be established). WARNS (tolerable): unverified
+gap intervals (may be holidays/broker breaks; never filled), conflicts
+differing only in tick_volume/volume/spread. The report discloses
+candles used/excluded, checks per class, blocked reasons and warnings
+separately; candles before/after the range are counted, never used.
+DATA panel shows a compact DeepTesting readiness chip per selected
+timeframe.
+
+**Evidence on the repaired mirror:** seam week (2026-10-12..19, H1) is
+BLOCKED by in-range OHLC conflicts; a clean 2024 H1 quarter is
+READY_WITH_WARNINGS (2 small unverified gaps, 1,332 candles usable) -
+exactly the required "minor imperfections do not block a valid test".
+Backend 260 passed / 1 skipped; frontend 66/66; build clean.

@@ -1121,3 +1121,13 @@ on Windows (owner action) - Oct16-Nov6 stays NOT READY until then.
 Backend 250, frontend 66/66. Workspace .git had rolled back (remote/HEAD
 lost); origin re-added, HEAD realigned to eb369db76, files untouched;
 tracked updatedmarket.db pointer removed from index (hygiene).
+[2026-11-07] ISSUE-060: data_quality is now three-state (READY /
+READY_WITH_WARNINGS / BLOCKED), scoped per instrument+timeframe+period.
+BLOCKS: coverage, no candles, duplicate ts, invalid ts/OHLC, in-period
+differing-OHLC conflicts. WARNS: unverified gaps, metadata-only
+conflicts. Report: checks{}, blocked_reasons, warnings, candles_used,
+excluded_candles. Owner DB confirmed repaired (446,994 + 158/2815 exact
+reproduction); remaining 7 conflicts are the final-export-bar collisions
+(D1 2026-10-15 21:00, H4 09:00, M15 10:45, H1 12:00, M5/M30 12:30, M1
+12:31 UTC) and block only ranges containing them. DATA panel readiness
+chip. Backend 260, frontend 66/66. Windows NOT VERIFIED.

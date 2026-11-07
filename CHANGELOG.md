@@ -74,6 +74,16 @@ exact commit SHA and tag. Claims only for what was implemented AND verified.
   DeepTesting readiness NOT_READY; new `scripts/repair_mt5_timeshift.py`
   re-labels already-shifted fetched candles (backup + dry-run + audit
   preservation). Backend 250 tests, frontend 66/66, build clean.
+- **ISSUE-060 (practical DeepTesting readiness)**: readiness is now
+  three-state (READY / READY_WITH_WARNINGS / BLOCKED) and scoped to the
+  selected instrument, timeframe and period. Only material in-period
+  problems block (duplicates, invalid timestamps/OHLC, differing-OHLC
+  conflicts, insufficient coverage); unverified gaps and metadata-only
+  conflicts warn. The owner's repaired database (446,994 candles) is
+  confirmed repair-applied by exact numeric reproduction; its 7
+  remaining conflicts are the final-export-bar collisions whose
+  timestamps block only their own periods. Backend 260 tests, frontend
+  66/66, build clean.
 - **ISSUE-054 (fetch conflict audit + node delete + Duplicate & Edit)**:
   conflicts are now persisted durably (`fetch_conflicts`: stored + incoming
   values, both provenances, field diffs, UNRESOLVED by default) with

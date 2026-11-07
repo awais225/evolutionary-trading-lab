@@ -154,7 +154,7 @@ def test_readiness_refuses_period_with_unresolved_conflict(seeded):
     _fetch(monkeypatch, rates, now=_utc(2026, 10, 16, 12, 30))
     inside = svc.data_quality("XAUUSD", "H1",
                               from_epoch=_utc(2026, 10, 16, 0), to_epoch=_utc(2026, 10, 16, 23))
-    assert inside["readiness"] == "NOT_READY", inside
+    assert inside["readiness"] == "BLOCKED", inside
     assert inside["conflicts"]["unresolved_in_range"] == 1
     # a period that does not include the conflicted candle is unaffected by it
     clear = svc.data_quality("XAUUSD", "H1",

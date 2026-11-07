@@ -99,6 +99,7 @@ export function HistoricalDataPanel() {
   const [fetchTimeframe, setFetchTimeframe] = useState('ALL')
   const [fetchReport, setFetchReport] = useState<MarketDataFetchReport | null>(null)
   const [conflicts, setConflicts] = useState<FetchConflict[]>([])
+  const [quality, setQuality] = useState<Record<string, any> | null>(null)
   const panelSort = useTableSort('data-market', MARKET_SORT_COLUMNS, { key: 'tf', dir: 'asc' })
   const [conflictBusyId, setConflictBusyId] = useState<number | null>(null)
   const [conflictNotice, setConflictNotice] = useState<string | null>(null)
@@ -178,6 +179,21 @@ export function HistoricalDataPanel() {
       setMarketDataError(err instanceof ApiError ? err.message : 'fetch status lookup failed')
     }
   }
+
+  useEffect(() => {
+    // ISSUE-060: DeepTesting readiness for the timeframe selected above -
+    // scoped to that timeframe's stored range (warnings never block a
+    // valid test; only material integrity problems do).
+    if (fetchTimeframe === 'ALL') { setQuality(null); return }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const q: any = await api.marketData.quality(instrument, fetchTimeframe)
+        if (!cancelled) setQuality(q)
+      } catch { if (!cancelled) setQuality(null) }
+    })()
+    return () => { cancelled = true }
+  }, [instrument, fetchTimeframe])
 
   const loadMarketData = useCallback(async () => {
     try {
@@ -264,6 +280,16 @@ export function HistoricalDataPanel() {
               )}
               {(marketData.summary.unresolved_conflicts ?? 0) > 0 && (
                 <span className="meta-chip warn">{marketData.summary.unresolved_conflicts} unresolved conflict(s) — see below</span>
+              )}
+              {quality && fetchTimeframe !== 'ALL' && (
+                <span className={`meta-chip ${quality.readiness === 'BLOCKED' ? 'err' : quality.readiness === 'READY_WITH_WARNINGS' ? 'warn' : 'ok'}`}
+                      title={`DeepTesting readiness for ${fetchTimeframe} over its stored range. BLOCKED only for material integrity problems inside a selected period (duplicates, invalid timestamps/OHLC, differing-OHLC conflicts, insufficient coverage). Unverified gaps and metadata-only conflicts warn but never block. ${(quality.blocked_reasons ?? []).join(' ')} ${(quality.warnings ?? []).join(' ')}`}>
+                  DeepTesting data {fetchTimeframe}: {quality.readiness === 'READY_WITH_WARNINGS' ? 'READY WITH WARNINGS' : quality.readiness}
+                  {` · ${Number(quality.candles_used ?? 0).toLocaleString()} candles used`}
+                  {quality.excluded_candles ? ` · ${quality.excluded_candles} excluded` : ''}
+                  {quality.checks?.price_conflicts_in_range ? ` · ${quality.checks.price_conflicts_in_range} conflict(s) in range` : ''}
+                  {quality.checks?.unverified_gap_intervals ? ` · ${quality.checks.unverified_gap_intervals} unverified gap(s)` : ''}
+                </span>
               )}
               {(marketData.summary.unverified_gap_intervals ?? 0) > 0 && (
                 <span className="meta-chip warn" title="Weekday intervals longer than the market rhythm. They may include broker holidays; they are never filled automatically.">

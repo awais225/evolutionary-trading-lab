@@ -187,7 +187,7 @@ Domain errors → `{"detail": "…"}`; unhandled → 500 `{"error":{"code":"inte
   Mon-Thu nightly break - never a raw clock comparison);
   post-commit read-back verification of every fetch append
   (ISSUE-056 POST_COMMIT_VERIFICATION stage);
-  `data_quality()` exposes a READY/CAUTION/NOT_READY report for
+  `data_quality()` exposes a READY / READY_WITH_WARNINGS / BLOCKED (range-scoped, ISSUE-060) report for
   backtesting readiness. Table sorting is standardized on
   `apps/web/src/lib/tableSort.ts` with per-table persisted state.
 - Fetch write path (ISSUE-053): stored timestamps are read once per

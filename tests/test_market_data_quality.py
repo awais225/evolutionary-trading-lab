@@ -100,10 +100,10 @@ def test_data_quality_states(seeded):
 
     beyond = svc.data_quality("XAUUSD", "H1", from_epoch=LATEST - STEP,
                               to_epoch=LATEST + 10 * STEP)
-    assert beyond["readiness"] == "NOT_READY"
+    assert beyond["readiness"] == "BLOCKED"
 
     empty = svc.data_quality("XAUUSD", "M5")
-    assert empty["readiness"] == "NOT_READY" and empty["candles_total"] == 0
+    assert empty["readiness"] == "BLOCKED" and empty["candles_total"] == 0
 
     with pytest.raises(ValueError):
         svc.data_quality("XAUUSD", "X9")

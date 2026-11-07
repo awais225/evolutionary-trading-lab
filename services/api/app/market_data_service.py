@@ -21,6 +21,7 @@ produces. Fetch rules (binding):
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import threading
 import time as _time
@@ -951,11 +952,16 @@ def data_quality(instrument: str, timeframe: str, *,
                  to_epoch: Optional[int] = None) -> Dict[str, Any]:
     """Backtesting-readiness report for one instrument/timeframe.
 
-    Answers, from the canonical store only: how much history exists, does
-    the requested range contain UNVERIFIED gaps (never silently "confirmed
-    missing" - no broker calendar is available), do unresolved CSV-vs-MT5
-    conflicts exist, which sources the data came from, and whether the
-    range is suitable for a trustworthy backtest without synthetic data.
+    Readiness is scoped to THIS instrument + timeframe + requested period
+    and is three-state (ISSUE-060): READY / READY_WITH_WARNINGS / BLOCKED.
+    Material integrity problems inside the period BLOCK (duplicates,
+    invalid timestamps or OHLC, insufficient coverage, unresolved
+    conflicts whose OHLC differs - the correct candle cannot be
+    established). Tolerable imperfections only WARN (unverified gap
+    intervals that may be holidays/breaks; conflicts differing only in
+    volume/spread metadata). Problems outside the period, in another
+    timeframe, or in another instrument never affect this verdict. No
+    candle is ever fabricated, filled, or silently substituted.
     """
     sym = instrument.strip().upper()
     tf = timeframe.strip().upper()
@@ -971,7 +977,8 @@ def data_quality(instrument: str, timeframe: str, *,
     }
     if not db.exists():
         report.update({"candles_total": 0, "candles_in_range": 0,
-                       "readiness": "NOT_READY", "reasons": ["no market-data store"]})
+                       "readiness": "BLOCKED", "reasons": ["no market-data store"],
+                       "blocked_reasons": ["no market-data store"], "warnings": []})
         return report
     conn = md.connect_store(db)
     try:
@@ -992,45 +999,112 @@ def data_quality(instrument: str, timeframe: str, *,
                 conflicts["unresolved"] = int(row[1])
             else:
                 conflicts["resolved"] += int(row[1])
+        range_args = (from_epoch, from_epoch, to_epoch, to_epoch)
+        range_sql = " AND (? IS NULL OR ts >= ?) AND (? IS NULL OR ts <= ?)"
         conflicts["unresolved_in_range"] = int(conn.execute(
-                "SELECT COUNT(*) FROM fetch_conflicts WHERE instrument = ? AND timeframe = ?"
-            " AND resolution = 'UNRESOLVED' AND (? IS NULL OR ts >= ?) AND (? IS NULL OR ts <= ?)",
-            (sym, tf, from_epoch, from_epoch, to_epoch, to_epoch)).fetchone()[0])
+            "SELECT COUNT(*) FROM fetch_conflicts WHERE instrument = ? AND timeframe = ?"
+            " AND resolution = 'UNRESOLVED'" + range_sql,
+            (sym, tf, *range_args)).fetchone()[0])
+        # A conflict only blocks when PRICE data is ambiguous. A diff confined
+        # to tick_volume/volume/spread metadata cannot move a backtest (the
+        # OHLC that indicators read agrees), so it warns instead. Unknown or
+        # unparsable diff payloads are treated as price conflicts (safe side).
+        _PRICE_FIELDS = {"open", "high", "low", "close"}
+        price_conflicts = metadata_conflicts = 0
+        for (diff_json,) in conn.execute(
+                "SELECT differing_fields FROM fetch_conflicts WHERE instrument = ?"
+                " AND timeframe = ? AND resolution = 'UNRESOLVED'" + range_sql,
+                (sym, tf, *range_args)):
+            try:
+                fields = set((json.loads(diff_json) or {}).keys())
+            except Exception:  # noqa: BLE001
+                fields = set()
+            if not fields or fields & _PRICE_FIELDS:
+                price_conflicts += 1
+            else:
+                metadata_conflicts += 1
+        # Material integrity INSIDE the selected range (ISSUE-060): impossible
+        # timestamps (incl. ts/ts_iso disagreement) and malformed OHLC BLOCK.
+        integrity = {
+            "invalid_timestamps": int(conn.execute(
+                "SELECT COUNT(*) FROM candles WHERE instrument = ? AND timeframe = ?"
+                + range_sql +
+                " AND (ts < ? OR ts >= ? OR ts_iso <> strftime('%Y-%m-%d %H:%M:%S', ts, 'unixepoch'))",
+                (sym, tf, *range_args, md.MIN_TS, md.MAX_TS)).fetchone()[0]),
+            "invalid_ohlc": int(conn.execute(
+                "SELECT COUNT(*) FROM candles WHERE instrument = ? AND timeframe = ?"
+                + range_sql +
+                " AND (open IS NULL OR high IS NULL OR low IS NULL OR close IS NULL"
+                " OR open <= 0 OR high <= 0 OR low <= 0 OR close <= 0"
+                " OR high < low OR high < open OR high < close"
+                " OR low > open OR low > close)",
+                (sym, tf, *range_args)).fetchone()[0]),
+        }
     finally:
         conn.close()
-    reasons: List[str] = []
+    duplicates_in_range = len(in_range) - len(set(in_range))
+    excluded_candles = (integrity["invalid_timestamps"] + integrity["invalid_ohlc"]
+                        + duplicates_in_range)
+    checks = {
+        "chronological": duplicates_in_range == 0,
+        "duplicate_timestamps": duplicates_in_range,
+        "invalid_timestamps": integrity["invalid_timestamps"],
+        "invalid_ohlc": integrity["invalid_ohlc"],
+        "price_conflicts_in_range": price_conflicts,
+        "metadata_only_conflicts_in_range": metadata_conflicts,
+        "unverified_gap_intervals": int(gaps["unverified_intervals"]),
+        "unverified_missing_candles_est": int(gaps["unverified_missing_candles_est"]),
+        "expected_closure_intervals": int(gaps["expected_closure"]),
+        "expected_session_break_intervals": int(gaps["expected_session_break"]),
+    }
+    # Practical DeepTesting readiness (ISSUE-060): three states, scoped to
+    # THIS instrument + timeframe + selected period only. Material integrity
+    # problems BLOCK; tolerable historical imperfections only WARN.
+    blocked: List[str] = []
+    warnings: List[str] = []
     if not all_ts:
-        readiness = "NOT_READY"
-        reasons.append("no stored history for this timeframe")
+        blocked.append("no stored history for this timeframe")
     else:
         if from_epoch is not None and all_ts[0] > from_epoch:
-            reasons.append("requested range starts before stored history")
+            blocked.append("requested range starts before stored history")
         if to_epoch is not None and all_ts[-1] < to_epoch:
-            reasons.append("requested range ends after stored history")
+            blocked.append("requested range ends after stored history")
+        if not in_range:
+            blocked.append("requested period contains no candles")
+        if duplicates_in_range:
+            blocked.append(f"{duplicates_in_range} duplicate timestamp(s) in range")
+        if integrity["invalid_timestamps"]:
+            blocked.append(f"{integrity['invalid_timestamps']} candle(s) with invalid timestamps in range")
+        if integrity["invalid_ohlc"]:
+            blocked.append(f"{integrity['invalid_ohlc']} candle(s) with invalid OHLC in range")
+        if price_conflicts:
+            blocked.append(
+                f"{price_conflicts} unresolved conflict(s) with differing OHLC inside the "
+                "requested period - the correct candle cannot be established there")
         if gaps["unverified_intervals"]:
-            reasons.append(
+            warnings.append(
                 f"{gaps['unverified_intervals']} unverified gap interval(s) in range "
-                f"(~{gaps['unverified_missing_candles_est']} candles if the market was open)")
-        if conflicts["unresolved_in_range"]:
-            reasons.append(
-                f"{conflicts['unresolved_in_range']} unresolved CSV-vs-MT5 conflict(s) INSIDE "
-                "the requested period - two different values exist for the same candle, "
-                "so the true values are unknown there")
-        readiness = "CAUTION" if reasons else "READY"
-        if (from_epoch is not None and all_ts[0] > from_epoch) or \
-                (to_epoch is not None and all_ts[-1] < to_epoch) or not in_range \
-                or conflicts["unresolved_in_range"]:
-            # the requested range is not fully covered by stored history (a
-            # backtest would silently test less than asked), or it contains
-            # unresolved conflicting candles (truth unknown) - never READY
-            readiness = "NOT_READY"
+                f"(~{gaps['unverified_missing_candles_est']} candles IF the market was open; "
+                "may be weekends/holidays/broker breaks - not fabricated, not filled)")
+        if metadata_conflicts:
+            warnings.append(
+                f"{metadata_conflicts} unresolved conflict(s) differing only in "
+                "tick_volume/volume/spread metadata (OHLC agrees; safe for testing)")
+    readiness = "BLOCKED" if blocked else ("READY_WITH_WARNINGS" if warnings else "READY")
+    reasons = blocked + warnings
     report.update({
         "candles_total": len(all_ts), "candles_in_range": len(in_range),
+        "candles_used": len(in_range) - excluded_candles,
+        "excluded_candles": excluded_candles,
+        "candles_before_range": (sum(1 for t in all_ts if t < from_epoch)
+                                 if from_epoch is not None else 0),
         "candles_after_range": (sum(1 for t in all_ts if t > to_epoch)
                                 if to_epoch is not None else 0),
         "first_ts": md.ts_iso_of(all_ts[0]) if all_ts else None,
         "last_ts": md.ts_iso_of(all_ts[-1]) if all_ts else None,
         "gaps": gaps, "conflicts": conflicts,
+        "checks": checks,
+        "blocked_reasons": blocked, "warnings": warnings,
         "sources": sorted({str(d.get("source_file")) for d in datasets if d.get("source_file")}),
         "readiness": readiness, "reasons": reasons,
     })

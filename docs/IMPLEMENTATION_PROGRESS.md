@@ -364,3 +364,11 @@ this entry).
   tests, frontend 66/66, build clean. Owner must run the repair before
   DeepTesting the Oct 16-Nov 6 range; Windows NOT VERIFIED.
 
+- ISSUE-060 (2026-11-07): practical DeepTesting readiness - READY /
+  READY_WITH_WARNINGS / BLOCKED per instrument+timeframe+period; only
+  material in-period integrity problems block; unverified gaps and
+  metadata-only conflicts warn; full disclosure (candles used/excluded,
+  per-class checks). Owner's DB verified repair-applied (446,994 /
+  158 gaps / 7 final-export-bar conflicts). Backend 260 tests, frontend
+  66/66, build clean. Windows NOT VERIFIED.
+
