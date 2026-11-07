@@ -177,3 +177,59 @@ docs (ISSUES-037, WINDOWS_SETUP 0.1, CHATGPT TASK 11, this entry), CHANGELOG.
   scripts/START_INTERNAL.bat 2779e855eeba5282871ca3a139474373ddcfb473ee973cda9aa038239877719f
 - Still NOT proven: Windows execution (owner must re-test). Everything else
   holds as recorded in G6 above.
+
+## 2026-11-07 — TASK 12: broker metadata + MT5 selection, market-data CSV importer, launcher stage-10 + TROUBLESHOOTING (HERO V1.4.2)
+- Broker metadata pipeline: `packages/mt5_adapter` gained `connection.py`
+  (terminal discovery, single session lock, account snapshot — missing fields
+  stay None, never fabricated), `metadata.py` (snapshots per broker/server+
+  symbol under DATA/MARKET_METADATA/<server>/ with manifest + SHA-256; servers
+  never overwrite each other) and `sizing.py` (legacy digits rule: pip = 10
+  points on 3/5-digit feeds else point; tick rounding; volume normalize; stops
+  check). MT5 is NEVER simulated: no terminal → `MT5_UNAVAILABLE` refusals.
+- API: `GET /api/v1/instruments/{s}/metadata`, `POST .../refresh` (503 without
+  terminal), `POST .../import` (201; validate then turns VALID), `GET
+  .../metadata/all`; `GET /api/v1/mt5/status|terminals`, `POST .../connect|
+  disconnect`. TopBar MT5 selector records the active terminal for Live Testing
+  ONLY — instruments, nodes, fingerprints and DATA are untouched by selection.
+- Validation integrity: validate/compile answer NEEDS_METADATA until a snapshot
+  exists for the exact broker/server/symbol; never forced VALID. Spec
+  `identity.direction` is fingerprinted; directional example strategies keep
+  LONG/SHORT (never stamped BOTH; BOTH = new blank strategies only).
+- Defects found by the new tests and fixed: ISSUE-038 (sizing passed NaN
+  through; volume_step=0 silently accepted) and ISSUE-039 (importer --timeframe
+  silently overriding a conflicting filename; overwrite count included plain
+  inserts).
+- Market-data importer `scripts/import_market_data.py` (stdlib-only): MT
+  History-Center CSV → DATA/MARKET_DATA/market_data.db (candles+datasets) +
+  import_manifest.json. All-or-nothing per dataset; exact duplicates collapse
+  (counted), conflicting duplicates FAIL; gaps reported never filled;
+  VOL/TICKVOL/SPREAD separate; naive broker-server timestamps (never
+  converted); filename/flag mismatch refuses. Live evidence on a SCRATCH data
+  root (real DATA untouched): owner 7 XAUUSD exports → 419,013 candles, 7/7
+  AVAILABLE after PASS; idempotent re-run 7 skipped exit 0; sampled candles
+  match source CSVs exactly; M1/M5/M15 hit the MT 100k-row export cap (noted).
+- Launcher: START_INTERNAL.bat stage 10 now captures the browser-launch rc and
+  warns (manual URL) instead of claiming success — a browser failure never
+  fails healthy services; :STAGE_FAILED + START_DIAGNOSTIC.bat point to the new
+  repo-root TROUBLESHOOTING.txt (14 verified-only entries, search-first).
+  START.bat byte-untouched. Audit extended with stage-10/TROUBLESHOOTING
+  invariants (ISSUE-040).
+- Legacy audit: docs/MIGRATION_MAPPING.md maps 15 legacy capabilities to Hero1
+  destinations (legacy inspected read-only at 85b79b1c, v10.4-throughput;
+  worktree removed; nothing copied wholesale).
+- Verified: backend pytest 146 passed / 1 skipped (was 128: +19
+  test_metadata_mt5, +15 test_import_market_data, +2 launcher); frontend vitest
+  43/43; `npm run build` clean (272.5 kB); launcher audit PASS 6/6; metadata
+  wiring live-checked against the read-only preview DATA root (GET 200
+  available:false; refresh 503 MT5_UNAVAILABLE; validate NEEDS_METADATA).
+- NOT verified: Windows + real MT5 terminal (refresh/collect, selector against
+  live terminals) and Windows stage-10 double-click — owner machine required.
+Changed: packages/mt5_adapter (+connection/metadata/sizing), services/api
+(metadata_service, routers metadata+mt5, spec_service, main, routers init),
+packages/strategy_spec spec.py, apps/web (Mt5Select, TopBar, ManualNodes,
+client/types, theme, setup/tests, strategy workspace), scripts/
+import_market_data.py (NEW), scripts/START_INTERNAL.bat, START_DIAGNOSTIC.bat,
+scripts/audit_launcher.py, TROUBLESHOOTING.txt (NEW), tests (test_metadata_mt5
+NEW, test_import_market_data NEW, test_launcher_bat), docs (ISSUE-038/039/040,
+CHANGELOG, ARCHITECTURE, WINDOWS_SETUP, MIGRATION_MAPPING NEW, CHATGPT TASK 12,
+this entry).

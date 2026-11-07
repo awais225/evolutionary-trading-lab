@@ -70,6 +70,13 @@ date, SHA-256 (certutil) and the checkout git HEAD. If the window ever closes by
 itself, the file you double-clicked is NOT this one — check `git status`,
 `git pull`, and re-run from the repository root.
 
+Whatever stage fails, open `TROUBLESHOOTING.txt` in the repository root FIRST
+and Ctrl+F the exact error text or the STAGE number. Every entry there is a
+verified cause + verified fix with its source; the failure window itself now
+prints this pointer. Stage 10 also opens the dashboard automatically; if the
+browser does not open, stage 10 prints a [WARN] with the address to open
+manually (http://127.0.0.1:5173/) — Hero1 itself is running in that case.
+
 Fastest diagnosis (read-only; no databases created, migrated, repaired or
 deleted): double-click `START_DIAGNOSTIC.bat`. It prints the same information
 `START.bat` would need, tees everything to `<DATA_ROOT>\LOGS\diagnostic.log`,
@@ -130,7 +137,7 @@ python scripts\\doctor.py          # expect: data root OK, DBs OK, ollama OK, MT
 python -m uvicorn services.api.app.main:app --host 127.0.0.1 --port 8788
 ```
 
-## 4. MT5 availability (Phase 5 groundwork only)
+## 4. MT5 availability, broker metadata, and market data (HERO V1.4.2)
 
 - On Windows only, `pip install MetaTrader5` makes the official package importable;
   `scripts/doctor.py` then reports MT5 as **available** (package import check only).
@@ -138,7 +145,38 @@ python -m uvicorn services.api.app.main:app --host 127.0.0.1 --port 8788
   terminal and reads account/terminal info. It never places, modifies or cancels orders.
 - Without the package or a running terminal, MT5 status is reported as
   `unavailable`/`unconfigured` — never as healthy. Linux/macOS dev boxes report
-  `unavailable` by construction.
+  `unavailable` by construction. Nothing is ever simulated in place of a terminal.
+
+Broker metadata (required before any strategy can validate as VALID):
+
+1. Open the MT5 terminal and log in to the broker/server you trade with.
+2. In the dashboard, pick the terminal/account in the TopBar MT5 selector
+   (this selection applies to Live Testing only).
+3. Use Metadata → Refresh for the instrument (e.g. XAUUSD). Hero1 stores a
+   snapshot per broker/server/symbol under `DATA\MARKET_METADATA\<server>\`;
+   one broker's snapshot is never applied to another broker or server.
+4. Validate the strategy again. Until a snapshot exists, validate honestly
+   answers `NEEDS_METADATA`; pip/tick/volume values are never typed in by
+   hand and never guessed. Snapshots can also be imported (Metadata →
+   Import) from a file collected on a machine with a terminal.
+
+Historical candles (MT History Center CSV exports):
+
+```bat
+.venv\Scripts\python.exe scripts\import_market_data.py --data-root <DATA_ROOT> XAUUSD_H1.csv XAUUSD_Daily.csv
+```
+
+- Name exports `SYMBOL_TIMEFRAME.csv` (e.g. `XAUUSD_M30.csv`, `XAUUSD_Daily.csv`);
+  the importer reads instrument/timeframe from the filename (or `--instrument` /
+  `--timeframe`, which must agree with the filename) and writes
+  `<DATA_ROOT>\MARKET_DATA\market_data.db` + `import_manifest.json`.
+- It is all-or-nothing: one bad row rejects the whole file (reason printed per
+  line; exit code 1) and writes zero candles. Re-importing the same file is a
+  safe no-op; a newer export rolls the data forward. Gaps are reported, never
+  filled. MT exports cap at ~100,000 rows per file — export older ranges
+  separately for deeper history.
+- If a strategy still says `NEEDS_METADATA`, or an import says REJECTED,
+  search the exact words in `TROUBLESHOOTING.txt` (repository root).
 
 ## 5. Ollama & GPU reality check
 

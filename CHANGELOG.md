@@ -5,6 +5,80 @@ exact commit SHA and tag. Claims only for what was implemented AND verified.
 
 ---
 
+## [Unreleased] — 2026-11-07 — HERO V1.4.2 — broker metadata, MT5 account selection, market-data importer (TASK 12)
+
+**Added**
+- `packages/mt5_adapter` (connection / metadata / sizing): read-only MT5 terminal
+  discovery + connection status, per broker/server/symbol metadata snapshots
+  (`DATA/MARKET_METADATA/<server>/<SYMBOL>.json` + manifest + SHA-256), and the
+  legacy sizing rules (pip = 10·point on 3/5-digit feeds else point; tick
+  rounding; volume normalize/stops checks). MT5 is NEVER simulated: without a
+  real terminal the adapter reports unavailable and every consumer refuses
+  honestly. No order placement/modification/cancellation exists.
+- Metadata API: `GET /api/v1/instruments/{s}/metadata`, `POST .../refresh`
+  (503 `MT5_UNAVAILABLE` without a terminal), `POST .../import` (201, snapshot
+  import → validate turns VALID), `GET .../all`; MT5 API: `GET /api/v1/mt5/status`,
+  `GET /api/v1/mt5/terminals`, `POST /api/v1/mt5/connect|disconnect`. The TopBar
+  MT5 selector records the active terminal for **Live Testing only** — it never
+  touches instruments, nodes, fingerprints or DATA.
+- Strategy validation now consumes real metadata: without a snapshot for the
+  exact broker/server/symbol, validate/compile answer `NEEDS_METADATA`
+  (`SPEC_NEEDS_METADATA`) and are NEVER forced to VALID.
+- `scripts/import_market_data.py`: MT History-Center CSV → `DATA/MARKET_DATA/
+  market_data.db` (`candles` + `datasets`) + `import_manifest.json`. Guarantees:
+  all-or-nothing per dataset (any bad row rejects all; the attempt is recorded
+  REJECTED with zero candles written), exact duplicates collapse (counted),
+  conflicting duplicates FAIL, gaps reported never filled, VOL/TICKVOL/SPREAD
+  kept separate, naive broker-server timestamps (never converted), instrument/
+  timeframe from filename or explicit flags only — a flag/filename mismatch
+  refuses. Exit codes 0 pass-or-skip / 1 any REJECTED / 2 usage error.
+- `TROUBLESHOOTING.txt` (repo root): search-first knowledge base; 14 entries,
+  each with SYMPTOM in the exact on-screen words, verified cause, verified fix
+  and a traceable Source (ISSUE id / test file / script). No speculative fixes.
+
+**Changed**
+- `scripts/START_INTERNAL.bat` stage 10 (browser auto-open): captures the
+  `start` exit code and logs it; on failure it prints a [WARN] block with the
+  manual-open URL and continues — a browser failure never fails healthy
+  services. `:STAGE_FAILED` and `START_DIAGNOSTIC.bat` now point to
+  TROUBLESHOOTING.txt. `START.bat` is byte-untouched.
+- `scripts/audit_launcher.py` + `tests/test_launcher_bat.py`: stage-10
+  rc-capture/warn-never-fail invariants, TROUBLESHOOTING.txt presence +
+  verified-only format invariants.
+
+**Fixed**
+- ISSUE-038: sizing honest-refusals — `round_price_to_tick` passed NaN through;
+  `normalize_volume` silently accepted `volume_step=0`. Both now refuse.
+- ISSUE-039: importer identity/accounting — `--timeframe` silently overriding a
+  conflicting filename timeframe; `rows_overwritten_other_source` counting
+  plain inserts. Both fixed and pinned by tests.
+
+**Tests**
+- Backend pytest **146 passed / 1 skipped** (128 → +19 metadata/MT5
+  (tests/test_metadata_mt5.py) → +15 importer (tests/test_import_market_data.py)
+  → +2 launcher/TROUBLESHOOTING). Frontend vitest **43 passed**; `npm run build`
+  clean (272.5 kB). Launcher audit PASS on all 6 launchers (ASCII/CRLF).
+- Live importer evidence (scratch DATA root; the real DATA root was not
+  touched): the owner's 7 XAUUSD exports (D1/H4/H1/M30/M15/M5/M1) imported
+  419,013 candles, 7/7 AVAILABLE after PASS; idempotent re-run skipped 7/7
+  with exit 0 and an unchanged candle count; manifest verified field-by-field
+  and sampled candles matched the source CSVs exactly.
+- Backend metadata wiring verified against the read-only preview DATA root:
+  metadata GET 200 `available:false`, refresh 503 `MT5_UNAVAILABLE`,
+  validate `NEEDS_METADATA` on this (Linux, no-MT5) machine.
+
+**Known limitations**
+- Windows + MT5 remains UNVERIFIED end-to-end: metadata refresh against a real
+  terminal, the MT5 selector against live terminals, and START.bat stage 10
+  on Windows require the owner's machine. On Linux every MT5 path verifiably
+  refuses (`MT5_UNAVAILABLE`) instead of simulating.
+- The imported M1/M5/M15/M30/H1 histories begin at the MT 100k-row export cap;
+  older ranges require additional exports (the importer prints this note).
+- Commit SHAs for this release line are recorded in CHATGPT.txt (TASK 12
+  RECORD) and docs/IMPLEMENTATION_PROGRESS.md after push verification.
+
+---
+
 ## [Unreleased] — 2026-11-07 — HERO V1.4.1 — launcher persistence (ISSUE-037)
 
 **Added**

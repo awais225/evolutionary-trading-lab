@@ -894,3 +894,87 @@ a7d435b27. WINDOWS EXECUTION STILL UNPROVEN - owner must re-test from repo
 root (git pull; double-click START.bat or run the exact commands in
 docs/WINDOWS_SETUP.md section 0.1; send DATA\LOGS\startup.log /
 diagnostic.log).
+
+================================================================================
+TASK 12 - BROKER METADATA + MT5 ACCOUNT SELECTION, MARKET-DATA CSV IMPORTER,
+LAUNCHER STAGE-10 AUTO-OPEN, TROUBLESHOOTING KNOWLEDGE BASE (2026-11-07)
+================================================================================
+PROMPT (condensed): wire REAL broker metadata into strategy validation (never
+guessed, never forced), expose MT5 terminal/account selection for Live Testing
+only, import the owner's MT History-Center CSV exports into a provenance-
+tracked market-data store (never invent/mix/discard candles), finish the
+launcher's stage-10 browser auto-open to the same honesty standard as the
+other nine stages, and ship a verified-only TROUBLESHOOTING.txt. Parts were
+executed as milestones A (spec/metadata wiring), B (MT5 adapter + metadata
+service + API + UI), C (CSV importer + SQLite store), D (stage 10 +
+TROUBLESHOOTING), E (verification, docs, commits, push).
+
+DELIVERED
+- Metadata: packages/mt5_adapter {connection, metadata, sizing}.py - terminal
+  discovery + one session lock; account snapshot keeps missing fields None;
+  snapshots per broker/server+symbol in DATA/MARKET_METADATA/<server>/ with
+  manifest + SHA-256 (two servers never overwrite); sizing = legacy digits
+  rule (pip = 10 points on 3/5-digit feeds, else point; never from the symbol
+  name), tick rounding, volume normalize, stops check. MT5 is NEVER simulated:
+  no terminal -> MT5_UNAVAILABLE everywhere.
+- API: GET instruments/{s}/metadata, POST metadata/refresh (503 without a
+  terminal), POST metadata/import (201; validate then VALID), GET metadata/
+  all; mt5/status, mt5/terminals, mt5/connect, mt5/disconnect. TopBar
+  Mt5Select records the active terminal for LIVE TESTING ONLY - selection
+  cannot touch instruments, nodes, fingerprints or DATA (tested).
+- Validation: validate/compile answer NEEDS_METADATA (SPEC_NEEDS_METADATA)
+  until a snapshot exists for the exact broker/server/symbol; NEVER forced
+  VALID. identity.direction is fingerprinted; directional examples keep
+  LONG/SHORT (the bullish example is LONG); BOTH only for new blanks.
+- Importer: scripts/import_market_data.py (stdlib only) -> DATA/MARKET_DATA/
+  market_data.db (candles + datasets) + import_manifest.json. All-or-nothing
+  per dataset (REJECTED attempt recorded, zero candles); exact duplicates
+  collapse+counted; conflicting duplicates FAIL; gaps reported never filled;
+  VOL/TICKVOL/SPREAD separate; naive broker-server timestamps; filename/flag
+  mismatch refuses ("refusing to guess"); exit 0/1/2 = pass-or-skip/rejected/
+  usage.
+- Launcher/TROUBLESHOOTING: stage 10 captures the browser-launch rc, logs it,
+  and on failure prints [WARN] + the manual URL and CONTINUES (healthy
+  services never fail for a browser). :STAGE_FAILED and START_DIAGNOSTIC.bat
+  point to TROUBLESHOOTING.txt (repo root; 14 entries; SYMPTOM in exact
+  on-screen words + verified cause + verified fix + Source; search-first).
+  START.bat is byte-untouched this task.
+- Legacy audit: docs/MIGRATION_MAPPING.md maps 15 legacy capabilities onto
+  Hero1 (legacy read-only at 85b79b1c v10.4-throughput; worktree removed;
+  patterns re-implemented, nothing copied wholesale).
+
+DEFECTS FOUND BY TESTS AND FIXED (register: ISSUE-038/039/040)
+- sizing round_price_to_tick passed NaN through; normalize_volume accepted
+  volume_step=0 silently -> both now refuse (ISSUE-038).
+- importer --timeframe silently overrode a conflicting filename timeframe;
+  rows_overwritten_other_source counted plain inserts -> refusal + true
+  overwrite accounting (ISSUE-039).
+- stage 10 claimed "[PASS] opened ..." without capturing the start rc
+  (ISSUE-040).
+
+VERIFICATION (all Linux; Windows + real MT5 UNVERIFIED - owner machine)
+- Backend pytest 146 passed / 1 skipped (+19 test_metadata_mt5.py, +15
+  test_import_market_data.py, +2 launcher/TROUBLESHOOTING tests).
+- Frontend vitest 43/43; npm run build clean (272.54 kB JS).
+- Launcher audit PASS on all 6 launchers; ASCII/CRLF reverified after edits.
+- Importer live run on a SCRATCH root (/home/user/hero1-scratch-data; the
+  real DATA root stayed read-only): 7 XAUUSD exports -> 419,013 candles,
+  7/7 AVAILABLE; idempotent re-run 7 skipped, exit 0, count unchanged;
+  sampled candles byte-match source CSVs; manifest verified field-by-field.
+- Backend wiring vs read-only preview DATA root: metadata GET 200
+  available:false; refresh 503 MT5_UNAVAILABLE; validate NEEDS_METADATA.
+- WORKSTATION STATE: see TASK 12 RECORD; preview services were left as found.
+
+FILES CHANGED (TASK 12): packages/mt5_adapter (connection/metadata/sizing/
+__init__), packages/strategy_spec/spec.py, services/api (metadata_service.py,
+api/routers/{metadata,mt5}.py, spec_service.py, main.py, routers/__init__),
+apps/web (components/Mt5Select.tsx NEW, TopBar, pages/ManualNodes, api/
+{client,types}, styles/theme.css, __tests__/{setup,spec-workspace}),
+scripts/import_market_data.py (NEW), scripts/START_INTERNAL.bat,
+START_DIAGNOSTIC.bat, scripts/audit_launcher.py, TROUBLESHOOTING.txt (NEW),
+tests/{test_metadata_mt5,test_import_market_data}.py (NEW),
+tests/test_launcher_bat.py, docs/{ISSUES_AND_FIXES,CHANGELOG,ARCHITECTURE,
+WINDOWS_SETUP,MIGRATION_MAPPING (NEW),IMPLEMENTATION_PROGRESS}, CHATGPT.txt.
+
+PUBLISHED (TASK 12): feature + docs commits follow this entry; the TASK 12
+RECORD below is appended after push verification.

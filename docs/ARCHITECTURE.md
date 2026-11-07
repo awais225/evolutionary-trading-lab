@@ -149,7 +149,30 @@ Domain errors → `{"detail": "…"}`; unhandled → 500 `{"error":{"code":"inte
 ## MT5 — PARTIALLY IMPLEMENTED / UNVERIFIED (Windows)
 - IMPLEMENTED: read-only availability probe (package import, platform check);
   `doctor --mt5` deep probe code path (import + terminal init + account READ).
-- UNVERIFIED: everything on Windows; MetaTrader5 not installable on Linux.
+- IMPLEMENTED (HERO V1.4.2, TASK 12): `packages/mt5_adapter` with
+  `connection.py` (terminal discovery, single session lock, account snapshot —
+  missing fields stay `None`, never fabricated), `metadata.py` (normalized
+  broker metadata snapshots), `sizing.py` (pip = 10·point on 3/5-digit feeds
+  else point — from digits, never from the symbol name; tick rounding; volume
+  normalize; stops-distance check; non-finite/zero-step inputs REFUSED).
+  Snapshots are stored per broker/server+symbol at
+  `DATA/MARKET_METADATA/<server>/<SYMBOL>.json` with a manifest + SHA-256;
+  two servers' snapshots for one symbol never overwrite each other.
+- Validation consumes snapshots: `validate`/`compile` return `NEEDS_METADATA`
+  until a snapshot exists for the exact broker/server/symbol, and are never
+  forced to VALID. The TopBar MT5 terminal/account selection is recorded for
+  **Live Testing only** and never affects instruments, nodes, fingerprints
+  or DATA. The spec's `identity.direction` participates in the strategy
+  fingerprint; inherently directional examples carry `LONG`/`SHORT` (never
+  stamped `BOTH`); `BOTH` is the default only for new blank strategies.
+- Market data: `scripts/import_market_data.py` imports MT History-Center CSV
+  exports into `DATA/MARKET_DATA/market_data.db` + `import_manifest.json`
+  (all-or-nothing, duplicates collapsed-or-fatal, gaps reported never filled,
+  naive broker-server timestamps). 419,013 XAUUSD candles imported and
+  verified on Linux.
+- UNVERIFIED: everything against a real terminal on Windows; MetaTrader5 is
+  not installable on Linux, where every MT5 path verifiably answers
+  `MT5_UNAVAILABLE` instead of simulating data.
 - NOT SUPPORTED (by design): any order placement, modification, cancellation;
   live execution; approval issuance. Phase 5 only, after Phase 4.
 
