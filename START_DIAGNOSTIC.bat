@@ -105,6 +105,8 @@ echo ===========================================================
 echo  DIAGNOSTIC COMPLETE - window stays open.
 echo  Log written to: %LOG%
 echo  Send that file (and a photo of this window) with the report.
+echo  To fix it yourself first: open TROUBLESHOOTING.txt in the
+echo  repository root and search for the exact error text shown above.
 echo ===========================================================
 pause >nul
 exit /b 0

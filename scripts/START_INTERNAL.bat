@@ -254,7 +254,17 @@ REM ---- STAGE 10/10: browser launch + monitor ---------------------------------
 call :LOG "[STAGE 10/10] Browser launch"
 set "FAILED_STAGE=10"
 start "" "http://127.0.0.1:5173/?v=%HERO1_START_TOKEN%"
-call :LOG "  opened http://127.0.0.1:5173/"
+set "RC=%errorlevel%"
+call :LOG "  browser launch rc : %RC%  (0 = auto-open requested)"
+if not "%RC%"=="0" (
+  echo.
+  echo  [WARN] The browser did not open automatically - start rc=%RC%
+  echo         Hero1 itself IS running normally. Open this address in
+  echo         your browser manually:  http://127.0.0.1:5173/
+  echo         Or search "browser" in TROUBLESHOOTING.txt - repository root.
+  echo [%DATE% %TIME%] [WARN] browser auto-open failed rc=%RC% - manual open http://127.0.0.1:5173/ >> "%STARTUP_LOG%"
+  echo.
+)
 call :LOG "[PASS] stage 10 - HERO1 IS RUNNING"
 echo.
 echo ===========================================================
@@ -302,6 +312,8 @@ if defined FAILED_CMD echo  Reproduce   : %FAILED_CMD%
 echo  Working dir  : %CD%
 echo  Data root    : %DATA_ROOT%
 echo  Log file     : %STARTUP_LOG%
+echo  Next step    : open TROUBLESHOOTING.txt in the repository root and
+echo                 search for "STAGE %FAILED_STAGE%" or the exact error text above.
 echo.
 echo [%DATE% %TIME%] [STARTUP_FAILED] stage=%FAILED_STAGE% rc=%FAILED_RC% reason=%FAILED_REASON% >> "%STARTUP_LOG%"
 if exist "%VENV_PY%" (

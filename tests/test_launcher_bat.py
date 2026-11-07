@@ -75,6 +75,34 @@ def test_internal_marks_all_ten_stages_and_failure_stages():
         assert f'set "FAILED_STAGE={i}"' in text
 
 
+def test_stage10_browser_autopen_captures_rc_warns_never_fails():
+    text = (REPO / "scripts" / "START_INTERNAL.bat").read_text(encoding="ascii")
+    stage10 = text[text.index("[STAGE 10/10]"):text.index(":MONITOR_LOOP")]
+    assert 'start "" "http://127.0.0.1:5173/' in stage10          # the auto-open itself
+    assert 'set "RC=%errorlevel%"' in stage10                     # rc captured...
+    assert (stage10.index('start ""') < stage10.index('set "RC=%errorlevel%"')
+            < stage10.index("[PASS] stage 10"))                   # ...before claiming PASS
+    assert "manually" in stage10                                  # manual-open fallback printed
+    assert "goto :STAGE_FAILED" not in stage10                    # browser failure never fails startup
+    handler = text[text.index("\n:STAGE_FAILED"):]  # label definition at line start (goto targets are mid-line)
+    assert "TROUBLESHOOTING.txt" in handler                       # search-first pointer on real failures
+
+
+def test_troubleshooting_txt_is_search_first_and_verified_only():
+    p = REPO / "TROUBLESHOOTING.txt"
+    assert p.exists(), "TROUBLESHOOTING.txt knowledge base missing at repository root"
+    raw = p.read_bytes()
+    assert all(b < 128 for b in raw), "TROUBLESHOOTING.txt must stay pure ASCII (Windows consoles)"
+    text = raw.decode("ascii")
+    assert "SEARCH THIS FILE FIRST" in text
+    entries = text.split("\nSYMPTOM:")[1:]
+    assert len(entries) >= 8, "knowledge base too thin to be useful"
+    for entry in entries:
+        assert "Verified cause:" in entry, "entry without a verified cause (speculation is not allowed)"
+        assert "Verified fix:" in entry, "entry without a verified fix"
+        assert "Source:" in entry, "entry without a traceable verification source"
+
+
 def test_internal_exports_data_root_and_checks_init_db_exists():
     text = (REPO / "scripts" / "START_INTERNAL.bat").read_text(encoding="ascii")
     assert 'if not defined HERO1_DATA_ROOT set "HERO1_DATA_ROOT=%DATA_ROOT%"' in text

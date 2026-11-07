@@ -134,6 +134,25 @@ def audit(path: Path) -> list[str]:
             errors.append("START_INTERNAL.bat: missing :STAGE_FAILED handler")
         if "exit /b 1" not in text:
             errors.append("START_INTERNAL.bat: failure path must exit /b 1")
+        # stage 10 browser auto-open: the launch rc must be captured BEFORE any
+        # PASS is claimed, and a failed auto-open must warn with a manual-open
+        # URL - it must never route to :STAGE_FAILED (the services are healthy;
+        # only the browser convenience failed)
+        i_start = text.find('start "" "http://127.0.0.1:5173/')
+        i_pass10 = text.find("[PASS] stage 10")
+        if i_start < 0 or i_pass10 < 0 or i_start > i_pass10:
+            errors.append("START_INTERNAL.bat: stage 10 browser auto-open missing or misplaced")
+        else:
+            i_rc = text.find('set "RC=%errorlevel%"', i_start)
+            if not (i_start < i_rc < i_pass10):
+                errors.append("START_INTERNAL.bat: stage 10 must capture the browser-launch rc before claiming PASS")
+            if "goto :STAGE_FAILED" in text[i_start:i_pass10]:
+                errors.append("START_INTERNAL.bat: browser auto-open failure must warn, never fail startup")
+            if "manually" not in text[i_start:i_pass10]:
+                errors.append("START_INTERNAL.bat: stage 10 must print the manual-open URL when auto-open fails")
+        handler_at = text.find("\r\n:STAGE_FAILED")
+        if handler_at >= 0 and "TROUBLESHOOTING.txt" not in text[handler_at:]:
+            errors.append("START_INTERNAL.bat: :STAGE_FAILED must point to TROUBLESHOOTING.txt (search-first)")
 
     return errors
 

@@ -1,0 +1,211 @@
+================================================================================
+HERO1 TROUBLESHOOTING - SEARCH THIS FILE FIRST
+================================================================================
+
+HOW TO USE THIS FILE
+--------------------
+1. When something fails, Hero1 prints a STAGE number and exact error text.
+   Keep that window open (it is designed to stay open).
+2. In this file, press Ctrl+F and search for, in this order:
+     - the stage text, e.g.  STAGE 4
+     - the exact error words on screen, e.g.  file is not a database
+     - the port number, e.g.  8788
+3. Every entry has four parts:
+     SYMPTOM:         what you see, in the exact words shown on screen
+     Verified cause:  what was PROVEN to cause it in this project
+     Verified fix:    the fix that was verified to work
+     Source:          where that verification is recorded
+   There are no guessed fixes in this file. If the words on your screen do
+   not appear here, do NOT experiment: run START_DIAGNOSTIC.bat, then report
+   the stage number, the exact error text, and the two log files
+   <DATA_ROOT>\LOGS\startup.log and <DATA_ROOT>\LOGS\diagnostic.log.
+   Never delete the DATA folder to "fix" a problem. No fix in this file
+   requires deleting data.
+
+Honesty note: the Windows launchers cannot be executed by the development
+environment, so they are verified by a static audit plus automated tests
+(scripts/audit_launcher.py, tests/test_launcher_bat.py) and are built to stay
+open and name the failed stage. If a launcher window still vanishes, the
+file being double-clicked is not the current file - see the first entry.
+
+--------------------------------------------------------------------------------
+SYMPTOM: The START.bat window closes or vanishes and there is nothing to read
+Verified cause: A single-file launcher can die before it reaches any pause
+  (a missing label, a parse error or a native crash kills the console), and
+  on the affected machine the file being run could not be proven to be the
+  file that had been fixed - an old or partial copy looks identical.
+Verified fix: The current design cannot vanish: START.bat stays open, prints
+  its own absolute path, size, modified time, its SHA-256 (certutil) and the
+  git HEAD, then runs the real procedure inside cmd /k. Compare the printed
+  SHA-256 with the START.bat in your pulled repository; a mismatch means the
+  file you double-clicked is not current - pull again. For diagnosis run
+  START_DIAGNOSTIC.bat, which always pauses and writes diagnostic.log.
+Source: ISSUE-037, commit a7d435b27; scripts/audit_launcher.py
+
+--------------------------------------------------------------------------------
+SYMPTOM: HERO1 STARTUP FAILED - STAGE 4 (database integrity check)
+Verified cause: The full integrity report is printed in the window and in
+  startup.log. A real database problem reports sqlite errors such as
+  "file is not a database"; the report names the database that failed.
+Verified fix: Run START_DIAGNOSTIC.bat. It runs PRAGMA integrity_check on
+  every database READ-ONLY (it cannot create or change anything) and says
+  "ok" per database. If one database does not report ok, stop there: do not
+  delete it and do not re-run setup over it. Report startup.log plus
+  diagnostic.log. There is no verified automatic repair; anything else would
+  be guessing with your data.
+Source: ISSUE-036; ISSUE-037 (START_DIAGNOSTIC read-only contract)
+
+--------------------------------------------------------------------------------
+SYMPTOM: Port 8788 (or 5173) is held by an application that is NOT Hero1, rc=20
+Verified cause: Another program - often a leftover dev server - is already
+  listening on the port. Hero1 verifies instance identity before reusing a
+  port and never kills a foreign process.
+Verified fix: Close the other application, then run START.bat again. The
+  port checker reports rc=0 free, rc=10 verified Hero1 (it will be reused),
+  rc=20 foreign (refused). To check by hand:
+  .venv\Scripts\python.exe scripts\check_port.py 8788
+  .venv\Scripts\python.exe scripts\check_port.py --frontend 5173
+Source: ISSUE-025; ISSUE-028; ISSUE-029
+
+--------------------------------------------------------------------------------
+SYMPTOM: The dashboard page loads but shows no data / API NOT CONNECTED (STAGE 9)
+Verified cause: A page answering on 5173 only proves the frontend server is
+  up. The frontend reaches the API through a proxy to the backend on 8788;
+  stage 9 verifies that whole path including backend identity.
+Verified fix: Look at the "HERO1 Backend :8788" window - if it shows an
+  error, that is the real failure. Open http://127.0.0.1:8788/health in the
+  browser: it must answer and report this repository as project_root. If
+  8788 does not answer at all, the backend is down; close the service
+  windows and run START.bat again so everything starts in order.
+Source: ISSUE-025; ISSUE-029; ISSUE-031
+
+--------------------------------------------------------------------------------
+SYMPTOM: The dashboard opened in the browser at the wrong port (5174 or higher)
+Verified cause: When 5173 is busy, vite used to drift silently to the next
+  free port, so the browser showed a different app than the launcher
+  verified. vite is now configured strictPort and fails fast instead.
+Verified fix: Free port 5173 (see the rc=20 entry above), close stray
+  frontend windows, and run START.bat again. The correct address is always
+  http://127.0.0.1:5173/ - never a higher port.
+Source: ISSUE-028; ISSUE-031
+
+--------------------------------------------------------------------------------
+SYMPTOM: [WARN] The browser did not open automatically - start rc=<number>
+Verified cause: Windows could not launch the default browser for the
+  dashboard address (commonly a missing or broken browser association).
+  This is only the browser convenience failing: stage 9 has already
+  verified that the frontend serves the page and reaches the backend.
+Verified fix: Open this address in any browser yourself:
+  http://127.0.0.1:5173/
+  Hero1 is running normally; nothing needs to be restarted.
+Source: scripts/START_INTERNAL.bat stage 10; tests/test_launcher_bat.py
+
+--------------------------------------------------------------------------------
+SYMPTOM: After updating the repository, the dashboard shows old fields/behavior
+Verified cause: Service windows started before the update keep running the
+  old code. An answering port proves a process is alive, not that it runs
+  the current code - this exact skew was observed against the development
+  preview (old API contract served after the code had changed).
+Verified fix: Close the "HERO1 Backend :8788" and "HERO1 Frontend :5173"
+  windows, then run START.bat again so both services restart on the
+  current code.
+Source: ISSUE-035
+
+--------------------------------------------------------------------------------
+SYMPTOM: Nothing answers at 127.0.0.1:8787 (the port an older guide mentions)
+Verified cause: 8787 belonged to the legacy project. Hero1 deliberately
+  uses 8788 for the backend so the two can never be confused.
+Verified fix: Use http://127.0.0.1:8788/health for the backend and
+  http://127.0.0.1:5173/ for the dashboard.
+Source: ISSUE-008
+
+--------------------------------------------------------------------------------
+SYMPTOM: STAGE 2 - .venv\Scripts\python.exe not found, even after PREREQUISITES
+Verified cause: The Python virtual environment was never created because a
+  prerequisite is missing (Python 3.11+ or Node.js 20 LTS), so there is no
+  interpreter for the launcher stages to run.
+Verified fix: Run PREREQUISITES.bat by double-clicking it. It stays open
+  and prints FAIL DETAIL naming exactly what is missing (for example:
+  "Python 3.11+ not found. Install from python.org/downloads (enable Add
+  to PATH), then run PREREQUISITES.bat again." / Node.js from nodejs.org).
+  Install that item, run PREREQUISITES.bat once more, then START.bat.
+Source: PREREQUISITES.bat (FAIL_STEP/FAIL_DETAIL contract); ISSUE-020
+
+--------------------------------------------------------------------------------
+SYMPTOM: Validate answers NEEDS_METADATA / the UI shows SPEC_NEEDS_METADATA
+Verified cause: There is no broker metadata snapshot stored for that exact
+  instrument on that exact broker and server, so pip size, tick size,
+  volume limits and stops distance are unknown. Hero1 never guesses these
+  values and never marks such a strategy VALID - by design, not a bug.
+Verified fix: On the Windows machine, open the MT5 terminal, log in to the
+  broker/server, then use Metadata -> Refresh for that instrument; or
+  Import a metadata snapshot that was exported from that broker/server.
+  Validate again afterwards - it turns VALID only with a real snapshot.
+  Metadata is kept separate per broker and per server; one broker's
+  snapshot is never applied to another.
+Source: tests/test_metadata_mt5.py; services/api metadata + spec validate
+
+--------------------------------------------------------------------------------
+SYMPTOM: Metadata Refresh answers MT5 unavailable (503 MT5_UNAVAILABLE)
+Verified cause: The MetaTrader 5 terminal / Python bridge is not available
+  on this machine (for example the Linux development box, or MT5 not
+  installed or not running). This is an honest refusal, not a crash, and
+  no data was simulated in place of the real terminal.
+Verified fix: Run Hero1 on the Windows machine with the MT5 terminal
+  installed, open and logged in, and Refresh there. Alternatively Import a
+  snapshot that was collected on such a machine. Strategies simply stay
+  NEEDS_METADATA until then.
+Source: tests/test_metadata_mt5.py (Linux-unavailable paths); ISSUE register
+  rule "MT5 is never simulated as real"
+
+--------------------------------------------------------------------------------
+SYMPTOM: Volume or price rounding is refused for an instrument
+Verified cause: Sizing uses the broker snapshot (digits, tick size, volume
+  min/max/step). A pip is NOT always 10 points: it is 10 points only for
+  3- and 5-digit symbols, otherwise one point. If the snapshot has missing
+  or invalid tick geometry (for example a zero volume step), the adapter
+  refuses to produce a number at all rather than invent one.
+Verified fix: Refresh the metadata snapshot for that instrument on that
+  broker/server (see the NEEDS_METADATA entry) and retry. Do not type pip
+  or tick values in by hand.
+Source: packages/mt5_adapter sizing rules; tests/test_metadata_mt5.py
+
+--------------------------------------------------------------------------------
+SYMPTOM: import_market_data.py reports a dataset REJECTED (exit code 1)
+Verified cause: At least one candle row failed validation; the exact
+  reason is printed per line (HIGH below LOW, a non-numeric field, an
+  unparseable date, or conflicting candles for the same timestamp). The
+  import is all-or-nothing: zero candles were written, and the attempt is
+  recorded as REJECTED in import_manifest.json for provenance.
+Verified fix: Fix the export at the source - re-export the file from the
+  MT History Center and import the fresh file. Exact duplicate rows are
+  collapsed automatically and counted; CONFLICTING duplicates mean the
+  export itself is ambiguous, so only a re-export resolves it. Never edit
+  prices in the CSV by hand to force a pass.
+Source: scripts/import_market_data.py; tests/test_import_market_data.py
+
+--------------------------------------------------------------------------------
+SYMPTOM: Imported history has gaps, or starts later than the MT chart shows
+Verified cause: Two real effects, both reported by the importer: (1) the
+  MT History Center exports at most about 100,000 rows per file - the
+  importer prints this note - so M1/M5 files cannot reach back further;
+  (2) weekends and market closures are genuine gaps. The importer reports
+  gaps (count and largest) and never invents candles to fill them.
+Verified fix: For older history, export an older date range in MT and
+  import that file too; importing a newer export rolls the store forward
+  and the report counts any rows it overwrote. Gaps caused by market
+  closure are real data - there is nothing to repair.
+Source: scripts/import_market_data.py (gaps_found, largest_gap_seconds,
+  rows_overwritten_other_source); verified against all seven XAUUSD
+  exports, 419013 candles
+
+--------------------------------------------------------------------------------
+IF YOUR PROBLEM IS NOT IN THIS FILE
+-----------------------------------
+1. Run START_DIAGNOSTIC.bat (read-only; it cannot change or create data).
+2. Keep both logs: <DATA_ROOT>\LOGS\startup.log and
+   <DATA_ROOT>\LOGS\diagnostic.log, plus a photo/copy of the window text.
+3. Report the STAGE number and the exact error text together with the logs.
+4. Do not delete DATA, .venv or databases while experimenting - every fix
+   above works without deleting anything.
+================================================================================
