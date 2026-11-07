@@ -233,3 +233,17 @@ scripts/audit_launcher.py, TROUBLESHOOTING.txt (NEW), tests (test_metadata_mt5
 NEW, test_import_market_data NEW, test_launcher_bat), docs (ISSUE-038/039/040,
 CHANGELOG, ARCHITECTURE, WINDOWS_SETUP, MIGRATION_MAPPING NEW, CHATGPT TASK 12,
 this entry).
+
+## 2026-11-07 — TASK 12 record: commit + push (verified)
+- Four commits pushed to origin main; remote verified via ls-remote AFTER push:
+  1ee39c734c2559b8738fbe0b3a7fe48156961f0e (metadata/MT5),
+  91e9cafa63d9274cf93161890889505ac14c84c5 (importer),
+  2019c090c0b35ac317b6d11aec6ddef2b9c522f6 (launcher stage-10 +
+  TROUBLESHOOTING), 022ae49e47906e89e179bd0ad146950af82147c2 (docs).
+  This record commit follows.
+- Suite at push: backend 146 passed / 1 skipped; frontend 43/43; build clean;
+  launcher audit PASS 6/6; importer live evidence 419,013 candles (scratch
+  root). Preview backend restarted onto current code with identical env and
+  live-checked (metadata 200 available:false; refresh 503 MT5_UNAVAILABLE;
+  validate NEEDS_METADATA). Live DATA root untouched by all checks.
+- Still NOT proven: Windows + real MT5 terminal; Windows stage-10 double-click.

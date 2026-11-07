@@ -978,3 +978,23 @@ WINDOWS_SETUP,MIGRATION_MAPPING (NEW),IMPLEMENTATION_PROGRESS}, CHATGPT.txt.
 
 PUBLISHED (TASK 12): feature + docs commits follow this entry; the TASK 12
 RECORD below is appended after push verification.
+
+TASK 12 RECORD (2026-11-07): pushed to origin main (each verified via
+ls-remote AFTER push):
+- 1ee39c734c2559b8738fbe0b3a7fe48156961f0e metadata: broker snapshots, MT5 adapter + Live-Testing selector,
+  NEEDS_METADATA validation (tests/test_metadata_mt5.py: 19 tests)
+- 91e9cafa63d9274cf93161890889505ac14c84c5 importer: MT History-Center CSV to SQLite store + manifest
+  (tests/test_import_market_data.py: 15 tests; live run 419,013 candles)
+- 2019c090c0b35ac317b6d11aec6ddef2b9c522f6 launcher: honest stage-10 auto-open + TROUBLESHOOTING.txt
+  (audit PASS 6/6; START.bat byte-untouched)
+- 022ae49e47906e89e179bd0ad146950af82147c2 docs: TASK 12 records (CHANGELOG HERO-V1.4.2, ISSUE-038/039/040)
+Remote main verified at 022ae49e47906e89e179bd0ad146950af82147c2 after the push; this record commit follows.
+Suite at push: backend 146 passed / 1 skipped, frontend 43/43, build clean.
+Preview backend was restarted onto current code (it had been serving
+pre-milestone code - ISSUE-035 class) with identical env; live-checked:
+metadata GET 200 available:false, refresh 503 MT5_UNAVAILABLE, validate
+NEEDS_METADATA, /mt5/status unavailable. WORKSTATION STATE: preview backend
+:8788 + frontend :5173 LIVE on current code. STILL UNPROVEN: Windows +
+real MT5 terminal end-to-end (metadata refresh, selector, live account) and
+the Windows stage-10 double-click - owner machine required; see
+TROUBLESHOOTING.txt and docs/WINDOWS_SETUP.md section 4.
