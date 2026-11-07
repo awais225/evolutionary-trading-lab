@@ -25,9 +25,26 @@ def main() -> int:
     mode.add_argument("--create", action="store_true", help="create + migrate + seed (idempotent)")
     args = ap.parse_args()
 
-    report = initialize_databases(create=args.create)
+    # rc contract (stable, machine-checked by the launcher):
+    #   0 = healthy        (report.ok is True)
+    #   1 = check ran but something is unavailable/unhealthy (structured report printed)
+    #   2 = UNEXPECTED crash (traceback on stderr) — distinct from "database unhealthy"
+    # Every path flushes stdout/stderr before returning so a redirected log always
+    # contains the result (block buffering once lost the report on crash).
+    try:
+        report = initialize_databases(create=args.create)
+    except KeyboardInterrupt:
+        print("interrupted", file=sys.stderr)
+        sys.stdout.flush(); sys.stderr.flush()
+        return 130
+    except Exception:  # noqa: BLE001 - rc contract: crashes are rc=2, never swallowed
+        import traceback
+        traceback.print_exc()
+        sys.stdout.flush(); sys.stderr.flush()
+        return 2
     import json
     print(json.dumps(report.to_dict(), indent=2))
+    sys.stdout.flush()
     return 0 if report.ok else 1
 
 

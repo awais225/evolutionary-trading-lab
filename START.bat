@@ -3,29 +3,39 @@ setlocal EnableDelayedExpansion
 title HERO1 Trading Research Workstation
 
 REM ===========================================================================
-REM  HERO1 — MAIN LAUNCHER (Windows cmd.exe)
+REM  HERO1 - MAIN LAUNCHER (Windows cmd.exe)
 REM  Adapted from the PROVEN legacy Evolutionary Trading Lab v10.4-throughput
 REM  start.bat (root detect -^> venv -^> import check -^> DB verify -^> port
 REM  ownership -^> persistent service windows -^> real HTTP readiness -^>
 REM  instance verification -^> browser -^> foreground monitor loop).
-REM  HERO1 differences (verified against this repository — do not "fix" blindly):
+REM  HERO1 differences (verified against this repository - do not "fix" blindly):
 REM    * backend package dir  : services\api      (entrypoint app.main:app)
 REM    * frontend             : Vite dev server on 5173 (strictPort)
 REM    * vite proxies /api, /health and /ws to the backend on 8788
 REM    * DATA root            : <repo>\DATA (override: set HERO1_DATA_ROOT)
-REM  Windows test status: UNTESTED on a real Windows host — see docs.
+REM  Exit-code contract for every external call: the rc is captured into RC and
+REM  logged; success requires rc == "0" EXACTLY (string compare, never errorlevel,
+REM  which mis-evaluates negative native-crash codes). On any non-zero rc the
+REM  launcher prints the failed command, its exit code and the tail of
+REM  DATA\LOGS\startup.log, then waits for a keypress. It can never exit
+REM  silently. Windows test status: UNTESTED on a real Windows host - see docs.
 REM ===========================================================================
 
 set "ROOT=%~dp0"
 if "%ROOT:~-1%"=="\" set "ROOT=%ROOT:~0,-1%"
 cd /d "%ROOT%"
-if errorlevel 1 goto :ROOT_FAIL
+set "RC=%errorlevel%"
+if not "%RC%"=="0" (
+  set "FAILED_RC=%RC%"
+  goto :ROOT_FAIL
+)
 
 if not "%HERO1_DATA_ROOT%"=="" (
   set "DATA_ROOT=%HERO1_DATA_ROOT%"
 ) else (
   set "DATA_ROOT=%ROOT%\DATA"
 )
+if not defined HERO1_DATA_ROOT set "HERO1_DATA_ROOT=%DATA_ROOT%"
 set "LOG_DIR=%DATA_ROOT%\LOGS"
 if not exist "%LOG_DIR%" mkdir "%LOG_DIR%" >nul 2>&1
 if not exist "%LOG_DIR%" goto :LOG_FAIL
@@ -50,6 +60,7 @@ if not exist "%ROOT%\apps\web\vite.config.ts" if not exist "%ROOT%\apps\web\vite
 if not exist "%ROOT%\apps\web\node_modules"           goto :MISSING_NODE_MODULES
 if not exist "%ROOT%\scripts\run_backend.cmd"         goto :MISSING_BACKEND_RUNNER
 if not exist "%ROOT%\scripts\run_frontend.cmd"        goto :MISSING_FRONTEND_RUNNER
+if not exist "%ROOT%\scripts\init_db.py"            goto :MISSING_UTILS
 if not exist "%ROOT%\scripts\check_port.py"           goto :MISSING_UTILS
 if not exist "%ROOT%\scripts\wait_ready.py"           goto :MISSING_UTILS
 if not exist "%ROOT%\scripts\verify_instance.py"      goto :MISSING_UTILS
@@ -69,13 +80,27 @@ echo [OK] Python: %VENV_PY%
 REM ---- STAGE 3: backend import verification ----------------------------------
 echo [..] Verifying backend imports...
 "%VENV_PY%" -c "import sys; sys.path.insert(0, r'%ROOT%\services\api'); import app.main; print('[OK] backend import')" >> "%STARTUP_LOG%" 2>&1
-if errorlevel 1 goto :BACKEND_IMPORT_FAIL
+set "RC=%errorlevel%"
+echo [..] backend import exit code: %RC%  (details appended to %STARTUP_LOG%)
+if not "%RC%"=="0" (
+  set "FAILED_RC=%RC%"
+  goto :BACKEND_IMPORT_FAIL
+)
 echo [OK] Backend application import verified.
 
 REM ---- STAGE 4: database verification ----------------------------------------
 echo [..] Verifying database integrity (read-only check)...
-"%VENV_PY%" "%ROOT%\scripts\init_db.py" --check >> "%STARTUP_LOG%" 2>&1
-if errorlevel 1 goto :DB_CHECK_FAIL
+set "DB_CHECK_OUT=%TEMP%\hero1_dbcheck.out"
+"%VENV_PY%" "%ROOT%\scripts\init_db.py" --check > "%DB_CHECK_OUT%" 2>&1
+set "RC=%errorlevel%"
+type "%DB_CHECK_OUT%"
+type "%DB_CHECK_OUT%" >> "%STARTUP_LOG%" 2>&1
+del "%DB_CHECK_OUT%" >nul 2>&1
+echo [..] database check exit code: %RC%
+if not "%RC%"=="0" (
+  set "FAILED_RC=%RC%"
+  goto :DB_CHECK_FAIL
+)
 echo [OK] Database verified.
 
 REM ---- STAGE 5: frontend dependency check (dev server serves src) ------------
@@ -91,19 +116,37 @@ if exist "%ROOT%\apps\web\dist\index.html" (
 REM ---- STAGE 6: port ownership + existing-instance detection -----------------
 set "BACKEND_REUSE=0"
 set "FRONTEND_REUSE=0"
+set "FAILED_RC="
 
 "%VENV_PY%" "%ROOT%\scripts\check_port.py" 8788
-if errorlevel 20 goto :PORT_BACKEND_FOREIGN
-if errorlevel 10 set "BACKEND_REUSE=1"
+set "RC=%errorlevel%"
+echo [..] port 8788 check exit code: %RC%  (0=free, 10=verified Hero1, 20=foreign)
+if "%RC%"=="20" goto :PORT_BACKEND_FOREIGN
+if "%RC%"=="10" set "BACKEND_REUSE=1"
+if not "%RC%"=="0" if not "%RC%"=="10" if not "%RC%"=="20" (
+  set "FAILED_RC=%RC%"
+  goto :PORT_CHECK_FAILED
+)
 
 "%VENV_PY%" "%ROOT%\scripts\check_port.py" --frontend 5173
-if errorlevel 20 goto :PORT_FRONTEND_FOREIGN
-if errorlevel 10 set "FRONTEND_REUSE=1"
+set "RC=%errorlevel%"
+echo [..] port 5173 check exit code: %RC%  (0=free, 10=verified Hero1, 20=foreign)
+if "%RC%"=="20" goto :PORT_FRONTEND_FOREIGN
+if "%RC%"=="10" set "FRONTEND_REUSE=1"
+if not "%RC%"=="0" if not "%RC%"=="10" if not "%RC%"=="20" (
+  set "FAILED_RC=%RC%"
+  goto :PORT_CHECK_FAILED
+)
 
 if "%BACKEND_REUSE%"=="1" (
   echo [..] Port 8788 answers Hero1 -^> verifying it serves THIS repository...
   "%VENV_PY%" "%ROOT%\scripts\verify_instance.py" --mode backend --url http://127.0.0.1:8788/health --root "%ROOT%" >> "%STARTUP_LOG%" 2>&1
-  if errorlevel 1 goto :BACKEND_FOREIGN_REUSE
+  set "RC=%errorlevel%"
+  echo [..] backend reuse identity check exit code: %RC%
+  if not "%RC%"=="0" (
+    set "FAILED_RC=%RC%"
+    goto :BACKEND_FOREIGN_REUSE
+  )
 )
 
 REM ---- STAGE 7: launch token --------------------------------------------------
@@ -117,11 +160,21 @@ echo [..] Starting HERO1 backend in its own terminal window...
 start "HERO1 Backend :8788" cmd /k call "%ROOT%\scripts\run_backend.cmd"
 echo [..] Waiting for the backend (health + Hero1 identity)...
 call "%VENV_PY%" "%ROOT%\scripts\wait_ready.py" http://127.0.0.1:8788/health 120 --require backend >> "%STARTUP_LOG%"
-if errorlevel 1 goto :BACKEND_TIMEOUT
+set "RC=%errorlevel%"
+echo [..] backend readiness exit code: %RC%
+if not "%RC%"=="0" (
+  set "FAILED_RC=%RC%"
+  goto :BACKEND_TIMEOUT
+)
 
 REM post-start identity check: the answering process must be THIS launch
 "%VENV_PY%" "%ROOT%\scripts\verify_instance.py" --mode backend --url http://127.0.0.1:8788/health --root "%ROOT%" --token "%HERO1_START_TOKEN%" >> "%STARTUP_LOG%" 2>&1
-if errorlevel 1 goto :BACKEND_NOT_OURS
+set "RC=%errorlevel%"
+echo [..] backend identity verification exit code: %RC%
+if not "%RC%"=="0" (
+  set "FAILED_RC=%RC%"
+  goto :BACKEND_NOT_OURS
+)
 
 :BACKEND_READY
 echo [OK] Backend serving at http://127.0.0.1:8788
@@ -132,12 +185,22 @@ echo [..] Starting HERO1 frontend (vite dev) in its own terminal window...
 start "HERO1 Frontend :5173" cmd /k call "%ROOT%\scripts\run_frontend.cmd"
 echo [..] Waiting for the frontend...
 call "%VENV_PY%" "%ROOT%\scripts\wait_ready.py" http://127.0.0.1:5173/ 120 --require frontend >> "%STARTUP_LOG%"
-if errorlevel 1 goto :FRONTEND_TIMEOUT
+set "RC=%errorlevel%"
+echo [..] frontend readiness exit code: %RC%
+if not "%RC%"=="0" (
+  set "FAILED_RC=%RC%"
+  goto :FRONTEND_TIMEOUT
+)
 
 :FRONTEND_READY
 echo [..] Verifying frontend -^> backend connectivity through the vite proxy...
 "%VENV_PY%" "%ROOT%\scripts\verify_instance.py" --mode frontend-proxy --url http://127.0.0.1:5173/health
-if errorlevel 1 goto :PROXY_FAIL
+set "RC=%errorlevel%"
+echo [..] frontend-proxy exit code: %RC%
+if not "%RC%"=="0" (
+  set "FAILED_RC=%RC%"
+  goto :PROXY_FAIL
+)
 echo [OK] Frontend and backend are connected.
 echo.
 
@@ -178,7 +241,8 @@ if not "!BE_RC!"=="10" (
 if "!MONITOR_TICKS!"=="6" (
   set "MONITOR_TICKS=0"
   "%VENV_PY%" "%ROOT%\scripts\check_port.py" --frontend 5173 >nul 2>&1
-  if errorlevel 20 echo [%DATE% %TIME%] [WARN] port 5173 no longer serves the Hero1 frontend >> "%STARTUP_LOG%"
+  set "FE_RC=%errorlevel%"
+  if "%FE_RC%"=="20" echo [%DATE% %TIME%] [WARN] port 5173 no longer serves the Hero1 frontend >> "%STARTUP_LOG%"
 )
 goto :MONITOR_LOOP
 
@@ -227,12 +291,16 @@ goto :STARTUP_FAILED
 set "FAILED_REASON=.venv\Scripts\python.exe was not found even after PREREQUISITES.bat. See %DATA_ROOT%\LOGS\prerequisite.log"
 set "FAILED_CMD=PREREQUISITES.bat"
 goto :STARTUP_FAILED
+:PORT_CHECK_FAILED
+set "FAILED_REASON=scripts\check_port.py exited with unexpected code %FAILED_RC% for a port check (expected 0, 10 or 20). The port check itself is broken - interpreter, script or permissions. The launcher will NOT guess whether the port is free. Inspect %STARTUP_LOG% and run the FAILED_CMD to see the raw error."
+set "FAILED_CMD=%VENV_PY% scripts\check_port.py 8788"
+goto :STARTUP_FAILED
 :BACKEND_IMPORT_FAIL
-set "FAILED_REASON=The backend failed to import (import app.main). Run PREREQUISITES.bat, then check %STARTUP_LOG%."
+set "FAILED_REASON=The backend failed to import (import app.main, exit code %FAILED_RC%). Run PREREQUISITES.bat, then check %STARTUP_LOG%."
 set "FAILED_CMD=cd services\api and run: python -m uvicorn app.main:app --host 127.0.0.1 --port 8788"
 goto :STARTUP_FAILED
 :DB_CHECK_FAIL
-set "FAILED_REASON=Database verification failed. See %STARTUP_LOG% and run PREREQUISITES.bat (it creates/verifies the canonical <repo>\DATA registry and instrument databases)."
+set "FAILED_REASON=Database integrity check FAILED (exit code %FAILED_RC%). The full read-only report was printed above and appended to %STARTUP_LOG%. Nothing was created, migrated, repaired or deleted. Fix the underlying issue (missing/unhealthy DB at the path shown in the report, or an unexpected crash - rc=2) and run this launcher again. If every database is merely missing, run PREREQUISITES.bat first (it creates the canonical <repo>\DATA registry and instrument databases)."
 set "FAILED_CMD=%VENV_PY% scripts\init_db.py --check"
 goto :STARTUP_FAILED
 :PORT_BACKEND_FOREIGN
@@ -273,9 +341,17 @@ echo.
 echo  Diagnostic:
 echo  %FAILED_REASON%
 echo.
+if defined FAILED_RC echo  Exit code: %FAILED_RC%
+if defined FAILED_RC echo.
 if defined FAILED_CMD (
   echo  Command to reproduce / inspect:
   echo  %FAILED_CMD%
+  echo.
+)
+if exist "%VENV_PY%" (
+  echo  --- last 30 lines of %STARTUP_LOG% ---
+  "%VENV_PY%" -c "import sys; d=open(sys.argv[1], errors='replace').read(); print('\n'.join(d.splitlines()[-30:]))" "%STARTUP_LOG%" 2>nul
+  echo  ----------------------------------------
   echo.
 )
 echo  Launcher log: %STARTUP_LOG%

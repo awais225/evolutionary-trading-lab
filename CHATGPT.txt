@@ -744,3 +744,64 @@ PUBLISHED (TASK 9)
   pushed 2026-11-06). Remote main verified via ls-remote after push:
   01ccd599a6c23450a8ba8868e420b39145492615 refs/heads/main.
   This record commit follows (SHAs: TASK 9).
+
+================================================================================
+TASK 10 — START.BAT STAGE-4 (DATABASE INTEGRITY) DIAGNOSIS + LAUNCHER HARDENING
+          (2026-11-06, after V1.4.0)
+================================================================================
+PROMPT: owner's urgent "START.BAT FAILURE: DATABASE INTEGRITY CHECK" report.
+
+SYMPTOM (owner, Windows): window reaches "Verifying database integrity
+(read-only check)..." then disappears; dashboard never launches.
+
+DIAGNOSIS (from this Linux box - Windows unavailable; NOT from Windows runs)
+- Failing command: "%VENV_PY%" scripts\init_db.py --check + if errorlevel 1 goto
+  :DB_CHECK_FAIL (output appended ONLY to startup.log).
+- LIVE preview DBs (read-only): PRAGMA integrity_check = ok for registry + all
+  three instrument DBs (alembic 0001 registry / 0003 instruments - G3 state).
+- Linux rehearsal (copies): healthy -> rc=0 ok:true; missing root -> rc=1 with
+  structured per-DB report; relative HERO1_DATA_ROOT -> rc=1 via UNCAUGHT
+  traceback outside the function's try; corrupt DB copy -> rc=1 + sqlite error
+  text, visible only inside the log.
+- Defect A (real): 'if errorlevel 1' compares signed 32-bit; negative native
+  crash codes (0xC0000005 reads as -1073741819) are < 1, so a CRASHING check
+  could be treated as PASSED. Fixed everywhere: captured RC + string compare.
+- Defect B (real): all check output went only to startup.log; console saw
+  nothing. Fixed: stage 4 prints the full report + rc (temp-file tee).
+- Defect C (real): init_db.py let path-resolution exceptions escape the rc
+  contract and stdout was block-buffered (crash => report lost). Fixed:
+  rc 0 healthy / 1 unhealthy / 2 crashed-with-traceback; unconditional flush.
+- Skew class: on a consistent checkout the window cannot disappear at that line
+  (label graph audited: all gotos resolve, no duplicates, every failure pauses).
+  The remaining silent class is a local file skew/corruption class. Fixed
+  permanently: scripts/audit_launcher.py + tests/test_launcher_bat.py
+  (ASCII/CRLF/label-resolution/duplicate labels/pause-on-failure/no-plain-exit/
+  no powershell Tee-Object). All four launcher files normalized to pure ASCII.
+
+HARDENING (scope kept): every external call now captures RC and echoes it
+("backend import exit code: X", "database check exit code: X", "port 8788 check
+exit code: X (0=free, 10=verified Hero1, 20=foreign)", backend readiness, frontend
+readiness, identity verification, frontend-proxy, cd, monitor frontend poll).
+Stage 1 also requires scripts\init_db.py. START.bat exports HERO1_DATA_ROOT for
+the child processes. :STARTUP_FAILED prints exit code + failed command + the last
+30 lines of startup.log (venv python, guarded). New :PORT_CHECK_FAILED - an
+unexpected check_port rc no longer falls through to a fresh start guess.
+No UI/functionality/database changes; DATA untouched (rehearsal used /tmp copy).
+
+VERIFIED (LMS Linux): audit PASS (4 files) · pytest 107 passed / 1 skipped ·
+stage-4 rehearsal matrix above · label audit clean · pure ASCII + CRLF.
+
+NOT DONE / HONEST LIMITS
+- WINDOWS EXECUTION NOT PERFORMED - the owner must re-run START.bat on Windows
+  and send LOGS\startup.log + the console output if it still fails. The
+  launcher now CANNOT exit silently: every path prints command, rc and log tail
+  and pauses; a missing/corrupt local START.bat would still misbehave, which is
+  why the audit + tests now guard the invariants in the repo.
+- The exact owner-box mechanism of the disappearance could not be proven from
+  here (no Windows); the three real defects above plus the permanent guards are
+  the fix delivered. PRAGMA integrity_check of the OWNER's DBs must be run on
+  the owner's machine if the report shows database errors.
+
+WORKSTATION STATE: environment re-provisioned mid-session (.venv + node_modules
+rebuilt from committed sources; pytest parity re-verified 107/1; preview services
+restarted after docs commit).

@@ -191,6 +191,15 @@ git ls-remote/GitHub; if SHA-recording needs another commit, push that too.
 - Runtime architecture is unchanged: local-first FastAPI + Vite + SQLite.
 
 ## Launcher architecture — IMPLEMENTED & LINUX-VERIFIED (Windows UNPROVEN)
+
+Exit-code contract (2026-11-06, ISSUE-036): every external call captures rc into
+RC and is compared as a STRING against "0" (native-crash negative codes can no
+longer read as success); rc is echoed per call; on any failure the launcher
+prints command + exit code + last 30 lines of LOGS\startup.log and pauses.
+The database check prints its full read-only report to the console (tee).
+scripts/audit_launcher.py + tests/test_launcher_bat.py enforce ASCII/CRLF/
+label-resolution/no-plain-exit/pause-on-failure/no-powershell-pipes in CI.
+
 Adapted from the legacy v10.4-throughput launcher (read-only reference; see
 docs/PIPELINE.md §1 for inspected files/commits):
 - Stages: root detect → venv → import check (`sys.path.insert services/api`) →

@@ -1,5 +1,5 @@
 @echo off
-rem HERO1 frontend service window — started by START.bat (or run directly).
+rem HERO1 frontend service window - started by START.bat (or run directly).
 rem Same proven pattern as run_backend.cmd: cd to the vite app, run it,
 rem stay open on any exit. NO pipes, NO PowerShell dependency.
 setlocal EnableExtensions

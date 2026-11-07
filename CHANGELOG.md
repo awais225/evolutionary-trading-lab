@@ -45,6 +45,16 @@ exact commit SHA and tag. Claims only for what was implemented AND verified.
 - Manual Nodes save button: `Generate N nodes` in multi-TF mode (names allocated
   server-side, sequential; single-TF keeps the explicit name input).
 - Select-All in the registry applies only to the currently visible (filtered) set.
+- START.bat stage-4 hardening (owner report: window vanished after "Verifying
+  database integrity (read-only check)..."): captured-RC string-compare for EVERY
+  external call (negative native-crash codes can no longer read as success); rc
+  echoed per call; database check report printed to the console (tee to log);
+  `:STARTUP_FAILED` prints exit code + failed command + last 30 lines of
+  startup.log and always pauses; `scripts/audit_launcher.py` + pytest guards
+  launcher invariants (ASCII/CRLF/labels/pause-on-failure/no-powershell-pipes);
+  all launcher files normalized to pure ASCII. init_db.py now has rc 0/1/2
+  (healthy/unhealthy/crashed) + unconditional flush. Windows execution still
+  UNPROVEN - see ISSUES_AND_FIXES ISSUE-036.
 
 **Migration / DATA**
 - Live preview DATA root migrated 2026-11-06 (alembic 0002 → 0003 ×3 instrument DBs;

@@ -54,6 +54,32 @@ a dedicated data drive — do not commit it or point it inside `.git`.
 This is the runbook for the intended production machine: Windows 11, Intel i9,
 RTX 4090 (Laptop, 16 GB VRAM), 32 GB RAM, MT5 installed via MetaTrader 5.
 
+## 0.1 If START.bat fails at any stage (read this FIRST)
+
+Every external call in START.bat now captures its exit code and echoes it
+(`backend import exit code`, `database check exit code`, `port 8788 check exit
+code`, `backend readiness exit code`, ...). On any failure the launcher prints
+the failed command, its exit code and the last 30 lines of the log, then WAITS
+FOR A KEYPRESS - it cannot close by itself. If it closes anyway, the local file
+is corrupt or from an older revision: run `git status` and `git pull` and retry.
+
+Diagnostics for the database stage (run from the repository root):
+
+```bat
+.venv\Scripts\python.exe scripts\init_db.py --check
+echo %errorlevel%            REM 0=healthy, 1=unhealthy (JSON report per DB), 2=crashed (traceback)
+```
+
+Integrity of the databases themselves (read-only; changes nothing):
+
+```bat
+.venv\Scripts\python.exe -c "import sqlite3,glob,os; root=os.environ.get('HERO1_DATA_ROOT') or os.path.join(os.getcwd(),'DATA'); paths=[os.path.join(root,'DATABASE','hero1_registry.db')]+[os.path.join(root,s,'DATABASE','hero1.db') for s in sorted(os.listdir(root)) if s.isupper() and os.path.isdir(os.path.join(root,s))]; [print(p, '->', sqlite3.connect('file:'+p+'?mode=ro', uri=True).execute('PRAGMA integrity_check').fetchall()[0][0]) for p in paths]"
+```
+
+Both commands are safe to run repeatedly; neither writes to any database.
+Attach `DATA\LOGS\startup.log` and the console output to any bug report.
+Static safety net (also runs in CI): `.venv\Scripts\python.exe scripts\audit_launcher.py`.
+
 ## 1. Prerequisites
 
 - Python 3.11+ from python.org (check "Add to PATH")

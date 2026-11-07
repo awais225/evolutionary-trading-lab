@@ -1,5 +1,5 @@
 @echo off
-rem HERO1 backend service window — started by START.bat (or run directly).
+rem HERO1 backend service window - started by START.bat (or run directly).
 rem Adapted from the proven legacy RUN_BACKEND.bat / scripts/run_backend.bat pattern:
 rem resolve the venv interpreter explicitly, cd to the backend package dir,
 rem run `uvicorn app.main:app`, and STAY OPEN on any exit so failures are visible.

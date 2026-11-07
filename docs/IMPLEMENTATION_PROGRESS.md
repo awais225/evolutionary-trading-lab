@@ -90,3 +90,44 @@ live market data, backtests, validation, qualification (Phase 4+; nothing claime
   ls-remote after it.
 - Not done (unchanged, honest): Windows execution of the .bat files; Phase 4+
   market data / backtests / qualification; browser E2E (ISSUE-011).
+
+## 2026-11-06 — G5: START.bat stage-4 diagnosis + launcher hardening (owner report)
+
+Owner report: START.bat reached "Verifying database integrity (read-only
+check)..." then the window vanished; dashboard never launched.
+
+Diagnosis (established by inspection + Linux rehearsal, NOT by Windows execution):
+- Exact failing command: `"%VENV_PY%" scripts\init_db.py --check >> startup.log 2>&1`
+  followed by `if errorlevel 1 goto :DB_CHECK_FAIL`.
+- Live preview DBs (read-only): PRAGMA integrity_check = ok (registry + XAUUSD +
+  EURUSD + BTCUSD); alembic 0001 registry / 0003 instruments (as applied in G3).
+- Healthy DATA copy: rc=0 ok:true · missing root: rc=1 structured JSON report ·
+  relative HERO1_DATA_ROOT: rc=1 via UNCAUGHT traceback (outside the function's
+  try) · corrupt DB copy: rc=1 + sqlite3.DatabaseError visible only inside the log.
+- Defect A (real): `if errorlevel 1` compares signed 32-bit; a native crash rc
+  (e.g. 0xC0000005 = -1073741819 signed) is < 1 → the check would be treated as
+  PASSED. Fixed: captured RC + string compare everywhere; rc echoed per call.
+- Defect B (real): check output redirected ONLY into the log — invisible console.
+  Fixed: temp-file tee, full report typed to console, appended to the log, rc printed.
+- Defect C (real): init_db.py path-resolution crashes bypassed the rc contract and
+  stdout was block-buffered (a crash lost the JSON report entirely). Fixed:
+  rc 0/1/2 contract (healthy / unhealthy / crashed-with-traceback) + flush.
+- Skew class (not provable from here): on a consistent checkout the window cannot
+  disappear at that line (all goto targets resolve; pause guaranteed). The remaining
+  silent class is a local file skew/corruption (goto to missing label exits cmd
+  with no pause). Fixed for all future states: scripts/audit_launcher.py +
+  tests/test_launcher_bat.py enforce ASCII/CRLF/label-resolution/no-duplicate-label/
+  pause-on-failure/no-plain-exit/no-powershell-pipes; all launchers normalized to
+  pure ASCII (3 em-dashes removed).
+- WINDOWS EXECUTION STILL UNPROVEN: the owner must re-run START.bat on Windows;
+  the launcher now cannot exit silently on any failure (every path prints command,
+  exit code, log tail; every failure pauses).
+
+Changed: START.bat (stage 0-10 rc capture + transparent stage 4 + HERO1_DATA_ROOT
+export + init_db.py existence + :PORT_CHECK_FAILED + :STARTUP_FAILED rc/log tail),
+scripts/init_db.py (rc contract + flush), scripts/run_backend.cmd + run_frontend.cmd
+(ASCII), scripts/audit_launcher.py (new), tests/test_launcher_bat.py (new).
+Scope kept: no UI/functionality/DATA changes; databases untouched (read-only checks;
+rehearsal used a /tmp copy).
+Verified: pytest 107 passed / 1 skipped (4 new launcher tests); audit PASS on all
+four launcher files.
