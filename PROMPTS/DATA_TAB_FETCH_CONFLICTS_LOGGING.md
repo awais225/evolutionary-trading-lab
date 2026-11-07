@@ -694,3 +694,33 @@ Provide:
 16. Remaining limitations.
 
 **Completion condition:** Do not declare success just because the DATA tab renders or FETCH DATA returns a response. Verify the actual saved database records, node lineage, persistent logs, and remote Git state.**
+
+## OUTCOME (2026-11-07, HERO-V1.5.0 repair line, ISSUE-050/051)
+
+Starting SHA 3c959528c0e1b0687f5b91fc4e5d6d57edf04b65. Implemented and
+verified on Linux (Windows/MT5 NOT VERIFIED):
+- DATA tab (nav + /data): HistoricalDataPanel moved out of Manual Nodes
+  (single instance) above NodeDashboard. Node rows show their own
+  timeframe, saved-spec direction badges (LONG green, SHORT red, BOTH
+  amber, explicit NO DIRECTION / NO TF), origin colors, parent name+id
+  navigation, child counts, lineage; TF/direction/status/search/sort
+  filters.
+- Conflicts: store.classify_overlap (exact / representation / genuine).
+  Genuine conflicts isolated with stored-vs-incoming field diffs in the
+  fetch report and the datasets audit row; stored candles preserved;
+  valid new candles append in the same transaction; per-timeframe
+  PARTIAL. Confirmed causes: overlap boundary candles, spread/volume in
+  the old strict equality, whole-timeframe abort (see TROUBLESHOOTING
+  ISSUE-050 with the exact stored boundary candles).
+- Operation ids (FETCH-YYYYMMDD-HHMMSS-XXXXXX) trace frontend clicks and
+  backend stages in the persistent registry event store; LOG tab is a
+  real filterable view (severity/component/operation/search; clear is
+  display-only). Live Linux proof: an MT5_UNAVAILABLE fetch still leaves
+  its searchable fetch_request_received event with the DB path.
+- Tests: backend 199 passed / 1 skipped (200 collected); frontend 50/50;
+  production build clean; launcher audit PASS.
+- Commit d039ef9b5715a9e258c13fb5ca80ef19b263f619 (remote main verified;
+  HERO-V1.5.0 tag NOT moved).
+- Windows evidence still required: one fetch's conflict_details (or the
+  LOG trace for its operation id) to settle representation-vs-revision
+  per timeframe; dashboard/DATA tab confirmation via START.bat.
