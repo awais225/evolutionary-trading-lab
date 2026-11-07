@@ -115,7 +115,17 @@ def ts_iso_of(ts: int) -> str:
 
 
 def connect_store(db_path: Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(str(db_path))
+    """Open the canonical store.
+
+    WAL journaling (readers never block the single writer, and vice versa)
+    plus a 30 s busy timeout: the previous default rollback-journal mode
+    let concurrent availability reads and the fetch writer stall each
+    other (ISSUE-052/053).
+    """
+    conn = sqlite3.connect(str(db_path), timeout=30.0)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=30000")
+    conn.execute("PRAGMA synchronous=NORMAL")
     conn.executescript(SCHEMA)
     return conn
 
@@ -214,7 +224,11 @@ def gap_stats(rows: List[Dict[str, Any]], step: int) -> Tuple[int, Optional[int]
 
 
 def merge_candles(conn: sqlite3.Connection, *, dataset_id: str, instrument: str,
-                  timeframe: str, rows: List[Dict[str, Any]], policy: str) -> Dict[str, Any]:
+                  timeframe: str, rows: List[Dict[str, Any]], policy: str,
+                  progress=None) -> Dict[str, Any]:
+    """progress(stage, **ctx), when given, is called at real processing
+    boundaries (existing-lookup, comparisons, batch insert) - never per
+    candle (ISSUE-053 fine-grained DB instrumentation)."""
     """Merge unique-by-ts candles into the store under the caller's policy.
 
     policy="import" (CSV files, provenance roll-forward): a newer dataset MAY
@@ -236,10 +250,14 @@ def merge_candles(conn: sqlite3.Connection, *, dataset_id: str, instrument: str,
             " FROM candles WHERE instrument = ? AND timeframe = ?",
             (instrument, timeframe))
     }
+    if progress is not None:
+        progress("EXISTING_CANDLE_LOOKUP_COMPLETED", existing_records=len(existing),
+                 incoming_records=len(rows))
     inserted = overwritten = duplicates = 0
     representation_diffs = 0
     conflicts: List[int] = []
     conflict_details: List[Dict[str, Any]] = []
+    to_insert: List[Dict[str, Any]] = []
     for r in rows:
         ts = int(r["ts"])
         prior = existing.get(ts)
@@ -267,7 +285,16 @@ def merge_candles(conn: sqlite3.Connection, *, dataset_id: str, instrument: str,
                 overwritten += 1
         else:
             inserted += 1
-        conn.execute(
+        to_insert.append(r)
+    if progress is not None:
+        progress("DUPLICATE_COMPARISON_COMPLETED", duplicates_skipped=duplicates,
+                 representation_diffs=representation_diffs)
+        progress("CONFLICT_COMPARISON_COMPLETED", conflicts=len(conflicts))
+        progress("NEW_RECORDS_IDENTIFIED", new_records=len(to_insert))
+        progress("INSERT_BATCH_STARTED", records=len(to_insert))
+    if to_insert:
+        # ONE batch insert (executemany) instead of per-candle statements.
+        conn.executemany(
             "INSERT INTO candles (dataset_id, instrument, timeframe, ts, ts_iso,"
             " open, high, low, close, tick_volume, volume, spread)"
             " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
@@ -276,9 +303,11 @@ def merge_candles(conn: sqlite3.Connection, *, dataset_id: str, instrument: str,
             "   open=excluded.open, high=excluded.high, low=excluded.low,"
             "   close=excluded.close, tick_volume=excluded.tick_volume,"
             "   volume=excluded.volume, spread=excluded.spread",
-            (dataset_id, instrument, timeframe, ts, r["ts_iso"],
-             r["open"], r["high"], r["low"], r["close"],
-             r["tick_volume"], r["volume"], r["spread"]))
+            [(dataset_id, instrument, timeframe, int(r["ts"]), r["ts_iso"],
+              r["open"], r["high"], r["low"], r["close"],
+              r["tick_volume"], r["volume"], r["spread"]) for r in to_insert])
+    if progress is not None:
+        progress("INSERT_BATCH_COMPLETED", inserted=inserted)
     return {"inserted": inserted, "overwritten_other_source": overwritten,
             "duplicates_skipped": duplicates,
             "representation_diffs": representation_diffs,

@@ -130,3 +130,23 @@ def test_only_duplicates_is_up_to_date(seeded, monkeypatch):
     (r,) = report["results"]
     assert r["status"] == "UP_TO_DATE" and r["appended"] == 0
     assert sqlite3.connect(seeded).execute("SELECT COUNT(*) FROM candles").fetchone()[0] == 3
+
+
+def test_large_fetch_is_not_quadratic(seeded, monkeypatch):
+    """ISSUE-053 regression: 6,000 incoming candles against a seeded store
+    must complete in seconds. The old code rebuilt the stored-timestamp
+    set with a full-table SELECT per incoming candle (O(n*m) - ~24 min
+    for the real 21,337-candle M1 fetch) and never committed."""
+    import time as _t
+    rates = [_rate(_candle(LATEST + i * STEP)) for i in range(1, 6001)]
+    monkeypatch.setattr(mt5_connection, "mt5_module", lambda: _FakeMT5(rates))
+    monkeypatch.setattr(svc, "_utc_now_epoch", lambda: LATEST + 6002 * STEP)
+    started = _t.perf_counter()
+    report = svc.fetch("XAUUSD", ["H1"], operation_id="FETCH-TEST-LARGE")
+    elapsed = _t.perf_counter() - started
+    (r,) = report["results"]
+    assert r["status"] == "UPDATED" and r["appended"] == 6000
+    assert elapsed < 10, f"large fetch took {elapsed:.1f}s - quadratic lookup is back"
+    conn = sqlite3.connect(seeded)
+    assert conn.execute("SELECT COUNT(*) FROM candles").fetchone()[0] == 3 + 6000
+    conn.close()

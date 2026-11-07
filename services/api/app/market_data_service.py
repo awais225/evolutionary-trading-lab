@@ -541,19 +541,36 @@ def _fetch_one(mt5, conn, *, instrument: str, timeframe: str, utc_now: int,
     batch_fp = md.canonical_fingerprint(candles)
     dataset_id = hashlib.sha256(
         f"{instrument}|{timeframe}|mt5-fetch|{batch_fp}".encode()).hexdigest()[:16]
+    # ONE pre-transaction lookup of stored timestamps. (ISSUE-053 root
+    # cause: this set was previously rebuilt by a full-table SELECT inside
+    # the list comprehension - once per incoming candle - which made a
+    # 21,337-candle M1 fetch perform ~2.5 billion row reads inside the
+    # write transaction and effectively never commit.)
+    _lookup_started = _time.monotonic()
+    prior_ts = _stored_ts_set(conn, instrument, timeframe, dataset_id)
+    _op_event(operation_id, "EXISTING_CANDLE_LOOKUP_COMPLETED", instrument=instrument,
+              timeframe=timeframe, existing_records=len(prior_ts),
+              elapsed_ms=int((_time.monotonic() - _lookup_started) * 1000),
+              store=str(store_db_path()))
+    _tx_started = _time.monotonic()
     _op_event(operation_id, "DATABASE_TRANSACTION_STARTED", instrument=instrument,
               timeframe=timeframe, store=str(store_db_path()))
+
+    def _db_progress(stage: str, **ctx: Any) -> None:
+        _op_event(operation_id, stage, instrument=instrument, timeframe=timeframe,
+                  elapsed_ms=int((_time.monotonic() - _tx_started) * 1000), **ctx)
+
     with conn:  # one transaction per timeframe: inserts + audit record commit together
         merged = md.merge_candles(conn, dataset_id=dataset_id, instrument=instrument,
-                                  timeframe=timeframe, rows=candles, policy="fetch")
+                                  timeframe=timeframe, rows=candles, policy="fetch",
+                                  progress=_db_progress)
         res["duplicates_skipped"] += merged["duplicates_skipped"]
         res["representation_diffs"] = int(merged.get("representation_diffs") or 0)
         res["conflicts"] = len(merged["conflicts"])
         res["conflict_details"] = merged.get("conflict_details") or []
         res["appended"] = merged["inserted"]
         if merged["inserted"] or merged["conflicts"]:
-            inserted_rows = [c for c in candles
-                             if c["ts"] not in _stored_ts_set(conn, instrument, timeframe, dataset_id)]
+            inserted_rows = [c for c in candles if c["ts"] not in prior_ts]
             gaps, largest = md.gap_stats(inserted_rows or candles, step)
             if not conn.execute("SELECT 1 FROM datasets WHERE dataset_id = ?",
                                 (dataset_id,)).fetchone():
@@ -585,7 +602,8 @@ def _fetch_one(mt5, conn, *, instrument: str, timeframe: str, utc_now: int,
               conflicts=res["conflicts"],
               severity="WARNING" if res["conflicts"] else "INFO")
     _op_event(operation_id, "DATABASE_COMMIT", instrument=instrument, timeframe=timeframe,
-              appended=res["appended"])
+              appended=res["appended"],
+              transaction_elapsed_ms=int((_time.monotonic() - _tx_started) * 1000))
     if res["conflicts"]:
         res["status"] = "PARTIAL"
         res["error"] = (f"{res['conflicts']} terminal candle(s) conflict with stored history "
@@ -661,6 +679,8 @@ def fetch(instrument: str, timeframes: List[str],
     db = store_db_path()
     db.parent.mkdir(parents=True, exist_ok=True)
     conn = md.connect_store(db)
+    _op_event(operation_id, "DATABASE_CONNECTION_ACQUIRED", instrument=sym,
+              store=str(db), journal_mode="WAL", busy_timeout_ms=30000)
     results: List[Dict[str, Any]] = []
     try:
         for tf in timeframes:

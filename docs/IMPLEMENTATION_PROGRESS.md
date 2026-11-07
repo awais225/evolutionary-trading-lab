@@ -320,3 +320,11 @@ this entry).
   TO TXT (full filtered export). Backend 204 passed / 1 skipped (205);
   frontend 51/51; build clean. Windows exception from the original hang
   was never captured by the old code - NOT VERIFIED there.
+
+- ISSUE-053 (2026-11-07): fetch commit hang root-caused to a per-candle
+  full-table timestamp SELECT; fixed with a single pre-transaction lookup,
+  batch `executemany` inserts and WAL + 30 s busy timeout. 21,337 mocked M1
+  rates now commit in 0.88 s on a DB copy (was ~24 min). Dashboard horizontal
+  scroll fixed (grid track min-width/wrapping). Backend 206 tests 0 failures,
+  frontend 51/51, build clean. Windows genuine-MT5 fetch NOT VERIFIED.
+

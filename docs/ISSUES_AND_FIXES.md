@@ -72,3 +72,31 @@ Statuses: open · resolved · deferred · blocked.
 - Add new issues with the next sequential ID. Never reuse IDs.
 - When fixing: update row(s) to "resolved", cite commit SHA, keep old text.
 - "Blocked" = waiting on external factor (credentials, hardware, owner).
+
+## ISSUE-053 - fetch hangs at DATABASE_TRANSACTION_STARTED; 500s; page scrolls sideways
+
+**Root cause.** `market_data_service.py` computed the inserted-rows list with
+`_stored_ts_set(...)` evaluated **per incoming candle**: a full
+`SELECT ts FROM candles` (100k+ rows) repeated 21,337 times inside the write
+transaction (~2.1B row reads, measured ~24 min), so the transaction never
+committed. The dangling write transaction produced `database is locked`
+contention seen as HTTP 500s on unrelated tabs. Mocked tests used 3-6
+candles and could not expose the quadratic cost.
+
+**Fix.** One stored-timestamp lookup before the transaction (logged as
+`EXISTING_CANDLE_LOOKUP_COMPLETED` with `elapsed_ms`); new rows inserted via
+a single `executemany` batch; `connect_store` uses WAL, `busy_timeout=30000`,
+`synchronous=NORMAL`; `DATABASE_COMMIT` logs `transaction_elapsed_ms`.
+Regression: `test_large_fetch_is_not_quadratic` (6,000 candles < 10 s).
+Measured on a copy of the production DB with 21,337 mocked M1 rates:
+21,335 appended + 2 duplicates in 0.88 s. Canonical DB untouched (419,013).
+
+**Layout.** `.market-data-row` used `minmax(180px, 1fr)` and unbreakable
+mono paths; fixed with `minmax(0, 1fr)`, `min-width: 0`, `overflow-wrap:
+anywhere` on the affected tracks/rows. No global overflow hiding.
+
+**Not verified.** Genuine MT5 fetch on Windows (owner runs M1-only first,
+then ALL). If a future fetch stalls, the stage after
+`DATABASE_TRANSACTION_STARTED` in the operation log identifies the blocked
+step.
+

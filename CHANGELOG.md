@@ -26,6 +26,18 @@ exact commit SHA and tag. Claims only for what was implemented AND verified.
   match the CSVs, and the dashboard API returns identical counts/ranges.
 - Tests: backend 190 passed / 1 skipped (191 collected); frontend 44/44;
   production build clean. Real Windows MT5 fetch remains **not yet verified**.
+- **ISSUE-053 (DB fetch hang + dashboard width)**: root cause was a
+  full-table timestamp SELECT executed once per incoming candle inside the
+  write transaction (~2.1B row reads for 21,337 candles) — large fetches
+  never committed and the dangling write lock surfaced as 500s elsewhere.
+  Stored timestamps are now read once before the transaction, new rows are
+  batch-inserted with one `executemany`, and the store opens WAL +
+  `busy_timeout=30000` + `synchronous=NORMAL`; DB stages emit elapsed-ms
+  timings and `DATABASE_COMMIT` reports `transaction_elapsed_ms`. Measured
+  on a real-DB copy: 21,337 mocked M1 rates commit in 0.88s. Regression test
+  `test_large_fetch_is_not_quadratic`. Dashboard: market-data grid/meta
+  tracks get `minmax(0, 1fr)` + `overflow-wrap: anywhere` so long paths wrap
+  instead of widening the page. Windows genuine-MT5 fetch NOT VERIFIED.
 - **ISSUE-052 (fetch hang / LOG diagnostics)**: FETCH DATA is now a
   background operation — `POST /fetch/start` returns an operation id
   immediately, duplicate starts return the running operation, the DATA tab

@@ -1062,3 +1062,11 @@ FETCH IS NOW A BACKGROUND OPERATION: POST /fetch/start returns at once;
   with total, COPY ALL LOGS, SAVE LOGS TO TXT (complete filtered export,
   HERO1_LOGS_*.txt). The original Windows exception was never captured -
   after this patch any recurrence appears in LOG as an ERROR event.
+[2026-11-07] ISSUE-053 fetch commit hang ROOT CAUSE: per-candle full-table
+_stored_ts_set SELECT inside the write transaction (0.069s x 21,337 candles
+~= 24 min, never committed; lock contention -> 500s). Fixed: one lookup
+before the transaction, single executemany batch insert, WAL + 30s busy
+timeout on the store, per-stage DB elapsed logging. Real-DB copy test:
+21,337 mocked M1 -> 21,335 appended in 0.88s. Dashboard horizontal scroll
+fixed via minmax(0,1fr)+overflow-wrap on market-data tracks. Windows/MT5
+still NOT VERIFIED.

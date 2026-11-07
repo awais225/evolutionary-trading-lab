@@ -165,6 +165,11 @@ Domain errors → `{"detail": "…"}`; unhandled → 500 `{"error":{"code":"inte
   or DATA. The spec's `identity.direction` participates in the strategy
   fingerprint; inherently directional examples carry `LONG`/`SHORT` (never
   stamped `BOTH`); `BOTH` is the default only for new blank strategies.
+- Fetch write path (ISSUE-053): stored timestamps are read once per
+  timeframe before the transaction and new candles are inserted with a
+  single `executemany` batch, keeping write cost linear in the incoming
+  batch; store connections use WAL + `busy_timeout=30000` +
+  `synchronous=NORMAL`. Per-stage DB elapsed timings go to the operation log.
 - Market data: `scripts/import_market_data.py` imports MT History-Center CSV
   exports into `DATA/MARKET_DATA/market_data.db` + `import_manifest.json`
   (all-or-nothing, duplicates collapsed-or-fatal, gaps reported never filled,

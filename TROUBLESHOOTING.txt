@@ -565,3 +565,39 @@ Live Linux verification: an ALL-scope operation went RUNNING -> FAILED
 API reported total=30 with paging; unrelated APIs answered throughout;
 the canonical DB was byte-identical afterwards (419,013 candles,
 integrity ok, zero duplicate timestamps).
+
+ISSUE-053 - FETCH reaches DATABASE_TRANSACTION_STARTED then hangs; the app
+then returns 500 on other tabs; dashboard shows a horizontal scrollbar
+============================================================
+Root cause (proven by profiling on the real database): the fetch path ran a
+full-table SELECT of every stored timestamp ONCE PER INCOMING CANDLE
+(_stored_ts_set inside the inserted-rows loop in market_data_service.py).
+With ~100k stored M1 rows and 21,337 incoming candles that is ~2.1 billion
+row reads inside the open write transaction, so the commit never happened
+(measured: one lookup 0.069s x 21,337 = ~24 minutes). The uncommitted write
+transaction then caused SQLite lock contention that surfaced as 500s on
+other tabs. Small mocked tests (3-6 candles) could not expose this.
+Fixes:
+  - stored timestamps are read ONCE before the transaction; duplicates/
+    conflicts/new rows are classified from that single set;
+  - merge_candles inserts new rows with ONE executemany batch;
+  - the store now opens with WAL journal mode, busy_timeout 30 s and
+    synchronous=NORMAL, so readers do not fail while a writer commits;
+  - the log now emits EXISTING_CANDLE_LOOKUP_COMPLETED with elapsed_ms,
+    DUPLICATE/CONFLICT_COMPARISON_COMPLETED, NEW_RECORDS_IDENTIFIED,
+    INSERT_BATCH_STARTED/COMPLETED and DATABASE_COMMIT with transaction
+    elapsed time - a fetch that stops after DATABASE_TRANSACTION_STARTED
+    again means the write stage itself is blocked; copy the op ID and use
+    SAVE LOGS TO TXT filtered by that ID.
+Verified on a copy of the real DB with 21,337 mocked M1 rates: 21,335
+appended, 2 duplicates, 0 conflicts, total 0.88s (was ~24 min, never
+committed). Genuine MT5 fetch on Windows: NOT VERIFIED - run the M1-only
+fetch first and confirm TIMEFRAME_COMPLETED, then FETCH ALL TIMEFRAMES.
+A regression test (test_large_fetch_is_not_quadratic, 6,000 candles with a
+<10s budget) guards against reintroducing per-candle table scans.
+Dashboard horizontal scrollbar: long unbreakable strings (database/store
+paths, source filenames) inside the market-data grid/meta rows forced the
+page wider than the viewport. Fixed with minmax(0,1fr) tracks, min-width:0
+and overflow-wrap on the affected tracks/rows - no global overflow hiding;
+table-internal scrolling stays confined to the table wrapper.
+
