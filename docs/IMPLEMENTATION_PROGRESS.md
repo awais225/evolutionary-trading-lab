@@ -166,3 +166,14 @@ four launcher files.
 Changed: START.bat (rewritten), scripts\START_INTERNAL.bat (NEW),
 START_DIAGNOSTIC.bat (NEW), scripts/audit_launcher.py, tests/test_launcher_bat.py,
 docs (ISSUES-037, WINDOWS_SETUP 0.1, CHATGPT TASK 11, this entry), CHANGELOG.
+
+## 2026-11-07 — G6 record: commit + push (verified)
+- Feature commit a7d435b27fab5f778070c58e3d4944f668aa611d pushed to origin main
+  (11 files, +775/-376). Verified via ls-remote AFTER push:
+  a7d435b27fab5f778070c58e3d4944f668aa611d refs/heads/main.
+- Committed file hashes (repo-relative, as the owner will pull them):
+  START.bat                 1ec65669809741f868a4ec5950405da4ab9eef020784f8fd0b9288b2663b95e8
+  START_DIAGNOSTIC.bat      d988b61e10892c1b8bba2556a1c830c00aa2e3072ada31c0f3042b0678b28c9f
+  scripts/START_INTERNAL.bat 2779e855eeba5282871ca3a139474373ddcfb473ee973cda9aa038239877719f
+- Still NOT proven: Windows execution (owner must re-test). Everything else
+  holds as recorded in G6 above.

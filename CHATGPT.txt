@@ -886,3 +886,11 @@ NOT DONE / HONEST LIMITS
 WORKSTATION STATE: preview services remain LIVE (backend :8788 health ok;
 frontend :5173 via vite wrapper, 200/200, proxy /health ok). feature commit +
 record commit follow this entry (SHAs: TASK 11).
+
+TASK 11 RECORD (2026-11-07): feature commit pushed to origin main as
+a7d435b27fab5f778070c58e3d4944f668aa611d (verified via ls-remote after push).
+Feature commit = the full launcher-persistence split; remote main now at
+a7d435b27. WINDOWS EXECUTION STILL UNPROVEN - owner must re-test from repo
+root (git pull; double-click START.bat or run the exact commands in
+docs/WINDOWS_SETUP.md section 0.1; send DATA\LOGS\startup.log /
+diagnostic.log).
