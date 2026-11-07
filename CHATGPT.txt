@@ -805,3 +805,7 @@ NOT DONE / HONEST LIMITS
 WORKSTATION STATE: environment re-provisioned mid-session (.venv + node_modules
 rebuilt from committed sources; pytest parity re-verified 107/1; preview services
 restarted after docs commit).
+- Feature commit: 708a894e7f6782611675d3019aa7d4f86f71a3a1 (main -> main,
+  pushed 2026-11-06/07 UTC). Remote main verified via ls-remote after push:
+  708a894e7f6782611675d3019aa7d4f86f71a3a1 refs/heads/main.
+  This record commit follows (SHAs: TASK 10).

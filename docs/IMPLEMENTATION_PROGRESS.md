@@ -131,3 +131,15 @@ Scope kept: no UI/functionality/DATA changes; databases untouched (read-only che
 rehearsal used a /tmp copy).
 Verified: pytest 107 passed / 1 skipped (4 new launcher tests); audit PASS on all
 four launcher files.
+
+## 2026-11-06 — G5 record: commit + push (verified)
+- Feature commit 708a894e7f6782611675d3019aa7d4f86f71a3a1 pushed to origin main
+  (12 files, +453/-22). NOTE: the environment was re-provisioned mid-task
+  (.venv/node_modules rebuilt; pytest parity re-verified; git remote re-added —
+  .git/config is intentionally not in snapshots; credential helper persisted).
+- Remote main verified via ls-remote AFTER push:
+  708a894e7f6782611675d3019aa7d4f86f71a3a1 refs/heads/main.
+- Record commit follows this entry (docs-only); remote main re-verified via
+  ls-remote after it.
+- Still NOT proven: Windows execution of START.bat (owner must re-run; launcher
+  now cannot exit silently — every failure prints command + rc + log tail + pause).
