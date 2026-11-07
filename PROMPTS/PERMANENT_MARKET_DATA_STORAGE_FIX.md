@@ -315,3 +315,31 @@ Provide a factual report containing:
 15. Any remaining limitations.
 
 **FINAL INSTRUCTION: Do not tell me the task is complete merely because the LMS server dashboard displays data. The actual permanent project files, GitHub repository, canonical database, and Windows application must all be addressed independently.**
+
+## OUTCOME (2026-11-07, HERO-V1.5.0 repair line, ISSUE-049)
+
+Root cause CONFIRMED: the LMS preview backend ran with an external
+HERO1_DATA_ROOT (/home/user/hero1-workspace-data) outside the project, while
+the Windows launcher resolves <project>\DATA project-relatively. DATA/ was
+fully git-ignored and the supplied CSVs existed only as LMS uploads, so the
+Windows checkout received neither CSVs nor any market-data DB — a different,
+empty database file with the same name.
+
+Implemented and verified on Linux:
+- Seven original CSVs stored permanently at DATA/MARKET_DATA/IMPORTS/XAUUSD/
+  (byte-identical SHA-256; .gitattributes -text), tracked via a narrow
+  .gitignore exception, pushed to GitHub main; remote tree verified.
+- Importer: project-default --data-root + IMPORTS discovery + SHA-256
+  early-skip. API lifespan ensure_baseline(); START_INTERNAL stage 6 import;
+  START_DIAGNOSTIC step 5b. Dashboard: active DB path, last import vs last
+  MT5 update, mt5-fetch-required per timeframe.
+- LMS migrated into /home/user/hero1-trading-platform/DATA: rebuilt from repo
+  CSVs, 419,013 candles identical to the previous external store, integrity
+  ok, survives backend restart, re-import SKIPPED x7 (0.08s).
+- Tests: backend 196 passed / 1 skipped (197 collected); frontend 44/44;
+  production build clean; launcher audit PASS.
+- Commits: implementation 79e8575f2265e133dc3cd9408bb379d3d98c7b23 (remote
+  main verified identical; HERO-V1.5.0 tag NOT moved).
+- WINDOWS: NOT VERIFIED. Owner: git pull, START.bat, then START_DIAGNOSTIC.bat
+  step 5b must list 7 timeframes with candles; dashboard must show the same
+  counts and DB path [project]\DATA\MARKET_DATA\market_data.db.
