@@ -34,6 +34,12 @@ async def lifespan(app: FastAPI):
     configure_logging(cfg.log_level)
     get_event_bus().attach_loop(asyncio.get_running_loop())
     log.info("hero1-api starting", extra={"version": __version__})
+    try:  # permanent CSV baseline -> this installation's canonical store (ISSUE-049)
+        from app import market_data_service
+        _baseline = market_data_service.ensure_baseline()
+        log.info("market-data baseline check", extra={"baseline": str(_baseline)[:500]})
+    except Exception:
+        log.exception("market-data baseline check failed (continuing without it)")
     yield
     log.info("hero1-api shutting down")
 

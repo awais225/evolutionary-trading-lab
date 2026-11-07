@@ -289,3 +289,15 @@ this entry).
   frontend 44/44; build clean. Genuine Windows MT5 fetch is NOT verified.
 - Commit `fbd4a45973bc86402919b38853e80bf8095e8261`; HERO-V1.5.0 tag target is unchanged
   (awaiting Windows acceptance) - this repair is on `main` after the tag.
+
+- ISSUE-049 (permanent storage): the seven supplied CSVs now live permanently
+  at `DATA/MARKET_DATA/IMPORTS/XAUUSD/` in the project and are tracked in git
+  (narrow `.gitignore` exception; DBs/manifests still ignored). The importer
+  defaults to the project DATA root and discovers the IMPORTS CSVs (SHA-256
+  early-skip); the API lifespan (`ensure_baseline`) and START_INTERNAL stage 6
+  import them into each installation's own canonical
+  `DATA/MARKET_DATA/market_data.db`; START_DIAGNOSTIC step 5b reports the
+  store. The LMS installation was migrated into the project DATA directory -
+  419,013 candles rebuilt from the repo CSVs, verified identical to the old
+  external store, restart-persistent, dashboard==SQLite. Windows NOT VERIFIED
+  (owner: git pull, START.bat, START_DIAGNOSTIC step 5b).

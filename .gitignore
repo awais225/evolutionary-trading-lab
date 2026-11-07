@@ -1,6 +1,19 @@
 # ---- Hero1 hard rules: never commit data, databases, logs, secrets ----
 DATA/
 data/
+# Narrow exception (owner directive 2026-11-07): ONLY the approved historical
+# source CSVs under DATA/MARKET_DATA/IMPORTS/<SYMBOL>/ are tracked in git, so
+# every installation (LMS + Windows) carries the same permanent baseline.
+# Databases, manifests, and every other DATA content remain ignored.
+!DATA/
+DATA/*
+!DATA/MARKET_DATA/
+DATA/MARKET_DATA/*
+!DATA/MARKET_DATA/IMPORTS/
+DATA/MARKET_DATA/IMPORTS/*
+!DATA/MARKET_DATA/IMPORTS/*/
+DATA/MARKET_DATA/IMPORTS/*/*
+!DATA/MARKET_DATA/IMPORTS/*/*.csv
 .env
 .env.*
 !.env.example

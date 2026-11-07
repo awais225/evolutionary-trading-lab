@@ -43,7 +43,7 @@ def main() -> int:
 
     report = initialize_databases(create=args.init)
     _line("data_root", "healthy" if report.data_root else "error",
-          f"{report.data_root} (must stay OUTSIDE the git repo)")
+          f"{report.data_root} (canonical: <project>/DATA unless HERO1_DATA_ROOT overrides)")
     reg = report.registry
     _line("registry_db", reg.get("status", "error"),
           f"{reg.get('path')} tables={len(reg.get('tables', []))} {reg.get('detail', '')}")

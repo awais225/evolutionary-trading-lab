@@ -26,8 +26,24 @@ Required canonical subdirectories (created by `init_db.py --create` and
 └── ARTIFACTS/     # exports, IR dumps, reports
 ```
 
-The repository `.gitignore` hard-blocks `DATA/`, `*.db*`, `*.sqlite*`,
-backups, logs and model files — nothing under `DATA/` is ever committed.
+## Permanent historical baseline (owner directive 2026-11-07)
+
+```
+DATA/MARKET_DATA/
+├── IMPORTS/<SYMBOL>/*.csv   # the supplied original MT exports — TRACKED IN GIT
+├── market_data.db           # canonical candle store (git-ignored, built locally)
+└── import_manifest.json     # import registry (git-ignored, built locally)
+```
+
+The seven supplied XAUUSD CSVs live permanently at
+`DATA/MARKET_DATA/IMPORTS/XAUUSD/` in every checkout. They are the ONLY tracked
+files under `DATA/`: `.gitignore` keeps a narrow exception for
+`DATA/MARKET_DATA/IMPORTS/<SYMBOL>/*.csv` while `*.db`, manifests and every
+other DATA content remain hard-ignored. Each installation imports these CSVs
+into its OWN canonical `DATA/MARKET_DATA/market_data.db` (importer discovery
+mode / API startup `ensure_baseline()`), so the LMS and Windows dashboards
+serve identical history without sharing a database file. See
+TROUBLESHOOTING ISSUE-049.
 
 ## Required tree (managed by code — never by hand in production)
 

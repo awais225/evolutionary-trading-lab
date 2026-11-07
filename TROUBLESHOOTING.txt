@@ -346,3 +346,61 @@ IF YOUR PROBLEM IS NOT IN THIS FILE
 4. Do not delete DATA, .venv or databases while experimenting - every fix
    above works without deleting anything.
 ================================================================================
+================================================================================
+ISSUE-049 - LMS dashboard shows candles but the Windows application shows zero
+stored candles in every timeframe (permanent baseline storage / sync)
+================================================================================
+Exact symptom: On the owner's Windows PC every timeframe reported zero stored
+candles while the LMS server dashboard displayed the full 419,013-candle
+XAUUSD history.
+
+CONFIRMED root cause (verified in code and configuration, 2026-11-07):
+1. The LMS preview backend was launched with an EXTERNAL data root
+   (HERO1_DATA_ROOT=/home/user/hero1-workspace-data), so the LMS canonical
+   store lived OUTSIDE the project at
+   /home/user/hero1-workspace-data/MARKET_DATA/market_data.db.
+2. The Windows launcher (scripts/START_INTERNAL.bat, scripts/run_backend.cmd)
+   resolves its canonical DATA root project-relatively to <project>\DATA
+   (when HERO1_DATA_ROOT is unset), i.e. a DIFFERENT database file:
+   [HERO1_PROJECT_ROOT]\DATA\MARKET_DATA\market_data.db.
+3. The repository .gitignore excluded the ENTIRE DATA/ directory, and the
+   seven supplied CSVs existed only as LMS uploads. A git clone/pull on
+   Windows therefore delivered neither the CSVs nor any market-data database,
+   so the Windows store was created empty. Same filename, different files -
+   nothing was wrong with the Windows UI or the API.
+
+Permanent fix:
+- The seven original supplied CSVs now live permanently in the project at
+  DATA/MARKET_DATA/IMPORTS/XAUUSD/ (original filenames and bytes; SHA-256
+  verified identical to the user-supplied files) and are the ONLY tracked
+  files under DATA/ (narrow .gitignore exception; *.db and every other DATA
+  content remain ignored). They are committed to the existing GitHub
+  repository on main, so LMS and Windows checkouts carry identical baselines.
+- scripts/import_market_data.py now defaults --data-root to the project DATA
+  directory (relative to the repository root, never the CWD, never /tmp) and
+  with no FILE arguments discovers DATA/MARKET_DATA/IMPORTS/<SYMBOL>/*.csv.
+  Identical sources skip by SHA-256 before parsing (fast, idempotent).
+- The API lifespan runs market_data_service.ensure_baseline() on every
+  startup: any installation imports its permanent CSVs into ITS OWN canonical
+  DATA/MARKET_DATA/market_data.db (append-preserving, conflicts rejected,
+  never fatal to startup). START_INTERNAL stage 6 runs the same import
+  visibly before backend startup and fails the stage if a file is REJECTED.
+- START_DIAGNOSTIC.bat step 5b prints the canonical DB path, per-timeframe
+  candle counts/UTC ranges, and the baseline CSVs found.
+- The LMS installation was migrated to the project DATA directory
+  (/home/user/hero1-trading-platform/DATA), its DB rebuilt from the repo CSVs
+  (419,013 candles, integrity ok, byte-identical counts/ranges to the
+  previous external store), and the redundant external market-data DB copy
+  removed after verification.
+
+Verify on Windows: run START_DIAGNOSTIC.bat and read step 5b - all seven
+timeframes must list candles; the dashboard Historical data panel must show
+the same counts and the DB path [project]\DATA\MARKET_DATA\market_data.db.
+If step 5b shows no CSVs, the checkout is stale: git pull (the CSVs are
+tracked since this fix).
+
+Status: LMS verified end-to-end (import, restart persistence, re-import
+SKIPPED x7, dashboard==SQLite). GitHub verified (remote tree lists the seven
+CSVs). Windows: NOT VERIFIED at time of writing - owner to run
+START_DIAGNOSTIC.bat step 5b and confirm the dashboard counts.
+

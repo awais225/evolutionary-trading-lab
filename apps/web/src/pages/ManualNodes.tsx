@@ -682,7 +682,14 @@ export function ManualNodes() {
                       <span>{marketData.summary.available_timeframes}/7 timeframes available</span>
                       <span>{marketData.summary.total_candles.toLocaleString()} total candles</span>
                       <span>{marketData.summary.first_ts ?? '—'} → {marketData.summary.last_ts ?? '—'} UTC</span>
+                      <span className="faint">last import {marketData.summary.last_successful_import ?? '—'}</span>
+                      <span className="faint">last MT5 update {marketData.summary.last_mt5_update ?? '—'}</span>
                       <span className="faint">last update {marketData.summary.last_successful_update ?? '—'}</span>
+                      {marketData.summary.mt5_fetch_required_timeframes?.length ? (
+                        <span className="meta-chip warn">MT5 FETCH required: {marketData.summary.mt5_fetch_required_timeframes.join(', ')}</span>
+                      ) : (
+                        <span className="meta-chip ok">MT5 fetch not required</span>
+                      )}
                     </div>
                   )}
                   <div className="market-data-grid" role="table" aria-label={`Stored ${instrument} candle coverage`}>
@@ -705,11 +712,12 @@ export function ManualNodes() {
                                 {stats.source ?? 'stored dataset'} · UTC epoch seconds
                                 {stats.last_successful_import ? ` · imported ${stats.last_successful_import}` : ''}
                                 {stats.last_mt5_update ? ` · MT5 ${stats.last_mt5_update}` : ''}
+                                {stats.mt5_fetch_required ? ' · MT5 fetch required' : ' · MT5 up to date'}
                                 {stats.warnings?.length ? ` · ${stats.warnings.join('; ')}` : ''}
                               </span>
                             </>
                           ) : (
-                            <span className="faint">no stored candles — import the supplied CSV first</span>
+                            <span className="faint">no stored candles — baseline CSV import required (DATA/MARKET_DATA/IMPORTS)</span>
                           )}
                         </div>
                       )

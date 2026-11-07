@@ -45,6 +45,58 @@ def manifest_path() -> Path:
     return store_db_path().parent / "import_manifest.json"
 
 
+def imports_dir() -> Path:
+    """Permanent baseline CSV location inside the active DATA root."""
+    return store_db_path().parent / "IMPORTS"
+
+
+def ensure_baseline(symbols=("XAUUSD",)) -> Dict[str, Any]:
+    """Import the permanent baseline CSVs into the canonical store.
+
+    The supplied historical CSVs live at
+    <DATA_ROOT>/MARKET_DATA/IMPORTS/<SYMBOL>/*.csv inside the project (the
+    same files tracked in git), so EVERY installation - LMS and Windows -
+    builds the same baseline in its own canonical database on startup.
+    Idempotent (identical sources skip by SHA-256), append-preserving, and
+    never fatal: failures are reported, existing data is untouched.
+    """
+    db = store_db_path()
+    report: Dict[str, Any] = {"store": str(db), "imported": 0, "skipped": 0,
+                              "rejected": 0, "files": []}
+    try:
+        wanted = {str(s).strip().upper() for s in symbols}
+        csvs = [p for p in sorted(imports_dir().glob("*/*.csv"))
+                if p.parent.name.upper() in wanted] if imports_dir().exists() else []
+        if not csvs:
+            report["reason"] = f"no permanent baseline CSVs under {imports_dir()}"
+            return report
+        import importlib.util
+        script = Path(__file__).resolve().parents[3] / "scripts" / "import_market_data.py"
+        spec = importlib.util.spec_from_file_location("hero1_import_market_data", script)
+        if spec is None or spec.loader is None:
+            report["error"] = f"cannot load importer: {script}"
+            return report
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        for csv_path in csvs:
+            instrument, timeframe = mod._resolve(csv_path, None, None)
+            res = mod.import_file(csv_path, instrument=instrument, timeframe=timeframe,
+                                  db_path=db, force=False, dry_run=False)
+            action = str(res.get("action", ""))
+            report["files"].append({"file": csv_path.name, "instrument": instrument,
+                                    "timeframe": timeframe, "action": action,
+                                    "rows": res.get("row_count")})
+            if action.startswith("SKIPPED"):
+                report["skipped"] += 1
+            elif res.get("status") == "AVAILABLE":
+                report["imported"] += 1
+            else:
+                report["rejected"] += 1
+    except Exception as exc:  # startup must survive a baseline problem
+        report["error"] = f"{type(exc).__name__}: {exc}"
+    return report
+
+
 def _utc_now_epoch() -> int:
     """Current UTC epoch seconds (seam for deterministic tests)."""
     return int(_time.time())
@@ -77,6 +129,7 @@ def availability(instrument: str) -> Dict[str, Any]:
                                      "source": None, "last_successful_import": None,
                                      "last_successful_update": None, "last_mt5_update": None,
                                      "gaps_found": 0, "largest_gap_seconds": None,
+                                     "mt5_fetch_required": False, "baseline_missing": True,
                                      "invalid_timestamp_count": 0, "warnings": []}
         return out
     conn = md.connect_store(db)
@@ -121,6 +174,10 @@ def availability(instrument: str) -> Dict[str, Any]:
                 "gaps_found": gaps, "largest_gap_seconds": largest,
                 "invalid_timestamp_count": invalid_ts, "warnings": warnings,
             })
+            stats["mt5_fetch_required"] = bool(
+                stats["row_count"] and last_epoch is not None
+                and int(last_epoch) + md.TIMEFRAME_STEPS[tf] <= _utc_now_epoch())
+            stats["baseline_missing"] = not bool(stats["row_count"])
             stats["last_successful_update"] = max(
                 (v for v in (stats["last_successful_import"], stats["last_mt5_update"]) if v),
                 default=None)
@@ -132,11 +189,18 @@ def availability(instrument: str) -> Dict[str, Any]:
     firsts = [v["first_ts"] for v in present if v.get("first_ts")]
     lasts = [v["last_ts"] for v in present if v.get("last_ts")]
     updates = [v["last_successful_update"] for v in present if v.get("last_successful_update")]
+    imports = [v["last_successful_import"] for v in present if v.get("last_successful_import")]
+    mt5s = [v["last_mt5_update"] for v in present if v.get("last_mt5_update")]
     out["summary"] = {
         "available_timeframes": sum(1 for v in present if v["status"] == "AVAILABLE"),
         "total_candles": sum(int(v["row_count"]) for v in present),
         "first_ts": min(firsts) if firsts else None,
         "last_ts": max(lasts) if lasts else None,
+        "last_successful_import": max(imports) if imports else None,
+        "last_mt5_update": max(mt5s) if mt5s else None,
+        "mt5_fetch_required_timeframes": [v_tf for v_tf, v in
+                                          ((tf, out["timeframes"][tf]) for tf in md.TIMEFRAME_ORDER)
+                                          if v and v.get("mt5_fetch_required")],
         "last_successful_update": max(updates) if updates else None,
     }
     if not present:

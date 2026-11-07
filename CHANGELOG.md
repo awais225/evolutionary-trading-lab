@@ -26,6 +26,19 @@ exact commit SHA and tag. Claims only for what was implemented AND verified.
   match the CSVs, and the dashboard API returns identical counts/ranges.
 - Tests: backend 190 passed / 1 skipped (191 collected); frontend 44/44;
   production build clean. Real Windows MT5 fetch remains **not yet verified**.
+- **ISSUE-049 permanent storage fix**: the seven supplied CSVs are now stored
+  permanently in the project at `DATA/MARKET_DATA/IMPORTS/XAUUSD/` and tracked
+  in git (narrow `.gitignore` exception — the only tracked DATA files), so the
+  GitHub repository delivers the identical baseline to LMS and Windows. The
+  importer defaults to the project DATA root and discovers the IMPORTS CSVs;
+  the API lifespan (`ensure_baseline`) and START_INTERNAL stage 6 import them
+  into each installation's own canonical `DATA/MARKET_DATA/market_data.db`
+  (idempotent SHA-256 skip). The dashboard shows the active DB path, last
+  import vs last MT5 update, and per-timeframe MT5-fetch-required. The LMS
+  installation moved into `/home/user/hero1-trading-platform/DATA` (419,013
+  candles rebuilt from the repo CSVs; verified identical to the previous
+  external store; restart-persistent). Windows remains **NOT VERIFIED** —
+  owner runs START_DIAGNOSTIC.bat step 5b after `git pull`.
 
 ---
 

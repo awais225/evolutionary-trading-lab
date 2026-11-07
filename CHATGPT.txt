@@ -1028,3 +1028,15 @@ CONVENTION: UTC epoch seconds everywhere; CSV server wall (GMT+2/+3 US-DST)
 FETCH: baseline required, 2-candle overlap, invalid timestamps rejected,
   COMPLETE/PARTIAL/FAILED. TESTS: backend 190 passed/1 skipped; frontend 44/44;
   build clean. REAL WINDOWS MT5 FETCH: NOT VERIFIED.
+
+ISSUE-049 UPDATE:
+PERMANENT CSVs: DATA/MARKET_DATA/IMPORTS/XAUUSD/*.csv inside the project,
+  tracked in git (ONLY tracked DATA files; *.db still ignored), pushed to
+  GitHub main. LMS canonical DB moved INTO the project:
+  /home/user/hero1-trading-platform/DATA/MARKET_DATA/market_data.db
+  (419,013 candles rebuilt from repo CSVs, identical to old external store;
+  restart-persistent; re-import SKIPPED x7 via SHA-256 early-skip in 0.08s).
+WINDOWS: resolves [project]\DATA\MARKET_DATA\market_data.db; after git pull
+  the baseline imports automatically (API lifespan ensure_baseline +
+  START_INTERNAL stage 6). WINDOWS STILL NOT VERIFIED - owner to run
+  START_DIAGNOSTIC.bat step 5b and confirm dashboard counts.

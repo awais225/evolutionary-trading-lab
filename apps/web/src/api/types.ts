@@ -210,6 +210,8 @@ export interface MarketDataTimeframeStats {
   gaps_found?: number
   largest_gap_seconds?: number | null
   invalid_timestamp_count?: number
+  mt5_fetch_required?: boolean
+  baseline_missing?: boolean
   warnings?: string[]
 }
 
@@ -238,6 +240,9 @@ export interface MarketDataAvailability {
     first_ts?: string | null
     last_ts?: string | null
     last_successful_update?: string | null
+    last_successful_import?: string | null
+    last_mt5_update?: string | null
+    mt5_fetch_required_timeframes?: string[]
   }
   timeframes: Record<string, MarketDataTimeframeStats | null>
   datasets: MarketDataDataset[]

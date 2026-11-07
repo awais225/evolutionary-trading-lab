@@ -85,6 +85,17 @@ del "%TEMP%\hero1_diag_pragma.tmp" >nul 2>&1
 call :ROW "PRAGMA integrity_check" %RC% "0=read OK; each DB must print -> ok"
 echo.
 
+call :STEP "5b. Market data: canonical store + permanent baseline CSVs (read-only)"
+echo     Canonical DB : %DATA_ROOT%\MARKET_DATA\market_data.db
+echo     Baseline CSVs: %DATA_ROOT%\MARKET_DATA\IMPORTS\<SYMBOL>\*.csv (tracked in git)
+"%VENV_PY%" -c "import sqlite3,os,sys,glob; root=sys.argv[1]; db=os.path.join(root,'MARKET_DATA','market_data.db'); print('market_data.db exists:', os.path.isfile(db)); c=sqlite3.connect('file:'+db+'?mode=ro', uri=True) if os.path.isfile(db) else None; [print(' ', r[0], r[1], 'candles', r[2], '..', r[3], '(UTC)') for r in c.execute('select timeframe,count(*),datetime(min(ts),\'unixepoch\'),datetime(max(ts),\'unixepoch\') from candles group by timeframe')] if c else print('  NO MARKET DATA DB - run: python scripts\import_market_data.py (imports the permanent CSVs above)'); print('baseline CSVs found:'); [print(' ', f, os.path.getsize(f), 'bytes') for f in sorted(glob.glob(os.path.join(root,'MARKET_DATA','IMPORTS','*','*.csv')))]" "%DATA_ROOT%" > "%TEMP%\hero1_diag_marketdata.tmp" 2>&1
+set "RC=%errorlevel%"
+type "%TEMP%\hero1_diag_marketdata.tmp"
+type "%TEMP%\hero1_diag_marketdata.tmp" >> "%LOG%"
+del "%TEMP%\hero1_diag_marketdata.tmp" >nul 2>&1
+call :ROW "market data" %RC% "0=read OK; every timeframe must list candles (ISSUE-049)"
+echo.
+
 call :STEP "6. Ports 8788 / 5173 (who is answering?)"
 "%VENV_PY%" "%ROOT%\scripts\check_port.py" 8788
 set "RC=%errorlevel%"

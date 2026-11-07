@@ -157,6 +157,19 @@ if not "%RC%"=="0" if not "%RC%"=="10" (
   set "FAILED_CMD=%VENV_PY% %ROOT%\scripts\check_port.py 8788"
   goto :STAGE_FAILED
 )
+REM Permanent baseline: import DATA\MARKET_DATA\IMPORTS CSVs into THIS
+REM installation's canonical store (idempotent - identical sources skip by
+REM SHA-256 in seconds; the backend lifespan performs the same ensure).
+call :LOG "  baseline    : %VENV_PY% %ROOT%\scripts\import_market_data.py --data-root %DATA_ROOT%"
+"%VENV_PY%" "%ROOT%\scripts\import_market_data.py" --data-root "%DATA_ROOT%" >> "%STARTUP_LOG%" 2>&1
+set "RC=%errorlevel%"
+call :LOG "  baseline import exit code: %RC%   (0=all imported/skipped, 1=a file was REJECTED, 2=no CSVs found)"
+if not "%RC%"=="0" (
+  set "FAILED_RC=%RC%"
+  set "FAILED_REASON=Historical baseline import FAILED (rc=%RC%) - the permanent CSVs under DATA\MARKET_DATA\IMPORTS must import cleanly; see %STARTUP_LOG%."
+  set "FAILED_CMD=%VENV_PY% %ROOT%\scripts\import_market_data.py --data-root %DATA_ROOT%"
+  goto :STAGE_FAILED
+)
 if "%BACKEND_REUSE%"=="1" (
   call :LOG "  reusing identity-verified backend already on 8788"
   "%VENV_PY%" "%ROOT%\scripts\verify_instance.py" --mode backend --url http://127.0.0.1:8788/health --root "%ROOT%" >> "%STARTUP_LOG%" 2>&1

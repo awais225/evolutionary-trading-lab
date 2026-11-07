@@ -30,7 +30,17 @@ Binding guarantees (enforced, not aspirational):
     datasets table records a REJECTED entry (provenance of the attempt) and
     ZERO candle rows are written
 
+Permanent baseline (owner directive 2026-11-07): the supplied source CSVs live
+in the project at DATA/MARKET_DATA/IMPORTS/<SYMBOL>/ (tracked in git - the only
+tracked DATA files) and every installation imports them into its own canonical
+<project>/DATA/MARKET_DATA/market_data.db. The importer therefore defaults
+--data-root to the project DATA directory and, with no FILE arguments,
+discovers every CSV under MARKET_DATA/IMPORTS/. An LMS-only external data root
+(HERO1_DATA_ROOT elsewhere) was the ISSUE-049 root cause: the Windows
+installation never received the candles because DATA/ was entirely git-ignored.
+
 Usage:
+    python scripts/import_market_data.py [--instrument XAUUSD] [--force] [--dry-run]
     python scripts/import_market_data.py --data-root /path/to/DATA FILE... [--force] [--dry-run]
     python scripts/import_market_data.py --data-root /path/to/DATA --instrument XAUUSD XAUUSD_H1.csv
 
@@ -209,6 +219,33 @@ def import_file(path: Path, *, instrument: str, timeframe: str,
     source_bytes = path.stat().st_size
     dataset_id = hashlib.sha256(f"{instrument}|{timeframe}|{source_sha}".encode()).hexdigest()[:16]
 
+    if not force and not dry_run and db_path.exists():
+        _conn = _connect(db_path)
+        try:
+            _row = _conn.execute(
+                "SELECT row_count, first_ts, last_ts, content_fingerprint,"
+                " duplicates_collapsed, gaps_found, largest_gap_seconds, status"
+                " FROM datasets WHERE dataset_id = ?", (dataset_id,)).fetchone()
+        finally:
+            _conn.close()
+        if _row and _row[7] == "AVAILABLE":
+            return {
+                "source_file": str(path), "instrument": instrument, "timeframe": timeframe,
+                "dataset_id": dataset_id, "source_sha256": source_sha,
+                "source_bytes": source_bytes, "row_count": _row[0],
+                "status": "AVAILABLE", "validation_result": "PASS",
+                "first_ts": _row[1], "last_ts": _row[2],
+                "content_fingerprint": _row[3], "duplicates_collapsed": _row[4],
+                "gaps_found": _row[5], "largest_gap_seconds": _row[6],
+                "validation_report": {"errors": [], "total_data_rows": _row[0],
+                                      "duplicates_collapsed": _row[4],
+                                      "gaps_found": _row[5],
+                                      "largest_gap_seconds": _row[6],
+                                      "notes": ["identical source already AVAILABLE "
+                                                "(early skip by SHA-256; file not re-parsed)"]},
+                "action": "SKIPPED (identical source already AVAILABLE; use --force to re-import)",
+            }
+
     parsed = parse_rows(path)
     # gap stats with the known timeframe step (reported, never filled)
     gaps, largest_gap = _store.gap_stats(parsed["rows"], step)
@@ -324,8 +361,10 @@ def _resolve(path: Path, instrument_flag: str | None, tf_flag: str | None) -> tu
 
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description="Import MT History-Center CSV exports into the Hero1 market-data SQLite store.")
-    ap.add_argument("files", nargs="+", help="CSV file(s) to import")
-    ap.add_argument("--data-root", required=True, help="Hero1 DATA root (explicit - never defaulted)")
+    ap.add_argument("files", nargs="*", help="CSV file(s) to import; omit to discover the "
+                                             "permanent baseline CSVs under <DATA_ROOT>/MARKET_DATA/IMPORTS/<SYMBOL>/")
+    ap.add_argument("--data-root", default=None, help="Hero1 DATA root (default: the project DATA "
+                                                      "directory next to this repository's root)")
     ap.add_argument("--instrument", default=None, help="override instrument (must match filename if both present)")
     ap.add_argument("--timeframe", default=None, help="override timeframe: M1 M5 M15 M30 H1 H4 D1")
     ap.add_argument("--force", action="store_true", help="re-import even if the identical source is already AVAILABLE")
@@ -333,10 +372,28 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--json-report", default=None, help="also write the full JSON report to this path")
     args = ap.parse_args(argv)
 
-    data_root = Path(args.data_root).expanduser().resolve()
-    if not data_root.is_absolute():
-        raise SystemExit("--data-root must be an absolute path")
+    if args.data_root:
+        data_root = Path(args.data_root).expanduser().resolve()
+        if not data_root.is_absolute():
+            raise SystemExit("--data-root must be an absolute path")
+    else:
+        # Project-relative canonical default: <repo>/DATA (never the CWD, never /tmp).
+        data_root = (Path(__file__).resolve().parent.parent / "DATA").resolve()
     db_path = data_root / "MARKET_DATA" / "market_data.db"
+
+    if not args.files:
+        imports_dir = data_root / "MARKET_DATA" / "IMPORTS"
+        if args.instrument:
+            discovered = sorted((imports_dir / args.instrument.strip().upper()).glob("*.csv"))
+        else:
+            discovered = sorted(imports_dir.glob("*/*.csv"))
+        if not discovered:
+            print(f"ERROR: no CSV files given and no permanent baseline CSVs found under "
+                  f"{imports_dir} - place the supplied exports in DATA/MARKET_DATA/IMPORTS/<SYMBOL>/ "
+                  f"or pass explicit file paths", file=sys.stderr)
+            return 2
+        args.files = [str(p) for p in discovered]
+        print(f"discovered {len(args.files)} permanent baseline CSV(s) under {imports_dir}")
 
     results = []
     for name in args.files:
