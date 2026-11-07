@@ -165,6 +165,14 @@ Domain errors → `{"detail": "…"}`; unhandled → 500 `{"error":{"code":"inte
   or DATA. The spec's `identity.direction` participates in the strategy
   fingerprint; inherently directional examples carry `LONG`/`SHORT` (never
   stamped `BOTH`); `BOTH` is the default only for new blank strategies.
+- Fetch conflict audit (ISSUE-054): conflicting overlaps are persisted
+  in the additive `fetch_conflicts` table (stored + incoming values,
+  provenances, field diffs, resolution state) and resolved only via
+  explicit per-record decisions; stored candles are never overwritten
+  automatically. Node deletion is dependency-guarded in the storage
+  repository (descendants opt-in; dependent testing/live records
+  block), and Duplicate & Edit creates an independent node with
+  parent lineage via `POST /nodes/{id}/duplicate`.
 - Fetch write path (ISSUE-053): stored timestamps are read once per
   timeframe before the transaction and new candles are inserted with a
   single `executemany` batch, keeping write cost linear in the incoming

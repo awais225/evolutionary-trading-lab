@@ -35,6 +35,13 @@ function route(url: string, method: string, bodyText?: string): Response {
     return json({ ok: false, checked_at: '2026-11-07T00:00:00Z', platform: 'Linux', package_available: false, import_error: 'not installed', session: {}, terminal: null, account: null, active_terminal_path: null })
   }
   if (url.includes('/market-data')) {
+    if (url.includes('/conflicts')) {
+      if (method === 'POST' && url.includes('/resolve')) {
+        return json({ conflict: { id: 1, resolution: 'KEPT_STORED' }, before: {}, after: {} })
+      }
+      const list = (globalThis as { __hero1Conflicts?: unknown[] }).__hero1Conflicts ?? []
+      return json({ instrument: 'XAUUSD', conflicts: list, total: list.length })
+    }
     if (url.includes('/fetch/start')) {
       return json({ operation_id: 'FETCH-TEST-OP1', state: 'QUEUED', instrument: 'XAUUSD', timeframes: ['M1'], existing: false, started_at: 1792000000 })
     }
@@ -112,6 +119,46 @@ function route(url: string, method: string, bodyText?: string): Response {
         spec_json: JSON.stringify({ ...(body?.spec ?? {}), identity: { ...(body?.spec?.identity ?? {}), timeframe: tf } }),
       }))
       return json({ instrument: 'XAUUSD', requested: tfs, count: created.length, created }, 201)
+    }
+    if (url.includes('/dependencies')) {
+      const id = Number(/\/nodes\/(\d+)\/dependencies/.exec(url)?.[1] ?? 0)
+      const items = (globalThis as { __hero1NodeItems?: Array<Record<string, unknown>> }).__hero1NodeItems ?? []
+      const descendants = items.filter((n) => n.parent_node_id === id).map((n) => Number(n.id))
+      return json({ node_id: id, descendants, descendant_count: descendants.length,
+                    dependent_records: {}, dependent_total: 0, deletable: true, blocked_reason: null })
+    }
+    if (/\/nodes\/\datz\/duplicates/.test(url)) return json({}, 500)
+    if (/\/nodes\/\d+\/duplicate$/.test(url.split('?')[0])) {
+      const srcId = Number(/\/nodes\/(\d+)\/duplicate/.exec(url)?.[1] ?? 0)
+      const items = (globalThis as { __hero1NodeItems?: Array<Record<string, unknown>> }).__hero1NodeItems ?? []
+      const src = items.find((n) => Number(n.id) === srcId) ?? {}
+      return json({ ...baseNode, ...src, id: 999, name: body?.name ?? 'C999',
+                    parent_node_id: srcId, spec_hash: 'variant999hash',
+                    spec_json: body?.spec ? JSON.stringify(body.spec) : src.spec_json ?? null,
+                    timeframe: body?.spec?.identity?.timeframe ?? src.timeframe ?? null }, 201)
+    }
+    if (url.endsWith('/nodes/delete') && method === 'POST') {
+      const ids: number[] = Array.isArray(body?.node_ids) ? body.node_ids : []
+      const g = globalThis as { __hero1NodeItems?: Array<Record<string, unknown>> }
+      const items = g.__hero1NodeItems ?? []
+      const failed: Array<{ node_id: number; code: string; message: string }> = []
+      const deleted: number[] = []
+      for (const id of ids) {
+        const kids = items.filter((n) => n.parent_node_id === id && !deleted.includes(Number(n.id)))
+        if (kids.length > 0 && !body?.include_descendants) {
+          failed.push({ node_id: id, code: 'NODE_HAS_DESCENDANTS', message: `node #${id} has descendants` })
+          continue
+        }
+        deleted.push(id, ...kids.map((k) => Number(k.id)))
+      }
+      g.__hero1NodeItems = items.filter((n) => !deleted.includes(Number(n.id)))
+      return json({ deleted, failed })
+    }
+    if (method === 'DELETE' && /\/nodes\/\d+$/.test(url.split('?')[0])) {
+      const id = Number(url.split('?')[0].split('/').pop())
+      const g = globalThis as { __hero1NodeItems?: Array<Record<string, unknown>> }
+      g.__hero1NodeItems = (g.__hero1NodeItems ?? []).filter((n) => Number(n.id) !== id)
+      return json({ deleted: [id], failed: [] })
     }
     if (method === 'POST') {
       const hasSpec = typeof body?.spec_json === 'string'

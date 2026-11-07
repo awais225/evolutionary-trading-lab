@@ -107,3 +107,39 @@ def fetch_data(body: Optional[FetchRequest] = None,
                  "operation_id": report.get("operation_id"),
                  "broker_server": report["broker_server"]})
     return report
+
+
+class ConflictResolveRequest(BaseModel):
+    action: str = Field(description="KEPT_STORED | ACCEPTED_INCOMING")
+    note: Optional[str] = Field(default=None, max_length=1000)
+
+
+@router.get("/conflicts")
+def list_fetch_conflicts(instrument: str = Depends(get_instrument_context),
+                         operation_id: Optional[str] = None,
+                         resolution: Optional[str] = None,
+                         limit: int = 200) -> dict:
+    """Durable fetch-conflict audit (ISSUE-054): stored vs incoming values,
+    provenance and resolution state for every conflict ever recorded."""
+    return market_data_service.list_conflicts(
+        instrument, operation_id=operation_id, resolution=resolution, limit=limit)
+
+
+@router.post("/conflicts/{conflict_id}/resolve")
+def resolve_fetch_conflict(conflict_id: int, body: ConflictResolveRequest,
+                           instrument: str = Depends(get_instrument_context)) -> dict:
+    """Controlled correction of ONE conflict. ACCEPTED_INCOMING replaces the
+    stored candle with the MT5 values (pre-resolution values stay on the
+    audit row as backup + a full audit event); KEPT_STORED just records the
+    decision. Never silent, never bulk."""
+    if body.action not in ("KEPT_STORED", "ACCEPTED_INCOMING"):
+        raise HTTPException(422, detail={"code": "RESOLUTION_ACTION_INVALID",
+                                         "message": "action must be KEPT_STORED or ACCEPTED_INCOMING"})
+    try:
+        return market_data_service.resolve_conflict(instrument, conflict_id,
+                                                    body.action, body.note)
+    except KeyError as exc:
+        raise HTTPException(404, detail={"code": "CONFLICT_NOT_FOUND", "message": str(exc)}) from None
+    except ValueError as exc:
+        raise HTTPException(409, detail={"code": "CONFLICT_ALREADY_RESOLVED", "message": str(exc)}) from None
+

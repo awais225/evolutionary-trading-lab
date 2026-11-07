@@ -59,6 +59,27 @@ CREATE TABLE IF NOT EXISTS candles (
   PRIMARY KEY (instrument, timeframe, ts)
 );
 CREATE INDEX IF NOT EXISTS ix_candles_dataset ON candles(dataset_id);
+CREATE TABLE IF NOT EXISTS fetch_conflicts (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  operation_id      TEXT NOT NULL,
+  instrument        TEXT NOT NULL,
+  timeframe         TEXT NOT NULL,
+  ts                INTEGER NOT NULL,
+  ts_iso            TEXT NOT NULL,
+  stored_dataset_id TEXT,
+  stored_source     TEXT,
+  incoming_source   TEXT,
+  stored            TEXT NOT NULL,
+  incoming          TEXT NOT NULL,
+  differing_fields  TEXT NOT NULL,
+  classification    TEXT NOT NULL DEFAULT 'CONFLICT_STORED_PRESERVED',
+  resolution        TEXT NOT NULL DEFAULT 'UNRESOLVED',
+  resolution_note   TEXT,
+  resolved_at       TEXT,
+  created_at        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_fetch_conflicts_op ON fetch_conflicts(operation_id);
+CREATE INDEX IF NOT EXISTS ix_fetch_conflicts_resolution ON fetch_conflicts(resolution);
 CREATE TABLE IF NOT EXISTS datasets (
   dataset_id            TEXT PRIMARY KEY,
   instrument            TEXT NOT NULL,
@@ -271,7 +292,7 @@ def merge_candles(conn: sqlite3.Connection, *, dataset_id: str, instrument: str,
                     representation_diffs += 1
                 else:
                     conflicts.append(ts)
-                    if len(conflict_details) < 10:
+                    if len(conflict_details) < 100:
                         conflict_details.append({
                             "ts": ts, "ts_iso": r.get("ts_iso") or ts_iso_of(ts),
                             "classification": "CONFLICT_STORED_PRESERVED",
@@ -393,3 +414,121 @@ __all__ = [
     "canonical_fingerprint", "gap_stats", "merge_candles", "record_dataset",
     "rebuild_manifest", "latest_ts", "series_stats", "list_datasets",
 ]
+
+
+# ---------------------------------------------------------- conflict audit
+def record_fetch_conflicts(conn: sqlite3.Connection, *, operation_id: str,
+                           instrument: str, timeframe: str,
+                           conflict_details: List[Dict[str, Any]],
+                           incoming_source: str = "") -> int:
+    """Persist conflict records durably (ISSUE-054, source-aware audit).
+
+    The stored candle is NEVER modified here. Each row keeps the stored
+    values, the incoming values, both provenances and the field-level diff,
+    so a later controlled resolution has a complete before/after record.
+    Runs in the caller's transaction context (no implicit commit).
+    """
+    import json as _json
+    from datetime import datetime as _dt, timezone as _tz
+    now = _dt.now(_tz.utc).isoformat()
+    n = 0
+    for d in conflict_details:
+        stored = d.get("stored") or {}
+        incoming = d.get("incoming") or {}
+        ds = d.get("stored_dataset_id")
+        src_row = None
+        if ds:
+            src_row = conn.execute(
+                "SELECT source_file FROM datasets WHERE dataset_id = ?", (ds,)).fetchone()
+        stored_source = (f"CSV import: {src_row[0]}" if src_row
+                         else ("MT5 fetch (prior fetch dataset)" if ds else "unknown"))
+        conn.execute(
+            "INSERT INTO fetch_conflicts (operation_id, instrument, timeframe, ts, ts_iso,"
+            " stored_dataset_id, stored_source, incoming_source, stored, incoming,"
+            " differing_fields, classification, created_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (operation_id, instrument, timeframe, int(d["ts"]),
+             d.get("ts_iso") or ts_iso_of(int(d["ts"])), ds, stored_source,
+             incoming_source, _json.dumps(stored), _json.dumps(incoming),
+             _json.dumps(d.get("differing_fields") or {}),
+             d.get("classification") or "CONFLICT_STORED_PRESERVED", now))
+        n += 1
+    return n
+
+
+def list_fetch_conflicts(conn: sqlite3.Connection, *, instrument: Optional[str] = None,
+                         operation_id: Optional[str] = None,
+                         resolution: Optional[str] = None,
+                         limit: int = 200) -> List[Dict[str, Any]]:
+    import json as _json
+    q = "SELECT * FROM fetch_conflicts WHERE 1=1"
+    args: List[Any] = []
+    if instrument:
+        q += " AND instrument = ?"; args.append(instrument)
+    if operation_id:
+        q += " AND operation_id = ?"; args.append(operation_id)
+    if resolution:
+        q += " AND resolution = ?"; args.append(resolution)
+    q += " ORDER BY id DESC LIMIT ?"; args.append(max(1, min(int(limit), 1000)))
+    cur = conn.execute(q, args)
+    cols = [c[0] for c in cur.description]
+    out = []
+    for row in cur.fetchall():
+        d = dict(zip(cols, row))
+        for k in ("stored", "incoming", "differing_fields"):
+            try:
+                d[k] = _json.loads(d[k])
+            except Exception:  # noqa: BLE001
+                pass
+        out.append(d)
+    return out
+
+
+def resolve_fetch_conflict(conn: sqlite3.Connection, conflict_id: int, *,
+                           action: str, note: Optional[str] = None) -> Dict[str, Any]:
+    """Controlled, audited resolution of ONE conflict (ISSUE-054).
+
+    action="KEPT_STORED": mark resolved; the stored candle is untouched.
+    action="ACCEPTED_INCOMING": replace the stored candle's values with the
+    incoming MT5 values. The pre-resolution stored values remain on this
+    audit row (the backup) and the caller publishes a full audit event.
+    Executed inside ONE transaction; returns {conflict, before, after}.
+    """
+    import json as _json
+    from datetime import datetime as _dt, timezone as _tz
+    cur = conn.execute("SELECT * FROM fetch_conflicts WHERE id = ?",
+                       (int(conflict_id),))
+    row = cur.fetchone()
+    if row is None:
+        raise KeyError(f"fetch conflict {conflict_id} not found")
+    d = dict(zip([c[0] for c in cur.description], row))
+    if d["resolution"] != "UNRESOLVED":
+        raise ValueError(f"conflict {conflict_id} already resolved ({d['resolution']})")
+    before = _json.loads(d["stored"])
+    after = before
+    now = _dt.now(_tz.utc).isoformat()
+    with conn:
+        if action == "ACCEPTED_INCOMING":
+            incoming = _json.loads(d["incoming"])
+            cur = conn.execute(
+                "UPDATE candles SET open=?, high=?, low=?, close=?, tick_volume=?,"
+                " volume=?, spread=? WHERE instrument=? AND timeframe=? AND ts=?",
+                (incoming.get("open"), incoming.get("high"), incoming.get("low"),
+                 incoming.get("close"), incoming.get("tick_volume"),
+                 incoming.get("volume"), incoming.get("spread"),
+                 d["instrument"], d["timeframe"], d["ts"]))
+            if cur.rowcount != 1:
+                raise KeyError("stored candle no longer exists; conflict cannot be resolved")
+            after = incoming
+        elif action != "KEPT_STORED":
+            raise ValueError(f"unknown resolution action {action!r}")
+        conn.execute(
+            "UPDATE fetch_conflicts SET resolution=?, resolution_note=?, resolved_at=?"
+            " WHERE id=?", (action, note, now, int(conflict_id)))
+    d.update({"resolution": action, "resolution_note": note, "resolved_at": now})
+    for k in ("stored", "incoming", "differing_fields"):
+        try:
+            d[k] = _json.loads(d[k])
+        except Exception:  # noqa: BLE001
+            pass
+    return {"conflict": d, "before": before, "after": after}

@@ -328,3 +328,11 @@ this entry).
   scroll fixed (grid track min-width/wrapping). Backend 206 tests 0 failures,
   frontend 51/51, build clean. Windows genuine-MT5 fetch NOT VERIFIED.
 
+- ISSUE-054 (2026-11-07): durable fetch-conflict audit + controlled
+  per-record resolution (DATA tab panel); dependency-checked node deletion
+  (single/bulk, descendants opt-in, dependent records block); Duplicate &
+  Edit (new independent node, parent=source, existing fingerprint rules).
+  Backend 220 tests 0 failures, frontend 57/57, build clean. The 12 seam
+  conflicts of the latest Windows fetch are classified UNRESOLVED pending
+  Windows-side value inspection; no stored candle was overwritten.
+

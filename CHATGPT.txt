@@ -1070,3 +1070,14 @@ timeout on the store, per-stage DB elapsed logging. Real-DB copy test:
 21,337 mocked M1 -> 21,335 appended in 0.88s. Dashboard horizontal scroll
 fixed via minmax(0,1fr)+overflow-wrap on market-data tracks. Windows/MT5
 still NOT VERIFIED.
+[2026-11-07] ISSUE-054: (1) Fetch conflicts from op FETCH-20261107-135458-0525F3
+(3 each in M5/M15/M30/H1) are exactly the 3-candle overlap window at the
+CSV-baseline seam; stored seam candles are CSV-import provenance, incoming
+MT5 ICMarketsSC-Demo. Root cause UNRESOLVED from Linux (Windows records not
+retrievable here) - nothing overwritten. Added durable fetch_conflicts audit
++ GET /market-data/conflicts + explicit per-record resolution
+(KEPT_STORED / ACCEPTED_INCOMING, backup retained) in API and DATA tab.
+(2) Node deletion with dependency guards (descendants need explicit
+opt-in; backtest/deeptest/live/approval records block, never cascade).
+(3) Duplicate & Edit: POST /nodes/{id}/duplicate, new independent node,
+parent=source, existing duplicate rules. Backend 220, frontend 57/57.

@@ -62,6 +62,46 @@ class NodeCreate(BaseModel):
         return v
 
 
+class NodeDependenciesOut(BaseModel):
+    node_id: int
+    descendants: List[int] = Field(default_factory=list)
+    descendant_count: int = 0
+    dependent_records: dict = Field(default_factory=dict)
+    dependent_total: int = 0
+    deletable: bool = True
+    blocked_reason: Optional[str] = None
+
+
+class NodeDeleteRequest(BaseModel):
+    node_ids: List[int] = Field(min_length=1, max_length=500)
+    include_descendants: bool = False
+
+
+class NodeDeleteFailure(BaseModel):
+    node_id: int
+    code: str
+    message: str
+
+
+class NodeDeleteOut(BaseModel):
+    deleted: List[int] = Field(default_factory=list)
+    failed: List[NodeDeleteFailure] = Field(default_factory=list)
+
+
+class NodeDuplicateRequest(BaseModel):
+    """Duplicate & Edit: a NEW independent node whose spec is the edited draft.
+
+    spec defaults to the source node's spec (unedited duplicate); the server
+    always recompiles and refingerprints - renaming alone never changes the
+    semantic fingerprint, so an unchanged spec hits the existing
+    (instrument, spec_hash, version=1) duplicate rule and returns 409.
+    """
+    name: Optional[str] = Field(default=None, min_length=1, max_length=160)
+    description: Optional[str] = Field(default=None, max_length=4000)
+    spec: Optional[dict] = None
+    broker_meta: Optional[dict] = None
+
+
 class NodePatch(BaseModel):
     """Metadata-only edits. Strategy semantics (spec_json) are IMMUTABLE for a
     saved node — extra keys are rejected with 422. To change a strategy, call

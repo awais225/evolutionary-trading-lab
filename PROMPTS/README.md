@@ -16,6 +16,7 @@ Original instructions are never silently rewritten.
 | DATA_TAB_FETCH_CONFLICTS_LOGGING.md | DATA tab consolidation, node dashboard, MT5 fetch conflict isolation, LOG tab + operation tracing (ISSUE-050/051) | Implemented 2026-11-07 (Linux verified; Windows/MT5 NOT VERIFIED) |
 | FETCH_HANG_LOG_EXPORT_FIX.md | Urgent patch: fetch hang, background operations, lifecycle tracing, LOG pagination + COPY ALL / SAVE TXT export (ISSUE-052) | Implemented 2026-11-07 (Linux verified; Windows NOT VERIFIED) |
 | DB_FETCH_HANG_DASHBOARD_WIDTH.md | ISSUE-053 DB fetch hang root cause + dashboard width | done (Linux-verified; Windows NOT VERIFIED) |
+| DATA_FETCH_AUDIT_NODE_DELETE_DUPLICATE.md | ISSUE-054 fetch audit + node delete + Duplicate & Edit | done (Linux-verified; Windows conflicts UNRESOLVED) |
 | TASK_13_HERO_V1_5_0.md | TASK 13 — HERO-V1.5.0 Windows MT5 + market data | Implemented 2026-11-07; awaiting Windows acceptance (archive reconstructed after context compaction; see file note) |
 | WINDOWS_LAUNCHER.md | Two-BAT Windows launcher + LMS workspace dashboard preview | Archived BEFORE implementation 2026-11-06; outcome appended after execution |
 

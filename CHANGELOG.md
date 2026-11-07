@@ -26,6 +26,20 @@ exact commit SHA and tag. Claims only for what was implemented AND verified.
   match the CSVs, and the dashboard API returns identical counts/ranges.
 - Tests: backend 190 passed / 1 skipped (191 collected); frontend 44/44;
   production build clean. Real Windows MT5 fetch remains **not yet verified**.
+- **ISSUE-054 (fetch conflict audit + node delete + Duplicate & Edit)**:
+  conflicts are now persisted durably (`fetch_conflicts`: stored + incoming
+  values, both provenances, field diffs, UNRESOLVED by default) with
+  `GET /market-data/conflicts` and an explicit per-record resolution
+  endpoint (`KEPT_STORED` / `ACCEPTED_INCOMING`, pre-resolution values kept
+  as backup, totals verified unchanged) surfaced in the DATA tab; stored
+  candles are still never overwritten automatically. The 12 conflicts of
+  op FETCH-20261107-135458-0525F3 are the 3-candle overlap window at the
+  CSV seam and remain UNRESOLVED pending Windows-side inspection.
+  Manual Nodes gain dependency-checked deletion (single + bulk; descendants
+  need explicit opt-in; dependent testing/live records always block and are
+  never cascade-deleted) and Duplicate & Edit (new independent node,
+  parent = source, server-recomputed fingerprint, existing duplicate rules
+  enforced). Backend 220 tests, frontend 57/57, build clean.
 - **ISSUE-053 (DB fetch hang + dashboard width)**: root cause was a
   full-table timestamp SELECT executed once per incoming candle inside the
   write transaction (~2.1B row reads for 21,337 candles) — large fetches

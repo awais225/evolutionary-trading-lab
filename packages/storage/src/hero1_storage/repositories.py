@@ -267,6 +267,80 @@ class NodeRepository:
             stmt = stmt.where(im.Node.starred.is_(bool(starred)))
         return int(self.s.execute(stmt).scalar_one())
 
+    # ------------------------------------------- deletion support (ISSUE-054)
+    # FKs are ENFORCED (PRAGMA foreign_keys=ON) and several tables hold
+    # node_id with ON DELETE CASCADE (backtest runs, deeptest scenarios /
+    # trades, live configs / trades, approvals). Deletion must therefore
+    # NEVER be a bare ORM delete: callers check dependencies first, and
+    # this layer deletes lineage rows and node rows EXPLICITLY, deepest
+    # descendants first, so no testing/live record can be cascade-erased.
+    # ActivityEvent.node_id is ON DELETE SET NULL (audit rows survive).
+
+    def children_of(self, node_id: int) -> List[int]:
+        """Direct children (parent_node_id == node_id), ascending id."""
+        return list(self.s.execute(
+            select(im.Node.id).where(
+                im.Node.instrument_id == self.instrument,
+                im.Node.parent_node_id == node_id).order_by(im.Node.id)).scalars())
+
+    def descendant_ids(self, node_id: int) -> List[int]:
+        """ALL descendants of node_id (children, grandchildren, ...), BFS order."""
+        out: List[int] = []
+        frontier = self.children_of(node_id)
+        while frontier:
+            nxt: List[int] = []
+            for cid in frontier:
+                out.append(cid)
+                nxt.extend(self.children_of(cid))
+            frontier = nxt
+        return out
+
+    def dependent_record_counts(self, node_id: int) -> Dict[str, int]:
+        """Records in OTHER tables that reference this node and must never be
+        silently cascade-deleted. Zero counts = nothing blocks deletion."""
+        from sqlalchemy import func
+        tables = [
+            ("backtest_runs", im.BacktestRun),
+            ("deeptest_scenarios", im.DeepTestScenario),
+            ("deeptest_trades", im.DeepTestTrade),
+            ("live_configs", im.LiveConfig),
+            ("live_trades", im.LiveTrade),
+            ("approvals", im.Approval),
+        ]
+        out: Dict[str, int] = {}
+        for label, model in tables:
+            out[label] = int(self.s.execute(
+                select(func.count()).select_from(model).where(
+                    model.instrument_id == self.instrument,
+                    model.node_id == node_id)).scalar_one())
+        return out
+
+    def delete_nodes(self, node_ids: List[int]) -> List[int]:
+        """Explicitly delete the given node rows + their lineage rows.
+
+        The caller MUST have validated dependencies (descendants included
+        in node_ids deepest-first; no dependent records). Returns the ids
+        actually deleted. Commits as one transaction.
+        """
+        ids = [int(i) for i in node_ids]
+        if not ids:
+            return []
+        self.s.execute(
+            im.NodeLineage.__table__.delete().where(
+                im.NodeLineage.instrument_id == self.instrument,
+                (im.NodeLineage.child_node_id.in_(ids))
+                | (im.NodeLineage.parent_node_id.in_(ids))))
+        deleted: List[int] = []
+        for nid in ids:  # deepest-first order supplied by the caller
+            res = self.s.execute(
+                im.Node.__table__.delete().where(
+                    im.Node.instrument_id == self.instrument,
+                    im.Node.id == nid))
+            if res.rowcount:
+                deleted.append(nid)
+        self.s.commit()
+        return deleted
+
     def update(self, node_id: int, **fields) -> Optional[im.Node]:
         node = self.get(node_id)
         if node is None:

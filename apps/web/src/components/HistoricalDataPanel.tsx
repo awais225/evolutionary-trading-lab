@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useId, useRef, useState } from 'react'
 import { ApiError, api } from '../api/client'
-import type { MarketDataAvailability, MarketDataFetchReport, MarketDataOperation } from '../api/types'
+import type { FetchConflict, MarketDataAvailability, MarketDataFetchReport, MarketDataOperation } from '../api/types'
 import { SUPPORTED_TIMEFRAMES } from '../lib/timeframes'
 import { useInstrument } from '../state/instrument'
 import { logUserAction, newOperationId } from '../lib/opLog'
@@ -78,6 +78,9 @@ export function HistoricalDataPanel() {
   const [marketDataError, setMarketDataError] = useState<string | null>(null)
   const [fetchTimeframe, setFetchTimeframe] = useState('ALL')
   const [fetchReport, setFetchReport] = useState<MarketDataFetchReport | null>(null)
+  const [conflicts, setConflicts] = useState<FetchConflict[]>([])
+  const [conflictBusyId, setConflictBusyId] = useState<number | null>(null)
+  const [conflictNotice, setConflictNotice] = useState<string | null>(null)
   const [operation, setOperation] = useState<MarketDataOperation | null>(null)
   const pollRef = useRef<number | null>(null)
 
@@ -107,12 +110,37 @@ export function HistoricalDataPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [instrument])
 
+  const loadConflicts = useCallback(async () => {
+    try {
+      const out = await api.marketData.conflicts(instrument, { resolution: 'UNRESOLVED' })
+      setConflicts(Array.isArray(out?.conflicts) ? out.conflicts : [])
+    } catch { setConflicts([]) }
+  }, [instrument])
+
+  useEffect(() => { void loadConflicts() }, [loadConflicts])
+
+  const resolveConflict = async (c: FetchConflict, action: 'KEPT_STORED' | 'ACCEPTED_INCOMING') => {
+    const msg = action === 'KEPT_STORED'
+      ? `Keep the stored candle for ${c.timeframe} ${c.ts_iso}? The MT5 values stay on the audit record.`
+      : `Replace the stored ${c.timeframe} candle at ${c.ts_iso} with the MT5 values? The current stored values remain on the audit record as backup and the change is logged.`
+    if (!window.confirm(msg)) return
+    setConflictBusyId(c.id); setConflictNotice(null)
+    try {
+      await api.marketData.resolveConflict(instrument, c.id, action)
+      setConflictNotice(`Conflict #${c.id} (${c.timeframe} ${c.ts_iso}) resolved: ${action === 'KEPT_STORED' ? 'stored candle kept' : 'MT5 values accepted (backup retained in audit)'}`)
+      await loadConflicts()
+    } catch (err) {
+      setConflictNotice(err instanceof Error ? err.message : 'resolution failed')
+    } finally { setConflictBusyId(null) }
+  }
+
   const pollOnce = async (operationId: string) => {
     try {
       const rec = await api.marketData.operation(instrument, operationId)
       setOperation(rec)
       if (rec.state !== 'QUEUED' && rec.state !== 'RUNNING') {
         stopPolling()
+        void loadConflicts()
         if (rec.report) {
           setFetchReport(rec.report)
         } else if (rec.error) {
@@ -301,6 +329,43 @@ export function HistoricalDataPanel() {
         </div>
       )}
       {marketDataError && <div className="field-error" role="alert">{marketDataError}</div>}
+
+      <div style={{ marginTop: 14 }}>
+        <div className="card-title" style={{ fontSize: 12 }}>
+          Fetch conflicts — unresolved ({conflicts.length})
+          <span className="faint" style={{ fontWeight: 400, fontSize: 10.5, marginLeft: 8 }}>
+            stored candles are preserved until you resolve a conflict explicitly; nothing is overwritten automatically
+          </span>
+        </div>
+        {conflictNotice && <div className="faint mono" role="status" style={{ fontSize: 10.5, margin: '4px 0' }}>{conflictNotice}</div>}
+        {conflicts.length === 0 ? (
+          <p className="faint" style={{ fontSize: 11, margin: '4px 0' }}>No unresolved conflicts recorded for {instrument}.</p>
+        ) : conflicts.map((c) => (
+          <div className="conflict-row" key={c.id}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'baseline' }}>
+              <strong className="mono">{c.timeframe} · {c.ts_iso} UTC</strong>
+              <span className="faint mono" style={{ fontSize: 10 }}>op {c.operation_id}</span>
+              <span className="faint" style={{ fontSize: 10 }}>stored: {c.stored_source ?? 'unknown'} · incoming: {c.incoming_source ?? 'unknown'}</span>
+              <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 6 }}>
+                <button type="button" className="btn btn-ghost btn-sm" disabled={conflictBusyId === c.id}
+                        onClick={() => void resolveConflict(c, 'KEPT_STORED')}>Keep stored</button>
+                <button type="button" className="btn btn-ghost btn-sm" disabled={conflictBusyId === c.id}
+                        onClick={() => void resolveConflict(c, 'ACCEPTED_INCOMING')}>Accept MT5 values</button>
+              </span>
+            </div>
+            <div className="conflict-grid mono" style={{ marginTop: 4 }}>
+              <span className="faint">field</span><span className="faint">stored</span><span className="faint">MT5 incoming</span>
+              {(['open', 'high', 'low', 'close', 'tick_volume', 'volume', 'spread'] as const)
+                .filter((k) => c.stored[k] !== c.incoming[k])
+                .map((k) => (
+                  <Fragment key={k}>
+                    <span>{k}</span><span>{String(c.stored[k] ?? '—')}</span><span>{String(c.incoming[k] ?? '—')}</span>
+                  </Fragment>
+                ))}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

@@ -242,6 +242,39 @@ export interface MarketDataDataset {
   imported_at?: string
 }
 
+export interface NodeDependencies {
+  node_id: number
+  descendants: number[]
+  descendant_count: number
+  dependent_records: Record<string, number>
+  dependent_total: number
+  deletable: boolean
+  blocked_reason: string | null
+}
+
+export interface NodeDeleteFailure { node_id: number; code: string; message: string }
+export interface NodeDeleteResult { deleted: number[]; failed: NodeDeleteFailure[] }
+
+export interface FetchConflict {
+  id: number
+  operation_id: string
+  instrument: string
+  timeframe: string
+  ts: number
+  ts_iso: string
+  stored_dataset_id: string | null
+  stored_source: string | null
+  incoming_source: string | null
+  stored: Record<string, number | null>
+  incoming: Record<string, number | null>
+  differing_fields: Record<string, { stored: unknown; incoming: unknown }>
+  classification: string
+  resolution: 'UNRESOLVED' | 'KEPT_STORED' | 'ACCEPTED_INCOMING'
+  resolution_note: string | null
+  resolved_at: string | null
+  created_at: string
+}
+
 export interface MarketDataAvailability {
   instrument: string
   available: boolean

@@ -83,6 +83,12 @@ export function ManualNodes() {
   const [notice, setNotice] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [lineage, setLineage] = useState<NodeVersionList | null>(null)
+  // ISSUE-054: delete dialog (single or bulk) + Duplicate & Edit mode
+  const [deleteIds, setDeleteIds] = useState<number[] | null>(null)
+  const [deleteDeps, setDeleteDeps] = useState<{ descendants: number[]; descendant_count: number; dependent_total: number; dependent_records: Record<string, number>; blocked_reason: string | null } | null>(null)
+  const [deleteIncludeDescendants, setDeleteIncludeDescendants] = useState(false)
+  const [deleteBusy, setDeleteBusy] = useState(false)
+  const [duplicateSource, setDuplicateSource] = useState<Node | null>(null)
 
   const selected = useMemo(() => nodes.find((n) => n.id === selectedId) ?? null, [nodes, selectedId])
 
@@ -453,6 +459,86 @@ export function ManualNodes() {
     } finally { setRenaming(false) }
   }
 
+  // ---------------------------------------------------------- ISSUE-054
+  const openDelete = async (ids: number[]) => {
+    setDeleteIds(ids)
+    setDeleteIncludeDescendants(false)
+    setDeleteDeps(null)
+    if (ids.length === 1) {
+      try {
+        const deps = await api.nodes.dependencies(instrument, ids[0])
+        setDeleteDeps(deps)
+      } catch { /* the delete call itself reports guards authoritatively */ }
+    }
+  }
+
+  const confirmDelete = async () => {
+    if (!deleteIds || deleteIds.length === 0 || deleteBusy) return
+    setDeleteBusy(true); setActionError(null); setNotice(null)
+    try {
+      const result = deleteIds.length === 1 && !deleteIncludeDescendants && !deleteDeps?.descendants.length
+        ? await api.nodes.remove(instrument, deleteIds[0], false)
+        : await api.nodes.removeMany(instrument, deleteIds, deleteIncludeDescendants)
+      const deletedSet = new Set(result.deleted)
+      setSelectedIds((prev) => new Set([...prev].filter((id) => !deletedSet.has(id))))
+      if (selectedId !== null && deletedSet.has(selectedId)) { setSelectedId(null); setLineage(null) }
+      setNotice(result.deleted.length > 0
+        ? `Deleted node(s): ${result.deleted.map((id) => `#${id}`).join(', ')}`
+        : 'Nothing was deleted.')
+      if (result.failed.length > 0) {
+        setActionError({ message: result.failed.map((f) => `#${f.node_id}: ${f.message}`).join(' · ') })
+      }
+      setDeleteIds(null)
+      await load()
+    } catch (err) {
+      setActionError({ message: err instanceof ApiError ? err.message : 'deletion failed' })
+      setDeleteIds(null)
+    } finally { setDeleteBusy(false) }
+  }
+
+  const startDuplicate = (node: Node) => {
+    if (!node.spec_json) return
+    setDuplicateSource(node)
+    try {
+      const parsed = JSON.parse(node.spec_json)
+      setSpec(parsed && typeof parsed === 'object' ? (parsed as SpecObject) : null)
+      setSpecText(node.spec_json)
+      setSpecParseError(null)
+    } catch (err) {
+      setSpec(null)
+      setSpecParseError(err instanceof Error ? err.message : 'invalid JSON')
+    }
+    if (node.timeframe) setSelectedTfs([node.timeframe])
+    setNodeName(''); setNameDirty(false)   // auto C-name suggestion; editable
+    setValidation(null); setCompiled(null); setActionError(null)
+    setNotice(`Duplicating node #${node.id} (${node.name}) — edit the draft, then Save Variant. The original is never modified.`)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  const cancelDuplicate = () => {
+    setDuplicateSource(null)
+    setNotice('Duplicate draft discarded — no node was created.')
+  }
+
+  const saveVariant = async () => {
+    if (!duplicateSource) return
+    const spec = resolveSpec(); if (!spec) return
+    setBusy('save'); setActionError(null); setNotice(null)
+    try {
+      const created = await api.nodes.duplicate(instrument, duplicateSource.id, {
+        spec, name: resolveNodeName(),
+      })
+      setNotice(`Saved variant #${created.id} ${created.name} (${created.timeframe ?? '—'}) based on #${duplicateSource.id} · fingerprint ${created.spec_hash?.slice(0, 12)}… — original #${duplicateSource.id} unchanged`)
+      setDuplicateSource(null)
+      setSelectedId(created.id)
+      setNameDirty(false)
+      await load()
+    } catch (err) {
+      if (err instanceof ApiError) setActionError({ message: err.message, code: err.code, issues: asIssues(err) })
+      else setActionError({ message: 'variant save failed' })
+    } finally { setBusy(null) }
+  }
+
   return (
     <div>
       <div className="page-head">
@@ -600,14 +686,30 @@ export function ManualNodes() {
           </div>
           <p className="faint" style={{ fontSize: 10.5, marginTop: 4 }}>Node naming is registry metadata, not strategy semantics: it is applied at save time, and renaming an existing node uses metadata-only PATCH — the spec fingerprint and version lineage are never affected by a display rename. Auto names come from the registry for <strong>{instrument}</strong> as the first available sequential C-number with gap reuse (C1, C3 exist → next is C2). Saving one strategy across N timeframes allocates N different sequential names, server-side and race-safe (unique index on instrument+name).</p>
 
+          {duplicateSource && (
+            <div className="banner" role="status" style={{ marginTop: 12, marginBottom: 0 }}>
+              <span aria-hidden="true">⧉</span>
+              <span><strong>Duplicate &amp; Edit:</strong> new variant based on <strong>#{duplicateSource.id} {duplicateSource.name}</strong> ({duplicateSource.timeframe ?? 'draft'}). The original node is never modified. Saving creates a NEW node with its own ID and fingerprint; the source is recorded as its parent. An unchanged strategy is rejected by the duplicate-prevention rule.</span>
+            </div>
+          )}
+
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 12 }}>
             <button className="btn btn-primary" type="button" onClick={doValidate} disabled={busy !== null || !specText.trim()}>{busy === 'validate' ? 'Validating…' : 'Validate'}</button>
             <button className="btn" type="button" onClick={doCompile} disabled={busy !== null || !specText.trim()}>{busy === 'compile' ? 'Compiling…' : 'Compile'}</button>
-            <button className="btn" type="button" onClick={saveNewNode} disabled={busy !== null || !specText.trim()}>{busy === 'save' ? 'Saving…' : selectedTfs.length > 1 ? `Generate ${selectedTfs.length} nodes` : 'Save as new spec node'}</button>
-            <button className="btn btn-ghost" type="button" onClick={saveNewVersion} disabled={busy !== null || !specText.trim() || !selected?.spec_json}
-                    title={selected?.spec_json ? `New immutable version in the lineage of node #${selected.id}` : 'Select a spec-backed node in the registry first'}>
-              {busy === 'version' ? 'Creating version…' : selected?.spec_json ? `Save as new version of #${selected.id}` : 'Save as new version (select a spec node)'}
-            </button>
+            {duplicateSource ? (
+              <>
+                <button className="btn btn-primary" type="button" onClick={saveVariant} disabled={busy !== null || !specText.trim()}>{busy === 'save' ? 'Saving variant…' : `Save Variant (new node based on #${duplicateSource.id})`}</button>
+                <button className="btn btn-ghost" type="button" onClick={cancelDuplicate} disabled={busy !== null}>Cancel</button>
+              </>
+            ) : (
+              <>
+                <button className="btn" type="button" onClick={saveNewNode} disabled={busy !== null || !specText.trim()}>{busy === 'save' ? 'Saving…' : selectedTfs.length > 1 ? `Generate ${selectedTfs.length} nodes` : 'Save as new spec node'}</button>
+                <button className="btn btn-ghost" type="button" onClick={saveNewVersion} disabled={busy !== null || !specText.trim() || !selected?.spec_json}
+                        title={selected?.spec_json ? `New immutable version in the lineage of node #${selected.id}` : 'Select a spec-backed node in the registry first'}>
+                  {busy === 'version' ? 'Creating version…' : selected?.spec_json ? `Save as new version of #${selected.id}` : 'Save as new version (select a spec node)'}
+                </button>
+              </>
+            )}
           </div>
 
           {notice && <div className="banner" style={{ marginTop: 12, marginBottom: 0, borderColor: 'rgba(61,220,151,.3)', background: 'rgba(61,220,151,.06)', color: '#b6f5d8' }} role="status"><span aria-hidden="true">✓</span><span className="mono" style={{ fontSize: 11 }}>{notice}</span></div>}
@@ -717,9 +819,14 @@ export function ManualNodes() {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
             <StarredScopeControl mini total={counts?.total ?? null} starredTotal={counts?.starred_total ?? null} />
             {selectedIds.size > 0 && (
-              <span className="selection-chip" role="status">
-                {selectedIds.size} selected{scope === 'starred' ? ' · starred scope' : ''}
-                <button type="button" onClick={() => setSelectedIds(new Set())}>clear</button>
+              <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
+                <span className="selection-chip" role="status">
+                  {selectedIds.size} selected{scope === 'starred' ? ' · starred scope' : ''}
+                  <button type="button" onClick={() => setSelectedIds(new Set())}>clear</button>
+                </span>
+                <button type="button" className="btn-danger" onClick={() => void openDelete([...selectedIds])}>
+                  Delete Selected ({selectedIds.size})
+                </button>
               </span>
             )}
           </div>
@@ -794,7 +901,13 @@ export function ManualNodes() {
                       <td className="mono faint" style={{ fontSize: 10.5 }}>{n.spec_hash ? `${n.spec_hash.slice(0, 12)}…` : '—'}</td>
                       <td><span className="badge DRAFT">{n.status}</span></td>
                       <td><span className={`badge ${n.approval_state === 'APPROVED' ? 'APPROVED' : 'PENDING'}`}>{n.approval_state}</span></td>
-                      <td><button className="btn btn-ghost btn-sm" type="button" onClick={(e) => { e.stopPropagation(); setSelectedId(n.id); setLineage(null) }}>{n.id === selectedId ? 'Selected' : 'Inspect'}</button></td>
+                      <td onClick={(e) => e.stopPropagation()}>
+                        <span className="node-actions">
+                          <button className="btn btn-ghost btn-sm" type="button" onClick={() => { setSelectedId(n.id); setLineage(null) }}>{n.id === selectedId ? 'Selected' : 'Inspect'}</button>
+                          {n.spec_json && <button className="btn btn-ghost btn-sm" type="button" title={`Create an independent variant of node #${n.id}`} onClick={() => startDuplicate(n)}>Duplicate &amp; Edit</button>}
+                          <button className="btn-danger" type="button" title={`Delete node #${n.id}`} onClick={() => void openDelete([n.id])}>Delete</button>
+                        </span>
+                      </td>
                     </tr>
                       ))}
                     </Fragment>
@@ -836,6 +949,56 @@ export function ManualNodes() {
           )}
         </div>
       </div>
+
+      {deleteIds !== null && (
+        <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Confirm node deletion">
+          <div className="modal-card">
+            <h3>{deleteIds.length === 1 ? 'Delete node?' : `Delete ${deleteIds.length} selected nodes?`}</h3>
+            {deleteIds.length === 1 ? (
+              <p style={{ fontSize: 12 }}>
+                Node <strong>#{deleteIds[0]}</strong>
+                {(() => { const n = nodes.find((x) => x.id === deleteIds[0]); return n ? <> · <strong>{n.name}</strong> ({n.timeframe ?? 'draft'}, v{n.version})</> : null })()}
+                {' '}will be permanently deleted from the {instrument} registry. This cannot be undone; the deletion is recorded in the LOG audit trail.
+              </p>
+            ) : (
+              <p style={{ fontSize: 12 }}>
+                Nodes {deleteIds.map((id) => `#${id}`).join(', ')} will be permanently deleted from the {instrument} registry.
+                Each deletion is recorded in the LOG audit trail. Nodes that cannot be deleted are reported individually and left untouched.
+              </p>
+            )}
+            {deleteIds.length === 1 && deleteDeps === null && <p className="faint" style={{ fontSize: 11 }}>Checking dependencies…</p>}
+            {deleteDeps && deleteDeps.descendant_count > 0 && (
+              <div className="banner" role="note" style={{ margin: '8px 0' }}>
+                <span aria-hidden="true">⚠</span>
+                <span>This node has <strong>{deleteDeps.descendant_count} descendant(s)</strong> ({deleteDeps.descendants.map((d) => `#${d}`).join(', ')}). They are never cascade-deleted silently.
+                  <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 6 }}>
+                    <input type="checkbox" checked={deleteIncludeDescendants} onChange={(e) => setDeleteIncludeDescendants(e.target.checked)} />
+                    Also delete the descendant subtree explicitly
+                  </label>
+                </span>
+              </div>
+            )}
+            {deleteDeps && deleteDeps.dependent_total > 0 && (
+              <div className="field-error" role="alert">
+                Blocked: {deleteDeps.blocked_reason}. Dependent testing/live records are never deleted with a node.
+              </div>
+            )}
+            {deleteIds.length > 1 && (
+              <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, margin: '8px 0' }}>
+                <input type="checkbox" checked={deleteIncludeDescendants} onChange={(e) => setDeleteIncludeDescendants(e.target.checked)} />
+                Where a selected node has descendants, delete its subtree too (each subtree still fails safely if dependent records exist)
+              </label>
+            )}
+            <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
+              <button type="button" className="btn-danger" disabled={deleteBusy || (deleteDeps !== null && deleteDeps.dependent_total > 0)}
+                      onClick={() => void confirmDelete()}>
+                {deleteBusy ? 'Deleting…' : deleteIds.length === 1 ? 'Delete node' : `Delete ${deleteIds.length} nodes`}
+              </button>
+              <button type="button" className="btn btn-ghost" disabled={deleteBusy} onClick={() => setDeleteIds(null)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

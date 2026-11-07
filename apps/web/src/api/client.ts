@@ -1,4 +1,4 @@
-import type { BrokerMeta, CompileResult, EventListOut, HealthOut, Instrument, InstrumentMetadataView, MarketDataAvailability, MarketDataFetchReport, MarketDataOperation, Mt5ConnectionResult, Mt5TerminalsOut, Node, NodeGenerateOut, NodeListOut, NodeOrigin, NodeVersionList, SettingsOut, ValidationReport } from './types'
+import type { BrokerMeta, CompileResult, EventListOut, HealthOut, Instrument, InstrumentMetadataView, MarketDataAvailability, MarketDataFetchReport, MarketDataOperation, Mt5ConnectionResult, Mt5TerminalsOut, Node, NodeDeleteResult, NodeDependencies, FetchConflict, NodeGenerateOut, NodeListOut, NodeOrigin, NodeVersionList, SettingsOut, ValidationReport } from './types'
 
 class ApiError extends Error {
   constructor(public status: number, message: string,
@@ -103,6 +103,18 @@ export const api = {
     // spec_json/spec_hash/version/lineage/validation).
     setStarred: (instrument: string, id: number, starred: boolean) =>
       request<Node>('PATCH', `/api/v1/instruments/${instrument}/nodes/${id}`, { starred }),
+    dependencies: (instrument: string, id: number) =>
+      request<NodeDependencies>('GET', `/api/v1/instruments/${instrument}/nodes/${id}/dependencies`),
+    remove: (instrument: string, id: number, includeDescendants = false) =>
+      request<NodeDeleteResult>('DELETE', `/api/v1/instruments/${instrument}/nodes/${id}?include_descendants=${includeDescendants}`),
+    removeMany: (instrument: string, ids: number[], includeDescendants = false) =>
+      request<NodeDeleteResult>('POST', `/api/v1/instruments/${instrument}/nodes/delete`, { node_ids: ids, include_descendants: includeDescendants }),
+    // Duplicate & Edit — a NEW independent node (parent = source). The server
+    // recompiles + refingerprints; an unchanged spec returns 409 SPEC_DUPLICATE.
+    duplicate: (instrument: string, id: number, body: {
+      spec?: Record<string, unknown>; broker_meta?: BrokerMeta;
+      name?: string; description?: string;
+    }) => request<Node>('POST', `/api/v1/instruments/${instrument}/nodes/${id}/duplicate`, body),
   },
   settings: {
     get: () => request<SettingsOut>('GET', '/api/v1/settings'),
@@ -125,6 +137,17 @@ export const api = {
       request<MarketDataOperation>('GET', `/api/v1/instruments/${instrument}/market-data/fetch/operations/${operationId}`),
     latestOperation: (instrument: string) =>
       request<MarketDataOperation>('GET', `/api/v1/instruments/${instrument}/market-data/fetch/operations`),
+    conflicts: (instrument: string, params: { operation_id?: string; resolution?: string } = {}) => {
+      const q = new URLSearchParams()
+      if (params.operation_id) q.set('operation_id', params.operation_id)
+      if (params.resolution) q.set('resolution', params.resolution)
+      const qs = q.toString()
+      return request<{ instrument: string; conflicts: FetchConflict[]; total: number }>(
+        'GET', `/api/v1/instruments/${instrument}/market-data/conflicts${qs ? `?${qs}` : ''}`)
+    },
+    resolveConflict: (instrument: string, conflictId: number, action: 'KEPT_STORED' | 'ACCEPTED_INCOMING', note?: string) =>
+      request<{ conflict: FetchConflict; before: Record<string, unknown>; after: Record<string, unknown> }>(
+        'POST', `/api/v1/instruments/${instrument}/market-data/conflicts/${conflictId}/resolve`, { action, note }),
   },
   metadata: {
     get: (instrument: string) => request<InstrumentMetadataView>('GET', `/api/v1/instruments/${instrument}/metadata`),

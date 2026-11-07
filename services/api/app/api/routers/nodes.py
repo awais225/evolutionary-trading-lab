@@ -11,7 +11,8 @@ from sqlalchemy.orm import Session
 from app import spec_service
 from app.deps import get_instrument_context, get_instrument_session
 from app.schemas import (
-    CompileResultOut, NewVersionRequest, NodeCreate, NodeGenerateOut, NodeGenerateRequest,
+    CompileResultOut, NewVersionRequest, NodeCreate, NodeDeleteOut, NodeDeleteRequest,
+    NodeDependenciesOut, NodeDuplicateRequest, NodeGenerateOut, NodeGenerateRequest,
     NodeListOut, NodeOut, NodePatch,
     NodeVersionListOut, SpecCompileRequest, SpecValidationRequest, ValidationReportOut,
     ValidationIssueOut,
@@ -342,6 +343,161 @@ def create_version(node_id: int, body: NewVersionRequest,
              instrument, node_id=node.id,
              payload={"parent_node_id": parent.id, "version": node.version,
                       "spec_hash": result.fingerprint, "fingerprint_prefix": result.fingerprint[:12]})
+    return NodeOut.model_validate(node, from_attributes=True)
+
+
+# ------------------------------------------------- deletion (ISSUE-054)
+def _dependency_summary(repo: NodeRepository, node_id: int) -> dict:
+    descendants = repo.descendant_ids(node_id)
+    counts = repo.dependent_record_counts(node_id)
+    dependent_total = sum(counts.values())
+    blocked = None
+    if dependent_total:
+        blocked = ("node has dependent records that are never cascade-deleted "
+                   f"({', '.join(f'{k}={v}' for k, v in counts.items() if v)})")
+    return {"node_id": node_id, "descendants": descendants,
+            "descendant_count": len(descendants), "dependent_records": counts,
+            "dependent_total": dependent_total,
+            "deletable": dependent_total == 0, "blocked_reason": blocked}
+
+
+def _delete_one(repo: NodeRepository, node_id: int, include_descendants: bool,
+                instrument: str):
+    """Delete one node (optionally its whole descendant subtree).
+
+    Returns (deleted_ids, failure|None). Guards run BEFORE any row is
+    touched: descendants require the explicit opt-in, and ANY dependent
+    record (backtests, deeptest, live, approvals) anywhere in the subtree
+    blocks the whole operation - those records are never cascade-deleted.
+    """
+    node = repo.get(node_id)
+    if node is None:
+        return [], {"node_id": node_id, "code": "NODE_NOT_FOUND",
+                    "message": f"node {node_id} not found for instrument {instrument}"}
+    descendants = repo.descendant_ids(node_id)
+    if descendants and not include_descendants:
+        return [], {"node_id": node_id, "code": "NODE_HAS_DESCENDANTS",
+                    "message": (f"node #{node_id} has {len(descendants)} descendant(s) "
+                                f"{descendants[:10]}; pass include_descendants=true to "
+                                "delete the subtree explicitly")}
+    targets = list(reversed(descendants)) + [node_id]  # deepest first
+    for tid in targets:
+        counts = repo.dependent_record_counts(tid)
+        if any(counts.values()):
+            return [], {"node_id": node_id, "code": "NODE_HAS_DEPENDENT_RECORDS",
+                        "message": (f"node #{tid} has dependent records that are never "
+                                    f"cascade-deleted: "
+                                    f"{ {k: v for k, v in counts.items() if v} }")}
+    snapshot = []
+    for tid in targets:
+        n = repo.get(tid)
+        if n is not None:
+            snapshot.append({"id": n.id, "name": n.name, "version": n.version,
+                             "parent_node_id": n.parent_node_id,
+                             "spec_hash": n.spec_hash, "timeframe": n.timeframe})
+    deleted = repo.delete_nodes(targets)
+    _publish("WARNING",
+             f"node deleted [{instrument}] #{node_id}"
+             + (f" + {len(deleted) - 1} descendant(s)" if len(deleted) > 1 else ""),
+             instrument, node_id=node_id,
+             payload={"action": "NODE_DELETED", "deleted": snapshot,
+                      "include_descendants": include_descendants})
+    return deleted, None
+
+
+@router.get("/{node_id}/dependencies", response_model=NodeDependenciesOut)
+def node_dependencies(node_id: int, instrument: str = Depends(get_instrument_context),
+                      session: Session = Depends(get_instrument_session)) -> NodeDependenciesOut:
+    repo = NodeRepository(session, instrument)
+    if repo.get(node_id) is None:
+        raise HTTPException(404, f"node {node_id} not found for instrument {instrument}")
+    return NodeDependenciesOut(**_dependency_summary(repo, node_id))
+
+
+@router.delete("/{node_id}", response_model=NodeDeleteOut)
+def delete_node(node_id: int, include_descendants: bool = False,
+                instrument: str = Depends(get_instrument_context),
+                session: Session = Depends(get_instrument_session)) -> NodeDeleteOut:
+    repo = NodeRepository(session, instrument)
+    deleted, failure = _delete_one(repo, node_id, include_descendants, instrument)
+    if failure is not None:
+        code = failure["code"]
+        raise HTTPException(404 if code == "NODE_NOT_FOUND" else 409,
+                            detail={"code": code, "message": failure["message"]})
+    return NodeDeleteOut(deleted=deleted, failed=[])
+
+
+@router.post("/delete", response_model=NodeDeleteOut)
+def delete_nodes_bulk(body: NodeDeleteRequest,
+                      instrument: str = Depends(get_instrument_context),
+                      session: Session = Depends(get_instrument_session)) -> NodeDeleteOut:
+    """Bulk delete: each node (with its subtree, if opted in) is atomic;
+    per-node failures are reported, never hidden, and never block others."""
+    repo = NodeRepository(session, instrument)
+    deleted: List[int] = []
+    failed = []
+    seen: set = set()
+    for node_id in body.node_ids:
+        if node_id in seen:
+            continue
+        seen.add(node_id)
+        d, failure = _delete_one(repo, node_id, body.include_descendants, instrument)
+        if failure is not None:
+            failed.append(failure)
+        else:
+            deleted.extend(d)
+    return NodeDeleteOut(deleted=deleted, failed=failed)
+
+
+@router.post("/{node_id}/duplicate", response_model=NodeOut, status_code=201)
+def duplicate_node(node_id: int, body: NodeDuplicateRequest,
+                   instrument: str = Depends(get_instrument_context),
+                   session: Session = Depends(get_instrument_session)) -> NodeOut:
+    """Duplicate & Edit: create a NEW independent node from an edited draft
+    of the source node's spec. The source is NEVER modified. The new node
+    records the source as parent (lineage 'derived_from'), gets its own id
+    and a server-recomputed fingerprint; an unchanged spec hits the existing
+    (instrument, spec_hash, version=1) duplicate rule -> 409 SPEC_DUPLICATE.
+    """
+    repo = NodeRepository(session, instrument)
+    source = repo.get(node_id)
+    if source is None:
+        raise HTTPException(404, f"node {node_id} not found for instrument {instrument}")
+    spec = body.spec
+    if spec is None:
+        if not source.spec_json:
+            raise HTTPException(422, detail={
+                "code": "NO_SPEC_TO_DUPLICATE",
+                "message": "source node has no strategy spec; Duplicate & Edit applies to spec-backed nodes"})
+        spec = json.loads(source.spec_json)
+    _, result = _compile_or_422(spec, instrument, body.broker_meta)
+    if body.name:
+        if repo.name_exists(body.name):
+            raise HTTPException(409, _NAME_DUPLICATE_DETAIL)
+        name = body.name.strip()
+    else:
+        name = _alloc_sequential_names(repo.existing_names(), 1)[0]
+    ident = spec.get("identity") if isinstance(spec, dict) else None
+    tf = ident.get("timeframe") if isinstance(ident, dict) else None
+    timeframe = str(tf).upper() if tf else None
+    try:
+        node = repo.create(
+            origin=source.origin, name=name,
+            description=(body.description if body.description is not None
+                         else source.description),
+            spec_json=result.canonical_json, spec_hash=result.fingerprint,
+            parent_node_id=source.id, created_by="user", version=1,
+            timeframe=timeframe,
+        )
+    except IntegrityError as exc:
+        session.rollback()
+        raise HTTPException(409, _integrity_detail(exc)) from None
+    _publish("INFO",
+             f"node duplicated [{instrument}] #{source.id} -> #{node.id} ({node.name})",
+             instrument, node_id=node.id,
+             payload={"action": "NODE_DUPLICATED", "source_node_id": source.id,
+                      "new_node_id": node.id, "spec_hash": result.fingerprint,
+                      "timeframe": timeframe})
     return NodeOut.model_validate(node, from_attributes=True)
 
 

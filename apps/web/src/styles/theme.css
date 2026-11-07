@@ -648,3 +648,14 @@ tr:hover .name-edit-btn, .name-text:focus-visible + .name-edit-btn { opacity: 1;
   white-space: pre-wrap; overflow-wrap: anywhere; }
 .log-row.sev-error .log-message { color: #fecaca; }
 .log-row.sev-warning .log-message { color: #fde68a; }
+
+/* ---------------- Node delete / duplicate (ISSUE-054) ---------------- */
+.node-actions { display: flex; gap: 4px; flex-wrap: wrap; }
+.btn-danger { color: #f87171; border: 1px solid rgba(248,113,113,.35); background: rgba(248,113,113,.06); border-radius: 6px; padding: 3px 8px; font-size: 10.5px; cursor: pointer; }
+.btn-danger:hover { background: rgba(248,113,113,.14); }
+.btn-danger:disabled { opacity: .45; cursor: default; }
+.modal-overlay { position: fixed; inset: 0; background: rgba(2,6,12,.72); display: flex; align-items: center; justify-content: center; z-index: 60; padding: 16px; }
+.modal-card { background: linear-gradient(180deg, var(--bg-1), #0f141c); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; max-width: 560px; width: 100%; max-height: 88vh; overflow-y: auto; box-shadow: var(--shadow-lg); }
+.modal-card h3 { margin: 0 0 8px; font-size: 14px; }
+.conflict-row { border-top: 1px solid rgba(148,184,220,.12); padding: 8px 0; font-size: 11px; }
+.conflict-grid { display: grid; grid-template-columns: 86px 1fr 1fr; gap: 4px 10px; font-size: 10.5px; }

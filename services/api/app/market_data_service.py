@@ -604,6 +604,22 @@ def _fetch_one(mt5, conn, *, instrument: str, timeframe: str, utc_now: int,
     _op_event(operation_id, "DATABASE_COMMIT", instrument=instrument, timeframe=timeframe,
               appended=res["appended"],
               transaction_elapsed_ms=int((_time.monotonic() - _tx_started) * 1000))
+    # Durable source-aware conflict audit (ISSUE-054): stored values,
+    # incoming values, both provenances and the field diff are persisted so
+    # conflicts can be inspected and resolved deliberately later - the
+    # stored candles themselves remain untouched (UNRESOLVED by default).
+    if res.get("conflict_details"):
+        try:
+            with conn:
+                recorded = md.record_fetch_conflicts(
+                    conn, operation_id=operation_id, instrument=instrument,
+                    timeframe=timeframe, conflict_details=res["conflict_details"],
+                    incoming_source=f"MT5 copy_rates_range ({broker_server})")
+            _op_event(operation_id, "CONFLICT_AUDIT_PERSISTED", instrument=instrument,
+                      timeframe=timeframe, conflicts_recorded=recorded)
+        except Exception as exc:  # noqa: BLE001 - audit failure must be visible, not fatal
+            _op_exception(operation_id, "CONFLICT_AUDIT_PERSISTED", exc,
+                          instrument=instrument, timeframe=timeframe)
     if res["conflicts"]:
         res["status"] = "PARTIAL"
         res["error"] = (f"{res['conflicts']} terminal candle(s) conflict with stored history "
@@ -737,3 +753,45 @@ def fetch(instrument: str, timeframes: List[str],
 
 
 __all__ = ["FetchError", "store_db_path", "manifest_path", "availability", "fetch"]
+
+
+# ----------------------------------------------------- conflict audit API
+def list_conflicts(instrument: str, *, operation_id: Optional[str] = None,
+                   resolution: Optional[str] = None, limit: int = 200) -> dict:
+    db = store_db_path()
+    if not db.exists():
+        return {"instrument": instrument.upper(), "conflicts": [], "total": 0}
+    conn = md.connect_store(db)
+    try:
+        rows = md.list_fetch_conflicts(conn, instrument=instrument.upper(),
+                                       operation_id=operation_id,
+                                       resolution=resolution, limit=limit)
+    finally:
+        conn.close()
+    return {"instrument": instrument.upper(), "conflicts": rows, "total": len(rows)}
+
+
+def resolve_conflict(instrument: str, conflict_id: int, action: str,
+                     note: Optional[str] = None) -> dict:
+    """Controlled correction path (ISSUE-054): one conflict at a time.
+
+    The audit row retains the pre-resolution stored values (the backup);
+    a full audit event is published; candle totals are verified unchanged.
+    """
+    db = store_db_path()
+    conn = md.connect_store(db)
+    try:
+        before_total = conn.execute("SELECT COUNT(*) FROM candles").fetchone()[0]
+        result = md.resolve_fetch_conflict(conn, conflict_id, action=action, note=note)
+        after_total = conn.execute("SELECT COUNT(*) FROM candles").fetchone()[0]
+    finally:
+        conn.close()
+    result["candle_total_before"] = before_total
+    result["candle_total_after"] = after_total
+    _op_event("CONFLICT-RESOLUTION", "CONFLICT_RESOLVED", instrument=instrument.upper(),
+              timeframe=result["conflict"]["timeframe"], severity="WARNING",
+              conflict_id=conflict_id, action=action,
+              ts=result["conflict"]["ts_iso"], before=result["before"],
+              after=result["after"], note=note)
+    return result
+

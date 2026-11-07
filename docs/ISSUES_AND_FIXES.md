@@ -100,3 +100,43 @@ then ALL). If a future fetch stalls, the stage after
 `DATABASE_TRANSACTION_STARTED` in the operation log identifies the blocked
 step.
 
+## ISSUE-054 - fetch seam conflicts audit; node delete; Duplicate & Edit
+
+**Conflicts.** The fetch request window is `latest - 2*step .. now`, so at
+most 3 stored candles overlap. Op FETCH-20261107-135458-0525F3 reported
+exactly 3 conflicts in each of M5/M15/M30/H1 and zero seam duplicates -
+i.e. the conflicts are precisely the overlap candles at the boundary
+between the CSV-imported baseline (provenance verified: every timeframe's
+edge candle belongs to its XAUUSD_<TF>.csv dataset) and MT5
+ICMarketsSC-Demo history. Their stored-vs-incoming values exist only on the
+Windows installation; from Linux they are classified **UNRESOLVED** (not
+guessed, not overwritten). Resolution machinery: `fetch_conflicts` audit
+table (additive; stored + incoming values, provenances, field diffs),
+`GET /instruments/{i}/market-data/conflicts`,
+`POST .../conflicts/{id}/resolve` with `KEPT_STORED` / `ACCEPTED_INCOMING`
+(single record, transaction, backup retained on the audit row, candle
+totals verified unchanged, audit event), plus a DATA-tab conflicts panel.
+Repeat fetches re-detect unresolved conflicts honestly (idempotent candle
+set, no duplicates).
+
+**Deletion.** SQLite FKs are enforced and several tables reference nodes
+`ON DELETE CASCADE` (backtest runs, deeptest scenarios/trades, live
+configs/trades, approvals), so deletion is guarded in the repository:
+`descendant_ids` / `dependent_record_counts`; descendants require explicit
+`include_descendants=true`; any dependent record blocks with details;
+lineage + node rows are deleted explicitly, deepest-first. Endpoints:
+`GET /nodes/{id}/dependencies`, `DELETE /nodes/{id}`, `POST /nodes/delete`
+(bulk, per-node deleted/failed). Audit via NODE_DELETED events with full
+row snapshots.
+
+**Duplicate & Edit.** `POST /nodes/{id}/duplicate` recompiles the edited
+spec, creates a NEW node (version 1, parent = source, lineage
+`derived_from`, timeframe from spec identity). Unchanged or rename-only
+specs hit `uq_nodes_spec` -> 409 SPEC_DUPLICATE (renaming never changes
+semantic identity). UI reuses the spec workspace with Save Variant/Cancel.
+
+Tests: `tests/test_node_delete_duplicate.py`,
+`tests/test_fetch_conflict_audit.py` (backend 220 total), frontend
+`node-delete-duplicate.test.tsx` (57 total). Windows genuine-MT5 conflict
+classification remains the owner's verification step.
+
