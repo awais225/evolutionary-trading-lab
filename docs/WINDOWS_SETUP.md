@@ -56,14 +56,26 @@ RTX 4090 (Laptop, 16 GB VRAM), 32 GB RAM, MT5 installed via MetaTrader 5.
 
 ## 0.1 If START.bat fails at any stage (read this FIRST)
 
-Every external call in START.bat now captures its exit code and echoes it
-(`backend import exit code`, `database check exit code`, `port 8788 check exit
-code`, `backend readiness exit code`, ...). On any failure the launcher prints
-the failed command, its exit code and the last 30 lines of the log, then WAITS
-FOR A KEYPRESS - it cannot close by itself. If it closes anyway, the local file
-is corrupt or from an older revision: run `git status` and `git pull` and retry.
+START.bat is now a PERSISTENT OUTER shell. The real startup procedure lives in
+scripts\START_INTERNAL.bat and runs inside a persistent `cmd /k` session — no
+internal failure (missing label, syntax error, Python exception, native crash,
+database error, missing dependency) can close the window. If the inner
+procedure fails, the window stays open showing the FAILED block: failed stage,
+exact command, exit code (signed-crash safe), working directory, the tail of
+DATA\LOGS\startup.log, then waits for a keypress. If the procedure ends and
+the window drops to a bare `>` prompt, type `EXIT` and press Enter.
 
-Diagnostics for the database stage (run from the repository root):
+START.bat always prints, on startup: its own absolute path, file size, modified
+date, SHA-256 (certutil) and the checkout git HEAD. If the window ever closes by
+itself, the file you double-clicked is NOT this one — check `git status`,
+`git pull`, and re-run from the repository root.
+
+Fastest diagnosis (read-only; no databases created, migrated, repaired or
+deleted): double-click `START_DIAGNOSTIC.bat`. It prints the same information
+`START.bat` would need, tees everything to `<DATA_ROOT>\LOGS\diagnostic.log`,
+and ALWAYS keeps the window open. Attach `diagnostic.log` to any bug report.
+
+Diagnostics for the database stage (run from an already-open CMD window):
 
 ```bat
 .venv\Scripts\python.exe scripts\init_db.py --check

@@ -143,3 +143,26 @@ four launcher files.
   ls-remote after it.
 - Still NOT proven: Windows execution of START.bat (owner must re-run; launcher
   now cannot exit silently — every failure prints command + rc + log tail + pause).
+
+## 2026-11-07 — G6: START.bat persistent outer launcher + standalone diagnostic (owner report: "STILL closes on Windows")
+- Owner rejected the TASK 10 in-place hardening as insufficient. Delivered the
+  architectural split instead of a third in-place patch:
+  - START.bat = thin PERSISTENT OUTER shell (prints its own path/size/modified/
+    certutil SHA-256/git HEAD; executes scripts\START_INTERNAL.bat inside
+    `cmd /k call`; prints final status block and pauses after the inner
+    procedure ends, however it ends).
+  - scripts\START_INTERNAL.bat = rebuilt 10-stage procedure; uniform banners;
+    console+startup.log same lines; single :STAGE_FAILED (rc/reason/reproduce-cmd/
+    log-tail + pause); monitor loop routes to the same handler; token generated
+    before any service window starts.
+  - START_DIAGNOSTIC.bat = standalone read-only diagnostic (7 sections; PRAGMA
+    integrity_check via mode=ro; diagnostic.log; ALWAYS pauses; touches no DB).
+- Audit + launcher tests rewritten for the trio (outer cmd /k + certutil + pause;
+  internal 10 stage markers + :STAGE_FAILED; diagnostic pause + PRAGMA + exit /b 0).
+- Verified (Linux): audit PASS 6/6; pytest 110 passed / 1 skipped; PRAGMA
+  one-liner executed against the live preview DATA root (all DBs ok); ASCII/CRLF
+  verified via file(1). NOT VERIFIED: Windows execution - owner must re-test.
+- Scope kept: no DATA reads/writes beyond read-only checks; no strategy/schema/UI.
+Changed: START.bat (rewritten), scripts\START_INTERNAL.bat (NEW),
+START_DIAGNOSTIC.bat (NEW), scripts/audit_launcher.py, tests/test_launcher_bat.py,
+docs (ISSUES-037, WINDOWS_SETUP 0.1, CHATGPT TASK 11, this entry), CHANGELOG.

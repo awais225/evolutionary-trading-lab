@@ -29,11 +29,13 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-DEFAULT_FILES = ["START.bat", "PREREQUISITES.bat",
+DEFAULT_FILES = ["START.bat", "START_DIAGNOSTIC.bat",
+                 "scripts/START_INTERNAL.bat", "PREREQUISITES.bat",
                  "scripts/run_backend.cmd", "scripts/run_frontend.cmd"]
 
 FAILURE_HINTS = ("FAIL", "FOREIGN", "TIMEOUT", "NOT_OURS", "NO_VENV", "MISSING",
                  "NOT_READY", "ABORT")
+FAILURE_EXIT_LABELS = {"STARTUP_FAILED", "STAGE_FAILED", "DIAG_END"}
 
 def audit(path: Path) -> list[str]:
     errors: list[str] = []
@@ -77,14 +79,17 @@ def audit(path: Path) -> list[str]:
         body = text[m.end():]
         nxt = re.search(r"(?im)^\s*:([A-Za-z_][\w]*)\b", body)
         body = body[:nxt.start()] if nxt else body
-        if "pause" not in body.lower() and not re.search(r"(?i)\bgoto\s+:STARTUP_FAILED\b", body):
-            errors.append(f"{name}: failure label '{label}' neither pauses nor routes to :STARTUP_FAILED")
-    if ":STARTUP_FAILED" in defined or any(h in path.name for h in ()):  # only for START.bat
-        pass
+        routes = any(re.search(r"(?i)\bgoto\s+:(" + h + r")\b", body) for h in FAILURE_EXIT_LABELS)
+        if "pause" not in body.lower() and not routes:
+            errors.append(f"{name}: failure label '{label}' neither pauses nor routes to {sorted(FAILURE_EXIT_LABELS)}")
     if "STARTUP_FAILED" in defined:
         body = text[text.index(":STARTUP_FAILED"):]
         if "pause" not in body.lower():
             errors.append(f"{name}: :STARTUP_FAILED does not pause - window would close silently")
+    if "STAGE_FAILED" in defined:
+        body = text[text.index(":STAGE_FAILED"):]
+        if "pause" not in body.lower():
+            errors.append(f"{name}: :STAGE_FAILED does not pause - window would close silently")
 
     # 6) plain 'exit' without /b
     for i, line in enumerate(lines, 1):
@@ -103,6 +108,32 @@ def audit(path: Path) -> list[str]:
         errors.append(f"{name}: missing trailing newline")
     if path.suffix.lower() == ".bat" and not re.search(r"(?im)^@echo\s+off\b", text):
         errors.append(f"{name}: missing '@echo off'")
+
+    # 9) architecture-specific contracts
+    if name == "START.bat":  # outer shell must host the internal procedure in a persistent session
+        if not re.search(r"(?i)cmd\s+/k\s+call\s+[^\r\n]*START_INTERNAL\.bat", text):
+            errors.append("START.bat: must launch scripts\\START_INTERNAL.bat via 'cmd /k call' - the persistent-session guarantee is gone")
+        if "pause" not in text.lower():
+            errors.append("START.bat: must end the outer session with pause")
+        if "certutil" not in text.lower():
+            errors.append("START.bat: must print its own SHA-256 (certutil) so the executed file is identifiable")
+    if name == "START_DIAGNOSTIC.bat":
+        if "PRAGMA integrity_check" not in text:
+            errors.append("START_DIAGNOSTIC.bat: missing read-only PRAGMA integrity_check")
+        if re.search(r"(?i)init_db\.py\s+--create", text):
+            errors.append("START_DIAGNOSTIC.bat: must never create/migrate databases")
+        if not text.lower().rstrip().endswith("exit /b 0"):
+            errors.append("START_DIAGNOSTIC.bat: must end with 'exit /b 0' after its pause")
+        if "pause" not in text.lower():
+            errors.append("START_DIAGNOSTIC.bat: must keep the window open with pause")
+    if name == "START_INTERNAL.bat":
+        for i in range(1, 11):
+            if f"[STAGE {i}/10]" not in text:
+                errors.append(f"START_INTERNAL.bat: missing [STAGE {i}/10] marker")
+        if ":STAGE_FAILED" not in text:
+            errors.append("START_INTERNAL.bat: missing :STAGE_FAILED handler")
+        if "exit /b 1" not in text:
+            errors.append("START_INTERNAL.bat: failure path must exit /b 1")
 
     return errors
 

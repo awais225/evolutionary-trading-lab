@@ -7,7 +7,7 @@
 - **Unverified** — code exists but has never run on the required environment.
 - **Not supported** — intentionally absent or refused (by design).
 
-Last synchronized: 2026-11-06 (HERO-V1.3.0 · graphical-theme consistency fix). Keep in sync with source on every change.
+Last synchronized: 2026-11-07 (HERO-V1.4.1 · ISSUE-037 launcher persistence). Keep in sync with source on every change.
 
 ## Layers
 
@@ -192,13 +192,36 @@ git ls-remote/GitHub; if SHA-recording needs another commit, push that too.
 
 ## Launcher architecture — IMPLEMENTED & LINUX-VERIFIED (Windows UNPROVEN)
 
+2026-11-07 (ISSUE-037): the monolithic launcher was split by design:
+- `START.bat` is a thin PERSISTENT OUTER shell; it prints its own absolute
+  path, size, modified time, certutil SHA-256 and git HEAD (all guarded), then
+  executes `scripts\START_INTERNAL.bat` inside `cmd /k call`. The cmd /k
+  session outlives anything the inner procedure does — a missing label, syntax
+  error, Python exception, native crash, database error or unexpected
+  termination can at worst leave cmd /k at a prompt; the window cannot close
+  itself. After the inner procedure returns (however), the outer prints a
+  final status block and pauses. No relaunch loops.
+- `scripts\START_INTERNAL.bat` is the startup procedure (10 uniform stages;
+  banner + command + cwd + resolved paths + captured rc (string compare,
+  signed-native-code safe) + PASS/FAIL; console and LOGS\startup.log carry the
+  same lines via the :LOG subroutine; every failure routes to ONE :STAGE_FAILED
+  handler which prints stage/reason/rc/reproduce-command and the last 30 lines
+  of startup.log, then pauses; the monitor loop routes to the same handler if
+  the backend drops).
+- `START_DIAGNOSTIC.bat` is a standalone read-only diagnostic (7 sections;
+  PRAGMA integrity_check via `file:...?mode=ro`; writes LOGS\diagnostic.log;
+  always pauses; never writes to any database).
+scripts/audit_launcher.py + tests/test_launcher_bat.py enforce ASCII/CRLF/
+label-resolution/no-plain-exit/pause-on-failure/no-powershell-pipes plus the
+three-file architecture contract (outer cmd /k call + certutil + pause;
+internal 10 stage markers + :STAGE_FAILED(pause); diagnostic pause + PRAGMA +
+exit /b 0) in CI.
+
 Exit-code contract (2026-11-06, ISSUE-036): every external call captures rc into
 RC and is compared as a STRING against "0" (native-crash negative codes can no
 longer read as success); rc is echoed per call; on any failure the launcher
 prints command + exit code + last 30 lines of LOGS\startup.log and pauses.
 The database check prints its full read-only report to the console (tee).
-scripts/audit_launcher.py + tests/test_launcher_bat.py enforce ASCII/CRLF/
-label-resolution/no-plain-exit/pause-on-failure/no-powershell-pipes in CI.
 
 Adapted from the legacy v10.4-throughput launcher (read-only reference; see
 docs/PIPELINE.md §1 for inspected files/commits):
@@ -223,7 +246,7 @@ docs/PIPELINE.md §1 for inspected files/commits):
   Hero1's architecture is two services by design; everything else transfers.
 - Windows: files written for cmd.exe with CRLF + `enabledelayedexpansion`;
   label/goto/paren/quote integrity verified statically; real Windows run
-  PENDING (see docs/ISSUES_AND_FIXES.md ISSUE-025).
+  PENDING (see docs/ISSUES_AND_FIXES.md ISSUE-037).
 
 ## Starred (favorite) nodes — IMPLEMENTED & TESTED (pytest + vitest)
 - Additive `nodes.starred` column (instrument DBs; migration `0002_nodes_starred`,

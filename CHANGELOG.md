@@ -5,6 +5,60 @@ exact commit SHA and tag. Claims only for what was implemented AND verified.
 
 ---
 
+## [Unreleased] — 2026-11-07 — HERO V1.4.1 — launcher persistence (ISSUE-037)
+
+**Added**
+- `START_DIAGNOSTIC.bat` (repo root): standalone, read-only startup diagnostic.
+  7 sections (venv + python version; required files; backend import;
+  `init_db.py --check`; SQLite PRAGMA integrity_check via `file:...?mode=ro`;
+  port ownership 8788/5173; environment). Prints its own path/root/data dir,
+  tees ALL output to `<DATA_ROOT>\LOGS\diagnostic.log`, and ALWAYS keeps the
+  window open (success or failure). Never creates, modifies, migrates or
+  deletes any database.
+- `scripts/START_INTERNAL.bat`: the startup procedure, rebuilt as 10 uniform
+  stages ([STAGE n/10] banner, echoed command, cwd, resolved paths, captured
+  exit code compared as a STRING — signed native crash codes cannot read as
+  success —, PASS/FAIL). Console and `DATA\LOGS\startup.log` receive the same
+  lines. Every external call captures its rc immediately; every failure routes
+  to a single `:STAGE_FAILED` handler (failed stage, reason, rc, reproduce
+  command, working dir, last 30 lines of startup.log) then pauses. The
+  post-launch backend monitor routes to the same handler.
+
+**Changed**
+- `START.bat` rewritten from a monolith into a thin PERSISTENT OUTER launcher:
+  prints its absolute path, size, modified time, certutil SHA-256 and git HEAD;
+  runs the internal procedure inside `cmd /k call` so NOTHING the inner
+  procedure does (missing label, syntax error, Python exception, native crash,
+  DB error, missing dependency, unexpected termination) can close the window;
+  after the inner procedure ends (however), the outer prints a final status
+  block and pauses. No relaunch loops; no behavior change to strategy, schema,
+  or UI.
+- `scripts/audit_launcher.py` + `tests/test_launcher_bat.py` extended to the
+  three-file architecture (outer must use `cmd /k call` + certutil + pause;
+  internal must carry all 10 stage markers + :STAGE_FAILED(pause); diagnostic
+  must keep pause + PRAGMA + `exit /b 0`; ASCII/CRLF/label checks retained for
+  all 6 launchers).
+- Docs: ISSUE-037 (register), WINDOWS_SETUP §0.1, ARCHITECTURE launcher
+  contract, CHATGPT.txt TASK 11, IMPLEMENTATION_PROGRESS G6.
+
+**Fixed**
+- Launcher vanish class: inner failure could previously take the whole console
+  with it; now the outer `cmd /k` session survives every internal outcome, and
+  the outer always ends at a `pause`.
+
+**Tests**
+- pytest 110 passed / 1 skipped; audit PASS on all six launchers; ASCII/CRLF
+  verified; PRAGMA one-liner executed OK against the live read-only preview
+  DATA root (registry + all instrument DBs -> integrity_check ok).
+
+**Known limitations**
+- NO Windows execution was performed (no Windows/Wine in this environment).
+  Double-click behavior on the owner's machine remains UNVERIFIED until the
+  owner runs it; acceptance is delivered as design + static proof only.
+  Exact owner commands are in docs/WINDOWS_SETUP.md §0.1 and the handoff.
+
+---
+
 ## [Unreleased] — 2026-11-06 — Hero1 multi-timeframe strategy nodes (HERO V1.4.0)
 
 **Added**

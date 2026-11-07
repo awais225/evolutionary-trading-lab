@@ -1,7 +1,7 @@
 ================================================================================
 HERO1 — PROJECT HANDOFF (LMS Agent → ChatGPT)
 ================================================================================
-Last updated: 2026-11-06 (Phase 1.1 — GitHub publishing & documentation stage)
+Last updated: 2026-11-07 (Phase 1.1 — GitHub publishing & documentation stage; TASK 11 launcher persistence)
 Document owner: Hero1 project
 Rule: This file is the PRIMARY handoff. Update it at EVERY development stage.
       Never replace the whole file with a summary — append/revise in place,
@@ -809,3 +809,80 @@ restarted after docs commit).
   pushed 2026-11-06/07 UTC). Remote main verified via ls-remote after push:
   708a894e7f6782611675d3019aa7d4f86f71a3a1 refs/heads/main.
   This record commit follows (SHAs: TASK 10).
+
+================================================================================
+TASK 11 — START.BAT STILL CLOSES ON WINDOWS: PERSISTENT OUTER LAUNCHER
+          (2026-11-07, after HERO-V1.4.0)
+================================================================================
+PROMPT: owner's urgent follow-up after TASK 10: "START.BAT STILL CLOSES ON
+WINDOWS: STOP GUESSING AND FIX THE ACTUAL LAUNCHER." Acceptance criterion:
+double-clicking START.bat must NEVER silently close - it must either launch the
+complete dashboard or remain open showing a useful diagnostic.
+
+ROOT-CAUSE MODEL (of why TASK 10 was insufficient)
+- TASK 10 hardened the OLD MONOLITH in place. Two classes remained: (1) the
+  owner's EXECUTION ENVIRONMENT is not provably the file being edited (stale
+  checkout, partial pull, a different START.bat copy); the monolith had no way
+  to SHOW the owner which file/hash was running; (2) a monolith that dies
+  before its own `pause` (missing label -> "The system cannot find the batch
+  label specified" and exits; parse error; native crash) closes the console
+  with no recourse.
+
+DELIVERED (architecture split - nothing else touched; NO schema/UI/strategy/DATA)
+- START.bat REWRITTEN = thin PERSISTENT OUTER shell. Prints its own absolute
+  path, size, modified time, certutil SHA-256 and git HEAD (all guarded). The
+  internal procedure runs inside `cmd /k call "<root>\scripts\START_INTERNAL.bat"`;
+  cmd /k keeps the session alive no matter how the inner procedure ends
+  (missing label / syntax error / python crash / DB error / unexpected
+  termination). After the inner procedure exits (however), the outer prints a
+  final status block and pauses. If the inner drops to a bare prompt the owner
+  is told to type EXIT then any key. No relaunch loops.
+- scripts\START_INTERNAL.bat NEW = the rebuilt procedure. 10 uniform stages
+  ([STAGE n/10] banner, exact command echoed, cwd, resolved paths, captured
+  exit code via RC + STRING compare (signed-native-code safe), PASS/FAIL);
+  stage 4 backend import; stage 5 DB integrity READ-ONLY (init_db.py --check,
+  rc contract 0/1/2, report typed to console AND appended to startup.log);
+  ONE :STAGE_FAILED handler: prints failed stage/reason/rc/reproduce-cmd +
+  working dir + last 30 lines of DATA\LOGS\startup.log, then pauses. Backend
+  and frontend run in their own persistent windows; monitor loop re-checks
+  backend every 5s and routes to :STAGE_FAILED if it dies.
+- START_DIAGNOSTIC.bat NEW = STANDALONE read-only diagnostic (7 sections: venv
+  + version; required files; backend import; init_db --check; SQLite PRAGMA
+  integrity_check via file:...?mode=ro; ports 8788/5173; env). Writes
+  <DATA_ROOT>\LOGS\diagnostic.log; ALWAYS pauses - success or failure; touches
+  NO databases; temp files in %TEMP% only.
+- Console and log carry the SAME lines (:LOG subroutine in the internal file;
+  :STEP/:ROW in the diagnostic). No "redirect everything to the log" anywhere;
+  python check output is captured to %TEMP% and BOTH typed to console and
+  appended to the log.
+- Audit (scripts/audit_launcher.py) and tests (tests/test_launcher_bat.py)
+  rewritten for the trio: outer MUST use cmd /k call + certutil + pause;
+  internal MUST have all 10 [STAGE n/10] markers + :STAGE_FAILED(pause);
+  diagnostic MUST keep pause + PRAGMA + exit /b 0; all 6 launchers ASCII/CRLF,
+  label resolution, no duplicate labels, no plain `exit`, no PowerShell pipes.
+- Service windows (run_backend.cmd / run_frontend.cmd) unchanged: already
+  pause-on-exit and print rc.
+
+VERIFIED (LMS Linux): audit PASS (6/6) · pytest 110 passed / 1 skipped ·
+PRAGMA one-liner executed OK against the read-only live preview DATA root
+(registry + XAUUSD/EURUSD/BTCUSD all -> integrity_check ok) · all three files
+pure ASCII, CRLF (`file`) · embedded python one-liners syntax-checked by
+execution with Linux paths (same code path Windows runs).
+
+NOT DONE / HONEST LIMITS
+- WINDOWS EXECUTION NOT PERFORMED - no Windows/Wine environment exists here.
+  The owner must: cd into the repo -> git pull -> from an open CMD run
+  `git log --oneline -1`, `type START.bat` (must contain "PERSISTENT OUTER
+  LAUNCHER"), then double-click START.bat or run scripts from the open window
+  and send DATA\LOGS\startup.log + the console photo. For diagnosis without
+  starting anything: double-click START_DIAGNOSTIC.bat and send diagnostic.log.
+- The exact owner-box disappearance mechanism could NOT be proven from here
+  (no Windows). What IS guaranteed by construction: the window can no longer
+  close silently - worst case cmd /k remains at a prompt with the error
+  visible; every failure path prints command + rc + log tail + pause.
+- PRAGMA over the OWNER's DATA roots must be run on the owner's machine; the
+  owner's DBs are not reachable from this sandbox except the preview copy.
+
+WORKSTATION STATE: preview services remain LIVE (backend :8788 health ok;
+frontend :5173 via vite wrapper, 200/200, proxy /health ok). feature commit +
+record commit follow this entry (SHAs: TASK 11).
