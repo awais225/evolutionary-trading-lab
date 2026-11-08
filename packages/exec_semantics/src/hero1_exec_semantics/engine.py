@@ -584,7 +584,8 @@ def run_backtest(*, ir: dict, candles: List[dict], cfg: RunConfig,
         unrealized = sum(pnl_at(p, closing_price(p, bar, "close")) for p in positions)
         equity_curve.append({"ts": ts, "balance": round(balance, 6),
                              "equity": round(balance + unrealized, 6),
-                             "open_positions": len(positions)})
+                             "open_positions": len(positions),
+                             "open_risk": round(sum(p.planned_risk for p in positions), 6)})
 
     # end of data: close everything at final close
     last = candles[-1]

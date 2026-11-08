@@ -83,6 +83,10 @@ def compute_metrics(trades: List[dict], equity_curve: List[dict],
         "max_holding_seconds": max((t["holding_seconds"] for t in trades), default=None),
         "trades_per_day": round(len(trades) / span_days, 4) if trades else 0.0,
         "max_simultaneous_positions": max((e["open_positions"] for e in equity_curve), default=0),
+        "max_planned_open_risk": max((e.get("open_risk", 0.0) for e in equity_curve), default=0.0),
+        "avg_volume": round(statistics.fmean([t["volume"] for t in trades]), 4) if trades else None,
+        "unrealized_at_end": round(final_equity - final_balance, 4),
+        "daily": daily_table(trades, equity_curve),
         "max_drawdown_amount": dd["max_drawdown_amount"],
         "max_drawdown_pct": dd["max_drawdown_pct"],
         "avg_drawdown_amount": dd["avg_drawdown_amount"],
@@ -219,14 +223,80 @@ def time_buckets(trades: List[dict]) -> Dict[str, List[dict]]:
     def dt(t):
         return datetime.fromtimestamp(t["entry_ts"], tz=timezone.utc)
 
+    def session_bucket():
+        groups: Dict[str, List[dict]] = defaultdict(list)
+        for t in trades:
+            groups[session_of(t["entry_ts"])].append(t)
+        out = []
+        for label in sorted(groups):
+            g = _ordered(groups[label])
+            wins = [t for t in g if t["net_pnl"] > 1e-9]
+            losses = [t for t in g if t["net_pnl"] < -1e-9]
+            cum, peak, max_dd = 0.0, 0.0, 0.0
+            for t in g:
+                cum += t["net_pnl"]
+                peak = max(peak, cum)
+                max_dd = max(max_dd, peak - cum)
+            gp = sum(t["net_pnl"] for t in wins)
+            gl = sum(t["net_pnl"] for t in losses)
+            out.append({"bucket": label, "trades": len(g), "wins": len(wins), "losses": len(losses),
+                        "win_rate": round(len(wins) / len(g), 4) if g else None,
+                        "net_pnl": round(sum(t["net_pnl"] for t in g), 4),
+                        "profit_factor": round(gp / abs(gl), 4) if gl < 0 else None,
+                        "expectancy": round(sum(t["net_pnl"] for t in g) / len(g), 4) if g else None,
+                        "max_drawdown_amount": round(max_dd, 4),
+                        "avg_holding_seconds": round(statistics.fmean([t["holding_seconds"] for t in g]), 1) if g else None})
+        return out
+
     return {
         "by_hour": bucket(lambda l: int(l.split(":")[0]), lambda t: f"{dt(t).hour:02d}:00"),
-        "by_session": bucket(lambda l: l, lambda t: session_of(t["entry_ts"])),
+        "by_session": session_bucket(),
         "by_weekday": bucket(lambda l: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].index(l),
                              lambda t: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][dt(t).weekday()]),
         "by_month": bucket(lambda l: l, lambda t: dt(t).strftime("%Y-%m")),
         "by_year": bucket(lambda l: l, lambda t: str(dt(t).year)),
     }
+
+
+def daily_table(trades: List[dict], equity_curve: List[dict]) -> List[dict]:
+    """Per-day statistics from the real ledger; drawdown per day from the
+    equity curve marks inside that UTC day (peak-to-trough)."""
+    from collections import OrderedDict
+    days: Dict[str, List[dict]] = {}
+    for t in _ordered(trades):
+        day = datetime.fromtimestamp(t["exit_ts"], tz=timezone.utc).strftime("%Y-%m-%d")
+        days.setdefault(day, []).append(t)
+    eq_by_day: Dict[str, List[float]] = {}
+    for e in equity_curve:
+        day = datetime.fromtimestamp(e["ts"], tz=timezone.utc).strftime("%Y-%m-%d")
+        eq_by_day.setdefault(day, []).append(e["equity"])
+    out = []
+    for day in sorted(days):
+        g = days[day]
+        wins = [t for t in g if t["net_pnl"] > 1e-9]
+        losses = [t for t in g if t["net_pnl"] < -1e-9]
+        eq = eq_by_day.get(day, [])
+        peak, max_dd = (eq[0], 0.0) if eq else (0.0, 0.0)
+        for v in eq:
+            peak = max(peak, v)
+            max_dd = max(max_dd, peak - v)
+        consec = 0
+        run = 0
+        for t in g:
+            run = run + 1 if t["net_pnl"] < -1e-9 else 0
+            consec = max(consec, run)
+        dt = datetime.strptime(day, "%Y-%m-%d")
+        out.append({"date": day, "weekday": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][dt.weekday()],
+                    "trades": len(g), "wins": len(wins), "losses": len(losses),
+                    "breakeven": len(g) - len(wins) - len(losses),
+                    "win_rate": round(len(wins) / len(g), 4) if g else None,
+                    "gross_profit": round(sum(t["net_pnl"] for t in wins), 4),
+                    "gross_loss": round(sum(t["net_pnl"] for t in losses), 4),
+                    "net_pnl": round(sum(t["net_pnl"] for t in g), 4),
+                    "max_drawdown_amount": round(max_dd, 4),
+                    "max_consecutive_losses": consec,
+                    "avg_holding_seconds": round(statistics.fmean([t["holding_seconds"] for t in g]), 1) if g else None})
+    return out
 
 
 def apply_trade_filters(trades: List[dict], filters: Optional[dict]) -> List[dict]:
@@ -315,4 +385,4 @@ def rank_runs(rows: List[dict], weights: Dict[str, float], min_trades: int = 0,
 
 
 __all__ = ["compute_metrics", "drawdown_analysis", "streak_analysis",
-           "time_buckets", "apply_trade_filters", "rank_runs"]
+           "time_buckets", "apply_trade_filters", "rank_runs", "daily_table"]

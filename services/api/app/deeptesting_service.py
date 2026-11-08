@@ -125,6 +125,42 @@ def build_windows(mode: str, start_ts: int, end_ts: int, cfg: dict) -> List[dict
     raise DeepTestError("BAD_MODE", f"unknown testing mode {mode!r}")
 
 
+def resolve_offsets(config: dict, node_id: int, spec: dict) -> dict:
+    """TP/SL offset precedence (UI restructure brief, binding rules):
+    1. The strategy's own TP/SL logic is never replaced - offsets only
+       scale the declared initial distances, and never touch trailing /
+       break-even / management logic.
+    2. An explicit INDIVIDUAL node offset overrides the global offset.
+    3. The GLOBAL offset applies only when no individual value exists.
+    4. With neither, the effective offset is 0 and the source is the
+       strategy itself. Only ONE offset is ever applied (no stacking).
+    Returns effective values + sources + incompatibility warnings."""
+    indiv = (config.get("node_offsets") or {}).get(str(node_id)) or {}
+    out: Dict[str, Any] = {"warnings": []}
+    exits = spec.get("exits") or {}
+    declared = {"tp": bool((exits.get("take_profit") or {})),
+                "sl": bool((exits.get("stop_loss") or {}))}
+    for kind, cfg_key in (("tp", "tp_offset_pct"), ("sl", "sl_offset_pct")):
+        node_val = indiv.get(kind)
+        global_val = config.get(f"global_{kind}_offset_pct")
+        if node_val is not None:
+            effective, source = float(node_val), "individual_node"
+        elif global_val is not None:
+            effective, source = float(global_val), "global_deeptesting"
+        else:
+            effective, source = float(config.get(cfg_key) or 0.0), \
+                ("explicit" if config.get(cfg_key) else "strategy")
+        if effective != 0.0 and not declared[kind]:
+            out["warnings"].append(
+                f"{kind.upper()} offset {effective}% (source: {source}) configured but the "
+                f"strategy declares no {'take-profit' if kind == 'tp' else 'stop-loss'}; "
+                "offset NOT applied - strategy logic is never invented or replaced")
+            effective = 0.0
+            source = "strategy"
+        out[kind] = {"offset_pct": effective, "source": source}
+    return out
+
+
 def execute_run(session: Session, *, instrument: str, node: im.Node,
                 config: dict, scenario_id: Optional[int] = None) -> im.DeepTestRun:
     """Execute one node under one config snapshot and persist the result.
@@ -140,6 +176,12 @@ def execute_run(session: Session, *, instrument: str, node: im.Node,
     session.refresh(run)
     try:
         spec = json.loads(node.spec_json) if node.spec_json else None
+        offsets = resolve_offsets(config, node.id, spec) if spec else None
+        if offsets is not None:
+            config = {**config,
+                      "tp_offset_pct": offsets["tp"]["offset_pct"],
+                      "sl_offset_pct": offsets["sl"]["offset_pct"],
+                      "offset_resolution": offsets}
         if spec is None:
             raise DeepTestError("NODE_HAS_NO_SPEC", f"node {node.id} has no strategy specification")
         tf = (spec.get("identity") or {}).get("timeframe")
@@ -202,6 +244,7 @@ def execute_run(session: Session, *, instrument: str, node: im.Node,
                                  "quote tick value x configured fx_to_account"),
             "engine_version": ENGINE_VERSION, "windows": windows,
             "risk_basis": rcfg.risk_basis, "max_active_trades": rcfg.max_active_trades,
+            "effective_offsets": offsets,
         })
         session.commit()
 

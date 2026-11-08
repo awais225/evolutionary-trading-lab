@@ -107,3 +107,23 @@ def test_scenario_lifecycle_versions(client):
                                           "sl_offset_pct": list(range(50))},
         "max_count": 100})
     assert boom.status_code == 422 and "SCENARIO_EXPLOSION" in boom.text
+
+
+def test_offset_precedence_individual_beats_global_never_stacked():
+    from app.deeptesting_service import resolve_offsets
+    spec = {"exits": {"stop_loss": {"distance": {"value": 2, "unit": "absolute"}},
+                      "take_profit": {"ratio": 2.0}},
+            "management": {"stepped_trailing": {}}}
+    cfg = {"global_tp_offset_pct": 10, "global_sl_offset_pct": 10,
+           "node_offsets": {"7": {"tp": -5}}}
+    out = resolve_offsets(cfg, 7, spec)
+    assert out["tp"] == {"offset_pct": -5.0, "source": "individual_node"}
+    assert out["sl"] == {"offset_pct": 10.0, "source": "global_deeptesting"}
+    assert out["warnings"] == []
+    # neither set -> strategy, zero
+    out = resolve_offsets({}, 7, spec)
+    assert out["tp"]["source"] == "strategy" and out["tp"]["offset_pct"] == 0.0
+    # incompatible: offset without declared TP is reported, never invented
+    out = resolve_offsets({"global_tp_offset_pct": 15}, 7, {"exits": {"stop_loss": {}}})
+    assert out["tp"]["offset_pct"] == 0.0 and out["tp"]["source"] == "strategy"
+    assert "NOT applied" in out["warnings"][0]

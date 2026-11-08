@@ -5,6 +5,36 @@ exact commit SHA and tag. Claims only for what was implemented AND verified.
 
 ---
 
+## [DeepTesting UI restructure] — 2026-11-07 — three-area workspace, global/individual TP-SL offsets
+
+- The DeepTesting page is reorganized into exactly three primary areas:
+  (1) the existing Hard Constraints box (capital, risk, MAX ACTIVE TRADES)
+  extended with **global TP/SL offsets**; (2) ONE main node table with
+  star/favourite (persisted), combined filters (starred, type, timeframe,
+  direction, tested/untested, search), selection across pagination,
+  per-node TP/SL offset inputs, persisted result statistics, shared
+  sorting and Inspect; (3) the selected node's inspection BELOW the table
+  (detailed statistics in one compact table, daily and session tables,
+  AND/OR trade filters with statistics recalculated from matching trades,
+  full trade ledger, equity/balance/drawdown/daily/monthly/session/
+  rolling charts, scenario management and generation scoped to the node).
+- **Offset precedence enforced server-side** (`resolve_offsets`): the
+  strategy's own TP/SL and trade-management logic is never replaced or
+  stacked; an individual node offset overrides the global offset; the
+  global offset applies otherwise; the effective value and its source
+  (Strategy / Individual node / Global DeepTesting) are displayed per row
+  and persisted in every run's assumptions. An offset configured against
+  a strategy that declares no TP/SL is reported as NOT applied, never
+  invented. Trailing/break-even logic is untouched by offsets.
+- Analytics extended for the inspection tables: per-day statistics
+  (trades, win rate, gross/net, daily drawdown from equity marks,
+  consecutive losses) and session profit factor / drawdown / holding;
+  engine equity marks now carry open planned risk.
+- No engine semantics changed; no database migration. Tests: backend 304
+  passed / 1 skipped (new offset-precedence suite), frontend 73/73,
+  production build clean. Verified live in a preview stack (throwaway
+  data root): node run DONE +$200.00, table statistics, inspection below.
+
 ## [Phase 3] — 2026-11-07 — DeepTesting: complete historical execution engine, analytics & scenario workspace
 
 - **Engine** (`hero1_exec_semantics.engine` v3.0.0, ONE engine for all modes):
