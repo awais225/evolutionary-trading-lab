@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { HistoricalDataPanel } from '../components/HistoricalDataPanel'
+import { Mt5InstrumentSpecifications } from '../components/Mt5InstrumentSpecifications'
 import { NodeDashboard } from '../components/NodeDashboard'
 import { useInstrument } from '../state/instrument'
 import { logUserAction } from '../lib/opLog'
@@ -28,6 +29,7 @@ export function DataPage() {
         <HistoricalDataPanel />
       </section>
 
+      <Mt5InstrumentSpecifications />
       <section className="card data-section" aria-labelledby="generated-nodes-label">
         <div className="card-title" id="generated-nodes-label">
           Generated nodes

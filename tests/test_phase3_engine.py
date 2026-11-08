@@ -266,3 +266,78 @@ def test_max_consecutive_loss_metrics_chronological():
     assert m2["max_consecutive_losses"] == 0
     assert m2["max_consecutive_loss_amount"] == 0.0
     assert m2["max_consecutive_loss_pct"] == 0.0
+
+
+def test_historical_spread_points_apply_at_entry_exit_and_missing_policy():
+    bars = candles_from_closes(CLOSES)
+    for bar in bars:
+        bar['spread'] = 0
+    bars[12]['spread'] = 10  # 10 points * 0.01 = 0.10 price at entry
+    bars[13]['spread'] = 20  # exit observation is independently applied
+    cfg = RunConfig(initial_capital=10000, risk_mode='percent', risk_value=1,
+                    risk_basis='initial_capital', spread_mode='historical_points',
+                    point_size=0.01, commission_mode='per_side',
+                    commission_per_lot_per_side=0.5)
+    result = run_backtest(ir=compile_spec(cross_spec()).ir, candles=bars, cfg=cfg,
+                          instrument=SPEC_INSTR, price_ctx=CTX)
+    trade = result['trades'][0]
+    assert trade['entry_price'] == pytest.approx(94.1)
+    assert trade['spread_entry_price'] == pytest.approx(0.1)
+    assert trade['spread_exit_price'] == pytest.approx(0.2)
+    assert trade['commission'] == pytest.approx(5.0)  # 2 sides * $0.50 * 5 lots
+    assert trade['spread_cost'] == pytest.approx(15.0)
+    assert trade['entry_bid_quote'] == pytest.approx(94.0)
+    assert trade['entry_ask_quote'] == pytest.approx(94.1)
+    assert trade['condition_evaluations']
+    bars[12]['spread'] = None
+    with pytest.raises(EngineError, match='invalid/missing spread'):
+        run_backtest(ir=compile_spec(cross_spec()).ir, candles=bars, cfg=cfg,
+                     instrument=SPEC_INSTR, price_ctx=CTX)
+
+
+def test_historical_spread_explicit_configured_fallback_is_recorded():
+    bars = candles_from_closes(CLOSES)
+    for bar in bars:
+        bar['spread'] = 0
+    bars[12]['spread'] = None
+    cfg = RunConfig(initial_capital=10000, risk_mode='percent', risk_value=1,
+                    risk_basis='initial_capital', spread_mode='historical_points',
+                    point_size=0.01, missing_spread_policy='configured_fallback',
+                    spread_price=0.05)
+    result = run_backtest(ir=compile_spec(cross_spec()).ir, candles=bars, cfg=cfg,
+                          instrument=SPEC_INSTR, price_ctx=CTX)
+    assert any(n.get('warning') == 'HISTORICAL_SPREAD_UNAVAILABLE' for n in result['notices'])
+    assert result['trades'][0]['entry_price'] == pytest.approx(94.05)
+
+
+def test_point_swap_crossing_rollover_uses_wednesday_triple():
+    from datetime import datetime, timezone
+    start = int(datetime(2023, 11, 14, 0, 0, tzinfo=timezone.utc).timestamp())
+    closes = CLOSES + [99] * 24
+    bars = candles_from_closes(closes, start_ts=start, step=3600, wick=0.01)
+    for bar in bars:
+        bar['spread'] = 0
+    spec = cross_spec(tp_ratio=100.0, sl=2.0)
+    cfg = RunConfig(initial_capital=10000, risk_mode='percent', risk_value=1,
+                    risk_basis='initial_capital', point_size=0.01,
+                    swap_type='points', swap_long_per_lot_night=-10,
+                    triple_swap_weekday=2)
+    result = run_backtest(ir=compile_spec(spec).ir, candles=bars, cfg=cfg,
+                          instrument=SPEC_INSTR, price_ctx=CTX)
+    trade = result['trades'][0]
+    # USD/tick per lot=$1, tick=.10; one point=.01 therefore $0.10.
+    # The trade crosses the Wednesday UTC rollover: -10 * $0.10 * 3 * 5 lots.
+    assert trade['swap'] == pytest.approx(-15.0)
+
+
+def test_instrument_specific_tick_math_changes_sizing_without_global_defaults():
+    risk = dict(cfg=CFG, equity_now=10000, entry_price=100, stop_price=99, side='LONG')
+    xau = size_position(spec=InstrumentSpec(tick_size=0.01, tick_value_account=1,
+                                           volume_min=.01, volume_max=100, volume_step=.01), **risk)
+    btc = size_position(spec=InstrumentSpec(tick_size=0.5, tick_value_account=2,
+                                           volume_min=.001, volume_max=10, volume_step=.001), **risk)
+    assert xau['volume'] == pytest.approx(1.0)
+    assert btc['volume'] == pytest.approx(10.0)  # capped by BTC-specific volume_max
+    missing = InstrumentSpec(tick_size=0.01, tick_value_account=None)
+    with pytest.raises(EngineError, match='tick value'):
+        size_position(spec=missing, **risk)

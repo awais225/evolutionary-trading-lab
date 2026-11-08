@@ -21,6 +21,8 @@ METADATA_SCHEMA_VERSION = 1
 
 # Normalization map: canonical key -> accepted MT5 symbol_info keys (first hit wins).
 _SYMBOL_FIELD_MAP = {
+    "symbol": ("name", "symbol"),
+    "description": ("description",),
     "digits": ("digits",),
     "point": ("point",),
     "trade_tick_size": ("trade_tick_size", "tick_size"),
@@ -35,7 +37,17 @@ _SYMBOL_FIELD_MAP = {
     "currency_profit": ("currency_profit",),
     "currency_margin": ("currency_margin",),
     "trade_calc_mode": ("trade_calc_mode",),
+    "chart_mode": ("chart_mode",),
     "trade_mode": ("trade_mode",),
+    "trade_exemode": ("trade_exemode",),
+    "trade_stops_level": ("trade_stops_level",),
+    "trade_freeze_level": ("trade_freeze_level",),
+    "volume_limit": ("volume_limit",),
+    "swap_mode": ("swap_mode",),
+    "swap_rollover3days": ("swap_rollover3days",),
+    "margin_initial": ("margin_initial",),
+    "margin_maintenance": ("margin_maintenance",),
+    "order_mode": ("order_mode",),
     "stops_level": ("stops_level", "trade_stops_level"),
     "freeze_level": ("freeze_level", "trade_freeze_level"),
     "filling_mode": ("filling_mode",),

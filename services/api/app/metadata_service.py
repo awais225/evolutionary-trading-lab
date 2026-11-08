@@ -186,6 +186,12 @@ def available_view(instrument: str) -> Dict[str, Any]:
             "currency_profit": fields.get("currency_profit"),
             "currency_margin": fields.get("currency_margin"),
             "trade_mode": fields.get("trade_mode"),
+            "fields": fields,
+            "raw": best.get("raw"),
+            "tick": best.get("tick"),
+            "account": best.get("account"),
+            "warnings": best.get("validation", {}).get("missing", []),
+            "symbol_name": best.get("symbol_name"),
         }
     else:
         out["reason"] = ("no stored MT5 metadata for this instrument. Metadata cannot be guessed: "
@@ -206,6 +212,8 @@ def annotate_staleness(view: Dict[str, Any]) -> Dict[str, Any]:
         status = mt5_connection.status()
         account = status.get("account") or {}
         live_server = account.get("server")
+        snap["connection_status"] = status.get("state")
+        snap["connection_current"] = bool(status.get("ok") and live_server == snap.get("broker_server"))
     except Exception:  # noqa: BLE001
         live_server = None
     if live_server and snap.get("broker_server") and live_server != snap["broker_server"]:
@@ -235,7 +243,8 @@ def refresh_from_terminal(instrument: str) -> Dict[str, Any]:
     from hero1_mt5_adapter import build_snapshot
     from hero1_mt5_adapter import connection as mt5_connection
 
-    sym = instrument.strip().upper()
+    requested_symbol = instrument.strip().upper()
+    sym = requested_symbol
     mt5 = mt5_connection.mt5_module()
     if mt5 is None:
         raise MetadataRefreshError(
@@ -252,6 +261,21 @@ def refresh_from_terminal(instrument: str) -> Dict[str, Any]:
             result.get("error") or "MT5 connection failed")
     with mt5_connection.SESSION_LOCK:
         symbol_info = mt5.symbol_info(sym)
+        if symbol_info is None and hasattr(mt5, "symbols_get"):
+            normalized = lambda name: ''.join(ch for ch in str(name).upper() if ch.isalnum())
+            candidates = [s for s in (mt5.symbols_get() or [])
+                          if normalized(requested_symbol) in normalized(getattr(s, "name", ""))]
+            if len(candidates) == 1:
+                sym = str(candidates[0].name)
+                symbol_info = mt5.symbol_info(sym)
+            elif len(candidates) > 1:
+                raise MetadataRefreshError("MT5_SYMBOL_AMBIGUOUS",
+                                           f"multiple broker symbols match {instrument}; exact broker symbol selection is required")
+        if symbol_info is not None and hasattr(mt5, "symbol_select"):
+            if not mt5.symbol_select(sym, True):
+                raise MetadataRefreshError("MT5_SYMBOL_SELECT_FAILED",
+                                           f"MT5 could not select symbol {sym}; check Market Watch availability")
+            symbol_info = mt5.symbol_info(sym)
         tick = mt5.symbol_info_tick(sym)
         if symbol_info is None:
             raise MetadataRefreshError(
@@ -268,5 +292,9 @@ def refresh_from_terminal(instrument: str) -> Dict[str, Any]:
                                "connected": terminal.get("connected")},
             account_login=(account.get("login") if isinstance(account.get("login"), int) else None),
             source="mt5-terminal")
+        snapshot["account"] = account
+        snapshot["symbol_name"] = sym
+        snapshot["instrument"] = requested_symbol
+        snapshot["specification_source"] = "MT5 symbol_info + symbol_info_tick"
     return save_snapshot(snapshot)
 

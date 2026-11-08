@@ -51,6 +51,14 @@ describe('DATA tab — historical data above generated nodes (ISSUE-051)', () =>
     expect(history.compareDocumentPosition(nodes) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
+  it('shows MT5 instrument specifications separately from historical data', async () => {
+    renderAt('/data')
+    expect(await screen.findByText(/MT5 INSTRUMENT SPECIFICATIONS/)).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /REFRESH FROM MT5|Refreshing/i })).toBeInTheDocument()
+    expect(screen.getByText(/No MT5 specification snapshot/)).toBeInTheDocument()
+    expect(screen.getByText(/Historical market data/)).toBeInTheDocument()
+  })
+
   it('reports stored coverage from the canonical store', async () => {
     renderAt('/data')
     expect(await screen.findByText(/1\/7 timeframes available/)).toBeInTheDocument()

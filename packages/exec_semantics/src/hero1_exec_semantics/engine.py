@@ -63,7 +63,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from hero1_indicators import compute_indicator
@@ -73,7 +73,7 @@ from hero1_strategy_spec.risk import Distance
 from .reference_levels import TF_SECONDS, compute_momentum_series, compute_reference_series
 from .stop_management import PriceContext, evaluate_stop_management
 
-ENGINE_VERSION = "3.0.0"
+ENGINE_VERSION = "3.1.0"
 
 
 class EngineError(Exception):
@@ -116,10 +116,17 @@ class RunConfig:
     risk_basis: str = "current_equity"  # initial_capital | current_equity
     max_active_trades: int = 1
     spread_price: float = 0.0
+    spread_mode: str = "fixed"  # fixed | historical_points
+    point_size: Optional[float] = None
+    missing_spread_policy: str = "block"  # block | configured_fallback
     slippage_price: float = 0.0
     commission_per_lot_round_turn: float = 0.0
+    commission_per_lot_per_side: float = 0.0
+    commission_mode: str = "round_turn"  # round_turn | per_side
     swap_long_per_lot_night: float = 0.0
     swap_short_per_lot_night: float = 0.0
+    swap_type: str = "money_per_lot"  # money_per_lot | points
+    triple_swap_weekday: int = 2  # UTC Wednesday rollover; server rollover timezone may differ
     ambiguity_policy: str = "sl_first"  # sl_first | tp_first
     sessions: Optional[List[str]] = None       # entry filter, UTC labels
     weekdays: Optional[List[int]] = None       # 0=Mon .. 6=Sun, entry filter
@@ -144,6 +151,13 @@ class Position:
     stop_history: List[dict] = field(default_factory=list)
     entry_indicators: Dict[str, Any] = field(default_factory=dict)
     bars_held: int = 0
+    spread_entry_price: float = 0.0
+    equity_before_entry: float = 0.0
+    signal_index: int = 0
+    condition_evaluations: List[dict] = field(default_factory=list)
+    entry_bid_quote: float = 0.0
+    entry_ask_quote: float = 0.0
+    sizing_calculation: Dict[str, Any] = field(default_factory=dict)
 
 
 def _operand_value(operand: dict, i: int, candles, series_cache: dict, cache_key_prefix=""):
@@ -277,6 +291,20 @@ def _touch(left: dict, right: dict, i: int, candles, series_cache) -> Optional[b
         return None
     d_cur, d_prev = lv - rv, pl - pr
     return d_cur == 0 or (d_prev < 0 < d_cur) or (d_prev > 0 > d_cur)
+
+
+def _condition_audit(node: dict, i: int, candles, series_cache, path: str = "entry") -> List[dict]:
+    """Capture each leaf condition at an actual detected signal; does not
+    fabricate historical evaluations for bars where no decision was logged."""
+    kind = node.get("type")
+    if kind in ("and", "or"):
+        return [item for j, child in enumerate(node.get("children", []))
+                for item in _condition_audit(child, i, candles, series_cache, f"{path}.{kind}[{j}]")]
+    if kind == "not":
+        return _condition_audit(node["child"], i, candles, series_cache, f"{path}.not")
+    return [{"path": path, "type": kind, "operator": node.get("op"),
+             "result": evaluate_tree(node, i, candles, series_cache),
+             "candle_ts": int(candles[i]["ts"])}]
 
 
 def _entry_side(ir: dict, i: int, candles, series_cache) -> Optional[str]:
@@ -488,13 +516,15 @@ def run_backtest(*, ir: dict, candles: List[dict], cfg: RunConfig,
     time_exit = (exits_ir.get("time_exit_utc") or None)
     max_holding = exits_ir.get("max_holding_candles")
 
+    current_spread_price = float(cfg.spread_price)
+
     def closing_price(pos: Position, bar: dict, when: str) -> float:
         base = float(bar[when])
-        return base if pos.side == "LONG" else base + cfg.spread_price
+        return base if pos.side == "LONG" else base + current_spread_price
 
     def open_price(side: str, bar: dict, when: str) -> float:
         base = float(bar[when])
-        return base + cfg.spread_price if side == "LONG" else base
+        return base + current_spread_price if side == "LONG" else base
 
     def pnl_at(pos: Position, price: float) -> float:
         ticks = (price - pos.entry_price) / instrument.tick_size
@@ -504,21 +534,57 @@ def run_backtest(*, ir: dict, candles: List[dict], cfg: RunConfig,
 
     def close_position(pos: Position, exit_ts: int, exit_price: float, reason: str,
                        ambiguous: bool = False, gap: bool = False) -> dict:
+        exit_reference_price = float(exit_price)
+        exit_slippage = cfg.slippage_price if pos.side == "SHORT" else -cfg.slippage_price
+        exit_price = exit_reference_price + exit_slippage
         gross = pnl_at(pos, exit_price)
-        nights = max(0, (datetime.fromtimestamp(exit_ts, tz=timezone.utc).date()
-                         - datetime.fromtimestamp(pos.entry_ts, tz=timezone.utc).date()).days)
+        entry_date = datetime.fromtimestamp(pos.entry_ts, tz=timezone.utc).date()
+        exit_date = datetime.fromtimestamp(exit_ts, tz=timezone.utc).date()
         swap_rate = cfg.swap_long_per_lot_night if pos.side == "LONG" else cfg.swap_short_per_lot_night
-        swap = swap_rate * pos.volume * nights
-        commission = cfg.commission_per_lot_round_turn * pos.volume
-        spread_cost = cfg.spread_price / instrument.tick_size * instrument.tick_value() * pos.volume \
-            if instrument.tick_size else 0.0
+        rollover_days = []
+        day = entry_date + timedelta(days=1)
+        while day <= exit_date:
+            rollover_days.append(day)
+            day += timedelta(days=1)
+        if cfg.swap_type == "points":
+            if cfg.point_size is None or cfg.point_size <= 0:
+                raise EngineError("MISSING_POINT_SIZE", "point-based swap requires instrument point size")
+            per_point_value = float(cfg.point_size) / instrument.tick_size * instrument.tick_value()
+            swap = sum(swap_rate * per_point_value * (3 if d.weekday() == cfg.triple_swap_weekday else 1)
+                       for d in rollover_days) * pos.volume
+        else:
+            swap = sum(swap_rate * (3 if d.weekday() == cfg.triple_swap_weekday else 1)
+                       for d in rollover_days) * pos.volume
+        commission_rate = (cfg.commission_per_lot_per_side * 2
+                           if cfg.commission_mode == "per_side"
+                           else cfg.commission_per_lot_round_turn)
+        commission = commission_rate * pos.volume
+        exit_spread = current_spread_price
+        spread_cost = ((pos.spread_entry_price + exit_spread) / instrument.tick_size
+                       * instrument.tick_value() * pos.volume) if instrument.tick_size else 0.0
         net = gross - commission + swap
         return {
             "side": pos.side, "volume": pos.volume,
             "entry_ts": pos.entry_ts, "entry_price": pos.entry_price,
-            "exit_ts": exit_ts, "exit_price": exit_price, "exit_reason": reason,
+            "spread_entry_price": pos.spread_entry_price, "spread_exit_price": exit_spread,
+            "slippage_entry_price": cfg.slippage_price, "slippage_exit_price": cfg.slippage_price,
+            "equity_before_entry": pos.equity_before_entry,
+            "signal_ts": int(candles[pos.signal_index]["ts"]),
+            "signal_candle_index": pos.signal_index,
+            "entry_bid_quote": pos.entry_bid_quote,
+            "entry_ask_quote": pos.entry_ask_quote,
+            "exit_bid_quote": exit_reference_price if pos.side == "LONG" else exit_reference_price - exit_spread,
+            "exit_ask_quote": exit_reference_price + exit_spread if pos.side == "LONG" else exit_reference_price,
+            "condition_evaluations": pos.condition_evaluations,
+            "exit_ts": exit_ts, "exit_price": exit_price,
+            "exit_reference_price": exit_reference_price, "exit_reason": reason,
             "initial_stop": pos.initial_stop, "final_stop": pos.stop,
             "take_profit": pos.take_profit, "planned_risk": pos.planned_risk,
+            "risk_amount": pos.sizing_calculation.get("budget"),
+            "stop_distance": (abs(pos.entry_price - pos.initial_stop) if pos.initial_stop is not None else None),
+            "tick_value_used": instrument.tick_value(),
+            "sizing_calculation": pos.sizing_calculation,
+            "realized_risk": round(max(0.0, -net), 6),
             "gross_pnl": round(gross, 6), "commission": round(commission, 6),
             "swap": round(swap, 6), "spread_cost": round(spread_cost, 6),
             "slippage": round(2 * cfg.slippage_price / instrument.tick_size
@@ -593,6 +659,12 @@ def run_backtest(*, ir: dict, candles: List[dict], cfg: RunConfig,
                        planned_risk=sized["planned_risk"], initial_stop=stop_price,
                        stop=stop_price, take_profit=tp_price,
                        best_favourable=entry_price, worst_adverse=entry_price,
+                       spread_entry_price=current_spread_price, equity_before_entry=equity_now,
+                       signal_index=signal_i,
+                       condition_evaluations=sig.get("condition_evaluations", []),
+                       entry_bid_quote=(fill_price - current_spread_price if side == "LONG" else fill_price),
+                       entry_ask_quote=(fill_price if side == "LONG" else fill_price + current_spread_price),
+                       sizing_calculation=sized,
                        entry_indicators=_indicator_snapshot(ir["entry"], signal_i, candles, series_cache))
         positions.append(pos)
 
@@ -603,6 +675,19 @@ def run_backtest(*, ir: dict, candles: List[dict], cfg: RunConfig,
     pending_exits: List[Position] = [] # rule/time exits decided at previous close
 
     for i in range(n):
+        if cfg.spread_mode == "historical_points":
+            raw_spread = candles[i].get("spread")
+            if raw_spread is None or float(raw_spread) < 0 or cfg.point_size is None or cfg.point_size <= 0:
+                if cfg.missing_spread_policy == "block":
+                    raise EngineError("HISTORICAL_SPREAD_UNAVAILABLE",
+                                      f"invalid/missing spread at candle {candles[i].get('ts')}")
+                current_spread_price = float(cfg.spread_price)
+                notices.append({"ts": int(candles[i]["ts"]), "warning": "HISTORICAL_SPREAD_UNAVAILABLE",
+                                "policy": "configured_fallback", "fallback_price": current_spread_price})
+            else:
+                current_spread_price = float(raw_spread) * float(cfg.point_size)
+        else:
+            current_spread_price = float(cfg.spread_price)
         if progress_cb is not None and i % 512 == 0:
             try:
                 progress_cb(i, n, len(trades))
@@ -638,7 +723,7 @@ def run_backtest(*, ir: dict, candles: List[dict], cfg: RunConfig,
         for pos in list(positions):
             if pos.entry_index == i and entry_timing == "next_bar_open":
                 pass  # position opened at this open: SL/TP still apply from here
-            hit = _check_sl_tp(pos, bar, cfg, instrument)
+            hit = _check_sl_tp(pos, bar, cfg, instrument, current_spread_price)
             if hit:
                 price, reason, ambiguous, gap = hit
                 trade = close_position(pos, ts, price, reason, ambiguous, gap)
@@ -685,7 +770,8 @@ def run_backtest(*, ir: dict, candles: List[dict], cfg: RunConfig,
         # 5) entry signals at this close
         side = _entry_side(ir, i, candles, series_cache)
         if side is not None:
-            sig = {"side": side, "signal_index": i}
+            sig = {"side": side, "signal_index": i,
+                   "condition_evaluations": _condition_audit(ir["entry"], i, candles, series_cache)}
             if entry_timing == "signal_close":
                 if len(positions) >= cfg.max_active_trades:
                     skipped.append({"ts": ts, "side": side, "reason": "MAX_ACTIVE_TRADES"})
@@ -749,9 +835,9 @@ def _indicator_snapshot(node, i, candles, series_cache) -> dict:
     return snap
 
 
-def _check_sl_tp(pos: Position, bar: dict, cfg: RunConfig, spec: InstrumentSpec):
+def _check_sl_tp(pos: Position, bar: dict, cfg: RunConfig, spec: InstrumentSpec, spread_price: Optional[float] = None):
     """Return (exit_price, reason, ambiguous, gap_overrun) or None."""
-    spread = cfg.spread_price
+    spread = cfg.spread_price if spread_price is None else spread_price
     if pos.side == "LONG":
         open_, high, low = float(bar["open"]), float(bar["high"]), float(bar["low"])
         sl_hit = pos.stop is not None and low <= pos.stop

@@ -48,7 +48,7 @@ def load_candles(instrument: str, timeframe: str, start_ts: Optional[int],
         return []
     conn = md_store.connect_store(db)
     try:
-        sql = ("SELECT ts, open, high, low, close, volume FROM candles "
+        sql = ("SELECT ts, open, high, low, close, volume, spread FROM candles "
                "WHERE instrument=? AND timeframe=?")
         args: list = [instrument.upper(), timeframe.upper()]
         if start_ts is not None:
@@ -61,7 +61,8 @@ def load_candles(instrument: str, timeframe: str, start_ts: Optional[int],
         rows = conn.execute(sql, args).fetchall()
         return [{"ts": int(r[0]), "open": float(r[1]), "high": float(r[2]),
                  "low": float(r[3]), "close": float(r[4]),
-                 "volume": float(r[5]) if r[5] is not None else 0.0} for r in rows]
+                 "volume": float(r[5]) if r[5] is not None else 0.0,
+                 "spread": int(r[6]) if r[6] is not None else None} for r in rows]
     finally:
         conn.close()
 
@@ -83,7 +84,8 @@ def _instrument_spec(instrument: str, cfg: dict) -> InstrumentSpec:
                             f"no tick_size for {instrument} in broker metadata; sizing refused")
     return InstrumentSpec(
         tick_size=float(tick_size),
-        tick_value_account=cfg.get("tick_value_account") or fields.get("trade_tick_value"),
+        tick_value_account=(cfg.get("tick_value_account") or fields.get("trade_tick_value_loss")
+                            or fields.get("trade_tick_value") or fields.get("trade_tick_value_profit")),
         tick_value_quote=cfg.get("tick_value_quote") or fields.get("tick_value"),
         fx_to_account=cfg.get("fx_to_account"),
         contract_size=m0.get("contract_size") or fields.get("contract_size"),
@@ -268,11 +270,44 @@ def execute_run(session: Session, *, instrument: str, node: im.Node,
                                 "historical data is BLOCKED for this range: "
                                 + "; ".join(dq.get("blocked_reasons") or dq.get("reasons") or []))
         broker_meta = spec_service._resolve_broker_meta(instrument, config.get("broker_meta"))
+        broker_snapshot = metadata_service.best_snapshot(instrument)
+        if broker_snapshot:
+            config = {**config, "specification_snapshot": {
+                "broker_server": broker_snapshot.get("broker_server"),
+                "retrieved_at": broker_snapshot.get("retrieved_at"),
+                "fingerprint": broker_snapshot.get("fingerprint"),
+                "source": broker_snapshot.get("source"),
+                "symbol_name": broker_snapshot.get("symbol_name") or instrument.upper(),
+                "fields": broker_snapshot.get("fields") or {},
+                "tick": broker_snapshot.get("tick") or {},
+                "derived": broker_snapshot.get("derived") or {},
+                "account_currency": (broker_snapshot.get("account") or {}).get("currency"),
+            }, "specification_assumption": "current MT5 snapshot used; historical snapshot unavailable"}
+        else:
+            config = {**config, "specification_snapshot": None,
+                      "specification_assumption": "no MT5 snapshot available; run cannot claim current or historical broker specifications"}
         _report, compiled = spec_service.compile_or_raise(spec, instrument, broker_meta)
         run.fingerprint = compiled.fingerprint
         run.compiler_version = compiled.compiler_version
         run.engine_version = ENGINE_VERSION
 
+        spec_fields = (broker_snapshot or {}).get("fields") or {}
+        chart_mode = config.get("chart_price_mode", spec_fields.get("chart_mode"))
+        if chart_mode is not None and str(chart_mode).upper() not in ("0", "BID", "BY_BID"):
+            raise DeepTestError("UNSUPPORTED_CHART_PRICE_MODE",
+                                f"chart mode {chart_mode!r} is not Bid OHLC; current execution semantics cannot derive bid/ask OHLC without fabricating prices")
+        config = {**config, "chart_price_mode": chart_mode,
+                  "ohlc_price_basis": "BID" if chart_mode is not None else "UNVERIFIED; engine expects BID OHLC"}
+        mt5_swap_mode = spec_fields.get("swap_mode")
+        if ((mt5_swap_mode is None or str(mt5_swap_mode) not in ("0", "1"))
+                and config.get("swap_type") is None
+                and (spec_fields.get("swap_long") or spec_fields.get("swap_short"))):
+            raise DeepTestError("UNSUPPORTED_SWAP_MODE",
+                                f"MT5 swap mode {mt5_swap_mode} needs an explicit supported conversion; no silent approximation")
+        inferred_swap_type = "points" if str(mt5_swap_mode) == "1" else "money_per_lot"
+        mt5_triple_day = spec_fields.get("swap_rollover3days")
+        inferred_triple_weekday = ((int(mt5_triple_day) - 1) % 7
+                                   if mt5_triple_day is not None else 2)
         rcfg = RunConfig(
             initial_capital=float(config.get("initial_capital") or 10000.0),
             account_currency=str(config.get("account_currency") or "USD"),
@@ -281,10 +316,17 @@ def execute_run(session: Session, *, instrument: str, node: im.Node,
             risk_basis=str(config.get("risk_basis") or "current_equity"),
             max_active_trades=int(config.get("max_active_trades") or 1),
             spread_price=float(config.get("spread_price") or 0.0),
+            spread_mode=str(config.get("spread_mode") or ("historical_points" if ((broker_meta or {}).get(instrument.upper()) or {}).get("point_size") else "fixed")),
+            point_size=float((((broker_meta or {}).get(instrument.upper()) or {}).get("point_size") or 0.0)) or None,
+            missing_spread_policy=str(config.get("missing_spread_policy") or "block"),
             slippage_price=float(config.get("slippage_price") or 0.0),
             commission_per_lot_round_turn=float(config.get("commission_per_lot_round_turn") or 0.0),
-            swap_long_per_lot_night=float(config.get("swap_long_per_lot_night") or 0.0),
-            swap_short_per_lot_night=float(config.get("swap_short_per_lot_night") or 0.0),
+            commission_per_lot_per_side=float(config.get("commission_per_lot_per_side") or 0.0),
+            commission_mode=str(config.get("commission_mode") or "round_turn"),
+            swap_long_per_lot_night=float(config.get("swap_long_per_lot_night") if config.get("swap_long_per_lot_night") is not None else (spec_fields.get("swap_long") or 0.0)),
+            swap_short_per_lot_night=float(config.get("swap_short_per_lot_night") if config.get("swap_short_per_lot_night") is not None else (spec_fields.get("swap_short") or 0.0)),
+            swap_type=str(config.get("swap_type") or inferred_swap_type),
+            triple_swap_weekday=int(config.get("triple_swap_weekday", inferred_triple_weekday)),
             ambiguity_policy=str(config.get("ambiguity_policy") or "sl_first"),
             sessions=config.get("sessions"), weekdays=config.get("weekdays"),
             months=config.get("months"),
@@ -303,8 +345,15 @@ def execute_run(session: Session, *, instrument: str, node: im.Node,
         run.config_json = json.dumps(config)
         run.assumptions_json = json.dumps({
             "spread_price": rcfg.spread_price,
-            "spread_source": "configured assumption (historical bid/ask not stored)"
-            if rcfg.spread_price else "zero - candles are bid; no spread assumption configured",
+            "spread_source": ("historical candle spread points x instrument point size"
+                              if rcfg.spread_mode == "historical_points" else
+                              "configured constant spread assumption" if rcfg.spread_price else
+                              "zero spread assumption; historical spread not enabled/point size unavailable"),
+            "spread_mode": rcfg.spread_mode,
+            "missing_spread_policy": rcfg.missing_spread_policy,
+            "commission_status": ("CONFIGURED" if (rcfg.commission_per_lot_per_side or rcfg.commission_per_lot_round_turn)
+                                  else "COMMISSION NOT CONFIGURED — incomplete-cost testing"),
+            "slippage_status": ("configured" if rcfg.slippage_price else "ASSUMPTION: zero slippage"),
             "slippage_price": rcfg.slippage_price,
             "commission_per_lot_round_turn": rcfg.commission_per_lot_round_turn,
             "swap_long_per_lot_night": rcfg.swap_long_per_lot_night,

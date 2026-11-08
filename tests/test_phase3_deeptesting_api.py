@@ -47,7 +47,7 @@ def test_deeptesting_run_end_to_end(client, seeded_store):
     assert r.status_code == 200, r.text
     run = r.json()["runs"][0]
     assert run["status"] == "DONE", run
-    assert run["fingerprint"] and run["engine_version"] == "3.0.0"
+    assert run["fingerprint"] and run["engine_version"] == "3.1.0"
     assert run["metrics"]["total_trades"] == 1
     assert run["metrics"]["net_profit"] == 200.0
 

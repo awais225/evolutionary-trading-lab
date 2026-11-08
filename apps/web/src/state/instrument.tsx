@@ -107,7 +107,12 @@ export function InstrumentProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(STORAGE_KEY, next)
   }
 
-  useEffect(() => { document.documentElement.dataset.instrument = instrument }, [instrument])
+  useEffect(() => {
+    document.documentElement.dataset.instrument = instrument
+    // A global instrument switch refreshes that exact symbol's broker snapshot;
+    // the server only persists data returned by MT5 and reports ambiguity/failure.
+    void api.metadata.refresh(instrument).catch(() => undefined)
+  }, [instrument])
 
   const value = useMemo(
     () => ({ instrument, setInstrument, instruments, instrumentsSource, instrumentsLoading }),

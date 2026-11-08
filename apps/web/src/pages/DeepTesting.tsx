@@ -127,6 +127,8 @@ export function DeepTesting() {
   const [riskValue, setRiskValue] = useState<number>(saved?.riskValue ?? 1)
   const [riskBasis, setRiskBasis] = useState<'current_equity' | 'initial_capital'>(saved?.riskBasis ?? 'current_equity')
   const [maxActive, setMaxActive] = useState<number>(saved?.maxActive ?? 1)
+  const [missingSpreadPolicy, setMissingSpreadPolicy] = useState<'block' | 'configured_fallback'>(saved?.missingSpreadPolicy ?? 'block')
+  const [spreadFallbackPrice, setSpreadFallbackPrice] = useState<number>(saved?.spreadFallbackPrice ?? 0)
   const [globalOff, setGlobalOff] = useState<Offsets>(saved?.globalOff ?? EMPTY_OFF)
   // APPLIED configuration: the ONLY values ever sent to the backend.
   // Inputs above are pending until the user clicks APPLY (Part 4).
@@ -136,8 +138,10 @@ export function DeepTesting() {
     riskValue: saved?.riskValue ?? 1,
     riskBasis: (saved?.riskBasis ?? 'current_equity') as 'current_equity' | 'initial_capital',
     maxActive: saved?.maxActive ?? 1, globalOff: saved?.globalOff ?? EMPTY_OFF,
+    missingSpreadPolicy: (saved?.missingSpreadPolicy ?? 'block') as 'block' | 'configured_fallback',
+    spreadFallbackPrice: saved?.spreadFallbackPrice ?? 0,
   }))
-  const pendingDirty = JSON.stringify({ capital, currency, riskMode, riskValue, riskBasis, maxActive, globalOff })
+  const pendingDirty = JSON.stringify({ capital, currency, riskMode, riskValue, riskBasis, maxActive, globalOff, missingSpreadPolicy, spreadFallbackPrice })
     !== JSON.stringify(applied)
   const applyConstraints = () => {
     if (!(capital > 0)) { setNotice('Initial capital must be a positive amount.'); return }
@@ -147,7 +151,9 @@ export function DeepTesting() {
     if (offVals.some((v) => v !== '' && !Number.isFinite(Number(v)))) {
       setNotice('TP/SL offsets must be numeric values in pips.'); return
     }
-    const next = { capital, currency, riskMode, riskValue, riskBasis, maxActive, globalOff }
+    if (!(spreadFallbackPrice >= 0)) { setNotice('Fallback spread must be a non-negative price amount.'); return }
+    const next = { capital, currency, riskMode, riskValue, riskBasis, maxActive, globalOff,
+      missingSpreadPolicy, spreadFallbackPrice }
     setApplied(next)
     localStorage.setItem('hero1.dt.constraints', JSON.stringify(next))
     setNotice('Hard Constraints APPLIED — they take effect on the next DeepTesting execution. Existing results are not modified; rerun a node to produce a new result with these values.')
@@ -322,6 +328,10 @@ export function DeepTesting() {
       initial_capital: applied.capital, account_currency: applied.currency,
       risk_mode: applied.riskMode, risk_value: applied.riskValue, risk_basis: applied.riskBasis,
       max_active_trades: applied.maxActive,
+      spread_mode: 'historical_points',
+      missing_spread_policy: applied.missingSpreadPolicy,
+      spread_price: applied.spreadFallbackPrice,
+      slippage_price: 0,
       global_sl_plus_pips: applied.globalOff.slPlus === '' ? null : Number(applied.globalOff.slPlus),
       global_sl_minus_pips: applied.globalOff.slMinus === '' ? null : Number(applied.globalOff.slMinus),
       global_tp_plus_pips: applied.globalOff.tpPlus === '' ? null : Number(applied.globalOff.tpPlus),
@@ -825,6 +835,19 @@ export function DeepTesting() {
           </fieldset>
 
           <fieldset className="exit-block">
+            <legend>Historical spread and execution assumptions</legend>
+            <label className="mini-field">Missing/invalid historical spread policy
+              <select className="input input-xs" aria-label="Missing spread policy" value={missingSpreadPolicy}
+                onChange={(e) => setMissingSpreadPolicy(e.target.value as 'block' | 'configured_fallback')}>
+                <option value="block">Block run</option><option value="configured_fallback">Configured fallback (warning)</option>
+              </select></label>
+            {missingSpreadPolicy === 'configured_fallback' && <label className="mini-field">Fallback spread price (explicit assumption)
+              <input className="input input-xs num" type="number" min="0" step="0.01" aria-label="Fallback spread price"
+                value={spreadFallbackPrice} onChange={(e) => setSpreadFallbackPrice(Math.max(0, Number(e.target.value)))} /></label>}
+            <p className="faint micro">Historical candle spread is used per execution when available. Zero slippage is explicitly an assumption. Commission remains NOT CONFIGURED unless supplied.</p>
+          </fieldset>
+
+          <fieldset className="exit-block">
             <legend>Global TP / SL offsets <span className="faint">(pips · individual node values override · strategy logic never replaced)</span></legend>
             {offInput('SL + (Away from Entry)', globalOff.slPlus, (v) => setGlobalOff({ ...globalOff, slPlus: v }), 'Global SL plus offset')}
             {offInput('SL − (Closer to Entry)', globalOff.slMinus, (v) => setGlobalOff({ ...globalOff, slMinus: v }), 'Global SL minus offset')}
@@ -1048,35 +1071,37 @@ export function DeepTesting() {
                 </tbody>
               </table>
 
-              {/* compact side-by-side BUY/SELL comparison (always visible) */}
-              <table className="node-table dt-dir-compare" aria-label="BUY and SELL comparison">
-                <thead><tr><th>Metric</th><th className="stat-sec-buy">BUY / LONG</th><th className="stat-sec-sell">SELL / SHORT</th></tr></thead>
-                <tbody>
-                  {(() => {
-                    const L = dirShape(dirLong) ?? dirShape({ total_trades: 0, winning_trades: 0, losing_trades: 0, breakeven_trades: 0, gross_profit: 0, gross_loss: 0, net_profit: 0, drawdown: {} })
-                    const S = dirShape(dirShort) ?? dirShape({ total_trades: 0, winning_trades: 0, losing_trades: 0, breakeven_trades: 0, gross_profit: 0, gross_loss: 0, net_profit: 0, drawdown: {} })
-                    if (!L || !S) return null
-                    const rows: [string, any, any][] = [
-                      ['Trades', L.total, S.total], ['Winning', L.wins, S.wins],
-                      ['Losing', L.losses, S.losses], ['Breakeven', L.be, S.be],
-                      ['Win rate', L.winRate != null ? `${fmt(L.winRate * 100, 1)}%` : 'N/A', S.winRate != null ? `${fmt(S.winRate * 100, 1)}%` : 'N/A'],
-                      ['Gross profit', fmt(L.gp), fmt(S.gp)], ['Gross loss', fmt(L.gl), fmt(S.gl)],
-                      ['Net P/L', fmt(L.net), fmt(S.net)], ['Profit factor', fmt(L.pf, 3), fmt(S.pf, 3)],
-                      ['Avg win', fmt(L.avgWin), fmt(S.avgWin)], ['Avg loss', fmt(L.avgLoss), fmt(S.avgLoss)],
-                      ['Expectancy', fmt(L.expectancy), fmt(S.expectancy)],
-                      ['Max drawdown', `${fmt(L.ddMax)} (${fmt(L.ddMaxPct)}%)`, `${fmt(S.ddMax)} (${fmt(S.ddMaxPct)}%)`],
-                      ['Average drawdown', fmt(L.ddAvg), fmt(S.ddAvg)],
-                      ['Return on capital', L.returnPct != null ? `${fmt(L.returnPct)}%` : 'N/A', S.returnPct != null ? `${fmt(S.returnPct)}%` : 'N/A'],
-                      ['Avg holding', L.avgHold != null ? `${fmt(L.avgHold / 3600, 1)}h` : 'N/A', S.avgHold != null ? `${fmt(S.avgHold / 3600, 1)}h` : 'N/A'],
-                      ['Max consec. W / L', `${L.maxW} / ${L.maxL}`, `${S.maxW} / ${S.maxL}`],
-                    ]
-                    return rows.map(([label, a, b]) => (
-                      <tr key={label}><td>{label}</td><td>{a}</td><td>{b}</td></tr>))
-                  })()}
-                </tbody>
-              </table>
-              <div className="faint micro">Independent LONG and SHORT equity paths from the configured initial capital{anyFilter ? ' (filtered trade set)' : ''}; drawdown % vs running peak; LONG + SHORT reconcile with the totals above.</div>
-
+              {/* compact BUY / SELL summary cards, directly above weekday/session table */}
+              {(() => {
+                const L = dirShape(dirLong) ?? dirShape({ total_trades: 0, winning_trades: 0, losing_trades: 0, breakeven_trades: 0, gross_profit: 0, gross_loss: 0, net_profit: 0, drawdown: {} })
+                const S = dirShape(dirShort) ?? dirShape({ total_trades: 0, winning_trades: 0, losing_trades: 0, breakeven_trades: 0, gross_profit: 0, gross_loss: 0, net_profit: 0, drawdown: {} })
+                if (!L || !S) return null
+                const cards = [['BUY', L, 'stat-sec-buy'], ['SELL', S, 'stat-sec-sell']] as const
+                const details: [string, any, any][] = [
+                  ['Avg win', L.avgWin, S.avgWin], ['Avg loss', L.avgLoss, S.avgLoss],
+                  ['Expectancy', L.expectancy, S.expectancy],
+                  ['Max drawdown', `${fmt(L.ddMax)} (${fmt(L.ddMaxPct)}%)`, `${fmt(S.ddMax)} (${fmt(S.ddMaxPct)}%)`],
+                  ['Average drawdown', L.ddAvg, S.ddAvg],
+                  ['Return on capital', L.returnPct != null ? `${fmt(L.returnPct)}%` : 'N/A', S.returnPct != null ? `${fmt(S.returnPct)}%` : 'N/A'],
+                  ['Avg holding (seconds)', L.avgHold, S.avgHold], ['Max consec. W / L', `${L.maxW} / ${L.maxL}`, `${S.maxW} / ${S.maxL}`],
+                ]
+                return <>
+                  <div className="dt-dir-cards" aria-label="BUY and SELL statistics">
+                    {cards.map(([label, d, cls]) => <section className={`dt-dir-card ${cls}`} key={label}>
+                      <h4>{label}</h4>
+                      <dl>{[
+                        ['Trade count', d.total], ['Wins', d.wins], ['Losses', d.losses], ['Breakeven', d.be],
+                        ['Win rate', d.winRate != null ? `${fmt(d.winRate * 100, 1)}%` : 'N/A'],
+                        ['Gross profit', fmt(d.gp)], ['Gross loss', fmt(d.gl)], ['Net P/L', fmt(d.net)], ['Profit factor', fmt(d.pf, 3)],
+                      ].map(([k,v]) => <div key={String(k)}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
+                    </section>)}
+                  </div>
+                  <details className="dt-dir-extra"><summary>Additional directional statistics</summary>
+                    <table className="node-table"><tbody>{details.map(([label,a,b]) => <tr key={label}><td>{label}</td><td>{typeof a === 'number' ? fmt(a) : a}</td><td>{typeof b === 'number' ? fmt(b) : b}</td></tr>)}</tbody></table>
+                  </details>
+                  <div className="faint micro">Both directions are shown regardless of direction filter{anyFilter ? ' (filtered trade set)' : ''}; LONG + SHORT reconcile with the ledger.</div>
+                </>
+              })()}
               {/* weekday/session filter table — whole boxes clickable */}
               <div className="dt-table-scroll">
                 <table className="node-table dt-session-grid" aria-label="Weekday and session filters">

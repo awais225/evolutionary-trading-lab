@@ -1146,3 +1146,12 @@ token — success. A post-push record commit follows this entry on main
 
 **Commit:** `840bf71d9d3adbb556be1bf19771b63d98ae3e57`
 **Tag:** v0.1.0 (local; remote push blocked at tag creation time)
+
+---
+
+## [DeepTesting execution accuracy, MT5 specifications, DATA verification & Inspect refinement] — 2026-11-06
+
+- Extended the existing MT5 broker/server/symbol metadata snapshots with raw and normalized spec/account context. Connected refreshes remain in the existing autoconnect worker; instrument switching requests a refresh, Market Watch selection and unique broker-prefix/suffix normalization are supported, and ambiguity/failure is explicit. DATA adds **MT5 INSTRUMENT SPECIFICATIONS** with source/provenance, refresh, connection/staleness, plus preserved historical-data panels.
+- DeepTesting candle queries now carry stored historical spread points. Historical spread can be used at execution timestamps; a configured missing-spread policy either blocks or records a fallback warning. Prices and separate costs are recorded without double-subtracting spread. Added mutually exclusive per-side/round-turn commission configuration, point-based swap and triple weekday, adverse exit slippage, quote-side fields, and per-executed-signal condition evidence. Run config retains broker snapshot/timestamp/source; audit ZIP adds snapshot and execution detail. Engine version 3.1.0.
+- Inspect BUY/SELL is displayed in two compact responsive statistic cards above the weekday/session grid; requested core metrics remain visible and other direction metrics are available under an expandable disclosure.
+- Validation: backend 337 passed / 1 skipped; frontend 93 passed; production build clean. Exact C1#2 reproduction remains pending the missing audit ZIP and original C1 JSON. No live MT5 terminal was available for instrument validation. See `docs/DEEPTESTING_EXECUTION_ACCURACY.md` for timestamp evidence and explicit limitations.

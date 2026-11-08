@@ -76,6 +76,8 @@ def build_audit_zip(*, run, node, trades: List[dict], scope: str = "FULL_RUN") -
                  "position_sizing": "risk-based position sizing from stop distance "
                                     "(see assumptions + per-trade planned_risk)"},
         "offsets": config.get("offset_resolution"),
+        "specification_snapshot": config.get("specification_snapshot"),
+        "specification_assumption": config.get("specification_assumption"),
         "assumptions": assumptions,
         "data": {"snapshot": config.get("data_snapshot"),
                  "readiness": quality,
@@ -85,12 +87,12 @@ def build_audit_zip(*, run, node, trades: List[dict], scope: str = "FULL_RUN") -
         "evidence_status": {
             "trade_ledger": "RECORDED",
             "skipped_signals": "RECORDED" if has_decisions else "INCOMPLETE EVIDENCE",
-            "condition_evaluations": ("PARTIAL - entry-indicator snapshots per "
-                                      "executed trade" if has_indicators
+            "condition_evaluations": ("RECORDED FOR EXECUTED SIGNALS; REJECTIONS/OTHER BARS UNVERIFIED"
+                                      if any(t.get("condition_evaluations") for t in enriched)
                                       else "INCOMPLETE EVIDENCE"),
-            "note": ("Signals rejected before the engine's recorded skip points and "
-                     "per-condition boolean evaluations were not persisted for this "
-                     "run; those files say so explicitly instead of inventing history."),
+            "note": ("Condition leaves are captured at executed signal bars. Historical "
+                     "condition decisions for non-signals and rejections before recorded "
+                     "skip points are not reconstructed."),
         },
         "trade_count_exported": len(enriched),
     }
@@ -98,8 +100,11 @@ def build_audit_zip(*, run, node, trades: List[dict], scope: str = "FULL_RUN") -
     # ---- trades.csv -------------------------------------------------------
     cols = ["id", "node_id", "run_id", "side", "instrument", "timeframe",
             "entry_ts", "entry_iso", "exit_ts", "exit_iso", "weekday", "session",
-            "entry_price", "exit_price", "volume", "initial_stop", "take_profit",
-            "final_stop", "planned_risk", "gross_pnl", "commission", "swap",
+            "entry_price", "exit_price", "entry_bid_quote", "entry_ask_quote",
+            "exit_bid_quote", "exit_ask_quote", "spread_entry_price", "spread_exit_price",
+            "volume", "initial_stop", "take_profit", "final_stop", "planned_risk",
+            "risk_amount", "realized_risk", "stop_distance", "tick_value_used",
+            "equity_before_entry", "gross_pnl", "commission", "swap", "slippage",
             "spread_cost", "net_pnl", "result", "exit_reason", "holding_seconds",
             "mfe_price", "mae_price"]
     buf = io.StringIO()
@@ -120,10 +125,14 @@ def build_audit_zip(*, run, node, trades: List[dict], scope: str = "FULL_RUN") -
         trade_events.append({"event": "TRADE_OPENED", "trade_id": t.get("id"),
                              "ts": t.get("entry_ts"), "iso": _iso(t.get("entry_ts")),
                              "side": t.get("side"), "price": t.get("entry_price"),
+                             "bid": t.get("entry_bid_quote"), "ask": t.get("entry_ask_quote"),
+                             "historical_spread_price": t.get("spread_entry_price"),
                              "volume": t.get("volume")})
         trade_events.append({"event": "TRADE_CLOSED", "trade_id": t.get("id"),
                              "ts": t.get("exit_ts"), "iso": _iso(t.get("exit_ts")),
                              "price": t.get("exit_price"),
+                             "bid": t.get("exit_bid_quote"), "ask": t.get("exit_ask_quote"),
+                             "historical_spread_price": t.get("spread_exit_price"),
                              "reason": t.get("exit_reason"), "net_pnl": t.get("net_pnl")})
         for mod in t.get("stop_history") or []:
             execution_events.append({"event": "STOP_MODIFIED", "trade_id": t.get("id"),
@@ -131,8 +140,20 @@ def build_audit_zip(*, run, node, trades: List[dict], scope: str = "FULL_RUN") -
         execution_events.append({
             "event": "EXECUTION_SUMMARY", "trade_id": t.get("id"),
             "entry_price": t.get("entry_price"), "exit_price": t.get("exit_price"),
+            "entry_bid_quote": t.get("entry_bid_quote"), "entry_ask_quote": t.get("entry_ask_quote"),
+            "exit_bid_quote": t.get("exit_bid_quote"), "exit_ask_quote": t.get("exit_ask_quote"),
+            "spread_entry_price": t.get("spread_entry_price"),
+            "spread_exit_price": t.get("spread_exit_price"),
+            "commission": t.get("commission"), "swap": t.get("swap"),
+            "slippage": t.get("slippage"),
+            "equity_before_entry": t.get("equity_before_entry"),
+            "condition_evaluations": t.get("condition_evaluations"),
+            "signal_ts": t.get("signal_ts"),
             "initial_stop": t.get("initial_stop"), "take_profit": t.get("take_profit"),
             "final_stop": t.get("final_stop"), "planned_risk": t.get("planned_risk"),
+            "risk_amount": t.get("risk_amount"), "realized_risk": t.get("realized_risk"),
+            "stop_distance": t.get("stop_distance"), "tick_value_used": t.get("tick_value_used"),
+            "sizing_calculation": t.get("sizing_calculation"),
             "spread_cost": t.get("spread_cost"), "commission": t.get("commission"),
             "swap": t.get("swap"),
             "slippage_note": "fills at next bar open (OHLC semantics); no tick-level "
@@ -160,7 +181,8 @@ def build_audit_zip(*, run, node, trades: List[dict], scope: str = "FULL_RUN") -
         decisions.append({"event": "TRADE_EXECUTED", "trade_id": t.get("id"),
                           "ts": t.get("entry_ts"), "iso": _iso(t.get("entry_ts")),
                           "side": t.get("side"), "node_id": run.node_id,
-                          "run_id": run.id})
+                          "run_id": run.id, "signal_ts": t.get("signal_ts"),
+                          "condition_evaluations": t.get("condition_evaluations")})
         decisions.append({"event": "TRADE_EXITED", "trade_id": t.get("id"),
                           "ts": t.get("exit_ts"), "iso": _iso(t.get("exit_ts")),
                           "reason": t.get("exit_reason")})
@@ -168,22 +190,26 @@ def build_audit_zip(*, run, node, trades: List[dict], scope: str = "FULL_RUN") -
 
     # ---- condition / indicator evidence -----------------------------------
     condition_rows, indicator_rows = [], []
-    if has_indicators:
-        for t in enriched:
+    for t in enriched:
+        if t.get("entry_indicators"):
             indicator_rows.append({"trade_id": t.get("id"), "ts": t.get("entry_ts"),
                                    "iso": _iso(t.get("entry_ts")),
                                    "indicators_at_entry": t.get("entry_indicators")})
-            condition_rows.append({
-                "trade_id": t.get("id"), "ts": t.get("entry_ts"),
-                "evidence": "entry indicator snapshot recorded by the engine",
-                "indicators_at_entry": t.get("entry_indicators"),
-                "boolean_evaluation": "UNVERIFIED - per-condition boolean results "
-                                      "were not persisted for this run"})
-    else:
-        for rows in (condition_rows, indicator_rows):
-            rows.append({"record_type": "EVIDENCE_STATUS",
-                         "status": "INCOMPLETE EVIDENCE",
-                         "detail": "no entry-indicator snapshots recorded for this run"})
+        evaluations = t.get("condition_evaluations") or []
+        condition_rows.append({
+            "trade_id": t.get("id"), "ts": t.get("signal_ts"),
+            "iso": _iso(t.get("signal_ts")),
+            "candle_index": t.get("signal_candle_index"),
+            "condition_evaluations": evaluations,
+            "evidence": ("recorded at executed signal candle" if evaluations
+                         else "INCOMPLETE EVIDENCE - no condition results persisted"),
+            "non_signal_and_rejection_bars": "UNVERIFIED - not reconstructed"})
+    if not condition_rows:
+        condition_rows.append({"record_type": "EVIDENCE_STATUS", "status": "INCOMPLETE EVIDENCE",
+                               "detail": "no executed signal condition evaluations recorded"})
+    if not indicator_rows:
+        indicator_rows.append({"record_type": "EVIDENCE_STATUS", "status": "INCOMPLETE EVIDENCE",
+                              "detail": "no entry-indicator snapshots recorded for this run"})
 
     # ---- compliance --------------------------------------------------------
     checks = []
