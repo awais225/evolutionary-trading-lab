@@ -117,6 +117,75 @@ class DeepTestTrade(Base):
     exit_reason: Mapped[str | None] = mapped_column(String(40), nullable=True)
 
 
+class DeepTestRun(Base):
+    """One DeepTesting execution record (Phase 3). Immutable once finished:
+    reruns create new rows. Config + data-quality snapshots are stored
+    verbatim so any historical result can be reproduced exactly."""
+    __tablename__ = "deeptest_runs"
+    __table_args__ = (Index("ix_dtr_node", "instrument_id", "node_id"),
+                      Index("ix_dtr_status", "instrument_id", "status"))
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    instrument_id: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    node_id: Mapped[int] = mapped_column(Integer, ForeignKey("nodes.id", ondelete="CASCADE"), nullable=False)
+    node_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    scenario_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # deeptest_scenario_defs.id
+    mode: Mapped[str] = mapped_column(String(24), nullable=False, default="initial")  # initial|deeptest|oos|walkforward|robustness
+    window_label: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="RUNNING")  # RUNNING|DONE|FAILED
+    fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    compiler_version: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    engine_version: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    timeframe: Mapped[str | None] = mapped_column(String(4), nullable=True)
+    config_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    data_quality_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    assumptions_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metrics_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    equity_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    skipped_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[float] = mapped_column(Float, nullable=False, default=utcnow)
+    finished_at: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+
+class DeepTestRunTrade(Base):
+    """One simulated trade belonging to a run. Full ledger per Part N."""
+    __tablename__ = "deeptest_run_trades"
+    __table_args__ = (Index("ix_dtrt_run", "instrument_id", "run_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    instrument_id: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    run_id: Mapped[int] = mapped_column(Integer, ForeignKey("deeptest_runs.id", ondelete="CASCADE"), nullable=False)
+    node_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    side: Mapped[str] = mapped_column(String(5), nullable=False)
+    volume: Mapped[float] = mapped_column(Float, nullable=False)
+    entry_ts: Mapped[float] = mapped_column(Float, nullable=False)
+    entry_price: Mapped[float] = mapped_column(Float, nullable=False)
+    exit_ts: Mapped[float | None] = mapped_column(Float, nullable=True)
+    exit_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    exit_reason: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    net_pnl: Mapped[float | None] = mapped_column(Float, nullable=True)
+    detail_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class DeepTestScenarioDef(Base):
+    """Saved scenario configuration. Edits create a NEW row (version+1,
+    parent_scenario_id set) - historical runs keep pointing at the exact
+    configuration they executed."""
+    __tablename__ = "deeptest_scenario_defs"
+    __table_args__ = (Index("ix_dtsd_folder", "instrument_id", "folder"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    instrument_id: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    folder: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    parent_scenario_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    config_json: Mapped[str] = mapped_column(Text, nullable=False)
+    config_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[float] = mapped_column(Float, nullable=False, default=utcnow)
+
+
 class ResearchTask(Base):
     __tablename__ = "research_tasks"
     __table_args__ = (Index("ix_rt_instr_status", "instrument_id", "status"),)

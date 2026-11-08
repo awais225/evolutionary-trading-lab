@@ -5,6 +5,64 @@ exact commit SHA and tag. Claims only for what was implemented AND verified.
 
 ---
 
+## [Phase 3] — 2026-11-07 — DeepTesting: complete historical execution engine, analytics & scenario workspace
+
+- **Engine** (`hero1_exec_semantics.engine` v3.0.0, ONE engine for all modes):
+  executes Phase 2 compiled IR over canonical-store candles. Mandatory hard
+  constraints first: initial capital + currency, risk per trade (% of
+  initial-capital or current-equity basis, or fixed money) sized from the
+  ACTUAL stop distance via tick size/value and volume step/min/max (rounds
+  down, refuses rather than exceeding the budget; missing SL or tick value
+  rejects explicitly), MAX ACTIVE TRADES (default 1) per node/scenario —
+  skipped signals recorded, never queued. Bid/ask model (candles = bid,
+  ask = bid + configured spread), slippage/commission/swap as explicit
+  recorded assumptions, gap-overrun fills at the open, conservative
+  same-candle SL/TP ambiguity policy (flagged on the trade), prioritized
+  exit rules, time exits, END_OF_DATA closure. Phase 2 stop management is
+  applied through the shared evaluator; **indicator trailing is now
+  evaluated** (indicator value at last completed bar, never loosens,
+  explicit error on missing context). Indicators are causal
+  (`hero1_indicators`): SMA/EMA/RSI/ATR/MACD/BBANDS/ROC/STOCH/ADX/VWAP.
+- **Persistence** (migration `0004_deeptesting`): `deeptest_runs`,
+  `deeptest_run_trades`, `deeptest_scenario_defs` — immutable run records
+  with config/data-quality/assumption snapshots, fingerprint, compiler and
+  engine versions; scenario edits create new versions; reruns create new
+  runs. ISSUE-060 readiness gates execution (BLOCKED → FAILED row with
+  reasons, zero trades). Modes: initial, DeepTest, OOS split, walk-forward
+  windows (sequential test windows; no parameter optimization exists in
+  this phase), robustness batches.
+- **Analytics**: full trade ledger (planned vs realized risk, MFE/MAE, stop
+  history, entry indicator snapshot, ambiguity/gap flags), metrics incl.
+  equity-based drawdown events, streaks, session/weekday/month buckets
+  (entry-time, UTC), Sharpe/Sortino from daily equity returns (N/A when
+  not computable), trade filters (AND/OR), TP/SL offset scenarios by
+  re-execution, scenario generator with combinatorial cap, weighted
+  ranking, run comparison, fine-tune suggestions from real ledgers that
+  create FINE_TUNED child nodes (parent untouched, lineage recorded).
+- **Workspace**: DeepTesting page rebuilt — hard constraints on top
+  (capital presets/custom, risk mode/basis with live money figure, MAX
+  ACTIVE default 1), node selection with search/filters preserving real
+  node identity (existing shared BatchScope retained as informational;
+  engine always honours each node's own instrument/timeframe), readiness
+  check, test configuration, scenarios, sortable results/ranking/
+  comparison, run detail with equity + drawdown charts and inspectable
+  trades (shared `lib/tableSort`).
+- **Verification**: backend 303 passed / 1 skipped (13 new: hand-computed
+  acceptance — entry 94.0, volume 5.0 lots, planned risk exactly 100.0,
+  TP +200.0; MAX ACTIVE 1/2 behaviour; stepped ladder stops 94→96→98→100;
+  SHORT symmetry; gap/ambiguity; indicator trailing monotonicity; BLOCKED
+  gating; scenario versioning) · frontend 71/71 · production build clean.
+  Real-data acceptance (read-only): EMA9/SMA20 stepped-trailing node over
+  5,938 real XAUUSD H1 2024 candles -> 175 trades, first trades'
+  entries independently recomputed from closes, stepped stops observed at
+  exactly entry/+3.00, no overlapping positions, ledger reconciles with
+  metrics. Windows/MT5 NOT VERIFIED.
+- **Limitations**: lower-timeframe resolution of same-candle ambiguity is
+  not used (conservative policy instead, flagged); walk-forward has no
+  parameter optimization (windows are evaluations); pending_stop/pyramid
+  specs refuse explicitly; free-margin is tracked only where metadata
+  supports it (open risk + exposure come from the ledger/equity curve).
+
 ## [Phase 2 completion] — 2026-11-07 — strategy spec completion: trade management, prioritized exits, shared stop semantics
 
 - **Spec (schema 1.1.0; 1.0.0 still accepted, old fingerprints byte-identical):**

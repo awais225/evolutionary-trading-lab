@@ -21,16 +21,18 @@ NOT included (by design):
 natural-language → spec generation (Phase 7/WWW), backtesting (Phase 4),
 execution (Phase 5), indicator math (Phase 3).
 
-## Phase 3 — Market data & indicator engine ⛔
+## Phase 3 — Market data & indicator engine ✅ (indicators landed with DeepTesting, 2026-11-07; market data = ISSUE-051..060 line)
 MT5 history sync to MARKET_DATA (Parquet), candle store, indicator library with
 unit-verified formulas, timeframe handling, synthetic-data test fixtures.
-(packages/exec_semantics + packages/indicators remain inert skeletons; the
-Phase-2 spec already carries warmed-up indicator refs + candle semantics.)
+Indicator mathematics landed 2026-11-07 in `hero1_indicators` (causal series,
+warmups as None) together with the DeepTesting engine below.
 
-## Phase 4 — DeepTesting & backtesting ⛔
+## Phase 4 — DeepTesting & backtesting ✅ (implemented as "Phase 3: DeepTesting" per owner brief, 2026-11-07)
+DELIVERED: one pure engine (`hero1_exec_semantics.engine`, v3.0.0) executes Phase 2 compiled IR over canonical candles under mandatory hard constraints (initial capital, %/fixed risk on an explicit basis, MAX ACTIVE TRADES default 1 per node/scenario), bid/ask + spread/slippage/commission/swap assumptions recorded per run, conservative same-candle SL/TP ambiguity flagging, gap-overrun fills, Phase 2 stop management plus indicator trailing (completed here), prioritized exit rules, causal indicators (SMA/EMA/RSI/ATR/MACD/BBANDS/ROC/STOCH/ADX/VWAP). ISSUE-060 readiness gates every run (BLOCKED persists as FAILED, never tested); runs/trades/scenarios persist immutably with config + data-quality snapshots (migration 0004); analytics (drawdown on equity, streaks, sessions/time buckets, Sharpe/Sortino on daily returns), scenario generation with explosion cap, TP/SL offsets by re-execution, ranking, comparison, fine-tune suggestions creating FINE_TUNED children. Verified: hand-computed acceptance fixtures + real XAUUSD H1 2024 run (5,938 candles, 175 trades, entries independently cross-verified, no overlapping positions, ledger reconciles).
 Single execution engine behind every mode: initial backtest, OOS, walk-forward,
 robustness, Monte-Carlo, comparison matrices, trade-level inspector, exports.
-`services/worker` hosts long runs; FE tabs for DEEPTEST/COMPARISON.
+Runs execute via the API today (synchronous, candle-capped); a worker queue
+remains a future scaling step.
 
 ## Phase 5 — MT5 live testing (Windows) ⛔
 Demo-first ordered flow: approved version + kill switch + account guard.

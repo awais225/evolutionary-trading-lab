@@ -13,8 +13,14 @@ from .stop_management import (
     PriceContext, RuleEffect, SemanticsError, StopEvaluation,
     evaluate_stop_management, resolve_distance,
 )
+from .engine import (
+    ENGINE_VERSION, EngineError, InstrumentSpec, RunConfig,
+    evaluate_tree, run_backtest, session_of, size_position,
+)
 
-__version__ = "0.2.0"
+__version__ = "3.0.0"
 
 __all__ = ["PriceContext", "RuleEffect", "SemanticsError", "StopEvaluation",
-           "evaluate_stop_management", "resolve_distance", "__version__"]
+           "evaluate_stop_management", "resolve_distance", "__version__",
+           "ENGINE_VERSION", "EngineError", "InstrumentSpec", "RunConfig",
+           "evaluate_tree", "run_backtest", "session_of", "size_position"]

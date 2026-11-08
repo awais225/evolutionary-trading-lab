@@ -1,5 +1,9 @@
-"""Indicator library — Phase 3. Phase 1: skeleton only.
-Ported and unit-verified incrementally from the audited legacy library,
-never by bulk copy: each indicator lands with its own property tests.
-"""
+"""Indicator library — Phase 3 mathematics (causal series: SMA/EMA/RSI/ATR/
+MACD/BBANDS/ROC/STOCH/ADX/VWAP). Warmup positions are None, never filled.
+Formulas documented in compute.py."""
+from .compute import compute_indicator
+
+__version__ = "0.3.0"
 __phase__ = 3
+
+__all__ = ["compute_indicator", "__version__"]

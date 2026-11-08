@@ -128,6 +128,38 @@ export const api = {
       request<Mt5ConnectionResult>('POST', '/api/v1/mt5/connect', terminal_path ? { terminal_path } : {}),
     disconnect: () => request<{ ok: boolean; detail: string }>('POST', '/api/v1/mt5/disconnect'),
   },
+  deeptesting: {
+    createRuns: (instrument: string, nodeIds: number[], config: Record<string, unknown>) =>
+      request<{ runs: any[] }>('POST', `/api/v1/instruments/${instrument}/deeptesting/runs`, { node_ids: nodeIds, config }),
+    listRuns: (instrument: string, params: { node_id?: number; status?: string } = {}) => {
+      const q = new URLSearchParams()
+      if (params.node_id) q.set('node_id', String(params.node_id))
+      if (params.status) q.set('status', params.status)
+      return request<{ runs: any[] }>('GET', `/api/v1/instruments/${instrument}/deeptesting/runs?${q}`)
+    },
+    getRun: (instrument: string, id: number) =>
+      request<any>('GET', `/api/v1/instruments/${instrument}/deeptesting/runs/${id}`),
+    trades: (instrument: string, id: number, filters?: Record<string, unknown>) =>
+      request<{ trades: any[]; count: number }>('GET', `/api/v1/instruments/${instrument}/deeptesting/runs/${id}/trades${filters ? `?filters=${encodeURIComponent(JSON.stringify(filters))}` : ''}`),
+    rerun: (instrument: string, id: number) =>
+      request<any>('POST', `/api/v1/instruments/${instrument}/deeptesting/runs/${id}/rerun`),
+    rankings: (instrument: string, body: Record<string, unknown>) =>
+      request<{ ranking: any[] }>('POST', `/api/v1/instruments/${instrument}/deeptesting/rankings`, body),
+    listScenarios: (instrument: string) =>
+      request<{ scenarios: any[] }>('GET', `/api/v1/instruments/${instrument}/deeptesting/scenarios`),
+    createScenario: (instrument: string, body: Record<string, unknown>) =>
+      request<any>('POST', `/api/v1/instruments/${instrument}/deeptesting/scenarios`, body),
+    editScenario: (instrument: string, id: number, body: Record<string, unknown>) =>
+      request<any>('PUT', `/api/v1/instruments/${instrument}/deeptesting/scenarios/${id}`, body),
+    deleteScenario: (instrument: string, id: number) =>
+      request<any>('DELETE', `/api/v1/instruments/${instrument}/deeptesting/scenarios/${id}`),
+    generateScenarios: (instrument: string, body: Record<string, unknown>) =>
+      request<any>('POST', `/api/v1/instruments/${instrument}/deeptesting/scenarios/generate`, body),
+    suggestions: (instrument: string, runId: number) =>
+      request<{ suggestions: any[] }>('GET', `/api/v1/instruments/${instrument}/deeptesting/runs/${runId}/fine-tune-suggestions`),
+    fineTuneApply: (instrument: string, runId: number, suggestion: Record<string, unknown>) =>
+      request<any>('POST', `/api/v1/instruments/${instrument}/deeptesting/runs/${runId}/fine-tune-apply`, { suggestion }),
+  },
   marketData: {
     get: (instrument: string) => request<MarketDataAvailability>('GET', `/api/v1/instruments/${instrument}/market-data`),
     fetch: (instrument: string, timeframe = 'ALL', operationId?: string) =>
