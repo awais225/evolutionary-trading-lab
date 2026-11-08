@@ -189,7 +189,8 @@ def test_async_deeptesting_task_progress_and_ack(client, seeded_store):
     assert task["status"] == "COMPLETED", task
     assert task["percentage"] == 100.0 and task["completed_units"] == 2
     nodes = task["payload"]["nodes"]
-    assert [n["status"] for n in nodes] == ["COMPLETED", "COMPLETED"]
+    assert [n["status"] for n in nodes] == ["COMPLETED_WITH_WARNINGS", "COMPLETED_WITH_WARNINGS"]
+    assert all(n["warnings"] for n in nodes)
     assert all(n["trades"] == 1 for n in nodes)  # separate runs, never mixed
     assert len({n["run_id"] for n in nodes}) == 2
     # completed bar stays visible until the DeepTesting tab acknowledges it

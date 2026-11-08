@@ -756,6 +756,16 @@ tr:hover .name-edit-btn, .name-text:focus-visible + .name-edit-btn { opacity: 1;
 .feed-card-title { font-weight: 700; font-size: 11.5px; letter-spacing: 0.05em; }
 .feed-card-line { font-size: 11.5px; opacity: 0.85; }
 .feed-card-status { font-size: 10.5px; font-weight: 700; opacity: 0.7; }
+/* compact task-stat tiles preserve content/filter behavior while returning height to the event stream */
+.feed-cards { gap: 5px; padding: 5px 7px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.feed-card { padding: 5px 7px; gap: 1px; }
+.feed-card-title { font-size: 10.5px; line-height: 1.2; }
+.feed-card-line { font-size: 10px; line-height: 1.2; }
+.feed-card-status { font-size: 9.5px; line-height: 1.15; }
+.livefeed-filters { gap: 3px; padding: 5px 8px; }
+.livefeed-head { padding: 8px 11px; }
+.livefeed-body { min-height: 0; }
+@media (max-width: 430px) { .feed-cards { grid-template-columns: 1fr 1fr; } }
 .dt-dir-compare td:nth-child(2), .dt-dir-compare td:nth-child(3) { text-align: right; font-variant-numeric: tabular-nums; }
 .dir-long { color: #3fb950; font-weight: 600; }
 .dir-short { color: #f85149; font-weight: 600; }
@@ -783,3 +793,11 @@ tr:hover .name-edit-btn, .name-text:focus-visible + .name-edit-btn { opacity: 1;
 .dt-dir-extra { font-size:10px; margin:3px 0 6px; }
 .dt-dir-extra summary { cursor:pointer; color:var(--muted); }
 @media (max-width:700px) { .dt-dir-cards { grid-template-columns:1fr; } }
+
+.dt-error-panel { border:1px solid rgba(248,81,73,.55); background:rgba(248,81,73,.07); border-radius:7px; padding:8px 10px; margin:7px 0; font-size:11px; }
+.dt-error-blocked { border-color:rgba(230,185,61,.6); background:rgba(230,185,61,.07); }
+.dt-error-panel p { margin:4px 0; }
+.dt-error-panel details { margin-top:5px; }
+.dt-error-panel summary { cursor:pointer; color:var(--muted); }
+.dt-error-panel pre { max-height:220px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; font-size:10px; }
+.dt-progress-table .dt-error-panel { min-width:230px; }

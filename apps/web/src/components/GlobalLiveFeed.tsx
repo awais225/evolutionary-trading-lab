@@ -62,7 +62,7 @@ export function GlobalLiveFeed() {
     if (cat === 'DEEPTESTING' && t.payload?.nodes) {
       const nodes = t.payload.nodes as any[]
       const cur = nodes.find((n) => n.status === 'RUNNING')
-      lines.push(`Completed ${nodes.filter((n) => n.status === 'COMPLETED').length} · failed/blocked ${nodes.filter((n) => ['FAILED', 'BLOCKED'].includes(n.status)).length} · remaining ${nodes.filter((n) => n.status === 'QUEUED').length}`)
+      lines.push(`Completed ${nodes.filter((n) => ['COMPLETED', 'COMPLETED_WITH_WARNINGS'].includes(n.status)).length} · failed/blocked ${nodes.filter((n) => ['FAILED', 'BLOCKED'].includes(n.status)).length} · remaining ${nodes.filter((n) => n.status === 'QUEUED').length}`)
       if (cur) lines.push(`Current: Node ${cur.node_id} — ${cur.name} · ${cur.trades} trades${cur.progress_pct != null ? ` · ${Math.round(cur.progress_pct)}%` : ''}`)
     }
     if (cat === 'DATA_FETCHING' && t.payload) {
@@ -82,7 +82,7 @@ export function GlobalLiveFeed() {
         <span className="livefeed-count">{status === 'open' ? `STREAMING · ${visible.length}` : status === 'connecting' ? 'CONNECTING…' : 'RECONNECTING…'}</span>
         <button className="btn btn-ghost btn-sm" onClick={() => setOpen(false)} aria-label="Collapse live feed">✕</button>
       </div>
-      <div className="feed-cards" role="group" aria-label="Subsystem activity">
+      <div className="feed-cards feed-cards-compact" role="group" aria-label="Subsystem activity">
         {Object.keys(TASK_COLORS).map((cat) => {
           const t = latest[cat]
           const active = card?.category === cat

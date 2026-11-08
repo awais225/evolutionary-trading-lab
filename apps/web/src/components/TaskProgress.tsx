@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import { TASK_COLORS, TERMINAL, useTasks } from '../state/tasks'
 
 /** Global dashboard task progress area (Section 1): one bar per active or
@@ -5,10 +6,28 @@ import { TASK_COLORS, TERMINAL, useTasks } from '../state/tasks'
  * Percentages come straight from the shared backend task records. */
 export function TaskProgressBars() {
   const { tasks } = useTasks()
-  if (!tasks.length) return null
+  const [dismissed, setDismissed] = useState<Record<string, boolean>>({})
+  const timers = useRef(new Map<string, number>())
+  useEffect(() => {
+    tasks.filter((t) => TERMINAL.includes(t.status)).forEach((t) => {
+      const key = `${t.id}:${t.status}`
+      if (dismissed[key] || timers.current.has(key)) return
+      const timer = window.setTimeout(() => {
+        timers.current.delete(key)
+        setDismissed((prev) => ({ ...prev, [key]: true }))
+      }, 5000)
+      timers.current.set(key, timer)
+    })
+  }, [tasks, dismissed])
+  useEffect(() => () => {
+    timers.current.forEach(window.clearTimeout)
+    timers.current.clear()
+  }, [])
+  const visibleTasks = tasks.filter((t) => !dismissed[`${t.id}:${t.status}`])
+  if (!visibleTasks.length) return null
   return (
     <div className="task-progress-area" role="region" aria-label="Task progress">
-      {tasks.map((t) => {
+      {visibleTasks.map((t) => {
         const terminal = TERMINAL.includes(t.status)
         const color = TASK_COLORS[t.category] ?? '#8b949e'
         return (

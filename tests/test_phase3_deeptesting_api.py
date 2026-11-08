@@ -42,12 +42,16 @@ def test_deeptesting_run_end_to_end(client, seeded_store):
         "config": {"mode": "initial", "range": {"start": start, "end": end},
                    "initial_capital": 10000, "risk_mode": "percent", "risk_value": 1.0,
                    "risk_basis": "initial_capital", "max_active_trades": 1,
+                   "spread_mode": "no_spread",
                    "tick_size": 0.1, "tick_value_account": 1.0,
                    "volume_min": 0.01, "volume_max": 100, "volume_step": 0.01}})
     assert r.status_code == 200, r.text
     run = r.json()["runs"][0]
     assert run["status"] == "DONE", run
     assert run["fingerprint"] and run["engine_version"] == "3.1.0"
+    assert run["config"]["spread_mode"] == "no_spread"
+    detail = client.get(f"/api/v1/instruments/XAUUSD/deeptesting/runs/{run['id']}").json()
+    assert detail["assumptions"]["spread_mode"] == "no_spread"
     assert run["metrics"]["total_trades"] == 1
     assert run["metrics"]["net_profit"] == 200.0
 

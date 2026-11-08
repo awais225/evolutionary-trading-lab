@@ -10,7 +10,10 @@ loudly with the exact reason, recorded on the run row.
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
+import logging
+import traceback
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
@@ -28,6 +31,42 @@ from hero1_storage import instrument_models as im
 from . import market_data_service, metadata_service, spec_service
 
 MAX_CANDLES_PER_RUN = 250_000
+_LOG = logging.getLogger("hero1.api.deeptesting")
+BLOCKED_ERROR_CODES = {"DATA_BLOCKED", "HISTORICAL_SPREAD_UNAVAILABLE", "MISSING_TICK_SIZE",
+                       "MISSING_TICK_VALUE", "UNSUPPORTED_CHART_PRICE_MODE",
+                       "UNSUPPORTED_SWAP_MODE", "INVALID_SPREAD_MODE"}
+
+
+def _execution_log(stage: str, status: str, *, task_id=None, run_id=None, node_id=None,
+                   instrument=None, timeframe=None, started=None, details=None, exc=None):
+    frame = inspect.currentframe().f_back
+    now = time.time()
+    record = {"ts": datetime.now(timezone.utc).isoformat(), "task_id": task_id,
+              "run_id": run_id, "node_id": node_id, "instrument": instrument,
+              "timeframe": timeframe, "stage": stage, "status": status,
+              "module": frame.f_globals.get("__name__"), "function": frame.f_code.co_name,
+              "file": frame.f_code.co_filename, "line": frame.f_lineno,
+              "elapsed_ms": round((now - started) * 1000, 3) if started else None,
+              "details": details or {}}
+    if exc is not None:
+        tb = traceback.TracebackException.from_exception(exc)
+        frames = traceback.extract_tb(exc.__traceback__)
+        leaf = frames[-1] if frames else None
+        record["exception_type"] = type(exc).__name__
+        record["exception_message"] = str(exc)
+        record["exception_file"] = leaf.filename if leaf else None
+        record["exception_function"] = leaf.name if leaf else None
+        record["exception_line"] = leaf.lineno if leaf else None
+        record["traceback"] = "".join(tb.format())
+    line = "DEEPUTEST_STAGE %s"
+    payload = json.dumps(record, default=str)
+    if status == "FAILED":
+        _LOG.error(line, payload)
+    elif status in ("BLOCKED", "WARNING", "REJECTED", "NO_SIGNAL"):
+        _LOG.warning(line, payload)
+    else:
+        _LOG.info(line, payload)
+    return record
 
 
 class DeepTestError(Exception):
@@ -203,11 +242,13 @@ def available_bounds(instrument: str, timeframe: str) -> Optional[dict]:
 
 def execute_run(session: Session, *, instrument: str, node: im.Node,
                 config: dict, scenario_id: Optional[int] = None,
-                progress_cb=None) -> im.DeepTestRun:
+                progress_cb=None, task_id: Optional[str] = None) -> im.DeepTestRun:
     """Execute one node under one config snapshot and persist the result.
     `config` carries: range {start,end}, mode + mode params, RunConfig
     fields and engine assumptions. Readiness BLOCKED => FAILED run row
     with the blocking reasons (never silently tested)."""
+    started = time.time()
+    stage = "RUN_INITIALIZATION"
     run = im.DeepTestRun(instrument_id=instrument.upper(), node_id=node.id,
                          node_version=node.version, scenario_id=scenario_id,
                          mode=str(config.get("mode") or "initial"),
@@ -215,9 +256,27 @@ def execute_run(session: Session, *, instrument: str, node: im.Node,
     session.add(run)
     session.commit()
     session.refresh(run)
+    _execution_log(stage, "STARTED", task_id=task_id, run_id=run.id, node_id=node.id, instrument=instrument, timeframe=node.timeframe, started=started)
     try:
+        stage = "STRATEGY_LOADING"
+        _execution_log("NODE_RETRIEVAL", "COMPLETED", task_id=task_id, run_id=run.id, node_id=node.id, instrument=instrument, started=started, details={"node_version": node.version})
         spec = json.loads(node.spec_json) if node.spec_json else None
+        _execution_log(stage, "COMPLETED", task_id=task_id, run_id=run.id, node_id=node.id, instrument=instrument, timeframe=(spec or {}).get("identity", {}).get("timeframe"), started=started, details={"spec_loaded": spec is not None})
+        stage = "DEEPTESTING_CONFIGURATION_LOADING"
+        _execution_log(stage, "COMPLETED", task_id=task_id, run_id=run.id, node_id=node.id, instrument=instrument, started=started, details={"config_keys": sorted(config.keys()), "mode": config.get("mode"),
+                        "range": config.get("range"), "spread_mode": config.get("spread_mode"),
+                        "risk_mode": config.get("risk_mode"), "risk_value": config.get("risk_value"),
+                        "max_active_trades": config.get("max_active_trades"),
+                        "account_currency": config.get("account_currency")})
+        stage = "INSTRUMENT_SPECIFICATION_LOADING"
         broker_meta_pre = spec_service._resolve_broker_meta(instrument, config.get("broker_meta"))
+        _execution_log(stage, "COMPLETED", task_id=task_id, run_id=run.id, node_id=node.id, instrument=instrument, started=started, details={"metadata_available": bool(broker_meta_pre),
+                        "instrument_metadata": {key: value for key, value in
+                            ((broker_meta_pre or {}).get(instrument.upper()) or {}).items()
+                            if key in {"point", "digits", "tick_size", "tick_value", "tick_value_loss",
+                                       "tick_value_profit", "contract_size", "volume_min", "volume_max",
+                                       "volume_step", "currency_base", "currency_profit", "swap_mode"}},
+                        "broker_server": (metadata_service.best_snapshot(instrument) or {}).get("broker_server")})
         pip_size = ((broker_meta_pre or {}).get(instrument.upper()) or {}).get("pip_size")
         if pip_size is None and config.get("pip_size"):
             pip_size = float(config["pip_size"])
@@ -235,7 +294,9 @@ def execute_run(session: Session, *, instrument: str, node: im.Node,
         run.timeframe = tf
         rng = config.get("range") or {}
         req_start, req_end = rng.get("start"), rng.get("end")
+        stage = "HISTORICAL_DATA_RETRIEVAL"
         bounds = available_bounds(instrument, tf)
+        _execution_log(stage, "COMPLETED" if bounds else "BLOCKED", task_id=task_id, run_id=run.id, node_id=node.id, instrument=instrument, timeframe=tf, started=started, details=bounds or {"reason": "no stored candle bounds"})
         if bounds is None:
             raise DeepTestError("DATA_BLOCKED",
                                 f"no eligible candles stored for {instrument} {tf}; nothing to test")
@@ -263,7 +324,9 @@ def execute_run(session: Session, *, instrument: str, node: im.Node,
                                     "first_ts": bounds["first_ts"],
                                     "last_ts": bounds["last_ts"],
                                     "candles_available": bounds["candles"]}}
+        stage = "CANDLE_VALIDATION"
         dq = readiness(instrument, tf, start_ts, end_ts)
+        _execution_log(stage, "COMPLETED" if dq.get("readiness") != "BLOCKED" else "BLOCKED", task_id=task_id, run_id=run.id, node_id=node.id, instrument=instrument, timeframe=tf, started=started, details={"readiness": dq.get("readiness"), "candles": bounds["candles"]})
         run.data_quality_json = json.dumps(dq)
         if dq.get("readiness") == "BLOCKED":
             raise DeepTestError("DATA_BLOCKED",
@@ -286,7 +349,9 @@ def execute_run(session: Session, *, instrument: str, node: im.Node,
         else:
             config = {**config, "specification_snapshot": None,
                       "specification_assumption": "no MT5 snapshot available; run cannot claim current or historical broker specifications"}
+        stage = "STRATEGY_COMPILATION_VALIDATION"
         _report, compiled = spec_service.compile_or_raise(spec, instrument, broker_meta)
+        _execution_log(stage, "COMPLETED", task_id=task_id, run_id=run.id, node_id=node.id, instrument=instrument, timeframe=tf, started=started, details={"fingerprint": compiled.fingerprint, "compiler_version": compiled.compiler_version})
         run.fingerprint = compiled.fingerprint
         run.compiler_version = compiled.compiler_version
         run.engine_version = ENGINE_VERSION
@@ -308,6 +373,9 @@ def execute_run(session: Session, *, instrument: str, node: im.Node,
         mt5_triple_day = spec_fields.get("swap_rollover3days")
         inferred_triple_weekday = ((int(mt5_triple_day) - 1) % 7
                                    if mt5_triple_day is not None else 2)
+        selected_spread_mode = str(config.get("spread_mode") or ("historical_points" if ((broker_meta or {}).get(instrument.upper()) or {}).get("point_size") else "fixed"))
+        if selected_spread_mode not in ("historical_points", "no_spread", "fixed"):
+            raise DeepTestError("INVALID_SPREAD_MODE", f"unsupported spread mode {selected_spread_mode!r}")
         rcfg = RunConfig(
             initial_capital=float(config.get("initial_capital") or 10000.0),
             account_currency=str(config.get("account_currency") or "USD"),
@@ -316,7 +384,7 @@ def execute_run(session: Session, *, instrument: str, node: im.Node,
             risk_basis=str(config.get("risk_basis") or "current_equity"),
             max_active_trades=int(config.get("max_active_trades") or 1),
             spread_price=float(config.get("spread_price") or 0.0),
-            spread_mode=str(config.get("spread_mode") or ("historical_points" if ((broker_meta or {}).get(instrument.upper()) or {}).get("point_size") else "fixed")),
+            spread_mode=selected_spread_mode,
             point_size=float((((broker_meta or {}).get(instrument.upper()) or {}).get("point_size") or 0.0)) or None,
             missing_spread_policy=str(config.get("missing_spread_policy") or "block"),
             slippage_price=float(config.get("slippage_price") or 0.0),
@@ -333,8 +401,26 @@ def execute_run(session: Session, *, instrument: str, node: im.Node,
             tp_offset_price=float(config.get("tp_offset_price") or 0.0),
             sl_offset_price=float(config.get("sl_offset_price") or 0.0),
         )
+        config = {**config, "spread_mode": selected_spread_mode,
+                  "missing_spread_policy": rcfg.missing_spread_policy,
+                  "spread_price": rcfg.spread_price,
+                  "slippage_price": rcfg.slippage_price,
+                  "commission_mode": rcfg.commission_mode,
+                  "commission_per_lot_round_turn": rcfg.commission_per_lot_round_turn,
+                  "commission_per_lot_per_side": rcfg.commission_per_lot_per_side,
+                  "swap_type": rcfg.swap_type}
+        stage = "INSTRUMENT_SPECIFICATION_LOADING"
         spec_meta = _instrument_spec(instrument, config)
         m0 = ((broker_meta or {}).get(instrument.upper())) or {}
+        _execution_log(stage, "COMPLETED", task_id=task_id, run_id=run.id,
+                       node_id=node.id, instrument=instrument, timeframe=tf, started=started,
+                       details={"tick_size": spec_meta.tick_size,
+                                "tick_value_account": spec_meta.tick_value_account,
+                                "tick_value_quote": spec_meta.tick_value_quote,
+                                "contract_size": spec_meta.contract_size,
+                                "volume_min": spec_meta.volume_min,
+                                "volume_max": spec_meta.volume_max,
+                                "volume_step": spec_meta.volume_step})
         price_ctx = PriceContext(pip_size=m0.get("pip_size"), point_size=m0.get("point_size"),
                                  tick_size=m0.get("tick_size"))
         windows = build_windows(run.mode, int(start_ts), int(end_ts), config) \
@@ -347,6 +433,7 @@ def execute_run(session: Session, *, instrument: str, node: im.Node,
             "spread_price": rcfg.spread_price,
             "spread_source": ("historical candle spread points x instrument point size"
                               if rcfg.spread_mode == "historical_points" else
+                              "NO SPREAD: zero-spread assumption; no spread adjustment applied" if rcfg.spread_mode == "no_spread" else
                               "configured constant spread assumption" if rcfg.spread_price else
                               "zero spread assumption; historical spread not enabled/point size unavailable"),
             "spread_mode": rcfg.spread_mode,
@@ -393,17 +480,45 @@ def execute_run(session: Session, *, instrument: str, node: im.Node,
             run.assumptions_json = json.dumps(_assump)
             session.commit()
         for window in windows:
+            stage = "HISTORICAL_DATA_RETRIEVAL"
             candles = load_candles(instrument, tf, window["start"], window["end"])
+            _execution_log(stage, "COMPLETED", task_id=task_id, run_id=run.id, node_id=node.id, instrument=instrument, timeframe=tf, started=started, details={"candle_count": len(candles), "window": window})
+            stage = "SPREAD_RETRIEVAL_VALIDATION"
+            spread_missing = sum(c.get("spread") is None for c in candles)
+            _execution_log(stage, "COMPLETED" if not spread_missing or rcfg.spread_mode != "historical_points" else "WARNING", task_id=task_id, run_id=run.id, node_id=node.id, instrument=instrument, timeframe=tf, started=started, details={"mode": rcfg.spread_mode, "missing_count": spread_missing, "point_size": rcfg.point_size, "policy": rcfg.missing_spread_policy})
             if len(candles) > MAX_CANDLES_PER_RUN:
                 raise DeepTestError("RANGE_TOO_LARGE",
                                     f"{len(candles)} candles exceed the {MAX_CANDLES_PER_RUN} per-run cap")
             mgmt = None
             if spec.get("management"):
                 mgmt = TradeManagement.model_validate(spec["management"])
+            stage = "ENGINE_EXECUTION"
+            _execution_log("INDICATOR_INITIALIZATION", "STARTED", task_id=task_id, run_id=run.id, node_id=node.id, instrument=instrument, timeframe=tf, started=started)
+            def _stage_cb(engine_stage, engine_status, engine_details):
+                _execution_log(engine_stage, engine_status, task_id=task_id,
+                               run_id=run.id, node_id=node.id, instrument=instrument,
+                               timeframe=tf, started=started, details=engine_details)
+
             result = run_backtest(ir=compiled.ir, candles=candles, cfg=rcfg,
                                   instrument=spec_meta, price_ctx=price_ctx, management=mgmt,
-                                  aux_candles=aux_candles, progress_cb=progress_cb)
+                                  aux_candles=aux_candles, progress_cb=progress_cb,
+                                  stage_cb=_stage_cb,
+                                  detailed_logging=bool(config.get("detailed_logging")))
+            _execution_log("ENGINE_EXECUTION", "COMPLETED", task_id=task_id, run_id=run.id, node_id=node.id, instrument=instrument, timeframe=tf, started=started, details={"signals_skipped": len(result.get("skipped_signals", [])), "trades": len(result.get("trades", [])), "warnings": len(result.get("notices", []))})
+            assumptions = json.loads(run.assumptions_json or "{}")
+            execution_warnings = list(result.get("notices", []))
+            if assumptions.get("commission_status", "").startswith("COMMISSION NOT CONFIGURED"):
+                execution_warnings.append({"code": "COMMISSION_NOT_CONFIGURED", "status": "INCOMPLETE COST TESTING"})
+            if rcfg.spread_mode == "no_spread":
+                execution_warnings.append({"code": "NO_SPREAD_ASSUMPTION", "status": "ZERO SPREAD; NOT REALISTIC BROKER EXECUTION"})
+            if rcfg.slippage_price == 0:
+                execution_warnings.append({"code": "ZERO_SLIPPAGE_ASSUMPTION", "status": "ASSUMPTION"})
+            assumptions["execution_warnings"] = execution_warnings
+            assumptions["completion_status"] = "COMPLETED_WITH_WARNINGS" if execution_warnings else "COMPLETED"
+            run.assumptions_json = json.dumps(assumptions)
+            stage = "METRICS_CALCULATION"
             metrics = compute_metrics(result["trades"], result["equity_curve"], rcfg.initial_capital)
+            _execution_log(stage, "COMPLETED", task_id=task_id, run_id=run.id, node_id=node.id, instrument=instrument, timeframe=tf, started=started, details={"trade_count": len(result["trades"])})
             metrics["candles_tested"] = len(candles)
             metrics["coverage_status"] = config.get("coverage_status")
             metrics["requested_range"] = config.get("requested_range")
@@ -432,18 +547,45 @@ def execute_run(session: Session, *, instrument: str, node: im.Node,
                     entry_price=t["entry_price"], exit_ts=t["exit_ts"],
                     exit_price=t["exit_price"], exit_reason=t["exit_reason"],
                     net_pnl=t["net_pnl"], detail_json=json.dumps(t)))
+            stage = "RESULT_PERSISTENCE"
             session.commit()
+            _execution_log(stage, "COMPLETED", task_id=task_id, run_id=target.id, node_id=node.id, instrument=instrument, timeframe=tf, started=started, details={"trade_count": len(result["trades"])})
             first = False
+        _execution_log("FINAL_TASK_COMPLETION", "COMPLETED", task_id=task_id, run_id=run.id, node_id=node.id, instrument=instrument, timeframe=run.timeframe, started=started, details={"status": "DONE"})
         return run
     except (DeepTestError, EngineError) as exc:
+        code = getattr(exc, "code", "ERROR")
+        blocked_codes = {"DATA_BLOCKED", "HISTORICAL_SPREAD_UNAVAILABLE", "MISSING_TICK_SIZE",
+                         "MISSING_TICK_VALUE", "UNSUPPORTED_CHART_PRICE_MODE", "UNSUPPORTED_SWAP_MODE",
+                         "INVALID_SPREAD_MODE"}
+        failure_stage = ("SPREAD_RETRIEVAL_VALIDATION" if code == "HISTORICAL_SPREAD_UNAVAILABLE" else
+                         "POSITION_SIZING" if code == "MISSING_TICK_VALUE" else
+                         "INSTRUMENT_SPECIFICATION_LOADING" if code in ("MISSING_TICK_SIZE", "UNSUPPORTED_SWAP_MODE") else
+                         "CANDLE_VALIDATION" if code == "DATA_BLOCKED" else stage)
+        detail = _execution_log(failure_stage, "BLOCKED" if code in blocked_codes else "FAILED",
+            task_id=task_id, run_id=run.id, node_id=node.id, instrument=instrument,
+            timeframe=run.timeframe, started=started, exc=exc)
         run.status = "FAILED"
-        run.error = f"{getattr(exc, 'code', 'ERROR')}: {exc}"
+        run.error = (f"{code}: {exc}\n"
+                     f"Stage: {failure_stage}; Exception: {detail.get('exception_type')}\n"
+                     f"Location: {detail.get('exception_file')}:{detail.get('exception_line')} "
+                     f"in {detail.get('exception_function')}\n{detail.get('traceback')}")
         run.finished_at = time.time()
         session.commit()
         return run
     except Exception as exc:  # noqa: BLE001 - recorded, never hidden
+        detail = _execution_log(stage, "FAILED", task_id=task_id, run_id=run.id, node_id=node.id, instrument=instrument, timeframe=run.timeframe, started=started, exc=exc)
+        leaf_function = detail.get("exception_function")
+        failure_stage = {"size_position": "POSITION_SIZING",
+                         "evaluate_tree": "ENTRY_CONDITION_EVALUATION",
+                         "_entry_side": "ENTRY_CONDITION_EVALUATION",
+                         "_check_sl_tp": "TRADE_MANAGEMENT",
+                         "close_position": "EXIT_EXECUTION",
+                         "load_candles": "HISTORICAL_DATA_RETRIEVAL"}.get(leaf_function, stage)
         run.status = "FAILED"
-        run.error = f"UNEXPECTED: {type(exc).__name__}: {exc}"
+        run.error = (f"UNEXPECTED {detail.get('exception_type')} at {detail.get('exception_file')}:{detail.get('exception_line')} "
+                     f"({leaf_function}): {detail.get('exception_message')}\n"
+                     f"Stage: {failure_stage}\n{detail.get('traceback')}")
         run.finished_at = time.time()
         session.commit()
         return run
@@ -451,10 +593,13 @@ def execute_run(session: Session, *, instrument: str, node: im.Node,
 
 def run_summary(run: im.DeepTestRun) -> dict:
     metrics = json.loads(run.metrics_json) if run.metrics_json else None
+    assumptions = json.loads(run.assumptions_json) if run.assumptions_json else {}
     return {
         "id": run.id, "node_id": run.node_id, "node_version": run.node_version,
         "scenario_id": run.scenario_id, "mode": run.mode, "window_label": run.window_label,
-        "status": run.status, "instrument": run.instrument_id, "timeframe": run.timeframe,
+        "status": run.status,
+        "completion_status": assumptions.get("completion_status", run.status),
+        "instrument": run.instrument_id, "timeframe": run.timeframe,
         "fingerprint": run.fingerprint, "compiler_version": run.compiler_version,
         "engine_version": run.engine_version, "error": run.error,
         "started_at": run.started_at, "finished_at": run.finished_at,
@@ -677,24 +822,39 @@ def run_batch_async(*, instrument: str, node_ids: List[int], config: dict,
         from hero1_storage.registry_models import DashboardTask
         from app import task_service
 
-        publisher = get_event_publisher()
-        reg = registry_session()
-        sess = instrument_session(instrument)
+        worker_started = time.time()
+        _execution_log("TASK_INITIALIZATION", "STARTED", task_id=task_id, instrument=instrument,
+                       started=worker_started, details={"node_ids": node_ids, "mode": config.get("mode")})
+        reg = None
+        sess = None
         try:
+            publisher = get_event_publisher()
+            reg = registry_session()
+            sess = instrument_session(instrument)
             task = reg.get(DashboardTask, task_id)
+            if task is None:
+                raise DeepTestError("TASK_NOT_FOUND", f"dashboard task {task_id} does not exist")
             payload = json.loads(task.payload_json or "{}")
             entries = payload.get("nodes") or []
             by_id = {e["node_id"]: e for e in entries}
             done_units = 0
             failures = 0
+            blocked_count = 0
             for node_id in node_ids:
                 entry = by_id.get(node_id)
+                _execution_log("NODE_RETRIEVAL", "STARTED", task_id=task_id, node_id=node_id,
+                               instrument=instrument, started=worker_started)
                 node = sess.query(im.Node).filter_by(id=node_id).first()
+                _execution_log("NODE_RETRIEVAL", "COMPLETED" if node else "BLOCKED",
+                               task_id=task_id, node_id=node_id, instrument=instrument,
+                               started=worker_started, details={"found": node is not None})
                 if node is None:
                     if entry is not None:
-                        entry.update({"status": "FAILED",
+                        entry.update({"status": "BLOCKED", "stage": "NODE_RETRIEVAL",
+                                      "error_code": "NODE_NOT_FOUND",
                                       "error": f"NODE_NOT_FOUND: node {node_id}"})
                     failures += 1
+                    blocked_count += 1
                     done_units += 1
                     task_service.update_task(reg, task_id, completed_units=done_units,
                                              payload=payload)
@@ -731,23 +891,35 @@ def run_batch_async(*, instrument: str, node_ids: List[int], config: dict,
                 run = execute_run(sess, instrument=instrument, node=node,
                                   config=dict(config),
                                   scenario_id=config.get("scenario_id"),
-                                  progress_cb=_cb)
+                                  progress_cb=_cb, task_id=task_id)
                 trades_n = 0
                 if run.metrics_json:
                     trades_n = int((json.loads(run.metrics_json) or {}).get("total_trades") or 0)
                 if entry is not None:
                     if run.status == "DONE":
-                        entry.update({"status": "COMPLETED", "trades": trades_n,
-                                      "progress_pct": 100.0, "run_id": run.id})
+                        run_warnings = (json.loads(run.assumptions_json or "{}").get("execution_warnings") or [])
+                        entry.update({"status": "COMPLETED_WITH_WARNINGS" if run_warnings else "COMPLETED",
+                                      "trades": trades_n, "progress_pct": 100.0,
+                                      "run_id": run.id,
+                                      "warnings": run_warnings or None})
                     else:
-                        blocked = bool(run.error and "DATA_BLOCKED" in run.error)
+                        error_code = (run.error or "").split(":", 1)[0].split()[0]
+                        blocked = error_code in BLOCKED_ERROR_CODES
                         entry.update({"status": "BLOCKED" if blocked else "FAILED",
                                       "trades": trades_n, "run_id": run.id,
-                                      "error": run.error})
+                                      "stage": (run.error or "").split("Stage: ", 1)[-1].split(";", 1)[0] if "Stage: " in (run.error or "") else "ENGINE_EXECUTION",
+                                      "error_code": error_code,
+                                      "error": run.error, "technical_details": run.error})
                         failures += 1
+                        if blocked:
+                            blocked_count += 1
                 done_units += 1
                 task_service.update_task(reg, task_id, completed_units=done_units,
                                          current_unit_progress=None, payload=payload)
+                _execution_log("NODE_EXECUTION_RESULT", "COMPLETED" if run.status == "DONE" else ("BLOCKED" if entry and entry.get("status") == "BLOCKED" else "FAILED"),
+                               task_id=task_id, run_id=run.id, node_id=node_id, instrument=instrument,
+                               timeframe=run.timeframe, started=worker_started,
+                               details={"status": run.status, "trades": trades_n, "error": run.error})
                 publisher.publish(
                     category="DEEPTEST",
                     severity="INFO" if run.status == "DONE" else "ERROR",
@@ -756,9 +928,12 @@ def run_batch_async(*, instrument: str, node_ids: List[int], config: dict,
                             f"[{instrument}] node #{node_id} ({trades_n} trades)",
                     instrument=instrument, node_id=node_id,
                     payload={"task_id": task_id, "node_id": node_id, "run_id": run.id,
-                             "trades": trades_n, "status": run.status})
+                             "trades": trades_n, "status": entry.get("status") if entry else run.status,
+                             "error_code": entry.get("error_code") if entry else None,
+                             "stage": entry.get("stage") if entry else None,
+                             "error": run.error})
             final = task_service.finish_task(
-                reg, task_id, "COMPLETED" if failures == 0 else "FAILED",
+                reg, task_id, "COMPLETED" if failures == 0 else ("BLOCKED" if blocked_count == failures else "FAILED"),
                 error=(f"{failures} of {len(node_ids)} node(s) failed or blocked"
                        if failures else None),
                 summary=f"{len(node_ids) - failures}/{len(node_ids)} nodes tested")
@@ -766,14 +941,22 @@ def run_batch_async(*, instrument: str, node_ids: List[int], config: dict,
                 payload["nodes"] = entries
                 task_service.update_task(reg, task_id, payload=payload)
         except Exception as exc:  # noqa: BLE001 - recorded on the task, never hidden
+            detail = _execution_log("TASK_WORKER", "FAILED", task_id=task_id,
+                                    instrument=instrument, started=worker_started, exc=exc)
             try:
-                task_service.finish_task(reg, task_id, "FAILED",
-                                         error=f"{type(exc).__name__}: {exc}")
+                if reg is not None:
+                    task_service.finish_task(reg, task_id, "FAILED",
+                                         error=(f"{detail.get('exception_type')} at "
+                                                f"{detail.get('exception_file')}:{detail.get('exception_line')} "
+                                                f"{detail.get('exception_function')}: {detail.get('exception_message')}\n"
+                                                f"{detail.get('traceback')}"))
             except Exception:  # noqa: BLE001
                 pass
         finally:
-            sess.close()
-            reg.close()
+            if sess is not None:
+                sess.close()
+            if reg is not None:
+                reg.close()
 
     threading.Thread(target=_work, name=f"hero1-deeptest-{task_id[:8]}",
                      daemon=True).start()

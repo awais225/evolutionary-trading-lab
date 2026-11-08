@@ -61,6 +61,7 @@ EXECUTION MODEL (every ambiguity is decided here, in writing):
 """
 from __future__ import annotations
 
+import inspect
 import math
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -116,7 +117,7 @@ class RunConfig:
     risk_basis: str = "current_equity"  # initial_capital | current_equity
     max_active_trades: int = 1
     spread_price: float = 0.0
-    spread_mode: str = "fixed"  # fixed | historical_points
+    spread_mode: str = "fixed"  # fixed | historical_points | no_spread
     point_size: Optional[float] = None
     missing_spread_policy: str = "block"  # block | configured_fallback
     slippage_price: float = 0.0
@@ -436,7 +437,7 @@ def run_backtest(*, ir: dict, candles: List[dict], cfg: RunConfig,
                  instrument: InstrumentSpec, price_ctx: PriceContext,
                  management: Optional[TradeManagement] = None,
                  aux_candles: Optional[List[dict]] = None,
-                 progress_cb=None) -> dict:
+                 progress_cb=None, stage_cb=None, detailed_logging: bool = False) -> dict:
     """Execute one compiled strategy over candles. Returns trades, equity
     curve, skipped signals and run accounting. Raises EngineError for any
     unsupported/underspecified semantics - never guesses."""
@@ -452,6 +453,26 @@ def run_backtest(*, ir: dict, candles: List[dict], cfg: RunConfig,
         raise EngineError("UNSUPPORTED_POSITION_HANDLING", "pyramid position handling is not simulated in Phase 3")
     entry_timing = execution.get("entry_timing", "next_bar_open")
 
+    signal_log_budget = [0]
+    detailed_stages = {"SIGNAL_DETECTED", "SIGNAL_REJECTION", "POSITION_SIZING",
+                       "SL_TP_CALCULATION", "ORDER_EXECUTION_SIMULATION", "EXIT_EXECUTION"}
+
+    def emit(stage: str, status: str, **details):
+        if stage in detailed_stages and not detailed_logging:
+            if signal_log_budget[0] >= 100:
+                return
+            signal_log_budget[0] += 1
+        frame = inspect.currentframe().f_back
+        details.setdefault("source_file", frame.f_code.co_filename)
+        details.setdefault("source_line", frame.f_lineno)
+        details.setdefault("source_function", frame.f_code.co_name)
+        if stage_cb is not None:
+            try:
+                stage_cb(stage, status, details)
+            except Exception:  # telemetry must never change execution semantics
+                pass
+
+    emit("INDICATOR_INITIALIZATION", "STARTED", indicators="causal series")
     # ---- precompute indicator series (entry + exits + management)
     needed: dict = {}
     _collect_indicators(ir["entry"], needed)
@@ -505,6 +526,7 @@ def run_backtest(*, ir: dict, candles: List[dict], cfg: RunConfig,
     if (sl_ir.get("distance") or {}).get("unit") == "atr_multiple" or \
        (exits_ir.get("take_profit") or {}).get("distance", {}).get("unit") == "atr_multiple":
         atr_series = compute_indicator("ATR", {"period": int((sl_ir.get("distance") or {}).get("atr_period") or 14)}, candles)["value"]
+    emit("INDICATOR_INITIALIZATION", "COMPLETED", indicator_count=len(series_cache))
 
     balance = float(cfg.initial_capital)
     positions: List[Position] = []
@@ -563,6 +585,9 @@ def run_backtest(*, ir: dict, candles: List[dict], cfg: RunConfig,
         spread_cost = ((pos.spread_entry_price + exit_spread) / instrument.tick_size
                        * instrument.tick_value() * pos.volume) if instrument.tick_size else 0.0
         net = gross - commission + swap
+        emit("EXIT_EXECUTION", "COMPLETED", exit_ts=exit_ts, reference_price=exit_reference_price,
+             fill_price=exit_price, reason=reason, gross_pnl=gross, commission=commission,
+             swap=swap, ambiguous=ambiguous, gap=gap)
         return {
             "side": pos.side, "volume": pos.volume,
             "entry_ts": pos.entry_ts, "entry_price": pos.entry_price,
@@ -648,12 +673,23 @@ def run_backtest(*, ir: dict, candles: List[dict], cfg: RunConfig,
             else:
                 tp_price = entry_price + dist if side == "LONG" else entry_price - dist
         equity_now = equity_curve[-1]["equity"] if equity_curve else balance
+        emit("POSITION_SIZING", "STARTED", side=side, entry_price=entry_price,
+             stop_price=stop_price, equity_before_entry=equity_now)
         sized = size_position(cfg=cfg, spec=instrument, equity_now=equity_now,
                               entry_price=entry_price, stop_price=stop_price, side=side)
         if sized["volume"] is None:
+            emit("POSITION_SIZING", "REJECTED", reason=sized.get("reason"), details=sized)
+            emit("SIGNAL_REJECTION", "REJECTED", ts=int(candles[i]["ts"]), side=side,
+                 reason="RISK_OR_SIZING_INVALID", details=sized)
+
             skipped.append({"ts": int(candles[i]["ts"]), "side": side,
                             "reason": sized["reason"]})
             return
+        emit("POSITION_SIZING", "COMPLETED", volume=sized["volume"],
+             planned_risk=sized.get("planned_risk"), budget=sized.get("budget"),
+             tick_size=instrument.tick_size, tick_value=instrument.tick_value())
+        emit("SL_TP_CALCULATION", "COMPLETED", signal_index=signal_i,
+             stop_price=stop_price, take_profit_price=tp_price, anchor=sl_ir.get("anchor"))
         pos = Position(side=side, entry_index=i, entry_ts=int(candles[i]["ts"]),
                        entry_price=entry_price, volume=sized["volume"],
                        planned_risk=sized["planned_risk"], initial_stop=stop_price,
@@ -667,15 +703,25 @@ def run_backtest(*, ir: dict, candles: List[dict], cfg: RunConfig,
                        sizing_calculation=sized,
                        entry_indicators=_indicator_snapshot(ir["entry"], signal_i, candles, series_cache))
         positions.append(pos)
+        emit("ORDER_EXECUTION_SIMULATION", "COMPLETED", side=side, fill_price=entry_price,
+             bid=pos.entry_bid_quote, ask=pos.entry_ask_quote, volume=pos.volume,
+             entry_ts=pos.entry_ts)
 
 
     n = len(candles)
     notices: List[dict] = []
     pending_entries: List[dict] = []   # signals from previous bar close (next_bar_open)
     pending_exits: List[Position] = [] # rule/time exits decided at previous close
+    no_signal_bars = 0
+    detected_signals = 0
+    emit("CANDLE_VALIDATION", "COMPLETED", candle_count=n, first_ts=candles[0].get("ts"), last_ts=candles[-1].get("ts"))
+    emit("ENTRY_CONDITION_EVALUATION", "STARTED", timing="completed candle", entry_timing=entry_timing)
+    emit("TRADE_MANAGEMENT", "STARTED", enabled=mgmt_model is not None)
 
     for i in range(n):
-        if cfg.spread_mode == "historical_points":
+        if cfg.spread_mode == "no_spread":
+            current_spread_price = 0.0
+        elif cfg.spread_mode == "historical_points":
             raw_spread = candles[i].get("spread")
             if raw_spread is None or float(raw_spread) < 0 or cfg.point_size is None or cfg.point_size <= 0:
                 if cfg.missing_spread_policy == "block":
@@ -714,6 +760,7 @@ def run_backtest(*, ir: dict, candles: List[dict], cfg: RunConfig,
         for sig in entries_now:
             if len(positions) >= cfg.max_active_trades:
                 skipped.append({"ts": ts, "side": sig["side"], "reason": "MAX_ACTIVE_TRADES"})
+                emit("SIGNAL_REJECTION", "REJECTED", ts=ts, side=sig["side"], reason="MAX_ACTIVE_TRADES")
                 continue
             _open_position(sig, i, open_price(sig["side"], bar, "open"))
 
@@ -769,12 +816,22 @@ def run_backtest(*, ir: dict, candles: List[dict], cfg: RunConfig,
 
         # 5) entry signals at this close
         side = _entry_side(ir, i, candles, series_cache)
-        if side is not None:
+        if side is None:
+            no_signal_bars += 1
+            if detailed_logging:
+                emit("ENTRY_CONDITION_EVALUATION", "NO_SIGNAL", ts=ts,
+                     condition_evaluations=_condition_audit(ir["entry"], i, candles, series_cache))
+        else:
+            detected_signals += 1
+            condition_evaluations = _condition_audit(ir["entry"], i, candles, series_cache)
+            emit("SIGNAL_DETECTED", "COMPLETED", ts=ts, side=side,
+                 conditions=condition_evaluations if detailed_logging else len(condition_evaluations))
             sig = {"side": side, "signal_index": i,
-                   "condition_evaluations": _condition_audit(ir["entry"], i, candles, series_cache)}
+                   "condition_evaluations": condition_evaluations}
             if entry_timing == "signal_close":
                 if len(positions) >= cfg.max_active_trades:
                     skipped.append({"ts": ts, "side": side, "reason": "MAX_ACTIVE_TRADES"})
+                    emit("SIGNAL_REJECTION", "REJECTED", ts=ts, side=side, reason="MAX_ACTIVE_TRADES")
                 elif _entry_filters_ok(cfg, ts):
                     _open_position(sig, i, open_price(side, bar, "close"), signal_close=True)
             else:
@@ -784,6 +841,7 @@ def run_backtest(*, ir: dict, candles: List[dict], cfg: RunConfig,
                         pending_entries.append(sig)
                     else:
                         skipped.append({"ts": int(candles[i + 1]["ts"]), "side": side, "reason": "ENTRY_FILTER"})
+                        emit("SIGNAL_REJECTION", "REJECTED", ts=int(candles[i + 1]["ts"]), side=side, reason="ENTRY_FILTER")
 
         # 6) equity mark at close
         unrealized = sum(pnl_at(p, closing_price(p, bar, "close")) for p in positions)
@@ -809,6 +867,11 @@ def run_backtest(*, ir: dict, candles: List[dict], cfg: RunConfig,
         except Exception:  # noqa: BLE001
             pass
 
+    emit("ENTRY_CONDITION_EVALUATION", "COMPLETED", evaluated_bars=n,
+         no_signal_bars=no_signal_bars, detected_signals=detected_signals)
+    emit("TRADE_MANAGEMENT", "COMPLETED", enabled=mgmt_model is not None)
+    emit("ENGINE_EXECUTION", "COMPLETED", candle_count=n, detected_signals=detected_signals,
+         executed_trades=len(trades), skipped_signals=len(skipped), warnings=len(notices))
     return {
         "engine_version": ENGINE_VERSION,
         "trades": trades,

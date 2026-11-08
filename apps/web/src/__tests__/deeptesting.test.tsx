@@ -1,5 +1,5 @@
-import { render, screen, fireEvent } from '@testing-library/react'
-import { describe, it, expect, beforeEach } from 'vitest'
+import { render, screen, fireEvent, act } from '@testing-library/react'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 import App from '../App'
 
@@ -29,6 +29,15 @@ describe('DeepTesting refined layout', () => {
       expect(screen.getByLabelText(label)).toBeTruthy()
     }
     expect(screen.getAllByText('pips').length).toBeGreaterThan(3)
+  })
+
+  it('offers Historical Spread and NO SPREAD as saved DeepTesting constraints', async () => {
+    renderDT()
+    const select = await screen.findByLabelText('Spread mode') as HTMLSelectElement
+    expect(Array.from(select.options).map((o) => o.textContent)).toEqual(['Historical Spread', 'NO SPREAD'])
+    fireEvent.change(select, { target: { value: 'no_spread' } })
+    fireEvent.click(screen.getAllByRole('button', { name: /^APPLY$/i })[0])
+    expect(select.value).toBe('no_spread')
   })
 
   it('shows all eight range buttons, highlights selection, no Test Configuration or Batch Scope', async () => {
@@ -292,6 +301,7 @@ describe('Global task bars and JSON viewer', () => {
 })
 
 describe('Global progress bars from shared task state', () => {
+  afterEach(() => { vi.useRealTimers(); (globalThis as { __hero1Tasks?: unknown }).__hero1Tasks = undefined })
   beforeEach(() => {
     ;(globalThis as { __hero1NodeItems?: unknown[] }).__hero1NodeItems = [NODE]
     localStorage.clear()
@@ -330,6 +340,26 @@ describe('Global progress bars from shared task state', () => {
     ;(globalThis as { __hero1Tasks?: unknown }).__hero1Tasks = undefined
   })
 
+  it('auto-dismisses terminal progress after five seconds while running tasks remain', async () => {
+    vi.useFakeTimers()
+    const completed = TASK({ status: 'COMPLETED', percentage: 100, completed_units: 20, current_unit: null })
+    const failed = TASK({ id: 'tfail', status: 'FAILED', percentage: 40, error: 'simulated failure' })
+    const cancelled = TASK({ id: 'tcancel', status: 'CANCELLED', percentage: 25 })
+    const running = TASK({ id: 'trun', status: 'RUNNING', percentage: 12 })
+    ;(globalThis as { __hero1Tasks?: unknown }).__hero1Tasks = { tasks: [completed, failed, cancelled, running], latest: {} }
+    const view = renderDT()
+    await act(async () => { for (let i = 0; i < 12; i++) await Promise.resolve() })
+    expect(view.container.querySelectorAll('.task-bar')).toHaveLength(4)
+    await act(async () => { await vi.advanceTimersByTimeAsync(4999) })
+    expect(view.container.querySelectorAll('.task-bar')).toHaveLength(4)
+    await act(async () => { await vi.advanceTimersByTimeAsync(1) })
+    expect(view.container.querySelectorAll('.task-bar')).toHaveLength(1)
+    expect(view.container.querySelector('.task-bar')?.className).toContain('task-running')
+    expect((globalThis as { __hero1Tasks?: any }).__hero1Tasks.tasks).toHaveLength(4) // history is retained
+    ;(globalThis as { __hero1Tasks?: unknown }).__hero1Tasks = undefined
+    vi.useRealTimers()
+  })
+
   it('Live Feed infographic cards filter and unfilter the feed', async () => {
     const { GlobalLiveFeed } = await import('../components/GlobalLiveFeed')
     const { FeedProvider, useFeed } = await import('../state/feed')
@@ -346,6 +376,7 @@ describe('Global progress bars from shared task state', () => {
       tasks: [], latest: { DEEPTESTING: TASK({}) } }
     r2(<InstrumentProvider><TasksProvider><FeedProvider><Harness /></FeedProvider></TasksProvider></InstrumentProvider>)
     const card = await screen.findByRole('button', { name: /DEEPTESTING/ })
+    expect(screen.getByRole('group', { name: 'Subsystem activity' })).toHaveClass('feed-cards-compact')
     expect(card.textContent).toMatch(/2 \/ 20/)
     fireEvent.click(card)
     expect(card.getAttribute('aria-pressed')).toBe('true')

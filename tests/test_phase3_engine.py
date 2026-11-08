@@ -341,3 +341,33 @@ def test_instrument_specific_tick_math_changes_sizing_without_global_defaults():
     missing = InstrumentSpec(tick_size=0.01, tick_value_account=None)
     with pytest.raises(EngineError, match='tick value'):
         size_position(spec=missing, **risk)
+
+
+def test_no_spread_ignores_missing_observations_but_keeps_other_costs():
+    bars = candles_from_closes(CLOSES)
+    # Deliberately omit spread throughout; NO SPREAD must not consult it.
+    cfg = RunConfig(initial_capital=10000, risk_mode='percent', risk_value=1,
+                    risk_basis='initial_capital', spread_mode='no_spread',
+                    spread_price=9.0, commission_mode='per_side',
+                    commission_per_lot_per_side=0.5, slippage_price=0.0)
+    result = run_backtest(ir=compile_spec(cross_spec()).ir, candles=bars, cfg=cfg,
+                          instrument=SPEC_INSTR, price_ctx=CTX)
+    trade = result['trades'][0]
+    assert trade['entry_price'] == pytest.approx(94.0)
+    assert trade['spread_entry_price'] == trade['spread_exit_price'] == 0.0
+    assert trade['spread_cost'] == 0.0
+    assert trade['commission'] == pytest.approx(5.0)
+    assert trade['exit_price'] == trade['exit_reference_price']
+
+
+def test_historical_spread_missing_observation_blocks_without_fallback():
+    bars = candles_from_closes(CLOSES)
+    for bar in bars:
+        bar['spread'] = 0
+    bars[12]['spread'] = None
+    cfg = RunConfig(initial_capital=10000, spread_mode='historical_points',
+                    point_size=0.01, missing_spread_policy='block')
+    with pytest.raises(EngineError) as err:
+        run_backtest(ir=compile_spec(cross_spec()).ir, candles=bars, cfg=cfg,
+                     instrument=SPEC_INSTR, price_ctx=CTX)
+    assert err.value.code == 'HISTORICAL_SPREAD_UNAVAILABLE'

@@ -3,6 +3,7 @@ import { api } from '../api/client'
 import { useInstrument } from '../state/instrument'
 import { TERMINAL, useTasks } from '../state/tasks'
 import { downloadFile } from '../api/client'
+import { classifyDeepTestRun, DeepTestingErrorPanel } from '../components/DeepTestingErrorPanel'
 import { applySort, loadSortPref, nextSortState, saveSortPref, type SortColumn, type SortState } from '../lib/tableSort'
 
 /**
@@ -127,6 +128,7 @@ export function DeepTesting() {
   const [riskValue, setRiskValue] = useState<number>(saved?.riskValue ?? 1)
   const [riskBasis, setRiskBasis] = useState<'current_equity' | 'initial_capital'>(saved?.riskBasis ?? 'current_equity')
   const [maxActive, setMaxActive] = useState<number>(saved?.maxActive ?? 1)
+  const [spreadMode, setSpreadMode] = useState<'historical_points' | 'no_spread'>(saved?.spreadMode ?? 'historical_points')
   const [missingSpreadPolicy, setMissingSpreadPolicy] = useState<'block' | 'configured_fallback'>(saved?.missingSpreadPolicy ?? 'block')
   const [spreadFallbackPrice, setSpreadFallbackPrice] = useState<number>(saved?.spreadFallbackPrice ?? 0)
   const [globalOff, setGlobalOff] = useState<Offsets>(saved?.globalOff ?? EMPTY_OFF)
@@ -138,10 +140,11 @@ export function DeepTesting() {
     riskValue: saved?.riskValue ?? 1,
     riskBasis: (saved?.riskBasis ?? 'current_equity') as 'current_equity' | 'initial_capital',
     maxActive: saved?.maxActive ?? 1, globalOff: saved?.globalOff ?? EMPTY_OFF,
+    spreadMode: (saved?.spreadMode ?? 'historical_points') as 'historical_points' | 'no_spread',
     missingSpreadPolicy: (saved?.missingSpreadPolicy ?? 'block') as 'block' | 'configured_fallback',
     spreadFallbackPrice: saved?.spreadFallbackPrice ?? 0,
   }))
-  const pendingDirty = JSON.stringify({ capital, currency, riskMode, riskValue, riskBasis, maxActive, globalOff, missingSpreadPolicy, spreadFallbackPrice })
+  const pendingDirty = JSON.stringify({ capital, currency, riskMode, riskValue, riskBasis, maxActive, globalOff, spreadMode, missingSpreadPolicy, spreadFallbackPrice })
     !== JSON.stringify(applied)
   const applyConstraints = () => {
     if (!(capital > 0)) { setNotice('Initial capital must be a positive amount.'); return }
@@ -153,7 +156,7 @@ export function DeepTesting() {
     }
     if (!(spreadFallbackPrice >= 0)) { setNotice('Fallback spread must be a non-negative price amount.'); return }
     const next = { capital, currency, riskMode, riskValue, riskBasis, maxActive, globalOff,
-      missingSpreadPolicy, spreadFallbackPrice }
+      spreadMode, missingSpreadPolicy, spreadFallbackPrice }
     setApplied(next)
     localStorage.setItem('hero1.dt.constraints', JSON.stringify(next))
     setNotice('Hard Constraints APPLIED — they take effect on the next DeepTesting execution. Existing results are not modified; rerun a node to produce a new result with these values.')
@@ -251,8 +254,9 @@ export function DeepTesting() {
 
   const testingStatus = (r: any): string => {
     if (!r) return 'UNTESTED'
+    if (r.status === 'FAILED' || r.status === 'BLOCKED') return classifyDeepTestRun(r.status, r.error)
     if (r.status === 'RUNNING') return 'RUNNING'
-    if (r.status === 'FAILED') return String(r.error ?? '').includes('DATA_BLOCKED') ? 'BLOCKED' : 'FAILED'
+    if (r.completion_status === 'COMPLETED_WITH_WARNINGS') return 'COMPLETED WITH WARNINGS'
     return r.coverage_status === 'PARTIAL_TESTED' ? 'PARTIAL TESTED' : 'TESTED'
   }
 
@@ -328,7 +332,7 @@ export function DeepTesting() {
       initial_capital: applied.capital, account_currency: applied.currency,
       risk_mode: applied.riskMode, risk_value: applied.riskValue, risk_basis: applied.riskBasis,
       max_active_trades: applied.maxActive,
-      spread_mode: 'historical_points',
+      spread_mode: applied.spreadMode,
       missing_spread_policy: applied.missingSpreadPolicy,
       spread_price: applied.spreadFallbackPrice,
       slippage_price: 0,
@@ -836,15 +840,21 @@ export function DeepTesting() {
 
           <fieldset className="exit-block">
             <legend>Historical spread and execution assumptions</legend>
+            <label className="mini-field">Spread mode
+              <select className="input input-xs" aria-label="Spread mode" value={spreadMode}
+                onChange={(e) => setSpreadMode(e.target.value as 'historical_points' | 'no_spread')}>
+                <option value="historical_points">Historical Spread</option>
+                <option value="no_spread">NO SPREAD</option>
+              </select></label>
             <label className="mini-field">Missing/invalid historical spread policy
-              <select className="input input-xs" aria-label="Missing spread policy" value={missingSpreadPolicy}
+              <select className="input input-xs" aria-label="Missing spread policy" value={missingSpreadPolicy} disabled={spreadMode === 'no_spread'}
                 onChange={(e) => setMissingSpreadPolicy(e.target.value as 'block' | 'configured_fallback')}>
                 <option value="block">Block run</option><option value="configured_fallback">Configured fallback (warning)</option>
               </select></label>
             {missingSpreadPolicy === 'configured_fallback' && <label className="mini-field">Fallback spread price (explicit assumption)
               <input className="input input-xs num" type="number" min="0" step="0.01" aria-label="Fallback spread price"
                 value={spreadFallbackPrice} onChange={(e) => setSpreadFallbackPrice(Math.max(0, Number(e.target.value)))} /></label>}
-            <p className="faint micro">Historical candle spread is used per execution when available. Zero slippage is explicitly an assumption. Commission remains NOT CONFIGURED unless supplied.</p>
+            <p className="faint micro">{spreadMode === 'no_spread' ? 'NO SPREAD applies zero spread and does not inspect historical spread; this is not realistic broker execution.' : 'Historical candle spread is used per execution when available.'} Zero slippage is explicitly an assumption. Commission remains NOT CONFIGURED unless supplied. Swap and commission settings remain independent.</p>
           </fieldset>
 
           <fieldset className="exit-block">
@@ -935,7 +945,7 @@ export function DeepTesting() {
                       <td>{n.status === 'COMPLETED' ? '100%' : n.status === 'RUNNING'
                         ? (n.progress_pct != null ? `${Math.round(n.progress_pct)}% (${n.processed ?? 0}/${n.total_candles ?? '…'} candles)` : '…')
                         : n.status === 'QUEUED' ? '—' : '—'}</td>
-                      <td>{n.error ?? (n.run_id ? `run #${n.run_id}` : '')}</td>
+                      <td>{n.error ? <DeepTestingErrorPanel nodeId={n.node_id} runId={n.run_id} error={n.technical_details ?? n.error} explicitStatus={n.status} /> : (n.run_id ? `run #${n.run_id}` : '')}</td>
                     </tr>))}
                 </tbody>
               </table>
@@ -1006,6 +1016,8 @@ export function DeepTesting() {
             <button type="button" className="btn btn-ghost btn-xs" onClick={() => setInspectId(null)}>✕ Close</button></h4>
 
           {!activeRun && <p className="faint">No DeepTesting run for this node yet. Select a range above and run it — statistics, day/session filters and the equity curve appear here from the persisted result.</p>}
+          {activeRun && (activeRun.status === 'FAILED' || activeRun.status === 'BLOCKED') && activeRun.error &&
+            <DeepTestingErrorPanel nodeId={activeRun.node_id} runId={activeRun.id} error={activeRun.error} explicitStatus={activeRun.status} />}
 
           {activeRun && stats && (
             <>
@@ -1014,6 +1026,7 @@ export function DeepTesting() {
                 · requested {tsFmt(activeRun.metrics?.requested_range?.start)} → {tsFmt(activeRun.metrics?.requested_range?.end)}
                 · actual {tsFmt(activeRun.metrics?.actual_range?.start)} → {tsFmt(activeRun.metrics?.actual_range?.end)}
                 · candles tested {fmt(activeRun.metrics?.candles_tested, 0)}
+                · spread mode {String(activeRun.config?.spread_mode ?? activeRun.assumptions?.spread_mode ?? 'unknown')}
                 · readiness {activeRun.data_quality?.readiness}
                 {(activeRun.data_quality?.warnings ?? []).length > 0 && <> · warnings: {(activeRun.data_quality?.warnings ?? []).join('; ')}</>}
                 · effective offsets SL {activeRun.assumptions?.effective_offsets?.sl?.offset_pips ?? 0} pips ({activeRun.assumptions?.effective_offsets?.sl?.source ?? 'strategy'}) / TP {activeRun.assumptions?.effective_offsets?.tp?.offset_pips ?? 0} pips ({activeRun.assumptions?.effective_offsets?.tp?.source ?? 'strategy'})
