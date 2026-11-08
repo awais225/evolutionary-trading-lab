@@ -255,7 +255,11 @@ def execute_run(session: Session, *, instrument: str, node: im.Node,
         config = {**config, "requested_range": {"start": anchored_start, "end": end_ts},
                   "actual_range": {"start": start_ts, "end": end_ts},
                   "coverage_status": "PARTIAL_TESTED" if partial else "TESTED",
-                  "candles_available": bounds["candles"]}
+                  "candles_available": bounds["candles"],
+                  "data_snapshot": {"instrument": instrument.upper(), "timeframe": tf,
+                                    "first_ts": bounds["first_ts"],
+                                    "last_ts": bounds["last_ts"],
+                                    "candles_available": bounds["candles"]}}
         dq = readiness(instrument, tf, start_ts, end_ts)
         run.data_quality_json = json.dumps(dq)
         if dq.get("readiness") == "BLOCKED":
@@ -410,6 +414,77 @@ def run_summary(run: im.DeepTestRun) -> dict:
                             if run.config_json else None),
         "coverage_status": metrics.get("coverage_status") if metrics else None,
     }
+
+
+INSPECT_WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+
+
+def inspect_cell(entry_ts: float) -> tuple:
+    """The Inspect grid's classification (single source shared with the
+    dashboard): weekday Mon-Fri by UTC entry time, weekend entries are
+    UNASSIGNED; sessions are the contiguous non-overlapping UTC windows
+    ASIA 22-08, ASIA-LONDON 08-09, LONDON 09-13, LONDON-NY 13-17, NY 17-22.
+    Every trade lands in exactly one cell."""
+    dt = datetime.fromtimestamp(entry_ts, tz=timezone.utc)
+    weekday = INSPECT_WEEKDAYS[dt.weekday()] if dt.weekday() < 5 else "UNASSIGNED"
+    h = dt.hour
+    if h >= 22 or h < 8:
+        session = "ASIA"
+    elif h < 9:
+        session = "ASIA-LONDON"
+    elif h < 13:
+        session = "LONDON"
+    elif h < 17:
+        session = "LONDON-NY"
+    else:
+        session = "NY"
+    return weekday, session
+
+
+_TRADE_SORTS = {
+    "id": lambda t: t.get("id"), "entry_ts": lambda t: t.get("entry_ts"),
+    "exit_ts": lambda t: t.get("exit_ts"), "weekday": lambda t: t.get("weekday"),
+    "session": lambda t: t.get("session"), "side": lambda t: t.get("side"),
+    "entry_price": lambda t: t.get("entry_price"),
+    "exit_price": lambda t: t.get("exit_price"),
+    "initial_stop": lambda t: t.get("initial_stop"),
+    "take_profit": lambda t: t.get("take_profit"),
+    "volume": lambda t: t.get("volume"), "gross_pnl": lambda t: t.get("gross_pnl"),
+    "net_pnl": lambda t: t.get("net_pnl"), "result": lambda t: t.get("result"),
+    "holding_seconds": lambda t: t.get("holding_seconds"),
+    "exit_reason": lambda t: t.get("exit_reason"),
+}
+
+
+def paginate_trades(trades: List[dict], *, page: int, page_size: int,
+                    sort: str = "entry_ts", direction: str = "asc",
+                    cells: Optional[List[str]] = None) -> dict:
+    """Server-side filter + sort + pagination over the FULL filtered set.
+    Stable: Trade ID is the final tie-break; nulls sort last in both
+    directions. Page size is capped at 25 (Part 7)."""
+    page_size = max(1, min(int(page_size), 25))
+    page = max(0, int(page))
+    rows = []
+    for t in trades:
+        weekday, session = inspect_cell(float(t.get("entry_ts") or 0))
+        rows.append({**t, "weekday": weekday, "session": session})
+    if cells is not None:
+        wanted = set(cells)
+        rows = [t for t in rows if f"{t['weekday']}|{t['session']}" in wanted]
+    total = len(rows)
+    key_fn = _TRADE_SORTS.get(sort, _TRADE_SORTS["entry_ts"])
+    present = [t for t in rows if key_fn(t) is not None]
+    missing = [t for t in rows if key_fn(t) is None]
+    present.sort(key=lambda t: t.get("id") or 0)
+    present.sort(key=key_fn, reverse=(direction == "desc"))
+    missing.sort(key=lambda t: t.get("id") or 0)
+    ordered = present + missing
+    pages = max(1, (total + page_size - 1) // page_size)
+    start = page * page_size
+    return {"trades": ordered[start:start + page_size], "count": total,
+            "page": page, "page_size": page_size, "pages": pages,
+            "sort": sort if sort in _TRADE_SORTS else "entry_ts",
+            "dir": direction}
 
 
 def scenario_hash(config: dict) -> str:

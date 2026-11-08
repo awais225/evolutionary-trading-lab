@@ -212,3 +212,33 @@ def test_node1_deeptesting_end_to_end(client, seeded_m1_h1):
     detail = client.get(f"/api/v1/instruments/XAUUSD/deeptesting/runs/{run['id']}").json()
     assert detail["assumptions"]["data_requirements"]["m1_momentum"] is True
     assert "M1 candles" in detail["assumptions"]["reference_data_basis"]
+
+
+def test_till_data_range_uses_all_available(client, seeded_store):
+    """TILL DATA: no explicit range -> earliest..latest eligible candle,
+    TESTED (not PARTIAL), requested==actual persisted (Part 8)."""
+    spec = cross_spec()
+    spec["identity"]["name"] = "DT till-data node"
+    spec["identity"]["tags"] = ["dt-till-1"]
+    created = client.post("/api/v1/instruments/XAUUSD/nodes", json={
+        "name": "DT till-data node", "origin": "CUSTOM", "spec_json": json.dumps(spec)})
+    node_id = created.json()["id"]
+    r = client.post("/api/v1/instruments/XAUUSD/deeptesting/runs", json={
+        "node_ids": [node_id],
+        "config": {"mode": "initial", "range": {},
+                   "initial_capital": 10000, "risk_mode": "percent", "risk_value": 1.0,
+                   "max_active_trades": 1, "tick_size": 0.1, "tick_value_account": 1.0,
+                   "volume_min": 0.01, "volume_max": 100, "volume_step": 0.01}})
+    run = r.json()["runs"][0]
+    assert run["status"] == "DONE", run
+    assert run["coverage_status"] == "TESTED"
+    assert run["requested_range"] == {"start": seeded_store[0]["ts"], "end": seeded_store[-1]["ts"]}
+    m = run["metrics"]
+    assert m["candles_tested"] == len(seeded_store)
+    assert m["directional"]["LONG"]["total_trades"] == 1  # BUY/SELL persisted
+    # server-side paginated trades: page 2 of 1 trade is empty, count stable
+    page = client.get(f"/api/v1/instruments/XAUUSD/deeptesting/runs/{run['id']}/trades"
+                      "?page=0&page_size=25&sort=net_pnl&dir=desc").json()
+    assert page["count"] == 1 and page["pages"] == 1 and page["trades"][0]["id"] >= 1
+    assert page["trades"][0]["weekday"] in ("Monday", "Tuesday", "Wednesday",
+                                            "Thursday", "Friday", "UNASSIGNED")

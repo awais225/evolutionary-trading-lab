@@ -141,6 +141,10 @@ export const api = {
       request<any>('GET', `/api/v1/instruments/${instrument}/deeptesting/runs/${id}`),
     trades: (instrument: string, id: number, filters?: Record<string, unknown>) =>
       request<{ trades: any[]; count: number }>('GET', `/api/v1/instruments/${instrument}/deeptesting/runs/${id}/trades${filters ? `?filters=${encodeURIComponent(JSON.stringify(filters))}` : ''}`),
+    tradesPage: (instrument: string, id: number, q: { page: number; pageSize: number; sort: string; dir: string; cells: string[] }) => {
+      const params = new URLSearchParams({ page: String(q.page), page_size: String(q.pageSize), sort: q.sort, dir: q.dir, cells: JSON.stringify(q.cells) })
+      return request<any>('GET', `/api/v1/instruments/${instrument}/deeptesting/runs/${id}/trades?${params}`)
+    },
     rerun: (instrument: string, id: number) =>
       request<any>('POST', `/api/v1/instruments/${instrument}/deeptesting/runs/${id}/rerun`),
     rankings: (instrument: string, body: Record<string, unknown>) =>

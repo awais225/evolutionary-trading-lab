@@ -75,14 +75,21 @@ function route(url: string, method: string, bodyText?: string): Response {
       compiler_version: '1.2.0', engine_version: '3.0.0', error: null,
       started_at: 1700000000, finished_at: 1700003600,
       config: { initial_capital: 10000, account_currency: 'USD', risk_mode: 'percent', risk_value: 1, risk_basis: 'current_equity', max_active_trades: 1 },
-      metrics: { total_trades: 1, win_rate: 1, net_profit: 200, profit_factor: null, expectancy: 200, max_drawdown_amount: 0, max_drawdown_pct: 0, final_balance: 10200, final_equity: 10200, long_net: 200, short_net: 0, max_simultaneous_positions: 1, recovery_factor: null, sharpe_ratio: null, sortino_ratio: null, max_consecutive_losses: 0, max_consecutive_loss_amount: 0, max_consecutive_loss_pct: 0, time_buckets: { by_session: [{ bucket: 'london', trades: 1, win_rate: 1, net_pnl: 200, expectancy: 200 }] } },
+      metrics: { total_trades: 1, win_rate: 1, net_profit: 200, profit_factor: null, expectancy: 200, max_drawdown_amount: 0, max_drawdown_pct: 0, final_balance: 10200, final_equity: 10200, long_net: 200, short_net: 0,
+      directional: {
+        LONG: { total_trades: 1, winning_trades: 1, losing_trades: 0, breakeven_trades: 0, win_rate: 1, loss_rate: 0, gross_profit: 200, gross_loss: 0, net_profit: 200, profit_factor: null, avg_win: 200, avg_loss: null, expectancy: 200, largest_win: 200, largest_loss: null, return_on_initial_capital_pct: 2, max_consecutive_wins: 1, max_consecutive_losses: 0, current_streak: { kind: 'WIN', count: 1 }, drawdown: { max_amount: 0, max_pct: 0, current_amount: 0, current_pct: 0, avg_amount: 0 } },
+        SHORT: { total_trades: 0, winning_trades: 0, losing_trades: 0, breakeven_trades: 0, win_rate: null, loss_rate: null, gross_profit: 0, gross_loss: 0, net_profit: 0, profit_factor: null, avg_win: null, avg_loss: null, expectancy: null, largest_win: null, largest_loss: null, return_on_initial_capital_pct: 0, max_consecutive_wins: 0, max_consecutive_losses: 0, current_streak: { kind: 'NONE', count: 0 }, drawdown: { max_amount: 0, max_pct: 0, current_amount: 0, current_pct: 0, avg_amount: 0 } } }, max_simultaneous_positions: 1, recovery_factor: null, sharpe_ratio: null, sortino_ratio: null, max_consecutive_losses: 0, max_consecutive_loss_amount: 0, max_consecutive_loss_pct: 0, time_buckets: { by_session: [{ bucket: 'london', trades: 1, win_rate: 1, net_pnl: 200, expectancy: 200 }] } },
       data_quality: { readiness: 'READY' }, assumptions: { spread_price: 0, spread_source: 'zero', ambiguity_policy: 'sl_first' },
       equity_curve: [{ ts: 1700000000, balance: 10000, equity: 10000, open_positions: 0 }, { ts: 1700003600, balance: 10200, equity: 10200, open_positions: 0 }],
       skipped_signals: [],
     }
     if (url.includes('/fine-tune-suggestions')) return json({ suggestions: [] })
     if (/\/runs\/\datz/.test(url)) return json({}, 500)
-    if (/\/runs\/\d+\/trades/.test(url)) return json({ count: 1, trades: [{ side: 'LONG', volume: 5, entry_ts: 1700000000, entry_price: 94, exit_ts: 1700003600, exit_price: 98, exit_reason: 'TAKE_PROFIT', net_pnl: 200, gross_pnl: 200, commission: 0, swap: 0, spread_cost: 0, planned_risk: 100, initial_stop: 92, take_profit: 98, final_stop: 92, result: 'WIN', holding_seconds: 3600, session: 'london', mfe_price: 98.6, mae_price: 93.9, stop_history: [], entry_indicators: {}, ambiguous_same_candle: false, gap_overrun: false }] })
+    if (/\/runs\/\d+\/trades/.test(url)) {
+      const trade = { side: 'LONG', volume: 5, entry_ts: 1700000000, entry_price: 94, exit_ts: 1700003600, exit_price: 98, exit_reason: 'TAKE_PROFIT', net_pnl: 200, gross_pnl: 200, commission: 0, swap: 0, spread_cost: 0, planned_risk: 100, initial_stop: 92, take_profit: 98, final_stop: 92, result: 'WIN', holding_seconds: 3600, session: 'london', mfe_price: 98.6, mae_price: 93.9, stop_history: [], entry_indicators: {}, ambiguous_same_candle: false, gap_overrun: false }
+      if (url.includes('page=')) return json({ trades: [{ ...trade, id: 1, weekday: 'Tuesday', session: 'ASIA' }], count: 1, page: 0, page_size: 25, pages: 1, sort: 'entry_ts', dir: 'asc' })
+      return json({ count: 1, trades: [trade] })
+    }
     if (/\/runs\/\d+$/.test(url.split('?')[0]) && method === 'GET') return json(run)
     if (url.includes('/runs') && method === 'POST') return json({ runs: [run] })
     if (url.includes('/runs')) return json({ runs: [run] })

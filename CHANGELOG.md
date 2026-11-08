@@ -4,6 +4,44 @@ every release lists version, date, phase, features, fixes, tests, limitations,
 exact commit SHA and tag. Claims only for what was implemented AND verified.
 
 ---
+---
+
+## [DeepTesting final improvements] — 2026-11-06 — BUY/SELL breakdown, paginated trade list, TILL DATA, Run #4 audit
+
+- **BUY/SELL statistics (Part 2):** `compute_metrics` persists an independent
+  `directional` block (LONG/SHORT): counts, W/L/BE, rates, GP/GL/net, PF,
+  averages, expectancy, largest, return on initial capital, streaks, and an
+  independent drawdown per direction from the configured initial capital in
+  exit-chronological order (% vs running peak). Directions reconcile exactly
+  with the overall row; empty directions report 0/N/A. Shown as BUY/LONG and
+  SELL/SHORT sections in the main Inspect statistics only — never in the
+  weekday/session table, which only gained a per-cell drawdown line
+  (independent subset path, Net stays last).
+- **Inspect correctness (Parts 6/10):** DESELECT -VE NET BOXES deselects only
+  boxes whose own unrounded net is strictly negative (tiny positives that
+  display as 0.00 survive) and re-derives parent checkboxes (indeterminate
+  state); named-session aggregates exclude UNASSIGNED, fixing the Asia
+  932-vs-904 double-count so named sessions + UNASSIGNED = the ledger
+  exactly. The inspected node's table row is now actually highlighted
+  (the class previously had no CSS rule).
+- **Trade list (Part 7):** SHOW/HIDE TRADES below the equity curve, hidden by
+  default; the endpoint paginates server-side across the full filtered set
+  (page_size capped at 25, all meaningful columns sortable, stable Trade-ID
+  tie-break, nulls last, page resets on filter/sort change) — trades are
+  never fetched wholesale to paginate in the browser.
+- **TILL DATA (Part 8):** new range option using the earliest..latest
+  eligible candle for the node's instrument/timeframe (defaults for new
+  configs, persisted per user, saved configs untouched); runs persist
+  requested vs actual range, candles used and a data snapshot.
+- **Audit:** docs/DEEPTESTING_LONGONLY3_AUDIT.md verifies the supplied Run #4
+  arithmetic, pinpoints the 28-trade UNASSIGNED/Asia discrepancy to the
+  aggregate bug above, and marks ledger-only facts as unverified rather than
+  fabricating them. Run #4 itself is unmodified; no data/DBs committed.
+- **Tests:** backend 328 passed / 1 skipped (new directional, classification,
+  pagination, TILL DATA API tests); frontend 83/83 (BUY/SELL sections, row
+  highlight, per-cell DD, tiny-positive deselect, SHOW TRADES, TILL DATA,
+  indeterminate parent); production build clean.
+
 
 ## [Master prompt] — 2026-11-08 — NODE 1 + price reference levels + DeepTesting Apply/interactivity + reconciliation
 

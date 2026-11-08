@@ -714,3 +714,25 @@ tr:hover .name-edit-btn, .name-text:focus-visible + .name-edit-btn { opacity: 1;
 .dt-net-pos { color: #3fb950; }
 .dt-net-neg { color: #f85149; }
 .dt-net-zero { color: var(--muted); }
+
+/* DeepTesting final improvements: inspected-row highlight, main-statistics
+   readability (main stats ONLY - the weekday/session table is untouched),
+   per-cell drawdown line. */
+.node-table tr.row-active td {
+  background: rgba(232, 185, 62, 0.14) !important;
+  border-top: 1px solid rgba(232, 185, 62, 0.55);
+  border-bottom: 1px solid rgba(232, 185, 62, 0.55);
+}
+.node-table tr.row-active td:first-child { box-shadow: inset 3px 0 0 #e8b93e; }
+.dt-stats td:nth-child(2), .dt-stats td:nth-child(4) {
+  text-align: right; font-variant-numeric: tabular-nums;
+}
+.dt-stats th { background: rgba(255, 255, 255, 0.04); }
+.dt-stats th.stat-sec-buy { background: rgba(63, 185, 80, 0.12); color: #3fb950; }
+.dt-stats th.stat-sec-sell { background: rgba(248, 81, 73, 0.10); color: #f85149; }
+.stat-pos { color: #3fb950; font-weight: 600; }
+.stat-neg { color: #f85149; font-weight: 600; }
+.stat-gp { color: #3fb950; }
+.stat-gl { color: #f85149; }
+.stat-dd { color: #f85149; font-weight: 700; background: rgba(248, 81, 73, 0.08); padding: 0 4px; border-radius: 3px; }
+.dt-dd-line { color: #f0a35e; }

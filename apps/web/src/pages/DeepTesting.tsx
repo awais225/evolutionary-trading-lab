@@ -28,6 +28,7 @@ const DURATIONS = [
   { label: '1 Month', days: 30 }, { label: '3 Months', days: 91 },
   { label: '6 Months', days: 182 }, { label: '1 Year', days: 365 },
   { label: '2 Years', days: 730 }, { label: '3 Years', days: 1095 },
+  { label: 'TILL DATA', days: -1 },
 ]
 
 /** Single-label session cells (UTC, entry time). Windows are contiguous
@@ -151,7 +152,14 @@ export function DeepTesting() {
   }
 
   /* ============ 2. RANGE BUTTONS ============ */
-  const [duration, setDuration] = useState(365)
+  // Range selection persists per user; NEW configurations default to
+  // TILL DATA (all available eligible data). Existing saved selections
+  // are never overwritten.
+  const [duration, setDuration] = useState<number>(() => {
+    const v = Number(localStorage.getItem('hero1.dt.rangeDays'))
+    return localStorage.getItem('hero1.dt.rangeDays') !== null && Number.isFinite(v) ? v : -1
+  })
+  useEffect(() => { localStorage.setItem('hero1.dt.rangeDays', String(duration)) }, [duration])
 
   /* ============ 3. MAIN NODE TABLE ============ */
   const [nodes, setNodes] = useState<any[]>([])
@@ -308,7 +316,7 @@ export function DeepTesting() {
     const end = Math.floor(Date.now() / 1000)
     return {
       mode: 'initial',
-      range: { start: end - duration * 86400, end },
+      range: duration < 0 ? {} : { start: end - duration * 86400, end },
       initial_capital: applied.capital, account_currency: applied.currency,
       risk_mode: applied.riskMode, risk_value: applied.riskValue, risk_basis: applied.riskBasis,
       max_active_trades: applied.maxActive,
@@ -371,15 +379,51 @@ export function DeepTesting() {
     })
   }, [trades, daySel, cellSel, isFilteredActive])
 
+  const runCapital = activeRun?.metrics?.initial_capital ?? applied.capital
   const cellStats = (list: any[]) => {
     const wins = list.filter((t) => t.net_pnl > 1e-9)
     const losses = list.filter((t) => t.net_pnl < -1e-9)
     const gp = wins.reduce((a, t) => a + t.net_pnl, 0)
     const gl = losses.reduce((a, t) => a + t.net_pnl, 0)
+    // Independent per-cell drawdown: chronological (exit-time) equity path
+    // of THIS subset only, starting at the configured initial capital;
+    // percentage vs the running peak equity at the worst point.
+    let eq = runCapital, peak = runCapital, ddAmt = 0, ddPct = 0
+    for (const t of [...list].sort((a, b) => a.exit_ts - b.exit_ts)) {
+      eq += t.net_pnl; peak = Math.max(peak, eq)
+      const dd = peak - eq
+      if (dd > ddAmt) { ddAmt = dd; ddPct = peak > 0 ? (dd / peak) * 100 : 0 }
+    }
     return { trades: list.length, wins: wins.length, losses: losses.length,
              be: list.length - wins.length - losses.length,
              winRate: list.length ? wins.length / list.length : null,
-             gp, gl, net: gp + gl, pf: gl < 0 ? gp / Math.abs(gl) : null }
+             gp, gl, net: gp + gl, pf: gl < 0 ? gp / Math.abs(gl) : null,
+             ddAmt: list.length ? ddAmt : null, ddPct: list.length ? ddPct : null }
+  }
+
+  // Independent BUY/SELL statistics for the filtered view (same definitions
+  // as the backend directional_stats used for the original result).
+  const dirStats = (list: any[], side: string) => {
+    const sub = [...list.filter((t) => t.side === side)].sort((a, b) => a.exit_ts - b.exit_ts)
+    const base = cellStats(sub)
+    let curW = 0, curL = 0, maxW = 0, maxL = 0
+    for (const t of sub) {
+      if (t.net_pnl > 1e-9) { curW++; curL = 0 } else if (t.net_pnl < -1e-9) { curL++; curW = 0 }
+      else { curW = 0; curL = 0 }
+      maxW = Math.max(maxW, curW); maxL = Math.max(maxL, curL)
+    }
+    const wins = sub.filter((t) => t.net_pnl > 1e-9), losses = sub.filter((t) => t.net_pnl < -1e-9)
+    return { ...base, maxW, maxL, curW, curL,
+             avgWin: wins.length ? wins.reduce((a, t) => a + t.net_pnl, 0) / wins.length : null,
+             avgLoss: losses.length ? losses.reduce((a, t) => a + t.net_pnl, 0) / losses.length : null,
+             expectancy: sub.length ? base.net / sub.length : null,
+             largestWin: wins.length ? Math.max(...wins.map((t) => t.net_pnl)) : null,
+             largestLoss: losses.length ? Math.min(...losses.map((t) => t.net_pnl)) : null,
+             returnPct: runCapital > 0 ? (base.net / runCapital) * 100 : null,
+             // reuse the subset equity path in cellStats for max DD; current DD:
+             currentDd: (() => { let e = runCapital, pk = runCapital; for (const t of sub) { e += t.net_pnl; pk = Math.max(pk, e) } return pk - e })(),
+             currentDdPct: (() => { let e = runCapital, pk = runCapital; for (const t of sub) { e += t.net_pnl; pk = Math.max(pk, e) } return pk > 0 ? ((pk - e) / pk) * 100 : 0 })(),
+             avgDd: null }
   }
 
   // Aggregate statistics across the CURRENTLY SELECTED weekdays/sessions
@@ -387,38 +431,51 @@ export function DeepTesting() {
   const aggStats = (session: string) => cellStats(trades.filter((t) => {
     const wd = weekdayOf(t)
     if (!daySel[wd] || !cellSel[`${wd}|${sessionCell(t.entry_ts)}`]) return false
-    return session === 'TOTAL DAY' || sessionCell(t.entry_ts) === session
+    if (session === 'TOTAL DAY') return true
+    // Named session aggregates cover Mon-Fri only: weekend trades are
+    // UNASSIGNED and must never leak into a named session total (Part 10),
+    // so named sessions + UNASSIGNED reconcile exactly with the ledger.
+    if (!(WEEKDAYS as readonly string[]).includes(wd)) return false
+    return sessionCell(t.entry_ts) === session
   }))
 
-  // Deselect every visible weekday/session box whose net P/L is negative
+  // DESELECT -VE NET BOXES: deselect ONLY boxes whose own underlying
+  // UNROUNDED net P/L is strictly < 0. Positive and exactly-zero boxes are
+  // never touched; weekday parents then re-derive from their children.
   const deselectNegative = () => {
-    const nd = { ...daySel }; const nc = { ...cellSel }
+    const nc = { ...cellSel }
     for (const d of COL_DAYS) {
-      const dayTrades = trades.filter((t) => weekdayOf(t) === d)
-      if (dayTrades.length && cellStats(dayTrades).net < 0) {
-        nd[d] = false
-        for (const s2 of SESSION_ROWS.slice(1)) nc[`${d}|${s2}`] = false
-        continue
-      }
       for (const s2 of SESSION_ROWS.slice(1)) {
         const list = trades.filter((t) => cellKey(t) === `${d}|${s2}`)
         if (list.length && cellStats(list).net < 0) nc[`${d}|${s2}`] = false
       }
     }
-    setDaySel(nd); setCellSel(nc)
+    const nd = { ...daySel }
+    for (const d of COL_DAYS) nd[d] = SESSION_ROWS.slice(1).some((s2) => nc[`${d}|${s2}`])
+    setCellSel(nc); setDaySel(nd)
+  }
+  // Single-cell toggle; the weekday parent re-derives from its children.
+  const setCell = (key: string, d: string, v: boolean) => {
+    const nc = { ...cellSel, [key]: v }
+    setCellSel(nc)
+    setDaySel({ ...daySel, [d]: SESSION_ROWS.slice(1).some((s2) => nc[`${d}|${s2}`]) })
   }
   const toggleDay = (d: string, v: boolean) => {
     setDaySel({ ...daySel, [d]: v })
     setCellSel({ ...cellSel, ...Object.fromEntries(SESSION_ROWS.slice(1).map((s2) => [`${d}|${s2}`, v])) })
   }
-  const toggleSessionAll = (session: string, v: boolean) =>
-    setCellSel({ ...cellSel, ...Object.fromEntries(COL_DAYS.map((d) => [`${d}|${session}`, v])) })
+  const toggleSessionAll = (session: string, v: boolean) => {
+    const nc = { ...cellSel, ...Object.fromEntries(COL_DAYS.map((d) => [`${d}|${session}`, v])) }
+    setCellSel(nc)
+    const nd = { ...daySel }
+    for (const d of COL_DAYS) nd[d] = SESSION_ROWS.slice(1).some((s2) => nc[`${d}|${s2}`])
+    setDaySel(nd)
+  }
   const sessionState = (session: string) => {
     const vals = COL_DAYS.map((d) => !!cellSel[`${d}|${session}`])
     return { all: vals.every(Boolean), some: vals.some(Boolean) }
   }
 
-  const runCapital = activeRun?.metrics?.initial_capital ?? applied.capital
   const filteredStats = useMemo(() => {
     const g = [...filteredTrades].sort((a, b) => a.exit_ts - b.exit_ts)
     const base = cellStats(g)
@@ -487,6 +544,47 @@ export function DeepTesting() {
     max_simultaneous: m.max_simultaneous_positions, max_planned_open_risk: m.max_planned_open_risk,
   } : null
 
+  const dirLong = isFilteredActive ? dirStats(filteredTrades, 'LONG')
+    : (m?.directional?.LONG ?? null)
+  const dirShort = isFilteredActive ? dirStats(filteredTrades, 'SHORT')
+    : (m?.directional?.SHORT ?? null)
+  const dirShape = (d: any) => d == null ? null : ({
+    total: d.total_trades ?? d.trades, wins: d.winning_trades ?? d.wins,
+    losses: d.losing_trades ?? d.losses, be: d.breakeven_trades ?? d.be,
+    winRate: d.win_rate ?? d.winRate, gp: d.gross_profit ?? d.gp, gl: d.gross_loss ?? d.gl,
+    net: d.net_profit ?? d.net, pf: d.profit_factor ?? d.pf,
+    avgWin: d.avg_win ?? d.avgWin, avgLoss: d.avg_loss ?? d.avgLoss,
+    expectancy: d.expectancy, largestWin: d.largest_win ?? d.largestWin,
+    largestLoss: d.largest_loss ?? d.largestLoss,
+    returnPct: d.return_on_initial_capital_pct ?? d.returnPct,
+    ddMax: d.drawdown?.max_amount ?? d.ddAmt, ddMaxPct: d.drawdown?.max_pct ?? d.ddPct,
+    ddCur: d.drawdown?.current_amount ?? d.currentDd, ddCurPct: d.drawdown?.current_pct ?? d.currentDdPct,
+    ddAvg: d.drawdown?.avg_amount ?? d.avgDd,
+    maxW: d.max_consecutive_wins ?? d.maxW, maxL: d.max_consecutive_losses ?? d.maxL,
+    curStreak: d.current_streak ? (typeof d.current_streak === 'string' ? d.current_streak
+      : `${d.current_streak.kind} x ${d.current_streak.count}`) : (d.curW ? `W x ${d.curW}` : d.curL ? `L x ${d.curL}` : '—'),
+  })
+  const dirRows = (label: string, raw: any, cls: string) => {
+    const d = dirShape(raw)
+    if (!d) return null
+    const netCls = (v: any) => (typeof v === 'number' ? (v > 0 ? 'stat-pos' : v < 0 ? 'stat-neg' : '') : '')
+    return (<>
+      <tr><th colSpan={4} className={cls}>{label} — independent directional view (own equity path from the configured initial capital; drawdown % vs running peak)</th></tr>
+      <tr><td>Total / W / L / BE</td><td>{d.total} / {d.wins} / {d.losses} / {d.be}</td>
+          <td>Win rate / Loss rate</td><td>{d.winRate != null ? `${fmt(d.winRate * 100, 1)}%` : 'N/A'} / {d.total ? `${fmt((d.losses / d.total) * 100, 1)}%` : 'N/A'}</td></tr>
+      <tr><td>Gross profit / loss</td><td><span className="stat-gp">{fmt(d.gp)}</span> / <span className="stat-gl">{fmt(d.gl)}</span></td>
+          <td>Net P/L · Profit factor</td><td><span className={netCls(d.net)}>{fmt(d.net)}</span> · {fmt(d.pf, 3)}</td></tr>
+      <tr><td>Avg win / loss</td><td>{fmt(d.avgWin)} / {fmt(d.avgLoss)}</td>
+          <td>Expectancy</td><td>{fmt(d.expectancy)}</td></tr>
+      <tr><td>Largest win / loss</td><td>{fmt(d.largestWin)} / {fmt(d.largestLoss)}</td>
+          <td>Return on initial capital</td><td><span className={netCls(d.returnPct)}>{d.returnPct != null ? `${fmt(d.returnPct)}%` : 'N/A'}</span></td></tr>
+      <tr><td>Max drawdown (independent)</td><td><span className="stat-dd">{fmt(d.ddMax)} ({fmt(d.ddMaxPct)}%)</span></td>
+          <td>Current drawdown</td><td><span className="stat-dd">{fmt(d.ddCur)} ({fmt(d.ddCurPct)}%)</span></td></tr>
+      <tr><td>Average drawdown</td><td>{fmt(d.ddAvg)}</td>
+          <td>Max consec. W / L · current</td><td>{d.maxW} / {d.maxL} · {d.curStreak}</td></tr>
+    </>)
+  }
+
   const equityPoints = useMemo(() => {
     if (isFilteredActive) {
       const sorted = [...filteredTrades].sort((a, b) => a.exit_ts - b.exit_ts)
@@ -554,6 +652,23 @@ export function DeepTesting() {
     if (sc.config?.source_run_id) await openNodeRun(inspectId!, sc.config.source_run_id)
     setNotice(`Scenario "${sc.name}" loaded — checkbox states restored exactly as saved (scenario #${sc.id}, deeptesting-scenario/v1).`)
   }
+
+  const [showTrades, setShowTrades] = useState(false)
+  const [tradePage, setTradePage] = useState(0)
+  const [tradePageSize, setTradePageSize] = useState(25)
+  const [tradeSort, setTradeSort] = useState<{ key: string; dir: string }>({ key: 'entry_ts', dir: 'asc' })
+  const [tradeData, setTradeData] = useState<any | null>(null)
+  const selectedCells = useMemo(() => COL_DAYS.flatMap((d) =>
+    SESSION_ROWS.slice(1).filter((s2) => daySel[d] && cellSel[`${d}|${s2}`]).map((s2) => `${d}|${s2}`)),
+    [daySel, cellSel])
+  useEffect(() => { setTradePage(0) }, [cellSel, daySel, activeRun?.id, tradeSort, tradePageSize])
+  useEffect(() => {
+    if (!showTrades || !activeRun) return
+    api.deeptesting.tradesPage(instrument, activeRun.id,
+      { page: tradePage, pageSize: tradePageSize, sort: tradeSort.key, dir: tradeSort.dir, cells: selectedCells })
+      .then(setTradeData).catch(() => setTradeData(null))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showTrades, activeRun?.id, tradePage, tradePageSize, tradeSort, selectedCells])
 
   const moneyRisk = riskMode === 'percent' ? (capital * riskValue) / 100 : riskValue
   const offInput = (label: string, value: string, onChange: (v: string) => void, aria: string) => (
@@ -779,26 +894,28 @@ export function DeepTesting() {
               })()}
 
               {/* complete statistics — ONE compact table, stats first */}
-              <table className="node-table" aria-label="Complete statistics">
+              <table className="node-table dt-stats" aria-label="Complete statistics">
                 <tbody>
                   <tr><th colSpan={4}>Trading statistics {isFilteredActive ? '(filtered)' : ''}</th></tr>
                   <tr><td>Total trades</td><td>{stats.total_trades}</td><td>Winning / Losing / Breakeven</td><td>{stats.winning_trades} / {stats.losing_trades} / {stats.breakeven_trades}</td></tr>
-                  <tr><td>Win rate / Loss rate</td><td>{stats.win_rate != null ? `${fmt(stats.win_rate * 100, 1)}%` : 'N/A'} / {stats.win_rate != null ? `${fmt((1 - stats.win_rate) * 100, 1)}%` : 'N/A'}</td><td>Gross profit / loss</td><td>{fmt(stats.gross_profit)} / {fmt(stats.gross_loss)}</td></tr>
-                  <tr><td>Net profit/loss</td><td>{fmt(stats.net_profit)}</td><td>Profit factor</td><td>{fmt(stats.profit_factor, 3)}</td></tr>
+                  <tr><td>Win rate / Loss rate</td><td>{stats.win_rate != null ? `${fmt(stats.win_rate * 100, 1)}%` : 'N/A'} / {stats.win_rate != null ? `${fmt((1 - stats.win_rate) * 100, 1)}%` : 'N/A'}</td><td>Gross profit / loss</td><td><span className="stat-gp">{fmt(stats.gross_profit)}</span> / <span className="stat-gl">{fmt(stats.gross_loss)}</span></td></tr>
+                  <tr><td>Net profit/loss</td><td><span className={typeof stats.net_profit === 'number' ? (stats.net_profit > 0 ? 'stat-pos' : stats.net_profit < 0 ? 'stat-neg' : '') : ''}>{fmt(stats.net_profit)}</span></td><td>Profit factor</td><td>{fmt(stats.profit_factor, 3)}</td></tr>
                   <tr><td>Avg win / loss</td><td>{fmt(stats.avg_win)} / {fmt(stats.avg_loss)}</td><td>Expectancy</td><td>{fmt(stats.expectancy)}</td></tr>
                   <tr><td>Largest win / loss</td><td>{fmt(stats.largest_win)} / {fmt(stats.largest_loss)}</td><td>Avg holding</td><td>{fmt((stats.avg_holding_seconds ?? 0) / 3600, 1)}h</td></tr>
                   <tr><th colSpan={4}>Account statistics</th></tr>
                   <tr><td>Initial capital</td><td>{fmt(stats.initial_capital, 0)} {currency}</td><td>Balance / Equity</td><td>{fmt(stats.final_balance)} / {fmt(stats.final_equity)}</td></tr>
                   <tr><td>Total return</td><td>{fmt(stats.net_profit)} ({fmt(stats.return_pct)}%)</td><td>Unrealized P/L</td><td>{isFilteredActive ? 'N/A (filter view)' : fmt(m?.unrealized_at_end)}</td></tr>
                   <tr><th colSpan={4}>Risk statistics</th></tr>
-                  <tr><td>Max drawdown</td><td>{fmt(stats.max_drawdown_amount)} ({fmt(stats.max_drawdown_pct)}%)</td><td>Average drawdown</td><td>{fmt(stats.avg_drawdown_amount)}</td></tr>
-                  <tr><td>Current drawdown</td><td>{fmt(stats.current_drawdown_amount)} ({fmt(m?.current_drawdown_pct)}%)</td><td>Recovery factor</td><td>{isFilteredActive ? 'N/A (filter view)' : fmt(m?.recovery_factor, 3)}</td></tr>
+                  <tr><td>Max drawdown</td><td><span className="stat-dd">{fmt(stats.max_drawdown_amount)} ({fmt(stats.max_drawdown_pct)}%)</span></td><td>Average drawdown</td><td><span className="stat-dd">{fmt(stats.avg_drawdown_amount)}</span></td></tr>
+                  <tr><td>Current drawdown</td><td><span className="stat-dd">{fmt(stats.current_drawdown_amount)} ({fmt(m?.current_drawdown_pct)}%)</span></td><td>Recovery factor</td><td>{isFilteredActive ? 'N/A (filter view)' : fmt(m?.recovery_factor, 3)}</td></tr>
                   <tr><td>DD duration</td><td>{isFilteredActive ? 'N/A (filter view)' : `${fmt((m?.max_drawdown_duration_seconds ?? 0) / 86400, 1)}d`}</td><td>Max simultaneous / planned open risk</td><td>{stats.max_simultaneous} / {fmt(stats.max_planned_open_risk)}</td></tr>
                   <tr><th colSpan={4}>Streak statistics</th></tr>
                   <tr><td>Max consec. W / L</td><td>{stats.max_consecutive_wins} / {stats.max_consecutive_losses}</td><td>Current streak</td><td>{stats.current_streak}</td></tr>
                   <tr><td>Max consecutive losses</td><td>{stats.max_consecutive_losses}</td><td>Max consecutive loss amount</td><td>{fmt(stats.max_consecutive_loss_amount)}</td></tr>
                   <tr><td>Max consecutive loss %</td><td>{stats.max_consecutive_loss_pct != null ? `${fmt(stats.max_consecutive_loss_pct)}%` : 'N/A'}</td><td>Of starting capital</td><td>{fmt(stats.initial_capital, 0)} {currency}</td></tr>
                   <tr><td>Avg W / L streak</td><td>{isFilteredActive ? 'N/A (filter view)' : `${fmt(m?.streaks?.avg_winning_streak)} / ${fmt(m?.streaks?.avg_losing_streak)}`}</td><td>Long / Short net</td><td>{isFilteredActive ? 'N/A (filter view)' : `${fmt(m?.long_net)} / ${fmt(m?.short_net)}`}</td></tr>
+                  {dirRows('BUY / LONG trades', dirLong, 'stat-sec-buy')}
+                  {dirRows('SELL / SHORT trades', dirShort, 'stat-sec-sell')}
                 </tbody>
               </table>
 
@@ -837,18 +954,19 @@ export function DeepTesting() {
                           return (
                             <td key={key}
                                 className={`dt-clickable ${session !== 'TOTAL DAY' && !cellSel[key] ? 'dt-cell-off' : ''}`}
-                                onClick={() => { if (session === 'TOTAL DAY') toggleDay(d, !daySel[d]); else setCellSel({ ...cellSel, [key]: !cellSel[key] }) }}>
+                                onClick={() => { if (session === 'TOTAL DAY') toggleDay(d, !daySel[d]); else setCell(key, d, !cellSel[key]) }}>
                               <span className="dt-cell-box">
                                 {session !== 'TOTAL DAY' && (
                                   <input type="checkbox" checked={!!cellSel[key]}
                                     aria-label={`Include ${d} ${session}`}
                                     onClick={(e) => e.stopPropagation()}
-                                    onChange={(e) => setCellSel({ ...cellSel, [key]: e.target.checked })} />
+                                    onChange={(e) => setCell(key, d, e.target.checked)} />
                                 )}
                                 <span className="dt-cell-stats">
                                   <span>{st.trades} trades · {st.wins}W/{st.losses}L/{st.be}BE</span>
                                   <span>WR {st.winRate != null ? `${fmt(st.winRate * 100, 0)}%` : 'N/A'} · PF {fmt(st.pf, 2)}</span>
                                   <span>GP {fmt(st.gp, 0)} · GL {fmt(st.gl, 0)}</span>
+                                  <span className="dt-dd-line">DD {st.ddAmt != null ? `${fmt(st.ddAmt, 0)} (${fmt(st.ddPct, 1)}%)` : 'N/A'}</span>
                                   <span className={netCls}><strong>Net {fmt(st.net, 0)}</strong></span>
                                 </span>
                               </span>
@@ -862,6 +980,7 @@ export function DeepTesting() {
                               <span>{agg.trades} trades · {agg.wins}W/{agg.losses}L/{agg.be}BE</span>
                               <span>WR {agg.winRate != null ? `${fmt(agg.winRate * 100, 0)}%` : 'N/A'} · PF {fmt(agg.pf, 2)}</span>
                               <span>GP {fmt(agg.gp, 0)} · GL {fmt(agg.gl, 0)}</span>
+                              <span className="dt-dd-line">DD {agg.ddAmt != null ? `${fmt(agg.ddAmt, 0)} (${fmt(agg.ddPct, 1)}%)` : 'N/A'}</span>
                               <span className={netCls}><strong>Net {fmt(agg.net, 0)}</strong></span>
                             </span>
                           </span>) })()}
@@ -900,6 +1019,66 @@ export function DeepTesting() {
               {/* ONE equity curve */}
               <EquityCurve points={equityPoints} capital={runCapital}
                 label={isFilteredActive ? 'Equity curve (filtered trades, cumulative)' : 'Equity curve (engine, incl. unrealized)'} />
+
+              {/* paginated trade list (server-side sort + pagination) */}
+              <div className="dt-toolbar">
+                <button type="button" className="btn btn-primary" aria-expanded={showTrades}
+                        onClick={() => setShowTrades(!showTrades)}>{showTrades ? 'HIDE TRADES' : 'SHOW TRADES'}</button>
+                {showTrades && tradeData && <span className="faint micro">{tradeData.count} filtered trades · page {tradePage + 1} of {tradeData.pages} · sorted by {tradeSort.key} ({tradeSort.dir}) on the server across the full filtered set</span>}
+              </div>
+              {showTrades && (
+                <div className="dt-table-scroll">
+                  <table className="node-table" aria-label="Filtered trades">
+                    <thead><tr>
+                      {[['id', 'ID'], ['entry_ts', 'Entry'], ['exit_ts', 'Exit'], ['weekday', 'Weekday'],
+                        ['session', 'Session'], ['side', 'Dir'], ['entry_price', 'Entry px'],
+                        ['exit_price', 'Exit px'], ['initial_stop', 'SL'], ['take_profit', 'TP'],
+                        ['volume', 'Size'], ['gross_pnl', 'Gross profit'], ['gross_pnl', 'Gross loss'], ['net_pnl', 'Net P/L'],
+                        ['result', 'Outcome'], ['holding_seconds', 'Held'], ['exit_reason', 'Exit reason']].map(([key, label]) => (
+                        <th key={key}>
+                          <button type="button" className="btn btn-ghost btn-xs" aria-label={`Sort by ${label}`}
+                                  onClick={() => setTradeSort((cur) => cur.key === key
+                                    ? { key, dir: cur.dir === 'asc' ? 'desc' : 'asc' }
+                                    : { key, dir: ['net_pnl', 'gross_pnl', 'volume', 'entry_price', 'exit_price'].includes(key) ? 'desc' : key === 'entry_ts' || key === 'exit_ts' ? 'desc' : 'asc' })}>
+                            {label}{tradeSort.key === key ? (tradeSort.dir === 'asc' ? ' ↑' : ' ↓') : ''}
+                          </button>
+                        </th>))}
+                      <th>Instrument</th><th>TF</th>
+                    </tr></thead>
+                    <tbody>
+                      {(tradeData?.trades ?? []).map((t: any) => (
+                        <tr key={t.id}>
+                          <td>{t.id}</td><td>{tsFmt(t.entry_ts)}</td><td>{tsFmt(t.exit_ts)}</td>
+                          <td>{t.weekday}</td><td>{t.session}</td><td>{t.side}</td>
+                          <td>{fmt(t.entry_price, 2)}</td><td>{fmt(t.exit_price, 2)}</td>
+                          <td>{fmt(t.initial_stop, 2)}</td><td>{fmt(t.take_profit, 2)}</td>
+                          <td>{fmt(t.volume, 2)}</td>
+                          <td>{t.gross_pnl > 0 ? fmt(t.gross_pnl) : fmt(0)}</td>
+                          <td>{t.gross_pnl < 0 ? fmt(t.gross_pnl) : fmt(0)}</td>
+                          <td><span className={t.net_pnl > 0 ? 'stat-pos' : t.net_pnl < 0 ? 'stat-neg' : ''}>{fmt(t.net_pnl)}</span></td>
+                          <td>{t.result}</td><td>{fmt((t.holding_seconds ?? 0) / 3600, 1)}h</td>
+                          <td>{t.exit_reason}</td><td>{instrument}</td><td>{activeRun.timeframe}</td>
+                        </tr>))}
+                      {(tradeData?.trades ?? []).length === 0 && (
+                        <tr><td colSpan={19} className="faint">No trades match the active filters.</td></tr>)}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {showTrades && tradeData && (
+                <div className="dt-toolbar">
+                  <button type="button" className="btn btn-ghost btn-xs" disabled={tradePage === 0}
+                          onClick={() => setTradePage(tradePage - 1)}>← Prev</button>
+                  <span className="faint">Page {tradePage + 1} of {tradeData.pages} · {tradeData.count} trades</span>
+                  <button type="button" className="btn btn-ghost btn-xs" disabled={tradePage + 1 >= tradeData.pages}
+                          onClick={() => setTradePage(tradePage + 1)}>Next →</button>
+                  <label className="mini-field">Page size
+                    <select className="input input-xs" value={tradePageSize} aria-label="Trade page size"
+                            onChange={(e) => setTradePageSize(Math.min(25, Number(e.target.value)))}>
+                      {[10, 20, 25].map((n) => <option key={n} value={n}>{n}</option>)}
+                    </select></label>
+                </div>
+              )}
             </>
           )}
         </section>

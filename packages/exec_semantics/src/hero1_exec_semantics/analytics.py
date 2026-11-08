@@ -108,6 +108,7 @@ def compute_metrics(trades: List[dict], equity_curve: List[dict],
             if initial_capital and initial_capital > 0 else None),
         "current_streak": streaks["current"],
         "streaks": streaks,
+        "directional": directional_stats(trades, initial_capital),
         "long_trades": sum(1 for t in trades if t["side"] == "LONG"),
         "short_trades": sum(1 for t in trades if t["side"] == "SHORT"),
         "long_net": round(sum(t["net_pnl"] for t in trades if t["side"] == "LONG"), 4),
@@ -216,6 +217,63 @@ def streak_analysis(trades: List[dict]) -> Dict[str, Any]:
         "current": ({"kind": runs[-1]["kind"], "count": runs[-1]["count"]} if runs else None),
         "runs": [{**r, "pnl": round(r["pnl"], 4)} for r in runs][-50:],
     }
+
+
+def directional_stats(trades: List[dict], initial_capital: float) -> Dict[str, Any]:
+    """Independent BUY (LONG) / SELL (SHORT) statistics from the SAME
+    ledger (Part 2). Counts and P/L reconcile exactly with the overall
+    metrics by construction (the two subsets partition the ledger).
+    Drawdown is INDEPENDENT per direction: an equity path that starts at
+    the configured initial capital and applies only that direction's
+    trades in exit-time order, peak-equity denominator - never the
+    overall strategy drawdown and never derived by subtraction."""
+    out: Dict[str, Any] = {}
+    for side in ("LONG", "SHORT"):
+        sub = _ordered([t for t in trades if t["side"] == side])
+        wins = [t for t in sub if t["net_pnl"] > 1e-9]
+        losses = [t for t in sub if t["net_pnl"] < -1e-9]
+        gp = sum(t["net_pnl"] for t in wins)
+        gl = sum(t["net_pnl"] for t in losses)
+        net = gp + gl
+        streaks = streak_analysis(sub)
+        equity = [{"ts": sub[0]["exit_ts"] if sub else 0, "equity": float(initial_capital),
+                   "balance": float(initial_capital)}]
+        cum = float(initial_capital)
+        for t in sub:
+            cum += t["net_pnl"]
+            equity.append({"ts": t["exit_ts"], "equity": cum, "balance": cum})
+        dd = drawdown_analysis(equity)
+        out[side] = {
+            "total_trades": len(sub),
+            "winning_trades": len(wins), "losing_trades": len(losses),
+            "breakeven_trades": len(sub) - len(wins) - len(losses),
+            "win_rate": round(len(wins) / len(sub), 6) if sub else None,
+            "loss_rate": round(len(losses) / len(sub), 6) if sub else None,
+            "gross_profit": round(gp, 4), "gross_loss": round(gl, 4),
+            "net_profit": round(net, 4),
+            "profit_factor": round(gp / abs(gl), 6) if gl < 0 else None,
+            "avg_win": round(gp / len(wins), 4) if wins else None,
+            "avg_loss": round(gl / len(losses), 4) if losses else None,
+            "expectancy": round(net / len(sub), 4) if sub else None,
+            "largest_win": round(max((t["net_pnl"] for t in wins), default=0.0), 4),
+            "largest_loss": round(min((t["net_pnl"] for t in losses), default=0.0), 4),
+            "return_on_initial_capital_pct": (round(net / initial_capital * 100, 4)
+                                              if initial_capital else None),
+            "max_consecutive_wins": streaks["max_consecutive_wins"],
+            "max_consecutive_losses": streaks["max_consecutive_losses"],
+            "max_consecutive_loss_amount": streaks["max_consecutive_loss_amount"],
+            "current_streak": streaks["current"],
+            "drawdown": {
+                "max_amount": dd["max_drawdown_amount"], "max_pct": dd["max_drawdown_pct"],
+                "current_amount": dd["current_drawdown_amount"],
+                "current_pct": dd["current_drawdown_pct"],
+                "avg_amount": dd["avg_drawdown_amount"],
+                "basis": ("independent directional equity path from the configured "
+                          "initial capital; percentage vs running peak equity; average "
+                          "= mean drawdown over equity points below the running peak"),
+            },
+        }
+    return out
 
 
 def time_buckets(trades: List[dict]) -> Dict[str, List[dict]]:
@@ -399,5 +457,5 @@ def rank_runs(rows: List[dict], weights: Dict[str, float], min_trades: int = 0,
     return eligible
 
 
-__all__ = ["compute_metrics", "drawdown_analysis", "streak_analysis",
+__all__ = ["compute_metrics", "drawdown_analysis", "streak_analysis", "directional_stats",
            "time_buckets", "apply_trade_filters", "rank_runs", "daily_table"]

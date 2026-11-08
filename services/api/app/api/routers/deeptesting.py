@@ -77,15 +77,27 @@ def get_run(run_id: int, instrument: str = Depends(get_instrument_context),
 
 @router.get("/runs/{run_id}/trades")
 def get_trades(run_id: int, filters: Optional[str] = None,
+               page: Optional[int] = None, page_size: int = 25,
+               sort: str = "entry_ts", dir: str = "asc", cells: Optional[str] = None,
                instrument: str = Depends(get_instrument_context),
                session: Session = Depends(get_instrument_session)):
     rows = session.query(im.DeepTestRunTrade).filter_by(run_id=run_id).order_by(im.DeepTestRunTrade.entry_ts).all()
-    trades = [json.loads(r.detail_json) for r in rows if r.detail_json]
+    trades = [{**(json.loads(r.detail_json) if r.detail_json else {}), "id": r.id}
+              for r in rows]
     if filters:
         try:
             trades = dts.apply_trade_filters(trades, json.loads(filters))
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(422, f"invalid filters: {exc}") from exc
+    if page is not None:
+        cell_list = None
+        if cells:
+            try:
+                cell_list = list(json.loads(cells))
+            except Exception as exc:  # noqa: BLE001
+                raise HTTPException(422, f"invalid cells: {exc}") from exc
+        return dts.paginate_trades(trades, page=page, page_size=page_size,
+                                   sort=sort, direction=dir, cells=cell_list)
     return {"trades": trades, "count": len(trades)}
 
 

@@ -145,3 +145,65 @@ describe('DeepTesting refined layout', () => {
     expect(await screen.findByText(/persistent ID/)).toBeTruthy()
   })
 })
+
+describe('DeepTesting final improvements', () => {
+  beforeEach(() => {
+    ;(globalThis as { __hero1NodeItems?: unknown[] }).__hero1NodeItems = [NODE]
+    localStorage.clear()
+  })
+
+  it('shows independent BUY/LONG and SELL/SHORT sections in the main statistics only', async () => {
+    renderDT()
+    fireEvent.click(await screen.findByRole('button', { name: /^Inspect$/i }))
+    await screen.findByText(/Inspection — Acceptance Node/i)
+    expect(screen.getByText(/BUY \/ LONG trades/)).toBeTruthy()
+    expect(screen.getByText(/SELL \/ SHORT trades/)).toBeTruthy()
+    const grid = screen.getByLabelText(/Weekday and session filters/i)
+    expect(grid.textContent).not.toMatch(/BUY \/ LONG trades/)
+  })
+
+  it('highlights the full inspected node row in the node table', async () => {
+    const { container } = renderDT()
+    fireEvent.click(await screen.findByRole('button', { name: /^Inspect$/i }))
+    await screen.findByText(/Inspection — Acceptance Node/i)
+    expect(container.querySelector('tr.row-active')).toBeTruthy()
+  })
+
+  it('shows a per-cell drawdown line inside weekday/session cells', async () => {
+    renderDT()
+    fireEvent.click(await screen.findByRole('button', { name: /^Inspect$/i }))
+    await screen.findByText(/Inspection — Acceptance Node/i)
+    const cell = screen.getByLabelText('Include Tuesday ASIA').closest('td') as HTMLElement
+    expect(cell.textContent).toMatch(/DD 0 \(0%\)/) // single winning trade: no drawdown
+  })
+
+  it('SHOW TRADES reveals the trade table only on demand, with server page info', async () => {
+    renderDT()
+    fireEvent.click(await screen.findByRole('button', { name: /^Inspect$/i }))
+    await screen.findByText(/Inspection — Acceptance Node/i)
+    expect(screen.queryByLabelText(/Filtered trades/i)).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /SHOW TRADES/i }))
+    expect(await screen.findByLabelText(/Filtered trades/i)).toBeTruthy()
+    expect(screen.getByText(/1 filtered trades/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /HIDE TRADES/i }))
+    expect(screen.queryByLabelText(/Filtered trades/i)).toBeNull()
+  })
+
+  it('range options include persisted TILL DATA', async () => {
+    renderDT()
+    const till = await screen.findByRole('button', { name: 'TILL DATA' })
+    expect(till).toBeTruthy()
+    expect(screen.getByRole('button', { name: '1 Year' })).toBeTruthy()
+    fireEvent.click(till)
+    expect(localStorage.getItem('hero1.dt.rangeDays')).toBe('-1')
+  })
+
+  it('parent weekday checkbox is indeterminate when only some sessions are off', async () => {
+    renderDT()
+    fireEvent.click(await screen.findByRole('button', { name: /^Inspect$/i }))
+    await screen.findByText(/Inspection — Acceptance Node/i)
+    fireEvent.click(screen.getByLabelText('Include Tuesday NY'))
+    const parent = screen.getByLabelText('Include Tuesday') as HTMLInputElement
+    expect(parent.indeterminate).toBe(true) // some-but-not-all selected
+  })
+})
