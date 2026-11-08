@@ -156,10 +156,10 @@ describe('DeepTesting final improvements', () => {
     renderDT()
     fireEvent.click(await screen.findByRole('button', { name: /^Inspect$/i }))
     await screen.findByText(/Inspection — Acceptance Node/i)
-    expect(screen.getByText(/BUY \/ LONG trades/)).toBeTruthy()
-    expect(screen.getByText(/SELL \/ SHORT trades/)).toBeTruthy()
+    expect(screen.getByText(/^BUY \/ LONG$/)).toBeTruthy()
+    expect(screen.getByText(/^SELL \/ SHORT$/)).toBeTruthy()
     const grid = screen.getByLabelText(/Weekday and session filters/i)
-    expect(grid.textContent).not.toMatch(/BUY \/ LONG trades/)
+    expect(grid.textContent).not.toMatch(/BUY \/ LONG/)
   })
 
   it('highlights the full inspected node row in the node table', async () => {
@@ -205,5 +205,149 @@ describe('DeepTesting final improvements', () => {
     fireEvent.click(screen.getByLabelText('Include Tuesday NY'))
     const parent = screen.getByLabelText('Include Tuesday') as HTMLInputElement
     expect(parent.indeterminate).toBe(true) // some-but-not-all selected
+  })
+})
+
+describe('Task progress, filters, exports, JSON viewer', () => {
+  beforeEach(() => {
+    ;(globalThis as { __hero1NodeItems?: unknown[] }).__hero1NodeItems = [NODE]
+    localStorage.clear()
+  })
+
+  it('side-by-side BUY/SELL comparison shows both directions compactly', async () => {
+    renderDT()
+    fireEvent.click(await screen.findByRole('button', { name: /^Inspect$/i }))
+    await screen.findByText(/Inspection — Acceptance Node/i)
+    const table = screen.getByLabelText(/BUY and SELL comparison/i)
+    expect(table.textContent).toMatch(/BUY \/ LONG/)
+    expect(table.textContent).toMatch(/SELL \/ SHORT/)
+    expect(table.textContent).toMatch(/Avg holding/)
+    expect(table.textContent).toMatch(/Max drawdown/)
+  })
+
+  it('trade filters drive the filtered view; page size offers ALL', async () => {
+    renderDT()
+    fireEvent.click(await screen.findByRole('button', { name: /^Inspect$/i }))
+    await screen.findByText(/Inspection — Acceptance Node/i)
+    fireEvent.click(screen.getByRole('button', { name: /SHOW TRADES/i }))
+    expect(await screen.findByLabelText(/Filtered trades/i)).toBeTruthy()
+    const size = screen.getByLabelText(/Trade page size/i) as HTMLSelectElement
+    expect([...size.options].map((o) => o.text)).toEqual(['10', '15', '25', 'ALL'])
+    expect(size.value).toBe('25')
+    // direction filter excludes the mock LONG trade -> filtered view marks 0 trades
+    fireEvent.change(screen.getByLabelText(/Trade direction/i), { target: { value: 'SHORT' } })
+    expect(await screen.findByText(/0 matching trade\(s\)/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /Clear filters/i }))
+    expect(await screen.findByText(/1 matching trade\(s\)/)).toBeTruthy()
+  })
+
+  it('direction text is coloured by side only', async () => {
+    renderDT()
+    fireEvent.click(await screen.findByRole('button', { name: /^Inspect$/i }))
+    await screen.findByText(/Inspection — Acceptance Node/i)
+    fireEvent.click(screen.getByRole('button', { name: /SHOW TRADES/i }))
+    const table = await screen.findByLabelText(/Filtered trades/i)
+    expect(table.querySelector('.dir-long')?.textContent).toBe('LONG')
+  })
+
+  it('export controls are present for table and trading data', async () => {
+    renderDT()
+    fireEvent.click(await screen.findByRole('button', { name: /^Inspect$/i }))
+    await screen.findByText(/Inspection — Acceptance Node/i)
+    expect(screen.getByRole('button', { name: 'EXPORT TABLE' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'EXPORT TRADING DATA' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'EXPORT TRADING DATA (FILTERED)' })).toBeTruthy()
+  })
+})
+
+describe('Global task bars and JSON viewer', () => {
+  beforeEach(() => {
+    ;(globalThis as { __hero1NodeItems?: unknown[] }).__hero1NodeItems = [NODE]
+    localStorage.clear()
+  })
+
+  it('renders no global task bars when no tasks exist', async () => {
+    renderDT()
+    await screen.findByText(/Hard Constraints/i)
+    expect(document.querySelector('.task-progress-area')).toBeNull()
+  })
+
+  it('JSON viewer pretty-prints nested strategy JSON with line numbers and copy', async () => {
+    const { JsonViewer } = await import('../components/JsonViewer')
+    const { render: r2 } = await import('@testing-library/react')
+    const raw = '{"identity":{"name":"N1","tags":["a"]},"risk":{"value":1.5,"enabled":true,"note":null}}'
+    const view = r2(<JsonViewer raw={raw} title="Stored strategy JSON" />)
+    expect(view.getByText(/Copy JSON/)).toBeTruthy()
+    const code = view.container.querySelector('.json-viewer')?.textContent ?? ''
+    expect(code).toContain('"identity"')
+    expect(code).toContain('"value"')
+    // values unchanged: the pretty text parses back to the same object
+    const pretty = JSON.stringify(JSON.parse(raw), null, 2)
+    expect(pretty).toContain('"note": null')
+    expect(JSON.parse(pretty)).toEqual(JSON.parse(raw))
+  })
+})
+
+describe('Global progress bars from shared task state', () => {
+  beforeEach(() => {
+    ;(globalThis as { __hero1NodeItems?: unknown[] }).__hero1NodeItems = [NODE]
+    localStorage.clear()
+  })
+
+  const TASK = (over: Record<string, unknown>) => ({
+    id: 't1', category: 'DEEPTESTING', instrument: 'XAUUSD', label: 'DeepTesting',
+    status: 'RUNNING', total_units: 20, completed_units: 2, current_unit: 'Node 3',
+    current_unit_progress: 34, percentage: 10, summary: null, error: null,
+    acknowledged: false, payload: { nodes: [] }, created_at: 0, finished_at: null, ...over })
+
+  it('shows one bar per active task with its own percentage and colour category', async () => {
+    ;(globalThis as { __hero1Tasks?: unknown }).__hero1Tasks = {
+      tasks: [TASK({}), TASK({ id: 't2', category: 'DATA_FETCHING', percentage: 72, completed_units: 13, total_units: 18, current_unit: 'H1' })],
+      latest: {} }
+    renderDT()
+    await screen.findByText(/2 \/ 20 nodes tested/)
+    const area = document.querySelector('.task-progress-area') as HTMLElement
+    expect(area.textContent).toContain('10%')
+    expect(area.textContent).toContain('72%')
+    expect(area.textContent).toContain('DEEPTESTING')
+    expect(area.textContent).toContain('DATA FETCHING')
+    expect(area.querySelectorAll('.task-bar')).toHaveLength(2)
+    ;(globalThis as { __hero1Tasks?: unknown }).__hero1Tasks = undefined
+  })
+
+  it('a completed unacknowledged task stays visible at 100%', async () => {
+    ;(globalThis as { __hero1Tasks?: unknown }).__hero1Tasks = {
+      tasks: [TASK({ status: 'COMPLETED', percentage: 100, completed_units: 20, current_unit: null })],
+      latest: {} }
+    renderDT()
+    await screen.findByText(/20 \/ 20 nodes tested/)
+    const area = document.querySelector('.task-progress-area') as HTMLElement
+    expect(area.textContent).toContain('COMPLETED')
+    expect(area.textContent).toContain('100%')
+    ;(globalThis as { __hero1Tasks?: unknown }).__hero1Tasks = undefined
+  })
+
+  it('Live Feed infographic cards filter and unfilter the feed', async () => {
+    const { GlobalLiveFeed } = await import('../components/GlobalLiveFeed')
+    const { FeedProvider, useFeed } = await import('../state/feed')
+    const { TasksProvider } = await import('../state/tasks')
+    const { InstrumentProvider } = await import('../state/instrument')
+    const { render: r2 } = await import('@testing-library/react')
+    const { useEffect } = await import('react')
+    function Harness() {
+      const { setOpen } = useFeed()
+      useEffect(() => { setOpen(true) }, [setOpen])
+      return <GlobalLiveFeed />
+    }
+    ;(globalThis as { __hero1Tasks?: unknown }).__hero1Tasks = {
+      tasks: [], latest: { DEEPTESTING: TASK({}) } }
+    r2(<InstrumentProvider><TasksProvider><FeedProvider><Harness /></FeedProvider></TasksProvider></InstrumentProvider>)
+    const card = await screen.findByRole('button', { name: /DEEPTESTING/ })
+    expect(card.textContent).toMatch(/2 \/ 20/)
+    fireEvent.click(card)
+    expect(card.getAttribute('aria-pressed')).toBe('true')
+    fireEvent.click(card)
+    expect(card.getAttribute('aria-pressed')).toBe('false')
+    ;(globalThis as { __hero1Tasks?: unknown }).__hero1Tasks = undefined
   })
 })

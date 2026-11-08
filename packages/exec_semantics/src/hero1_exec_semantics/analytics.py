@@ -259,6 +259,8 @@ def directional_stats(trades: List[dict], initial_capital: float) -> Dict[str, A
             "largest_loss": round(min((t["net_pnl"] for t in losses), default=0.0), 4),
             "return_on_initial_capital_pct": (round(net / initial_capital * 100, 4)
                                               if initial_capital else None),
+            "avg_holding_seconds": (round(statistics.fmean(
+                [t.get("holding_seconds") or 0 for t in sub]), 1) if sub else None),
             "max_consecutive_wins": streaks["max_consecutive_wins"],
             "max_consecutive_losses": streaks["max_consecutive_losses"],
             "max_consecutive_loss_amount": streaks["max_consecutive_loss_amount"],

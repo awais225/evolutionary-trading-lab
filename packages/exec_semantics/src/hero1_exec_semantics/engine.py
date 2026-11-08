@@ -407,7 +407,8 @@ def _resolve_distance(distance: Optional[dict], ctx: PriceContext, atr_series, i
 def run_backtest(*, ir: dict, candles: List[dict], cfg: RunConfig,
                  instrument: InstrumentSpec, price_ctx: PriceContext,
                  management: Optional[TradeManagement] = None,
-                 aux_candles: Optional[List[dict]] = None) -> dict:
+                 aux_candles: Optional[List[dict]] = None,
+                 progress_cb=None) -> dict:
     """Execute one compiled strategy over candles. Returns trades, equity
     curve, skipped signals and run accounting. Raises EngineError for any
     unsupported/underspecified semantics - never guesses."""
@@ -602,6 +603,11 @@ def run_backtest(*, ir: dict, candles: List[dict], cfg: RunConfig,
     pending_exits: List[Position] = [] # rule/time exits decided at previous close
 
     for i in range(n):
+        if progress_cb is not None and i % 512 == 0:
+            try:
+                progress_cb(i, n, len(trades))
+            except Exception:  # noqa: BLE001 - progress never breaks execution
+                progress_cb = None
         bar = candles[i]
         ts = int(bar["ts"])
 
@@ -711,6 +717,12 @@ def run_backtest(*, ir: dict, candles: List[dict], cfg: RunConfig,
         positions.remove(pos)
 
     total_open_risk = 0.0
+    if progress_cb is not None:
+        try:
+            progress_cb(n, n, len(trades))
+        except Exception:  # noqa: BLE001
+            pass
+
     return {
         "engine_version": ENGINE_VERSION,
         "trades": trades,

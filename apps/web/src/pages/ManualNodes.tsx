@@ -3,6 +3,7 @@ import { useInstrument } from '../state/instrument'
 import { api, ApiError } from '../api/client'
 import { bullishEngulfingSpec } from '../lib/exampleSpec'
 import { StrategyBuilder } from '../components/StrategyBuilder'
+import { JsonViewer } from '../components/JsonViewer'
 import { StarButton } from '../components/StarButton'
 import { StarredScopeControl } from '../components/StarredScopeControl'
 import { TimeframeMultiSelect } from '../components/TimeframeMultiSelect'
@@ -433,7 +434,11 @@ export function ManualNodes() {
 
   const loadIntoEditor = () => {
     if (!selected?.spec_json) return
-    setSpecText(selected.spec_json)
+    try {
+      // Pretty-print for readability; the stored JSON, fingerprint and node
+      // identity are untouched (formatting is presentation only).
+      setSpecText(JSON.stringify(JSON.parse(selected.spec_json), null, 2))
+    } catch { setSpecText(selected.spec_json) }
     try {
       const parsed = JSON.parse(selected.spec_json)
       setSpec(parsed && typeof parsed === 'object' ? (parsed as SpecObject) : null)
@@ -783,7 +788,7 @@ export function ManualNodes() {
                 <div className="faint">schema {compiled.schema_version} · compiler {compiled.compiler_version} · ir {compiled.ir_version} · warmup {compiled.required_warmup_candles}</div>
                 {compiled.warnings.length > 0 && <div style={{ color: 'var(--warn)' }}>warnings: {compiled.warnings.join('; ')}</div>}
               </div>
-              <pre className="input mono" style={{ maxHeight: 260, overflow: 'auto', fontSize: 10.5, marginTop: 8 }}>{JSON.stringify(compiled.ir, null, 2)}</pre>
+              <JsonViewer raw={JSON.stringify(compiled.ir)} title="Compiled IR (read-only)" />
             </div>
           )}
         </div>
@@ -971,6 +976,11 @@ export function ManualNodes() {
                 {selected.parent_node_id && <span className="faint">derived from #{selected.parent_node_id}</span>}
                 <button className="btn btn-ghost btn-sm" type="button" onClick={showLineage}>Lineage</button>
                 {selected.spec_json && <button className="btn btn-ghost btn-sm" type="button" onClick={loadIntoEditor}>Load into editor</button>}
+                {selected.spec_json && (
+                  <div style={{ marginTop: 10 }}>
+                    <JsonViewer raw={selected.spec_json} title={`Stored strategy JSON — node #${selected.id} (read-only)`} />
+                  </div>
+                )}
               </div>
               {selected.spec_hash && <div className="mono faint" style={{ fontSize: 10, marginTop: 4, wordBreak: 'break-all' }}>sha256 {selected.spec_hash}</div>}
               {lineage && (

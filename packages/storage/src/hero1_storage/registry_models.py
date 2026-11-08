@@ -58,3 +58,37 @@ class GlobalEvent(Base):
     message: Mapped[str] = mapped_column(String(500), nullable=False)
     payload: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON
     node_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class DashboardTask(Base):
+    """One authoritative task-progress record shared by the global progress
+    bars, the Live Feed infographics, the DeepTesting node-by-node progress
+    and completion acknowledgement (HERO1 task-progress architecture).
+
+    A task is visible while it is active, and afterwards until a user opens
+    the owning tab and the completion is acknowledged. Acknowledgement is
+    recorded here (server-side) so a page refresh can neither resurrect an
+    acknowledged bar nor lose a live one."""
+
+    __tablename__ = "dashboard_tasks"
+    __table_args__ = (Index("ix_dt_category_status", "category", "status"),)
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    category: Mapped[str] = mapped_column(String(24), nullable=False, index=True)
+    # DEEPTESTING | DATA_FETCHING | NODE_GENERATION | VALIDATION
+    instrument_id: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
+    label: Mapped[str] = mapped_column(String(160), nullable=False, default="")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="QUEUED")
+    # QUEUED | RUNNING | COMPLETED | FAILED | CANCELLED | BLOCKED
+    total_units: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    completed_units: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    current_unit: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    current_unit_progress: Mapped[float | None] = mapped_column(Float, nullable=True)
+    summary: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    acknowledged: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    payload_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[float] = mapped_column(Float, nullable=False, default=utcnow)
+    started_at: Mapped[float | None] = mapped_column(Float, nullable=True)
+    updated_at: Mapped[float] = mapped_column(Float, nullable=False, default=utcnow)
+    finished_at: Mapped[float | None] = mapped_column(Float, nullable=True)

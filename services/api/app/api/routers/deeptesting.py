@@ -19,7 +19,8 @@ from hero1_storage.repositories import NodeRepository
 
 from ... import deeptesting_service as dts
 from ... import spec_service
-from ...deps import get_instrument_context, get_instrument_session
+from ...deps import (get_instrument_context, get_instrument_session,
+                     get_registry_session)
 
 router = APIRouter(prefix="/api/v1/instruments/{instrument}/deeptesting", tags=["deeptesting"])
 
@@ -32,7 +33,26 @@ class RunRequest(BaseModel):
 
 @router.post("/runs")
 def create_runs(body: RunRequest, instrument: str = Depends(get_instrument_context),
-                session: Session = Depends(get_instrument_session)):
+                session: Session = Depends(get_instrument_session),
+                registry: Session = Depends(get_registry_session),
+                async_mode: bool = False):
+    if async_mode:
+        from app import task_service
+        repo0 = NodeRepository(session, instrument)
+        entries = []
+        for nid in body.node_ids:
+            n0 = repo0.get(nid)
+            entries.append({"node_id": nid, "name": n0.name if n0 else f"Node {nid}",
+                            "status": "QUEUED", "trades": 0, "progress_pct": None,
+                            "run_id": None, "error": None})
+        task = task_service.create_task(
+            registry, category="DEEPTESTING", instrument=instrument,
+            label=f"DeepTesting {len(body.node_ids)} node(s) [{instrument}]",
+            total_units=len(body.node_ids),
+            payload={"nodes": entries, "config_mode": body.config.get("mode")})
+        dts.run_batch_async(instrument=instrument, node_ids=list(body.node_ids),
+                            config=dict(body.config), task_id=task.id)
+        return {"task_id": task.id, "async": True, "runs": []}
     repo = NodeRepository(session, instrument)
     out = []
     for node_id in body.node_ids:
@@ -77,7 +97,7 @@ def get_run(run_id: int, instrument: str = Depends(get_instrument_context),
 
 @router.get("/runs/{run_id}/trades")
 def get_trades(run_id: int, filters: Optional[str] = None,
-               page: Optional[int] = None, page_size: int = 25,
+               page: Optional[int] = None, page_size: str = "25",
                sort: str = "entry_ts", dir: str = "asc", cells: Optional[str] = None,
                instrument: str = Depends(get_instrument_context),
                session: Session = Depends(get_instrument_session)):
@@ -96,9 +116,61 @@ def get_trades(run_id: int, filters: Optional[str] = None,
                 cell_list = list(json.loads(cells))
             except Exception as exc:  # noqa: BLE001
                 raise HTTPException(422, f"invalid cells: {exc}") from exc
-        return dts.paginate_trades(trades, page=page, page_size=page_size,
-                                   sort=sort, direction=dir, cells=cell_list)
+        structured = None
+        if filters:
+            try:
+                parsed_filters = json.loads(filters)
+                if isinstance(parsed_filters, dict) and "conditions" not in parsed_filters:
+                    structured = parsed_filters
+            except Exception:  # noqa: BLE001 - legacy path already validated above
+                structured = None
+        return dts.paginate_trades(trades, page=page,
+                                   page_size=("all" if page_size == "all" else int(page_size)),
+                                   sort=sort, direction=dir, cells=cell_list,
+                                   filters=structured)
     return {"trades": trades, "count": len(trades)}
+
+
+@router.get("/runs/{run_id}/audit-export")
+def audit_export(run_id: int, scope: str = "full", filters: Optional[str] = None,
+                 cells: Optional[str] = None,
+                 instrument: str = Depends(get_instrument_context),
+                 session: Session = Depends(get_instrument_session)):
+    """EXPORT TRADING DATA: complete original-run audit ZIP (Section 7).
+    scope=filtered exports only the currently filtered trade subset and
+    says so in the manifest; the default is the complete run."""
+    from fastapi import Response
+    from ... import audit_export as ax
+    run = session.get(im.DeepTestRun, run_id)
+    if run is None or run.instrument_id != instrument.upper():
+        raise HTTPException(404, f"run {run_id} not found for {instrument}")
+    node = session.get(im.Node, run.node_id)
+    rows = session.query(im.DeepTestRunTrade).filter_by(run_id=run_id).order_by(
+        im.DeepTestRunTrade.entry_ts).all()
+    trades = [{**(json.loads(r.detail_json) if r.detail_json else {}), "id": r.id}
+              for r in rows]
+    label = "FULL_RUN"
+    if scope == "filtered":
+        label = "FILTERED_SUBSET"
+        cell_list = None
+        if cells:
+            try:
+                cell_list = list(json.loads(cells))
+            except Exception as exc:  # noqa: BLE001
+                raise HTTPException(422, f"invalid cells: {exc}") from exc
+        structured = None
+        if filters:
+            try:
+                parsed = json.loads(filters)
+                structured = parsed if isinstance(parsed, dict) else None
+            except Exception as exc:  # noqa: BLE001
+                raise HTTPException(422, f"invalid filters: {exc}") from exc
+        page = dts.paginate_trades(trades, page=0, page_size="all",
+                                   cells=cell_list, filters=structured)
+        trades = page["trades"]
+    data = ax.build_audit_zip(run=run, node=node, trades=trades, scope=label)
+    return Response(content=data, media_type="application/zip", headers={
+        "Content-Disposition": f'attachment; filename="hero1_audit_run{run_id}_{label.lower()}.zip"'})
 
 
 @router.post("/runs/{run_id}/rerun")

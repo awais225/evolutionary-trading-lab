@@ -99,6 +99,7 @@ def create_app() -> FastAPI:
     app.include_router(routers.metadata.router)
     app.include_router(routers.market_data.router)
     app.include_router(routers.deeptesting.router)
+    app.include_router(routers.tasks.router)
 
     @app.websocket("/ws/v1/events")
     async def ws_events(ws: WebSocket) -> None:

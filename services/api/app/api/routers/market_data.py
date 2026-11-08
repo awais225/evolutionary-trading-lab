@@ -54,6 +54,22 @@ def start_fetch_data(body: Optional[FetchRequest] = None,
                                                     f"{', '.join(TIMEFRAME_ORDER)}; got {tf!r}"})
     started = market_data_service.start_fetch(
         instrument, timeframes, operation_id=(body.operation_id if body else None))
+    try:
+        from app import task_service
+        from app.deps import get_registry_session as _grs
+        _reg = next(_grs())
+        try:
+            if not started.get("existing"):
+                task_service.create_task(
+                    _reg, category="DATA_FETCHING", instrument=instrument,
+                    label=f"Fetch {tf} [{instrument}]",
+                    total_units=len(timeframes),
+                    payload={"operation_id": started["operation_id"],
+                             "timeframes": timeframes})
+        finally:
+            _reg.close()
+    except Exception:  # noqa: BLE001 - progress bookkeeping never breaks fetching
+        pass
     get_event_publisher().publish(
         category="SYSTEM", severity="INFO", subsystem="market-data",
         message=f"[{started['operation_id']}] FETCH operation {'already running' if started['existing'] else 'started'} [{instrument}] {tf}",

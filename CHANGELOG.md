@@ -5,6 +5,53 @@ exact commit SHA and tag. Claims only for what was implemented AND verified.
 
 ---
 ---
+---
+
+## [Task progress, Live Feed infographics, trade exports & execution audit] — 2026-11-06
+
+- **Shared task progress (Sections 1/2/3/13):** one authoritative
+  `dashboard_tasks` registry table (migration 0002) + `task_service` drives
+  the global top progress bars, the Live Feed infographic cards, and the
+  DeepTesting node-by-node progress. Percentages are completed/total work
+  units from the owning subsystem - never timers. Completed bars stay
+  visible until the owning tab is opened (server-side acknowledgement,
+  per-category; active tasks never dismissed; refresh-safe). DeepTesting
+  runs gain an async mode (same `execute_run`, daemon thread, engine
+  candle-progress callback: processed/total candles + trades so far per
+  node; overall = completed nodes/total, partial nodes never counted
+  complete; auto-collapse at 100%). Fetch operations reconcile into
+  DATA_FETCHING tasks; node generation and spec validation record
+  NODE_GENERATION / VALIDATION tasks. Failed/blocked tasks keep their real
+  status and reason.
+- **DeepTesting Inspect (Sections 4/5/8/9):** BUY/LONG vs SELL/SHORT is now
+  a compact side-by-side comparison (incl. average holding; directional
+  drawdown % vs running peak, never initial capital); trade filters
+  (direction, outcome, session incl. UNASSIGNED, weekday, date range, exit
+  reason, net/holding bounds, AND logic) drive the filtered statistics,
+  equity curve and the server-paginated table together while full-run
+  statistics stay available; page sizes 10/15/25/ALL (ALL = one logical
+  page of the full filtered set); LONG green / SHORT red direction text.
+- **Exports (Sections 6/7):** EXPORT TABLE downloads a TXT report of the
+  current filtered subset; EXPORT TRADING DATA downloads a ZIP audit
+  package (manifest with strategy snapshot/fingerprint/versions/ranges,
+  trades.csv, trade/execution/decision/condition/indicator JSONL,
+  compliance report, data references, README). The engine's recorded
+  skipped signals and per-trade entry-indicator snapshots are exported as
+  real evidence; anything not recorded is labelled INCOMPLETE EVIDENCE /
+  UNVERIFIED - a missing log is never a PASS. Filtered-scope exports are
+  named FILTERED_SUBSET in the manifest.
+- **Manual Nodes (Section 10):** stored strategy JSON renders in a
+  read-only, line-numbered, syntax-highlighted viewer with copy; loading a
+  node into the editor pretty-prints presentation only (stored JSON,
+  fingerprint, identity untouched).
+- **Tests:** backend 333 passed / 1 skipped (task lifecycle + ack rules,
+  async DeepTesting progress end-to-end, structured filters, ALL page
+  size, audit ZIP contents and honesty labels); frontend 92/92 (global
+  bars, feed card filtering, side-by-side comparison, trade filters, ALL
+  page size, direction colours, export controls, JSON viewer); production
+  build clean. Run #4 audit addendum recorded in
+  docs/DEEPTESTING_LONGONLY3_AUDIT.md; no data/DBs committed.
+
 
 ## [DeepTesting final improvements] — 2026-11-06 — BUY/SELL breakdown, paginated trade list, TILL DATA, Run #4 audit
 

@@ -736,3 +736,35 @@ tr:hover .name-edit-btn, .name-text:focus-visible + .name-edit-btn { opacity: 1;
 .stat-gl { color: #f85149; }
 .stat-dd { color: #f85149; font-weight: 700; background: rgba(248, 81, 73, 0.08); padding: 0 4px; border-radius: 3px; }
 .dt-dd-line { color: #f0a35e; }
+
+/* Task progress (global bars, DeepTesting progress, feed cards, JSON view) */
+.task-progress-area { display: flex; flex-direction: column; gap: 4px; padding: 6px 14px 0; }
+.task-bar { display: flex; align-items: center; gap: 10px; font-size: 12px; flex-wrap: wrap; }
+.task-bar-cat { font-weight: 700; letter-spacing: 0.04em; white-space: nowrap; }
+.task-bar-track { flex: 1 1 160px; min-width: 120px; height: 8px; border-radius: 4px;
+  background: rgba(255,255,255,0.10); overflow: hidden; display: inline-block; }
+.task-bar-fill { display: block; height: 100%; border-radius: 4px; transition: width 0.4s ease; }
+.task-bar-pct { font-variant-numeric: tabular-nums; min-width: 38px; text-align: right; }
+.task-bar-failed .task-bar-label, .task-bar-blocked .task-bar-label { color: #f85149; }
+.dt-progress { border: 1px solid var(--border, #30363d); border-radius: 8px; padding: 8px 10px; margin: 8px 0; }
+.dt-progress-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12.5px; }
+.dt-progress-table td, .feed-card-line { font-variant-numeric: tabular-nums; }
+.feed-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; padding: 8px; }
+.feed-card { text-align: left; border: 1px solid #30363d; border-radius: 8px; background: rgba(255,255,255,0.03);
+  padding: 8px 10px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; color: inherit; }
+.feed-card.selected { background: rgba(232,185,62,0.10); box-shadow: inset 0 0 0 1px currentColor; }
+.feed-card-title { font-weight: 700; font-size: 11.5px; letter-spacing: 0.05em; }
+.feed-card-line { font-size: 11.5px; opacity: 0.85; }
+.feed-card-status { font-size: 10.5px; font-weight: 700; opacity: 0.7; }
+.dt-dir-compare td:nth-child(2), .dt-dir-compare td:nth-child(3) { text-align: right; font-variant-numeric: tabular-nums; }
+.dir-long { color: #3fb950; font-weight: 600; }
+.dir-short { color: #f85149; font-weight: 600; }
+.dt-trade-filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; margin: 10px 0; }
+.dt-export-btns { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+.json-viewer { border: 1px solid #30363d; border-radius: 8px; overflow: auto; max-height: 420px;
+  background: #0d1117; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.json-viewer table { border-collapse: collapse; }
+.json-viewer td.jv-line { text-align: right; padding: 0 10px; color: #6e7681; user-select: none; vertical-align: top; }
+.json-viewer td.jv-code { white-space: pre; padding-right: 16px; color: #c9d1d9; }
+.jv-key { color: #79c0ff; } .jv-str { color: #a5d6ff; } .jv-num { color: #79c0ff; }
+.jv-bool { color: #ff7b72; } .jv-null { color: #ff7b72; font-style: italic; } .jv-punct { color: #8b949e; }

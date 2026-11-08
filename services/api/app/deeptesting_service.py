@@ -200,7 +200,8 @@ def available_bounds(instrument: str, timeframe: str) -> Optional[dict]:
 
 
 def execute_run(session: Session, *, instrument: str, node: im.Node,
-                config: dict, scenario_id: Optional[int] = None) -> im.DeepTestRun:
+                config: dict, scenario_id: Optional[int] = None,
+                progress_cb=None) -> im.DeepTestRun:
     """Execute one node under one config snapshot and persist the result.
     `config` carries: range {start,end}, mode + mode params, RunConfig
     fields and engine assumptions. Readiness BLOCKED => FAILED run row
@@ -352,7 +353,7 @@ def execute_run(session: Session, *, instrument: str, node: im.Node,
                 mgmt = TradeManagement.model_validate(spec["management"])
             result = run_backtest(ir=compiled.ir, candles=candles, cfg=rcfg,
                                   instrument=spec_meta, price_ctx=price_ctx, management=mgmt,
-                                  aux_candles=aux_candles)
+                                  aux_candles=aux_candles, progress_cb=progress_cb)
             metrics = compute_metrics(result["trades"], result["equity_curve"], rcfg.initial_capital)
             metrics["candles_tested"] = len(candles)
             metrics["coverage_status"] = config.get("coverage_status")
@@ -456,13 +457,58 @@ _TRADE_SORTS = {
 }
 
 
-def paginate_trades(trades: List[dict], *, page: int, page_size: int,
+def trade_matches_filters(t: dict, f: Optional[dict]) -> bool:
+    """Structured trade-table filters, AND logic (Part 8). Session and
+    weekday come from inspect_cell - the same single classification used
+    by the weekday/session statistics, so a trade is in exactly one
+    session bucket everywhere."""
+    if not f:
+        return True
+    if f.get("side") and t.get("side") != f["side"]:
+        return False
+    net = t.get("net_pnl")
+    if f.get("outcome"):
+        res = "WIN" if (net or 0) > 1e-9 else "LOSS" if (net or 0) < -1e-9 else "BREAKEVEN"
+        if res != f["outcome"]:
+            return False
+    if f.get("session") or f.get("weekday"):
+        wd, sess = inspect_cell(float(t.get("entry_ts") or 0))
+        if f.get("session") == "UNASSIGNED":
+            if wd != "UNASSIGNED":
+                return False
+        elif f.get("session") and sess != f["session"]:
+            return False
+        if f.get("weekday") and wd != f["weekday"]:
+            return False
+    if f.get("entry_from") is not None and float(t.get("entry_ts") or 0) < float(f["entry_from"]):
+        return False
+    if f.get("entry_to") is not None and float(t.get("entry_ts") or 0) > float(f["entry_to"]):
+        return False
+    if f.get("exit_reason") and t.get("exit_reason") != f["exit_reason"]:
+        return False
+    if f.get("min_net") is not None and (net is None or net < float(f["min_net"])):
+        return False
+    if f.get("max_net") is not None and (net is None or net > float(f["max_net"])):
+        return False
+    held = t.get("holding_seconds")
+    if f.get("min_hold") is not None and (held is None or held < float(f["min_hold"])):
+        return False
+    if f.get("max_hold") is not None and (held is None or held > float(f["max_hold"])):
+        return False
+    return True
+
+
+def paginate_trades(trades: List[dict], *, page: int, page_size,
                     sort: str = "entry_ts", direction: str = "asc",
-                    cells: Optional[List[str]] = None) -> dict:
+                    cells: Optional[List[str]] = None,
+                    filters: Optional[dict] = None) -> dict:
     """Server-side filter + sort + pagination over the FULL filtered set.
     Stable: Trade ID is the final tie-break; nulls sort last in both
-    directions. Page size is capped at 25 (Part 7)."""
-    page_size = max(1, min(int(page_size), 25))
+    directions. Page size is capped at 25 unless the caller explicitly
+    requests the complete filtered set with page_size='all'."""
+    want_all = page_size == "all"
+    if not want_all:
+        page_size = max(1, min(int(page_size), 25))
     page = max(0, int(page))
     rows = []
     for t in trades:
@@ -471,6 +517,8 @@ def paginate_trades(trades: List[dict], *, page: int, page_size: int,
     if cells is not None:
         wanted = set(cells)
         rows = [t for t in rows if f"{t['weekday']}|{t['session']}" in wanted]
+    if filters:
+        rows = [t for t in rows if trade_matches_filters(t, filters)]
     total = len(rows)
     key_fn = _TRADE_SORTS.get(sort, _TRADE_SORTS["entry_ts"])
     present = [t for t in rows if key_fn(t) is not None]
@@ -479,6 +527,11 @@ def paginate_trades(trades: List[dict], *, page: int, page_size: int,
     present.sort(key=key_fn, reverse=(direction == "desc"))
     missing.sort(key=lambda t: t.get("id") or 0)
     ordered = present + missing
+    if want_all:
+        return {"trades": ordered, "count": total, "page": 0,
+                "page_size": "all", "pages": 1,
+                "sort": sort if sort in _TRADE_SORTS else "entry_ts",
+                "dir": direction}
     pages = max(1, (total + page_size - 1) // page_size)
     start = page * page_size
     return {"trades": ordered[start:start + page_size], "count": total,
@@ -556,3 +609,122 @@ def fine_tune_suggestions(session: Session, run: im.DeepTestRun) -> List[dict]:
 __all__ = ["DeepTestError", "execute_run", "run_summary", "load_candles",
            "readiness", "generate_scenarios", "fine_tune_suggestions",
            "scenario_hash", "apply_trade_filters", "rank_runs"]
+
+
+# --------------------------------------------------------------------------
+# Background batch execution with shared task progress (Sections 1/3/13).
+# The synchronous POST /runs path is unchanged; async mode runs the SAME
+# execute_run per node on a daemon thread and reports through the shared
+# dashboard task record - no parallel engine, no invented progress.
+# --------------------------------------------------------------------------
+
+def run_batch_async(*, instrument: str, node_ids: List[int], config: dict,
+                    task_id: str) -> None:
+    import threading
+
+    def _work() -> None:
+        from hero1_eventbus import get_event_publisher
+        from hero1_storage.engine import instrument_session, registry_session
+        from hero1_storage.registry_models import DashboardTask
+        from app import task_service
+
+        publisher = get_event_publisher()
+        reg = registry_session()
+        sess = instrument_session(instrument)
+        try:
+            task = reg.get(DashboardTask, task_id)
+            payload = json.loads(task.payload_json or "{}")
+            entries = payload.get("nodes") or []
+            by_id = {e["node_id"]: e for e in entries}
+            done_units = 0
+            failures = 0
+            for node_id in node_ids:
+                entry = by_id.get(node_id)
+                node = sess.query(im.Node).filter_by(id=node_id).first()
+                if node is None:
+                    if entry is not None:
+                        entry.update({"status": "FAILED",
+                                      "error": f"NODE_NOT_FOUND: node {node_id}"})
+                    failures += 1
+                    done_units += 1
+                    task_service.update_task(reg, task_id, completed_units=done_units,
+                                             payload=payload)
+                    continue
+                if entry is not None:
+                    entry.update({"status": "RUNNING", "trades": 0,
+                                  "progress_pct": 0.0, "processed": 0,
+                                  "total_candles": None})
+                task_service.update_task(
+                    reg, task_id, current_unit=f"Node {node_id} — {node.name}",
+                    current_unit_progress=0.0, payload=payload)
+                publisher.publish(category="DEEPTEST", severity="INFO",
+                                  subsystem="deeptesting",
+                                  message=f"deep test started [{instrument}] node #{node_id} {node.name}",
+                                  instrument=instrument, node_id=node_id,
+                                  payload={"task_id": task_id, "node_id": node_id})
+                state = {"last": 0.0}
+
+                def _cb(processed, total, trades_closed, _entry=entry,
+                        _node_id=node_id):
+                    import time as _time
+                    now = _time.time()
+                    if now - state["last"] < 0.4 and processed < total:
+                        return
+                    state["last"] = now
+                    pct = round(100.0 * processed / total, 1) if total else None
+                    if _entry is not None:
+                        _entry.update({"progress_pct": pct, "processed": processed,
+                                       "total_candles": total, "trades": trades_closed})
+                    task_service.update_task(reg, task_id,
+                                             current_unit_progress=pct,
+                                             payload=payload)
+
+                run = execute_run(sess, instrument=instrument, node=node,
+                                  config=dict(config),
+                                  scenario_id=config.get("scenario_id"),
+                                  progress_cb=_cb)
+                trades_n = 0
+                if run.metrics_json:
+                    trades_n = int((json.loads(run.metrics_json) or {}).get("total_trades") or 0)
+                if entry is not None:
+                    if run.status == "DONE":
+                        entry.update({"status": "COMPLETED", "trades": trades_n,
+                                      "progress_pct": 100.0, "run_id": run.id})
+                    else:
+                        blocked = bool(run.error and "DATA_BLOCKED" in run.error)
+                        entry.update({"status": "BLOCKED" if blocked else "FAILED",
+                                      "trades": trades_n, "run_id": run.id,
+                                      "error": run.error})
+                        failures += 1
+                done_units += 1
+                task_service.update_task(reg, task_id, completed_units=done_units,
+                                         current_unit_progress=None, payload=payload)
+                publisher.publish(
+                    category="DEEPTEST",
+                    severity="INFO" if run.status == "DONE" else "ERROR",
+                    subsystem="deeptesting",
+                    message=f"deep test {'completed' if run.status == 'DONE' else 'failed'} "
+                            f"[{instrument}] node #{node_id} ({trades_n} trades)",
+                    instrument=instrument, node_id=node_id,
+                    payload={"task_id": task_id, "node_id": node_id, "run_id": run.id,
+                             "trades": trades_n, "status": run.status})
+            final = task_service.finish_task(
+                reg, task_id, "COMPLETED" if failures == 0 else "FAILED",
+                error=(f"{failures} of {len(node_ids)} node(s) failed or blocked"
+                       if failures else None),
+                summary=f"{len(node_ids) - failures}/{len(node_ids)} nodes tested")
+            if final is not None:
+                payload["nodes"] = entries
+                task_service.update_task(reg, task_id, payload=payload)
+        except Exception as exc:  # noqa: BLE001 - recorded on the task, never hidden
+            try:
+                task_service.finish_task(reg, task_id, "FAILED",
+                                         error=f"{type(exc).__name__}: {exc}")
+            except Exception:  # noqa: BLE001
+                pass
+        finally:
+            sess.close()
+            reg.close()
+
+    threading.Thread(target=_work, name=f"hero1-deeptest-{task_id[:8]}",
+                     daemon=True).start()

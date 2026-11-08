@@ -132,3 +132,22 @@ capital.
 Run #4 (both “C1#1” and “LONGonly#3” interpretations recorded previously)
 is untouched. No database, market data or generated file was committed by
 this delivery; corrections exist only as new code and new runs.
+
+---
+
+## Addendum (task-progress / exports delivery)
+
+- The §10 classification is now enforced by one shared backend function
+  (`inspect_cell` in `deeptesting_service`) used by the trades endpoint,
+  the structured trade filters and the audit export, and mirrored exactly
+  by the dashboard grid: Mon–Fri named weekdays, weekend = UNASSIGNED,
+  sessions ASIA 22–08 / ASIA-LONDON 08–09 / LONDON 09–13 / LONDON-NY 13–17 /
+  NY 17–22 UTC. Named-session aggregates exclude UNASSIGNED, so
+  Σ weekdays = Σ sessions + UNASSIGNED = ledger, each trade exactly once.
+  A trade-table "UNASSIGNED" session filter selects the weekend bucket.
+- The owner's exact 28 trade IDs/timestamps remain **NOT VERIFIED FROM
+  LEDGER** in this environment (the ledger is in the owner's local data
+  root). They can now be listed directly in the dashboard: Inspect →
+  trade filters → Weekday = UNASSIGNED (or Session = UNASSIGNED), and via
+  `EXPORT TRADING DATA` (trades.csv carries weekday/session per trade).
+- Run #4 itself remains unmodified; no database or market data committed.

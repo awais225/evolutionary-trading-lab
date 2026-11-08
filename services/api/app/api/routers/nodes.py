@@ -140,6 +140,22 @@ def validate_spec_endpoint(body: SpecValidationRequest,
     """Validate a spec WITHOUT persisting it. Server-side authority."""
     report = spec_service.spec_to_report(body.spec, instrument, body.broker_meta)
     status = report.status.value
+    try:
+        from app import task_service
+        from app.deps import get_registry_session as _grs
+        _reg = next(_grs())
+        try:
+            _t = task_service.create_task(
+                _reg, category="VALIDATION", instrument=instrument,
+                label=f"Spec validation [{instrument}]", total_units=1)
+            task_service.finish_task(
+                _reg, _t.id, "COMPLETED" if status == "VALID" else "FAILED",
+                error=None if status == "VALID" else f"validation status {status}",
+                summary=f"validation {status}")
+        finally:
+            _reg.close()
+    except Exception:  # noqa: BLE001 - progress bookkeeping never breaks validation
+        pass
     _publish(_SEVERITY_FOR_STATUS.get(status, "WARNING"),
              f"spec validated [{status}] [{instrument}]", instrument,
              payload={"status": status, "warmup": report.required_warmup_candles,
@@ -244,6 +260,21 @@ def generate_nodes(body: NodeGenerateRequest,
             session.rollback()
             raise HTTPException(409, _integrity_detail(exc2)) from None
 
+    try:
+        from app import task_service
+        from app.deps import get_registry_session as _grs
+        _reg = next(_grs())
+        try:
+            _t = task_service.create_task(
+                _reg, category="NODE_GENERATION", instrument=instrument,
+                label=f"Generate {len(created)} node(s) [{instrument}]",
+                total_units=len(created))
+            task_service.finish_task(_reg, _t.id, "COMPLETED",
+                                     summary=f"{len(created)} node(s) generated")
+        finally:
+            _reg.close()
+    except Exception:  # noqa: BLE001 - progress bookkeeping never breaks generation
+        pass
     for node in created:
         _publish("INFO", f"node generated [{instrument}] #{node.id} {node.name} ({node.timeframe})",
                  instrument, node_id=node.id,

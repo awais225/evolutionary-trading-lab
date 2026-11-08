@@ -45,8 +45,22 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return data as T
 }
 
+export async function downloadFile(path: string, filename: string): Promise<void> {
+  const res = await fetch(path)
+  if (!res.ok) throw new ApiError(res.status, `download failed (${res.status})`)
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url; a.download = filename; a.click()
+  setTimeout(() => URL.revokeObjectURL(url), 5000)
+}
+
 export const api = {
   health: () => request<HealthOut>('GET', '/health'),
+  tasks: {
+    list: () => request<{ tasks: any[]; latest: Record<string, any> }>('GET', '/api/v1/tasks'),
+    acknowledge: (category: string) => request<{ acknowledged: number }>('POST', '/api/v1/tasks/acknowledge', { category }),
+  },
   instruments: () => request<{ instruments: Instrument[] }>('GET', '/api/v1/instruments').then((r) => r.instruments),
   events: (params: { instrument?: string; category?: string; severity?: string; subsystem?: string; search?: string; limit?: number; offset?: number; order?: 'asc' | 'desc'; sort?: string } = {}) => {
     const q = new URLSearchParams()
@@ -129,8 +143,14 @@ export const api = {
     disconnect: () => request<{ ok: boolean; detail: string }>('POST', '/api/v1/mt5/disconnect'),
   },
   deeptesting: {
-    createRuns: (instrument: string, nodeIds: number[], config: Record<string, unknown>) =>
-      request<{ runs: any[] }>('POST', `/api/v1/instruments/${instrument}/deeptesting/runs`, { node_ids: nodeIds, config }),
+    createRuns: (instrument: string, nodeIds: number[], config: Record<string, unknown>, asyncMode = false) =>
+      request<{ runs: any[]; task_id?: string; async?: boolean }>('POST', `/api/v1/instruments/${instrument}/deeptesting/runs${asyncMode ? '?async_mode=true' : ''}`, { node_ids: nodeIds, config }),
+    auditExportUrl: (instrument: string, id: number, scope = 'full', filters?: Record<string, unknown>, cells?: string[]) => {
+      const q = new URLSearchParams({ scope })
+      if (filters) q.set('filters', JSON.stringify(filters))
+      if (cells) q.set('cells', JSON.stringify(cells))
+      return `/api/v1/instruments/${instrument}/deeptesting/runs/${id}/audit-export?${q}`
+    },
     listRuns: (instrument: string, params: { node_id?: number; status?: string } = {}) => {
       const q = new URLSearchParams()
       if (params.node_id) q.set('node_id', String(params.node_id))
@@ -141,8 +161,9 @@ export const api = {
       request<any>('GET', `/api/v1/instruments/${instrument}/deeptesting/runs/${id}`),
     trades: (instrument: string, id: number, filters?: Record<string, unknown>) =>
       request<{ trades: any[]; count: number }>('GET', `/api/v1/instruments/${instrument}/deeptesting/runs/${id}/trades${filters ? `?filters=${encodeURIComponent(JSON.stringify(filters))}` : ''}`),
-    tradesPage: (instrument: string, id: number, q: { page: number; pageSize: number; sort: string; dir: string; cells: string[] }) => {
+    tradesPage: (instrument: string, id: number, q: { page: number; pageSize: number | 'all'; sort: string; dir: string; cells: string[]; filters?: Record<string, unknown> }) => {
       const params = new URLSearchParams({ page: String(q.page), page_size: String(q.pageSize), sort: q.sort, dir: q.dir, cells: JSON.stringify(q.cells) })
+      if (q.filters && Object.keys(q.filters).length) params.set('filters', JSON.stringify(q.filters))
       return request<any>('GET', `/api/v1/instruments/${instrument}/deeptesting/runs/${id}/trades?${params}`)
     },
     rerun: (instrument: string, id: number) =>

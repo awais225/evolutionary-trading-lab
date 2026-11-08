@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api/client'
 import { useInstrument } from '../state/instrument'
+import { TERMINAL, useTasks } from '../state/tasks'
+import { downloadFile } from '../api/client'
 import { applySort, loadSortPref, nextSortState, saveSortPref, type SortColumn, type SortState } from '../lib/tableSort'
 
 /**
@@ -334,15 +336,42 @@ export function DeepTesting() {
     }
   }
 
+  const { tasks: taskList, latest: latestTasks, refresh: refreshTasks } = useTasks()
+  const dtTask = useMemo(() => {
+    const mine = taskList.filter((t) => t.category === 'DEEPTESTING' && t.instrument === instrument)
+    if (mine.length) return mine[0]
+    const l = latestTasks.DEEPTESTING
+    return l && l.instrument === instrument ? l : null
+  }, [taskList, latestTasks, instrument])
+  const [progressOpen, setProgressOpen] = useState(false)
+  const prevDtStatus = useRef<string | null>(null)
+  useEffect(() => {
+    const status = dtTask?.status ?? null
+    if (status && prevDtStatus.current && !TERMINAL.includes(prevDtStatus.current)
+        && TERMINAL.includes(status)) {
+      // task just finished: auto-collapse details, refresh results (Sec 3.4)
+      setProgressOpen(false)
+      void refreshRuns()
+      if (inspectId) void openNodeRun(inspectId)
+    }
+    prevDtStatus.current = status
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dtTask?.status])
+
   const runNodes = async (ids: number[], extra: Record<string, unknown> = {}) => {
     if (!ids.length) { setNotice('Select at least one node first.'); return }
     setBusy(true); setNotice(null)
     try {
-      const res = await api.deeptesting.createRuns(instrument, ids, buildConfig(extra))
+      const res = await api.deeptesting.createRuns(instrument, ids, buildConfig(extra), true)
+      if (res.task_id) {
+        setNotice(`DeepTesting started for ${ids.length} node(s) — progress is shown below and in the global task bar.`)
+        refreshTasks()
+        return
+      }
       const failed = res.runs.filter((r) => r.status === 'FAILED')
       setNotice(failed.length
         ? failed.map((f) => `node ${f.node_id}: ${f.error}`).join(' · ')
-        : `Completed ${res.runs.length} run(s) using the last ${duration} days (partial where history is shorter).`)
+        : `Completed ${res.runs.length} run(s).`)
       await refreshRuns()
       if (inspectId && ids.includes(inspectId)) await openNodeRun(inspectId)
     } catch (e) { setNotice(String(e)) } finally { setBusy(false) }
@@ -369,15 +398,59 @@ export function DeepTesting() {
   const isFilteredActive = useMemo(() =>
     Object.values(daySel).some((v) => !v) || Object.values(cellSel).some((v) => !v),
     [daySel, cellSel])
+  // Trade-table filters (Section 8): AND logic, same session classification
+  // as the weekday/session grid (weekdayOf/sessionCell = backend inspect_cell).
+  const [tf, setTf] = useState<{ side: string; outcome: string; session: string;
+    weekday: string; exitReason: string; from: string; to: string;
+    minNet: string; maxNet: string; minHoldH: string; maxHoldH: string }>(
+    { side: '', outcome: '', session: '', weekday: '', exitReason: '', from: '', to: '',
+      minNet: '', maxNet: '', minHoldH: '', maxHoldH: '' })
+  const tfActive = Object.values(tf).some((v) => v !== '')
+  const anyFilter = isFilteredActive || tfActive
+  const tradeMatches = (t: any): boolean => {
+    if (tf.side && t.side !== tf.side) return false
+    if (tf.outcome) {
+      const r = t.net_pnl > 1e-9 ? 'WIN' : t.net_pnl < -1e-9 ? 'LOSS' : 'BREAKEVEN'
+      if (r !== tf.outcome) return false
+    }
+    if (tf.session && sessionCell(t.entry_ts) !== tf.session) return false
+    if (tf.weekday && weekdayOf(t) !== tf.weekday) return false
+    if (tf.exitReason && t.exit_reason !== tf.exitReason) return false
+    if (tf.from && t.entry_ts < Date.parse(tf.from) / 1000) return false
+    if (tf.to && t.entry_ts > Date.parse(tf.to) / 1000 + 86399) return false
+    if (tf.minNet !== '' && !(t.net_pnl >= Number(tf.minNet))) return false
+    if (tf.maxNet !== '' && !(t.net_pnl <= Number(tf.maxNet))) return false
+    if (tf.minHoldH !== '' && !((t.holding_seconds ?? 0) >= Number(tf.minHoldH) * 3600)) return false
+    if (tf.maxHoldH !== '' && !((t.holding_seconds ?? 0) <= Number(tf.maxHoldH) * 3600)) return false
+    return true
+  }
+  const serverFilters = useMemo(() => {
+    const f: Record<string, unknown> = {}
+    if (tf.side) f.side = tf.side
+    if (tf.outcome) f.outcome = tf.outcome
+    if (tf.session) f.session = tf.session
+    if (tf.weekday) f.weekday = tf.weekday
+    if (tf.exitReason) f.exit_reason = tf.exitReason
+    if (tf.from) f.entry_from = Date.parse(tf.from) / 1000
+    if (tf.to) f.entry_to = Date.parse(tf.to) / 1000 + 86399
+    if (tf.minNet !== '') f.min_net = Number(tf.minNet)
+    if (tf.maxNet !== '') f.max_net = Number(tf.maxNet)
+    if (tf.minHoldH !== '') f.min_hold = Number(tf.minHoldH) * 3600
+    if (tf.maxHoldH !== '') f.max_hold = Number(tf.maxHoldH) * 3600
+    return f
+  }, [tf])
+
   const filteredTrades = useMemo(() => {
-    if (!isFilteredActive) return trades
     return trades.filter((t) => {
-      const wd = weekdayOf(t)
-      if (!daySel[wd]) return false
-      if (!cellSel[`${wd}|${sessionCell(t.entry_ts)}`]) return false
-      return true
+      if (isFilteredActive) {
+        const wd = weekdayOf(t)
+        if (!daySel[wd]) return false
+        if (!cellSel[`${wd}|${sessionCell(t.entry_ts)}`]) return false
+      }
+      return tradeMatches(t)
     })
-  }, [trades, daySel, cellSel, isFilteredActive])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trades, daySel, cellSel, isFilteredActive, tf])
 
   const runCapital = activeRun?.metrics?.initial_capital ?? applied.capital
   const cellStats = (list: any[]) => {
@@ -420,6 +493,7 @@ export function DeepTesting() {
              largestWin: wins.length ? Math.max(...wins.map((t) => t.net_pnl)) : null,
              largestLoss: losses.length ? Math.min(...losses.map((t) => t.net_pnl)) : null,
              returnPct: runCapital > 0 ? (base.net / runCapital) * 100 : null,
+             avgHold: sub.length ? sub.reduce((a, t) => a + (t.holding_seconds ?? 0), 0) / sub.length : null,
              // reuse the subset equity path in cellStats for max DD; current DD:
              currentDd: (() => { let e = runCapital, pk = runCapital; for (const t of sub) { e += t.net_pnl; pk = Math.max(pk, e) } return pk - e })(),
              currentDdPct: (() => { let e = runCapital, pk = runCapital; for (const t of sub) { e += t.net_pnl; pk = Math.max(pk, e) } return pk > 0 ? ((pk - e) / pk) * 100 : 0 })(),
@@ -508,7 +582,7 @@ export function DeepTesting() {
   }, [filteredTrades, runCapital])
 
   const m = activeRun?.metrics
-  const stats = isFilteredActive ? {
+  const stats = anyFilter ? {
     total_trades: filteredStats.trades, winning_trades: filteredStats.wins,
     losing_trades: filteredStats.losses, breakeven_trades: filteredStats.be,
     win_rate: filteredStats.winRate, gross_profit: filteredStats.gp, gross_loss: filteredStats.gl,
@@ -544,9 +618,9 @@ export function DeepTesting() {
     max_simultaneous: m.max_simultaneous_positions, max_planned_open_risk: m.max_planned_open_risk,
   } : null
 
-  const dirLong = isFilteredActive ? dirStats(filteredTrades, 'LONG')
+  const dirLong = anyFilter ? dirStats(filteredTrades, 'LONG')
     : (m?.directional?.LONG ?? null)
-  const dirShort = isFilteredActive ? dirStats(filteredTrades, 'SHORT')
+  const dirShort = anyFilter ? dirStats(filteredTrades, 'SHORT')
     : (m?.directional?.SHORT ?? null)
   const dirShape = (d: any) => d == null ? null : ({
     total: d.total_trades ?? d.trades, wins: d.winning_trades ?? d.wins,
@@ -560,33 +634,13 @@ export function DeepTesting() {
     ddMax: d.drawdown?.max_amount ?? d.ddAmt, ddMaxPct: d.drawdown?.max_pct ?? d.ddPct,
     ddCur: d.drawdown?.current_amount ?? d.currentDd, ddCurPct: d.drawdown?.current_pct ?? d.currentDdPct,
     ddAvg: d.drawdown?.avg_amount ?? d.avgDd,
+    avgHold: d.avg_holding_seconds ?? d.avgHold,
     maxW: d.max_consecutive_wins ?? d.maxW, maxL: d.max_consecutive_losses ?? d.maxL,
     curStreak: d.current_streak ? (typeof d.current_streak === 'string' ? d.current_streak
       : `${d.current_streak.kind} x ${d.current_streak.count}`) : (d.curW ? `W x ${d.curW}` : d.curL ? `L x ${d.curL}` : '—'),
   })
-  const dirRows = (label: string, raw: any, cls: string) => {
-    const d = dirShape(raw)
-    if (!d) return null
-    const netCls = (v: any) => (typeof v === 'number' ? (v > 0 ? 'stat-pos' : v < 0 ? 'stat-neg' : '') : '')
-    return (<>
-      <tr><th colSpan={4} className={cls}>{label} — independent directional view (own equity path from the configured initial capital; drawdown % vs running peak)</th></tr>
-      <tr><td>Total / W / L / BE</td><td>{d.total} / {d.wins} / {d.losses} / {d.be}</td>
-          <td>Win rate / Loss rate</td><td>{d.winRate != null ? `${fmt(d.winRate * 100, 1)}%` : 'N/A'} / {d.total ? `${fmt((d.losses / d.total) * 100, 1)}%` : 'N/A'}</td></tr>
-      <tr><td>Gross profit / loss</td><td><span className="stat-gp">{fmt(d.gp)}</span> / <span className="stat-gl">{fmt(d.gl)}</span></td>
-          <td>Net P/L · Profit factor</td><td><span className={netCls(d.net)}>{fmt(d.net)}</span> · {fmt(d.pf, 3)}</td></tr>
-      <tr><td>Avg win / loss</td><td>{fmt(d.avgWin)} / {fmt(d.avgLoss)}</td>
-          <td>Expectancy</td><td>{fmt(d.expectancy)}</td></tr>
-      <tr><td>Largest win / loss</td><td>{fmt(d.largestWin)} / {fmt(d.largestLoss)}</td>
-          <td>Return on initial capital</td><td><span className={netCls(d.returnPct)}>{d.returnPct != null ? `${fmt(d.returnPct)}%` : 'N/A'}</span></td></tr>
-      <tr><td>Max drawdown (independent)</td><td><span className="stat-dd">{fmt(d.ddMax)} ({fmt(d.ddMaxPct)}%)</span></td>
-          <td>Current drawdown</td><td><span className="stat-dd">{fmt(d.ddCur)} ({fmt(d.ddCurPct)}%)</span></td></tr>
-      <tr><td>Average drawdown</td><td>{fmt(d.ddAvg)}</td>
-          <td>Max consec. W / L · current</td><td>{d.maxW} / {d.maxL} · {d.curStreak}</td></tr>
-    </>)
-  }
-
   const equityPoints = useMemo(() => {
-    if (isFilteredActive) {
+    if (anyFilter) {
       const sorted = [...filteredTrades].sort((a, b) => a.exit_ts - b.exit_ts)
       let cum = runCapital
       const pts = [{ x: sorted[0]?.entry_ts ?? 0, y: runCapital, title: `start · equity ${fmt(runCapital, 0)}` }]
@@ -600,7 +654,7 @@ export function DeepTesting() {
       x: e.ts, y: e.equity,
       title: `${tsFmt(e.ts)} · equity ${fmt(e.equity)} · balance ${fmt(e.balance)} · open ${e.open_positions}`,
     }))
-  }, [activeRun, filteredTrades, isFilteredActive, runCapital])
+  }, [activeRun, filteredTrades, anyFilter, runCapital])
 
   const dayCheckboxRefs = useRef<Record<string, HTMLInputElement | null>>({})
   const sessionCheckboxRefs = useRef<Record<string, HTMLInputElement | null>>({})
@@ -655,20 +709,62 @@ export function DeepTesting() {
 
   const [showTrades, setShowTrades] = useState(false)
   const [tradePage, setTradePage] = useState(0)
-  const [tradePageSize, setTradePageSize] = useState(25)
+  const [tradePageSize, setTradePageSize] = useState<number | 'all'>(25)
   const [tradeSort, setTradeSort] = useState<{ key: string; dir: string }>({ key: 'entry_ts', dir: 'asc' })
   const [tradeData, setTradeData] = useState<any | null>(null)
   const selectedCells = useMemo(() => COL_DAYS.flatMap((d) =>
     SESSION_ROWS.slice(1).filter((s2) => daySel[d] && cellSel[`${d}|${s2}`]).map((s2) => `${d}|${s2}`)),
     [daySel, cellSel])
-  useEffect(() => { setTradePage(0) }, [cellSel, daySel, activeRun?.id, tradeSort, tradePageSize])
+  useEffect(() => { setTradePage(0) }, [cellSel, daySel, activeRun?.id, tradeSort, tradePageSize, tf])
   useEffect(() => {
     if (!showTrades || !activeRun) return
     api.deeptesting.tradesPage(instrument, activeRun.id,
-      { page: tradePage, pageSize: tradePageSize, sort: tradeSort.key, dir: tradeSort.dir, cells: selectedCells })
+      { page: tradePage, pageSize: tradePageSize, sort: tradeSort.key, dir: tradeSort.dir, cells: selectedCells, filters: serverFilters })
       .then(setTradeData).catch(() => setTradeData(null))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showTrades, activeRun?.id, tradePage, tradePageSize, tradeSort, selectedCells])
+  }, [showTrades, activeRun?.id, tradePage, tradePageSize, tradeSort, selectedCells, serverFilters])
+
+  // EXPORT TABLE (Section 6): TXT report of the CURRENT filtered subset.
+  const exportTableTxt = () => {
+    if (!activeRun || !stats) return
+    const nodeName = nodes.find((n) => n.id === inspectId)?.name ?? ''
+    const cfg = activeRun.config ?? {}
+    const L = dirShape(dirLong); const S = dirShape(dirShort)
+    const dirLine = (label: string, d: any) => d
+      ? `${label}: ${d.total} trades · ${d.wins}W/${d.losses}L/${d.be}BE · GP ${fmt(d.gp)} · GL ${fmt(d.gl)} · Net ${fmt(d.net)} · PF ${fmt(d.pf, 3)} · DD ${fmt(d.ddMax)} (${fmt(d.ddMaxPct)}%)`
+      : `${label}: N/A`
+    const rows = [...filteredTrades].sort((a, b) => a.entry_ts - b.entry_ts)
+    const head = ['ID', 'Entry', 'Exit', 'Day', 'Session', 'Dir', 'EntryPx', 'ExitPx', 'SL', 'TP', 'Size', 'Gross', 'Net', 'Outcome', 'HeldH', 'ExitReason']
+    const body = rows.map((t) => [String(t.id ?? ''), tsFmt(t.entry_ts), tsFmt(t.exit_ts), weekdayOf(t),
+      sessionCell(t.entry_ts), t.side, fmt(t.entry_price, 2), fmt(t.exit_price, 2), fmt(t.initial_stop, 2),
+      fmt(t.take_profit, 2), fmt(t.volume, 2), fmt(t.gross_pnl), fmt(t.net_pnl), t.result ?? '',
+      fmt((t.holding_seconds ?? 0) / 3600, 1), t.exit_reason ?? ''])
+    const widths = head.map((h, i) => Math.max(h.length, ...body.map((r) => r[i].length)))
+    const line = (r: string[]) => r.map((v, i) => v.padEnd(widths[i])).join('  ')
+    const activeFilters = [
+      ...COL_DAYS.filter((d) => !(daySel[d] && SESSION_ROWS.slice(1).every((x) => cellSel[`${d}|${x}`]))).map((d) => `weekday/session grid excludes parts of ${d}`),
+      ...Object.entries(serverFilters).map(([k, v]) => `${k}=${v}`),
+    ]
+    const txt = [
+      'HERO1 DEEPTESTING - TRADE TABLE EXPORT', '='.repeat(72),
+      `Node: #${inspectId} ${nodeName}`, `Run: #${activeRun.id}`,
+      `Instrument/Timeframe: ${instrument} ${activeRun.timeframe}`,
+      `Requested range: ${cfg.requested_range ? `${tsFmt(cfg.requested_range.start)} .. ${tsFmt(cfg.requested_range.end)}` : 'N/A'}`,
+      `Actual range: ${cfg.actual_range ? `${tsFmt(cfg.actual_range.start)} .. ${tsFmt(cfg.actual_range.end)}` : 'N/A'}`,
+      `Active filters: ${activeFilters.length ? activeFilters.join('; ') : 'none (full run)'}`,
+      `Trade count (filtered): ${rows.length} of ${trades.length}`,
+      '', 'SUMMARY (filtered subset)', '-'.repeat(72),
+      `Net P/L: ${fmt(stats.net_profit)} · Gross profit: ${fmt(stats.gross_profit)} · Gross loss: ${fmt(stats.gross_loss)}`,
+      `Profit factor: ${fmt(stats.profit_factor, 3)} · Win rate: ${stats.win_rate != null ? `${fmt(stats.win_rate * 100, 1)}%` : 'N/A'}`,
+      `Max drawdown: ${fmt(stats.max_drawdown_amount)} (${fmt(stats.max_drawdown_pct)}%) · Current drawdown: ${fmt(stats.current_drawdown_amount)}`,
+      dirLine('LONG ', L), dirLine('SHORT', S),
+      '', 'TRADES', '-'.repeat(72), line(head), ...body.map(line), '',
+    ].join('\n')
+    const url = URL.createObjectURL(new Blob([txt], { type: 'text/plain' }))
+    const a = document.createElement('a')
+    a.href = url; a.download = `hero1_trades_run${activeRun.id}.txt`; a.click()
+    setTimeout(() => URL.revokeObjectURL(url), 5000)
+  }
 
   const moneyRisk = riskMode === 'percent' ? (capital * riskValue) / 100 : riskValue
   const offInput = (label: string, value: string, onChange: (v: string) => void, aria: string) => (
@@ -789,6 +885,41 @@ export function DeepTesting() {
                   onClick={() => runNodes(filteredRows.map((r) => r.node.id))}>Run all filtered</button>
         </div>
 
+        {dtTask && (
+          <div className="dt-progress" aria-label="DeepTesting progress">
+            <div className="dt-progress-head">
+              <strong>DEEPTESTING</strong>
+              <span>{dtTask.completed_units} / {dtTask.total_units} nodes</span>
+              <span className="task-bar-track" role="progressbar" aria-valuenow={Math.round(dtTask.percentage)}
+                    aria-valuemin={0} aria-valuemax={100} aria-label="DeepTesting overall progress">
+                <span className="task-bar-fill" style={{ width: `${dtTask.percentage}%`, background: '#e8b93e' }} />
+              </span>
+              <span>{Math.round(dtTask.percentage)}%</span>
+              <span className="faint">{dtTask.status}{dtTask.error ? ` · ${dtTask.error}` : ''}</span>
+              <button type="button" className="btn btn-ghost btn-xs" aria-expanded={progressOpen}
+                      aria-label="Toggle node progress details"
+                      onClick={() => setProgressOpen(!progressOpen)}>{progressOpen ? '▾' : '▸'}</button>
+            </div>
+            {progressOpen && (
+              <table className="node-table dt-progress-table" aria-label="Node by node progress">
+                <thead><tr><th>Node</th><th>Status</th><th>Trades</th><th>Progress</th><th>Detail</th></tr></thead>
+                <tbody>
+                  {(dtTask.payload?.nodes ?? []).map((n: any) => (
+                    <tr key={n.node_id}>
+                      <td>Node {n.node_id} — {n.name}</td>
+                      <td>{n.status}</td>
+                      <td>{n.trades ?? 0} trades</td>
+                      <td>{n.status === 'COMPLETED' ? '100%' : n.status === 'RUNNING'
+                        ? (n.progress_pct != null ? `${Math.round(n.progress_pct)}% (${n.processed ?? 0}/${n.total_candles ?? '…'} candles)` : '…')
+                        : n.status === 'QUEUED' ? '—' : '—'}</td>
+                      <td>{n.error ?? (n.run_id ? `run #${n.run_id}` : '')}</td>
+                    </tr>))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+
         <div className="dt-table-scroll">
           <table className="node-table dt-node-table">
             <thead><tr>
@@ -864,7 +995,7 @@ export function DeepTesting() {
                 {(activeRun.data_quality?.warnings ?? []).length > 0 && <> · warnings: {(activeRun.data_quality?.warnings ?? []).join('; ')}</>}
                 · effective offsets SL {activeRun.assumptions?.effective_offsets?.sl?.offset_pips ?? 0} pips ({activeRun.assumptions?.effective_offsets?.sl?.source ?? 'strategy'}) / TP {activeRun.assumptions?.effective_offsets?.tp?.offset_pips ?? 0} pips ({activeRun.assumptions?.effective_offsets?.tp?.source ?? 'strategy'})
                 {(activeRun.assumptions?.effective_offsets?.warnings ?? []).map((w: string) => <span key={w} className="field-error"> {w}</span>)}
-                {isFilteredActive
+                {anyFilter
                   ? <span className="chip chip-partial-tested"> FILTERED VIEW — statistics below are recalculated from the {filteredTrades.length} matching trades; the original run is untouched</span>
                   : runDiffersFromApplied(activeRun)
                     ? <span className="chip chip-partial-tested"> ORIGINAL result — generated with different applied constraints; rerun to use the current settings</span>
@@ -896,7 +1027,7 @@ export function DeepTesting() {
               {/* complete statistics — ONE compact table, stats first */}
               <table className="node-table dt-stats" aria-label="Complete statistics">
                 <tbody>
-                  <tr><th colSpan={4}>Trading statistics {isFilteredActive ? '(filtered)' : ''}</th></tr>
+                  <tr><th colSpan={4}>Trading statistics {anyFilter ? '(filtered)' : ''}</th></tr>
                   <tr><td>Total trades</td><td>{stats.total_trades}</td><td>Winning / Losing / Breakeven</td><td>{stats.winning_trades} / {stats.losing_trades} / {stats.breakeven_trades}</td></tr>
                   <tr><td>Win rate / Loss rate</td><td>{stats.win_rate != null ? `${fmt(stats.win_rate * 100, 1)}%` : 'N/A'} / {stats.win_rate != null ? `${fmt((1 - stats.win_rate) * 100, 1)}%` : 'N/A'}</td><td>Gross profit / loss</td><td><span className="stat-gp">{fmt(stats.gross_profit)}</span> / <span className="stat-gl">{fmt(stats.gross_loss)}</span></td></tr>
                   <tr><td>Net profit/loss</td><td><span className={typeof stats.net_profit === 'number' ? (stats.net_profit > 0 ? 'stat-pos' : stats.net_profit < 0 ? 'stat-neg' : '') : ''}>{fmt(stats.net_profit)}</span></td><td>Profit factor</td><td>{fmt(stats.profit_factor, 3)}</td></tr>
@@ -904,20 +1035,47 @@ export function DeepTesting() {
                   <tr><td>Largest win / loss</td><td>{fmt(stats.largest_win)} / {fmt(stats.largest_loss)}</td><td>Avg holding</td><td>{fmt((stats.avg_holding_seconds ?? 0) / 3600, 1)}h</td></tr>
                   <tr><th colSpan={4}>Account statistics</th></tr>
                   <tr><td>Initial capital</td><td>{fmt(stats.initial_capital, 0)} {currency}</td><td>Balance / Equity</td><td>{fmt(stats.final_balance)} / {fmt(stats.final_equity)}</td></tr>
-                  <tr><td>Total return</td><td>{fmt(stats.net_profit)} ({fmt(stats.return_pct)}%)</td><td>Unrealized P/L</td><td>{isFilteredActive ? 'N/A (filter view)' : fmt(m?.unrealized_at_end)}</td></tr>
+                  <tr><td>Total return</td><td>{fmt(stats.net_profit)} ({fmt(stats.return_pct)}%)</td><td>Unrealized P/L</td><td>{anyFilter ? 'N/A (filter view)' : fmt(m?.unrealized_at_end)}</td></tr>
                   <tr><th colSpan={4}>Risk statistics</th></tr>
                   <tr><td>Max drawdown</td><td><span className="stat-dd">{fmt(stats.max_drawdown_amount)} ({fmt(stats.max_drawdown_pct)}%)</span></td><td>Average drawdown</td><td><span className="stat-dd">{fmt(stats.avg_drawdown_amount)}</span></td></tr>
-                  <tr><td>Current drawdown</td><td><span className="stat-dd">{fmt(stats.current_drawdown_amount)} ({fmt(m?.current_drawdown_pct)}%)</span></td><td>Recovery factor</td><td>{isFilteredActive ? 'N/A (filter view)' : fmt(m?.recovery_factor, 3)}</td></tr>
-                  <tr><td>DD duration</td><td>{isFilteredActive ? 'N/A (filter view)' : `${fmt((m?.max_drawdown_duration_seconds ?? 0) / 86400, 1)}d`}</td><td>Max simultaneous / planned open risk</td><td>{stats.max_simultaneous} / {fmt(stats.max_planned_open_risk)}</td></tr>
+                  <tr><td>Current drawdown</td><td><span className="stat-dd">{fmt(stats.current_drawdown_amount)} ({fmt(m?.current_drawdown_pct)}%)</span></td><td>Recovery factor</td><td>{anyFilter ? 'N/A (filter view)' : fmt(m?.recovery_factor, 3)}</td></tr>
+                  <tr><td>DD duration</td><td>{anyFilter ? 'N/A (filter view)' : `${fmt((m?.max_drawdown_duration_seconds ?? 0) / 86400, 1)}d`}</td><td>Max simultaneous / planned open risk</td><td>{stats.max_simultaneous} / {fmt(stats.max_planned_open_risk)}</td></tr>
                   <tr><th colSpan={4}>Streak statistics</th></tr>
                   <tr><td>Max consec. W / L</td><td>{stats.max_consecutive_wins} / {stats.max_consecutive_losses}</td><td>Current streak</td><td>{stats.current_streak}</td></tr>
                   <tr><td>Max consecutive losses</td><td>{stats.max_consecutive_losses}</td><td>Max consecutive loss amount</td><td>{fmt(stats.max_consecutive_loss_amount)}</td></tr>
                   <tr><td>Max consecutive loss %</td><td>{stats.max_consecutive_loss_pct != null ? `${fmt(stats.max_consecutive_loss_pct)}%` : 'N/A'}</td><td>Of starting capital</td><td>{fmt(stats.initial_capital, 0)} {currency}</td></tr>
-                  <tr><td>Avg W / L streak</td><td>{isFilteredActive ? 'N/A (filter view)' : `${fmt(m?.streaks?.avg_winning_streak)} / ${fmt(m?.streaks?.avg_losing_streak)}`}</td><td>Long / Short net</td><td>{isFilteredActive ? 'N/A (filter view)' : `${fmt(m?.long_net)} / ${fmt(m?.short_net)}`}</td></tr>
-                  {dirRows('BUY / LONG trades', dirLong, 'stat-sec-buy')}
-                  {dirRows('SELL / SHORT trades', dirShort, 'stat-sec-sell')}
+                  <tr><td>Avg W / L streak</td><td>{anyFilter ? 'N/A (filter view)' : `${fmt(m?.streaks?.avg_winning_streak)} / ${fmt(m?.streaks?.avg_losing_streak)}`}</td><td>Long / Short net</td><td>{anyFilter ? 'N/A (filter view)' : `${fmt(m?.long_net)} / ${fmt(m?.short_net)}`}</td></tr>
                 </tbody>
               </table>
+
+              {/* compact side-by-side BUY/SELL comparison (always visible) */}
+              <table className="node-table dt-dir-compare" aria-label="BUY and SELL comparison">
+                <thead><tr><th>Metric</th><th className="stat-sec-buy">BUY / LONG</th><th className="stat-sec-sell">SELL / SHORT</th></tr></thead>
+                <tbody>
+                  {(() => {
+                    const L = dirShape(dirLong) ?? dirShape({ total_trades: 0, winning_trades: 0, losing_trades: 0, breakeven_trades: 0, gross_profit: 0, gross_loss: 0, net_profit: 0, drawdown: {} })
+                    const S = dirShape(dirShort) ?? dirShape({ total_trades: 0, winning_trades: 0, losing_trades: 0, breakeven_trades: 0, gross_profit: 0, gross_loss: 0, net_profit: 0, drawdown: {} })
+                    if (!L || !S) return null
+                    const rows: [string, any, any][] = [
+                      ['Trades', L.total, S.total], ['Winning', L.wins, S.wins],
+                      ['Losing', L.losses, S.losses], ['Breakeven', L.be, S.be],
+                      ['Win rate', L.winRate != null ? `${fmt(L.winRate * 100, 1)}%` : 'N/A', S.winRate != null ? `${fmt(S.winRate * 100, 1)}%` : 'N/A'],
+                      ['Gross profit', fmt(L.gp), fmt(S.gp)], ['Gross loss', fmt(L.gl), fmt(S.gl)],
+                      ['Net P/L', fmt(L.net), fmt(S.net)], ['Profit factor', fmt(L.pf, 3), fmt(S.pf, 3)],
+                      ['Avg win', fmt(L.avgWin), fmt(S.avgWin)], ['Avg loss', fmt(L.avgLoss), fmt(S.avgLoss)],
+                      ['Expectancy', fmt(L.expectancy), fmt(S.expectancy)],
+                      ['Max drawdown', `${fmt(L.ddMax)} (${fmt(L.ddMaxPct)}%)`, `${fmt(S.ddMax)} (${fmt(S.ddMaxPct)}%)`],
+                      ['Average drawdown', fmt(L.ddAvg), fmt(S.ddAvg)],
+                      ['Return on capital', L.returnPct != null ? `${fmt(L.returnPct)}%` : 'N/A', S.returnPct != null ? `${fmt(S.returnPct)}%` : 'N/A'],
+                      ['Avg holding', L.avgHold != null ? `${fmt(L.avgHold / 3600, 1)}h` : 'N/A', S.avgHold != null ? `${fmt(S.avgHold / 3600, 1)}h` : 'N/A'],
+                      ['Max consec. W / L', `${L.maxW} / ${L.maxL}`, `${S.maxW} / ${S.maxL}`],
+                    ]
+                    return rows.map(([label, a, b]) => (
+                      <tr key={label}><td>{label}</td><td>{a}</td><td>{b}</td></tr>))
+                  })()}
+                </tbody>
+              </table>
+              <div className="faint micro">Independent LONG and SHORT equity paths from the configured initial capital{anyFilter ? ' (filtered trade set)' : ''}; drawdown % vs running peak; LONG + SHORT reconcile with the totals above.</div>
 
               {/* weekday/session filter table — whole boxes clickable */}
               <div className="dt-table-scroll">
@@ -1018,10 +1176,70 @@ export function DeepTesting() {
 
               {/* ONE equity curve */}
               <EquityCurve points={equityPoints} capital={runCapital}
-                label={isFilteredActive ? 'Equity curve (filtered trades, cumulative)' : 'Equity curve (engine, incl. unrealized)'} />
+                label={anyFilter ? 'Equity curve (filtered trades, cumulative)' : 'Equity curve (engine, incl. unrealized)'} />
+
+              {/* trade filters (Section 8) - drive stats, equity and table */}
+              <div className="dt-trade-filters" aria-label="Trade filters">
+                <label className="mini-field">Direction
+                  <select className="input input-xs" value={tf.side} aria-label="Trade direction"
+                          onChange={(e) => setTf({ ...tf, side: e.target.value })}>
+                    <option value="">All</option><option value="LONG">LONG only</option><option value="SHORT">SHORT only</option>
+                  </select></label>
+                <label className="mini-field">Outcome
+                  <select className="input input-xs" value={tf.outcome} aria-label="Outcome filter"
+                          onChange={(e) => setTf({ ...tf, outcome: e.target.value })}>
+                    <option value="">All</option><option value="WIN">Winners</option><option value="LOSS">Losers</option><option value="BREAKEVEN">Breakeven</option>
+                  </select></label>
+                <label className="mini-field">Session
+                  <select className="input input-xs" value={tf.session} aria-label="Session filter"
+                          onChange={(e) => setTf({ ...tf, session: e.target.value })}>
+                    <option value="">All</option>
+                    {['ASIA', 'ASIA-LONDON', 'LONDON', 'LONDON-NY', 'NY', 'UNASSIGNED'].map((x) => <option key={x} value={x}>{x}</option>)}
+                  </select></label>
+                <label className="mini-field">Weekday
+                  <select className="input input-xs" value={tf.weekday} aria-label="Weekday filter"
+                          onChange={(e) => setTf({ ...tf, weekday: e.target.value })}>
+                    <option value="">All</option>
+                    {[...WEEKDAYS, 'UNASSIGNED'].map((x) => <option key={x} value={x}>{x}</option>)}
+                  </select></label>
+                <label className="mini-field">From
+                  <input type="date" className="input input-xs" value={tf.from} aria-label="Entry date from"
+                         onChange={(e) => setTf({ ...tf, from: e.target.value })} /></label>
+                <label className="mini-field">To
+                  <input type="date" className="input input-xs" value={tf.to} aria-label="Entry date to"
+                         onChange={(e) => setTf({ ...tf, to: e.target.value })} /></label>
+                <label className="mini-field">Exit reason
+                  <select className="input input-xs" value={tf.exitReason} aria-label="Exit reason filter"
+                          onChange={(e) => setTf({ ...tf, exitReason: e.target.value })}>
+                    <option value="">All</option>
+                    {[...new Set(trades.map((t) => t.exit_reason).filter(Boolean))].map((x: any) => <option key={x} value={x}>{x}</option>)}
+                  </select></label>
+                <label className="mini-field">Min net
+                  <input type="number" className="input input-xs" value={tf.minNet} aria-label="Minimum net P/L"
+                         onChange={(e) => setTf({ ...tf, minNet: e.target.value })} /></label>
+                <label className="mini-field">Max net
+                  <input type="number" className="input input-xs" value={tf.maxNet} aria-label="Maximum net P/L"
+                         onChange={(e) => setTf({ ...tf, maxNet: e.target.value })} /></label>
+                <label className="mini-field">Min hold (h)
+                  <input type="number" className="input input-xs" value={tf.minHoldH} aria-label="Minimum holding hours"
+                         onChange={(e) => setTf({ ...tf, minHoldH: e.target.value })} /></label>
+                <label className="mini-field">Max hold (h)
+                  <input type="number" className="input input-xs" value={tf.maxHoldH} aria-label="Maximum holding hours"
+                         onChange={(e) => setTf({ ...tf, maxHoldH: e.target.value })} /></label>
+                <span className="faint micro">{instrument} · {activeRun.timeframe} · {filteredTrades.length} matching trade(s)</span>
+                {tfActive && <button type="button" className="btn btn-ghost btn-xs"
+                                      onClick={() => setTf({ side: '', outcome: '', session: '', weekday: '', exitReason: '', from: '', to: '', minNet: '', maxNet: '', minHoldH: '', maxHoldH: '' })}>Clear filters</button>}
+              </div>
 
               {/* paginated trade list (server-side sort + pagination) */}
               <div className="dt-toolbar">
+                <span style={{ marginLeft: 'auto' }} className="dt-export-btns">
+                  <button type="button" className="btn btn-ghost btn-xs" onClick={() => exportTableTxt()}>EXPORT TABLE</button>
+                  <button type="button" className="btn btn-ghost btn-xs"
+                          onClick={() => void downloadFile(api.deeptesting.auditExportUrl(instrument, activeRun.id, 'full'), `hero1_audit_run${activeRun.id}_full.zip`).catch((e) => setNotice(String(e)))}>EXPORT TRADING DATA</button>
+                  <button type="button" className="btn btn-ghost btn-xs"
+                          onClick={() => void downloadFile(api.deeptesting.auditExportUrl(instrument, activeRun.id, 'filtered', serverFilters, selectedCells), `hero1_audit_run${activeRun.id}_filtered.zip`).catch((e) => setNotice(String(e)))}>EXPORT TRADING DATA (FILTERED)</button>
+                </span>
                 <button type="button" className="btn btn-primary" aria-expanded={showTrades}
                         onClick={() => setShowTrades(!showTrades)}>{showTrades ? 'HIDE TRADES' : 'SHOW TRADES'}</button>
                 {showTrades && tradeData && <span className="faint micro">{tradeData.count} filtered trades · page {tradePage + 1} of {tradeData.pages} · sorted by {tradeSort.key} ({tradeSort.dir}) on the server across the full filtered set</span>}
@@ -1035,7 +1253,7 @@ export function DeepTesting() {
                         ['exit_price', 'Exit px'], ['initial_stop', 'SL'], ['take_profit', 'TP'],
                         ['volume', 'Size'], ['gross_pnl', 'Gross profit'], ['gross_pnl', 'Gross loss'], ['net_pnl', 'Net P/L'],
                         ['result', 'Outcome'], ['holding_seconds', 'Held'], ['exit_reason', 'Exit reason']].map(([key, label]) => (
-                        <th key={key}>
+                        <th key={`${key}-${label}`}>
                           <button type="button" className="btn btn-ghost btn-xs" aria-label={`Sort by ${label}`}
                                   onClick={() => setTradeSort((cur) => cur.key === key
                                     ? { key, dir: cur.dir === 'asc' ? 'desc' : 'asc' }
@@ -1049,7 +1267,7 @@ export function DeepTesting() {
                       {(tradeData?.trades ?? []).map((t: any) => (
                         <tr key={t.id}>
                           <td>{t.id}</td><td>{tsFmt(t.entry_ts)}</td><td>{tsFmt(t.exit_ts)}</td>
-                          <td>{t.weekday}</td><td>{t.session}</td><td>{t.side}</td>
+                          <td>{t.weekday}</td><td>{t.session}</td><td><span className={t.side === 'LONG' ? 'dir-long' : 'dir-short'}>{t.side}</span></td>
                           <td>{fmt(t.entry_price, 2)}</td><td>{fmt(t.exit_price, 2)}</td>
                           <td>{fmt(t.initial_stop, 2)}</td><td>{fmt(t.take_profit, 2)}</td>
                           <td>{fmt(t.volume, 2)}</td>
@@ -1073,9 +1291,10 @@ export function DeepTesting() {
                   <button type="button" className="btn btn-ghost btn-xs" disabled={tradePage + 1 >= tradeData.pages}
                           onClick={() => setTradePage(tradePage + 1)}>Next →</button>
                   <label className="mini-field">Page size
-                    <select className="input input-xs" value={tradePageSize} aria-label="Trade page size"
-                            onChange={(e) => setTradePageSize(Math.min(25, Number(e.target.value)))}>
-                      {[10, 20, 25].map((n) => <option key={n} value={n}>{n}</option>)}
+                    <select className="input input-xs" value={String(tradePageSize)} aria-label="Trade page size"
+                            onChange={(e) => setTradePageSize(e.target.value === 'all' ? 'all' : Number(e.target.value))}>
+                      {[10, 15, 25].map((n) => <option key={n} value={n}>{n}</option>)}
+                      <option value="all">ALL</option>
                     </select></label>
                 </div>
               )}
