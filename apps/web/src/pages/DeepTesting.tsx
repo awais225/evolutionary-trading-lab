@@ -25,7 +25,7 @@ const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'] as con
 const COL_DAYS: string[] = [...WEEKDAYS, 'UNASSIGNED']
 export const weekdayOf = (t: any): string =>
   WEEKDAYS[new Date(t.entry_ts * 1000).getUTCDay() - 1] ?? 'UNASSIGNED'
-const SESSION_ROWS = ['TOTAL DAY', 'ASIA', 'ASIA-LONDON', 'LONDON', 'LONDON-NY', 'NY'] as const
+const SESSION_ROWS = ['TOTAL DAY', 'ASIA', 'ASIA-LONDON', 'LONDON', 'LONDON-NY', 'NY', 'UNASSIGNED'] as const
 const DURATIONS = [
   { label: '1 Week', days: 7 }, { label: '2 Weeks', days: 14 },
   { label: '1 Month', days: 30 }, { label: '3 Months', days: 91 },
@@ -39,7 +39,10 @@ const DURATIONS = [
  * ASIA 00-08 & 22-24, ASIA-LONDON 08-09, LONDON 09-13, LONDON-NY 13-17,
  * NY 17-22. ASIA-LONDON / LONDON-NY are the explicitly defined overlaps. */
 export function sessionCell(ts: number): string {
-  const h = new Date(ts * 1000).getUTCHours()
+  const date = new Date(ts * 1000)
+  const day = date.getUTCDay()
+  if (day === 0 || day === 6) return 'UNASSIGNED'
+  const h = date.getUTCHours()
   if (h >= 22 || h < 8) return 'ASIA'
   if (h < 9) return 'ASIA-LONDON'
   if (h < 13) return 'LONDON'
@@ -516,16 +519,26 @@ export function DeepTesting() {
 
   // Aggregate statistics across the CURRENTLY SELECTED weekdays/sessions
   // (same fields as every weekday/session cell; each trade counted once).
-  const aggStats = (session: string) => cellStats(trades.filter((t) => {
-    const wd = weekdayOf(t)
-    if (!daySel[wd] || !cellSel[`${wd}|${sessionCell(t.entry_ts)}`]) return false
-    if (session === 'TOTAL DAY') return true
-    // Named session aggregates cover Mon-Fri only: weekend trades are
-    // UNASSIGNED and must never leak into a named session total (Part 10),
-    // so named sessions + UNASSIGNED reconcile exactly with the ledger.
-    if (!(WEEKDAYS as readonly string[]).includes(wd)) return false
-    return sessionCell(t.entry_ts) === session
-  }))
+  const aggStats = (session: string) => {
+    const selectedTrades = trades.filter((t) => {
+      const wd = weekdayOf(t)
+      if (!daySel[wd] || !cellSel[`${wd}|${sessionCell(t.entry_ts)}`]) return false
+      if (session === 'TOTAL DAY') return true
+      if (session === 'UNASSIGNED') return wd === 'UNASSIGNED' && sessionCell(t.entry_ts) === 'UNASSIGNED'
+      // Named session aggregates cover weekdays only; weekend trades have an
+      // explicit UNASSIGNED session and never leak into ASIA or another window.
+      if (!(WEEKDAYS as readonly string[]).includes(wd)) return false
+      return sessionCell(t.entry_ts) === session
+    })
+    const stats = cellStats(selectedTrades)
+    // On the full, unfiltered TOTAL DAY aggregate, use the run's actual
+    // bar-close equity curve definition so this matches the main report.
+    if (session === 'TOTAL DAY' && selectedTrades.length === trades.length && activeRun?.metrics) {
+      return { ...stats, ddAmt: activeRun.metrics.max_drawdown_amount,
+        ddPct: activeRun.metrics.max_drawdown_pct }
+    }
+    return stats
+  }
 
   // DESELECT -VE NET BOXES: deselect ONLY boxes whose own underlying
   // UNROUNDED net P/L is strictly < 0. Positive and exactly-zero boxes are
@@ -1138,7 +1151,7 @@ export function DeepTesting() {
                                 ref={(el) => { sessionCheckboxRefs.current[session] = el }}
                                 checked={sessionState(session).all} aria-label={`Include ${session} all days`}
                                 onClick={(e) => e.stopPropagation()}
-                                onChange={(e) => toggleSessionAll(session, e.target.checked)} /> {session}</label>
+                                onChange={(e) => toggleSessionAll(session, e.target.checked)} /> {session === 'UNASSIGNED' ? 'UNASSIGNED (weekend)' : session}</label>
                             </th>}
                         {COL_DAYS.map((d) => {
                           const list = session === 'TOTAL DAY'
@@ -1186,7 +1199,7 @@ export function DeepTesting() {
                   </tbody>
                 </table>
               </div>
-              <p className="faint micro">Click any box to toggle it: a weekday box toggles the whole day, a session heading toggles that session across all days, a cell toggles only that weekday/session. Sessions are single-label UTC entry-time cells (ASIA 22–08 · ASIA-LONDON 08–09 · LONDON 09–13 · LONDON-NY 13–17 · NY 17–22) so cells never double-count; weekend entries land in UNASSIGNED (weekend) instead of being dropped, so totals always reconcile with the trade ledger. Statistics and the equity curve recalculate live from the matching trades; the original result is never modified.</p>
+              <p className="faint micro">Click any box to toggle it: a weekday box toggles the whole day, a session heading toggles that session across all days, a cell toggles only that weekday/session. Weekday session cells are single-label UTC entry-time windows (ASIA 22–08 · ASIA-LONDON 08–09 · LONDON 09–13 · LONDON-NY 13–17 · NY 17–22); weekend entries are classified only as UNASSIGNED. Cells never double-count and totals reconcile with the trade ledger. The unfiltered TOTAL DAY drawdown uses the run's bar-close equity curve (same as the main report); filtered/session-cell drawdown uses the selected trades' realized close-to-close P/L path. The original result is never modified.</p>
               <div className="dt-toolbar">
                 <button type="button" className="btn btn-ghost btn-xs" onClick={() => {
                   setDaySel(Object.fromEntries(COL_DAYS.map((d) => [d, true])))

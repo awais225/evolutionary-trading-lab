@@ -127,7 +127,7 @@ def _instrument_spec(instrument: str, cfg: dict) -> InstrumentSpec:
                             or fields.get("trade_tick_value") or fields.get("trade_tick_value_profit")),
         tick_value_quote=cfg.get("tick_value_quote") or fields.get("tick_value"),
         fx_to_account=cfg.get("fx_to_account"),
-        contract_size=m0.get("contract_size") or fields.get("contract_size"),
+        contract_size=cfg.get("contract_size") or m0.get("contract_size") or fields.get("contract_size"),
         volume_min=float(cfg.get("volume_min") or fields.get("volume_min") or 0.01),
         volume_max=float(cfg.get("volume_max") or fields.get("volume_max") or 100.0),
         volume_step=float(cfg.get("volume_step") or fields.get("volume_step") or 0.01),
@@ -220,6 +220,34 @@ def resolve_offsets(config: dict, node_id: int, spec: dict,
         out[kind] = {"offset_pips": signed, "offset_price": signed * float(pip_size),
                      "source": source}
     return out
+
+
+def _dataset_provenance(instrument: str, timeframe: str, bounds: dict) -> dict:
+    """Snapshot source-file provenance from the active market-data import manifest.
+
+    A missing or ambiguous match is kept explicit; no source is inferred from
+    dates alone and no historical run record is retroactively rewritten.
+    """
+    try:
+        manifest = json.loads(market_data_service.manifest_path().read_text(encoding="utf-8"))
+        first = datetime.fromtimestamp(bounds["first_ts"], tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        last = datetime.fromtimestamp(bounds["last_ts"], tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        candidates = [d for d in manifest.get("datasets", [])
+                      if str(d.get("instrument", "")).upper() == instrument.upper()
+                      and str(d.get("timeframe", "")).upper() == timeframe.upper()
+                      and int(d.get("row_count") or -1) == int(bounds["candles"])
+                      and d.get("first_ts") == first and d.get("last_ts") == last
+                      and d.get("status") == "AVAILABLE"]
+        if not candidates:
+            return {"status": "UNVERIFIED_NO_MATCHING_IMPORT_MANIFEST_ROW"}
+        return {"status": "MATCHED_IMPORT_MANIFEST_ROW" if len(candidates) == 1 else "MULTIPLE_MATCHING_MANIFEST_ROWS",
+                "candidates": [{key: d.get(key) for key in
+                                ("dataset_id", "source_file", "source_sha256", "source_bytes",
+                                 "row_count", "fingerprint", "first_ts", "last_ts",
+                                 "validation_result", "status", "imported_at")}
+                               for d in candidates]}
+    except Exception as exc:  # noqa: BLE001 - provenance absence is not a test failure
+        return {"status": "UNVERIFIED_MANIFEST_READ_ERROR", "detail": str(exc)}
 
 
 def available_bounds(instrument: str, timeframe: str) -> Optional[dict]:
@@ -323,7 +351,8 @@ def execute_run(session: Session, *, instrument: str, node: im.Node,
                   "data_snapshot": {"instrument": instrument.upper(), "timeframe": tf,
                                     "first_ts": bounds["first_ts"],
                                     "last_ts": bounds["last_ts"],
-                                    "candles_available": bounds["candles"]}}
+                                    "candles_available": bounds["candles"],
+                                    "source_provenance": _dataset_provenance(instrument, tf, bounds)}}
         stage = "CANDLE_VALIDATION"
         dq = readiness(instrument, tf, start_ts, end_ts)
         _execution_log(stage, "COMPLETED" if dq.get("readiness") != "BLOCKED" else "BLOCKED", task_id=task_id, run_id=run.id, node_id=node.id, instrument=instrument, timeframe=tf, started=started, details={"readiness": dq.get("readiness"), "candles": bounds["candles"]})
@@ -421,6 +450,44 @@ def execute_run(session: Session, *, instrument: str, node: im.Node,
                                 "volume_min": spec_meta.volume_min,
                                 "volume_max": spec_meta.volume_max,
                                 "volume_step": spec_meta.volume_step})
+        config = {**config, "execution_specification_inputs": {
+            "verification_status": ("CURRENT_MT5_SNAPSHOT_NOT_HISTORICALLY_VERIFIED" if broker_snapshot
+                                     else "UNVERIFIED_NO_MT5_SNAPSHOT; explicit run inputs used"),
+            "tick_size": spec_meta.tick_size,
+            "tick_size_source": ("run_config" if config.get("tick_size") is not None else
+                                 "broker_meta" if m0.get("tick_size") is not None else
+                                 "stored MT5 snapshot" if spec_fields.get("tick_size") is not None else "missing"),
+            "tick_value_account": spec_meta.tick_value_account,
+            "tick_value_account_source": ("run_config" if config.get("tick_value_account") is not None else
+                                           "stored MT5 snapshot trade_tick_value_loss/trade_tick_value/profit"
+                                           if any(spec_fields.get(k) is not None for k in
+                                                  ("trade_tick_value_loss", "trade_tick_value", "trade_tick_value_profit"))
+                                           else "unavailable"),
+            "tick_value_quote": spec_meta.tick_value_quote,
+            "contract_size": spec_meta.contract_size,
+            "contract_size_source": ("run_config" if config.get("contract_size") is not None else
+                                      "broker_meta" if m0.get("contract_size") is not None else
+                                      "stored MT5 snapshot" if spec_fields.get("contract_size") is not None else "default/unverified"),
+            "point_size": m0.get("point_size"), "pip_size": m0.get("pip_size"),
+            "point_pip_size_source": "broker_meta run input" if m0 else "unverified",
+            "volume_min": spec_meta.volume_min, "volume_max": spec_meta.volume_max,
+            "volume_step": spec_meta.volume_step,
+            "volume_limits_source": ("run_config" if any(config.get(k) is not None for k in
+                                     ("volume_min", "volume_max", "volume_step")) else
+                                     "stored MT5 snapshot or default fallback"),
+            "broker_snapshot_present": bool(broker_snapshot),
+            "digits": config.get("digits"),
+            "currency_profit": config.get("currency_profit"),
+            "currency_margin": config.get("currency_margin"),
+            "chart_price_mode": config.get("chart_price_mode"),
+            "spread_mode": rcfg.spread_mode,
+            "swap_type": rcfg.swap_type,
+            "swap_long_per_lot_night": rcfg.swap_long_per_lot_night,
+            "swap_short_per_lot_night": rcfg.swap_short_per_lot_night,
+            "triple_swap_weekday": rcfg.triple_swap_weekday,
+            "commission_per_lot_round_turn": rcfg.commission_per_lot_round_turn,
+            "commission_per_lot_per_side": rcfg.commission_per_lot_per_side,
+            "slippage_price": rcfg.slippage_price}}
         price_ctx = PriceContext(pip_size=m0.get("pip_size"), point_size=m0.get("point_size"),
                                  tick_size=m0.get("tick_size"))
         windows = build_windows(run.mode, int(start_ts), int(end_ts), config) \
@@ -446,9 +513,13 @@ def execute_run(session: Session, *, instrument: str, node: im.Node,
             "swap_long_per_lot_night": rcfg.swap_long_per_lot_night,
             "swap_short_per_lot_night": rcfg.swap_short_per_lot_night,
             "ambiguity_policy": rcfg.ambiguity_policy,
-            "tick_value_basis": ("account-currency tick value from broker snapshot"
-                                 if spec_meta.tick_value_account else
-                                 "quote tick value x configured fx_to_account"),
+            "tick_value_basis": ("account-currency tick value supplied in run config; not independently verified"
+                                 if config.get("tick_value_account") is not None
+                                 else "account-currency tick value from stored MT5 snapshot"
+                                 if broker_snapshot and any(spec_fields.get(k) is not None for k in
+                                                            ("trade_tick_value_loss", "trade_tick_value",
+                                                             "trade_tick_value_profit"))
+                                 else "quote tick value x configured fx_to_account"),
             "engine_version": ENGINE_VERSION, "windows": windows,
             "risk_basis": rcfg.risk_basis, "max_active_trades": rcfg.max_active_trades,
             "effective_offsets": offsets,
@@ -617,11 +688,14 @@ INSPECT_WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
 def inspect_cell(entry_ts: float) -> tuple:
     """The Inspect grid's classification (single source shared with the
     dashboard): weekday Mon-Fri by UTC entry time, weekend entries are
-    UNASSIGNED; sessions are the contiguous non-overlapping UTC windows
-    ASIA 22-08, ASIA-LONDON 08-09, LONDON 09-13, LONDON-NY 13-17, NY 17-22.
-    Every trade lands in exactly one cell."""
+    UNASSIGNED; weekend session classification is also UNASSIGNED. Weekday
+    sessions are contiguous non-overlapping UTC windows ASIA 22-08,
+    ASIA-LONDON 08-09, LONDON 09-13, LONDON-NY 13-17, NY 17-22. Every trade
+    lands in exactly one weekday/session cell."""
     dt = datetime.fromtimestamp(entry_ts, tz=timezone.utc)
     weekday = INSPECT_WEEKDAYS[dt.weekday()] if dt.weekday() < 5 else "UNASSIGNED"
+    if weekday == "UNASSIGNED":
+        return "UNASSIGNED", "UNASSIGNED"
     h = dt.hour
     if h >= 22 or h < 8:
         session = "ASIA"
@@ -668,7 +742,7 @@ def trade_matches_filters(t: dict, f: Optional[dict]) -> bool:
     if f.get("session") or f.get("weekday"):
         wd, sess = inspect_cell(float(t.get("entry_ts") or 0))
         if f.get("session") == "UNASSIGNED":
-            if wd != "UNASSIGNED":
+            if wd != "UNASSIGNED" or sess != "UNASSIGNED":
                 return False
         elif f.get("session") and sess != f["session"]:
             return False

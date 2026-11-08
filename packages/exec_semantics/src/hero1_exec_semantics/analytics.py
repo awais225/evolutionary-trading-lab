@@ -30,14 +30,30 @@ def _ordered(trades: List[dict]) -> List[dict]:
     return sorted(trades, key=lambda t: (t["exit_ts"], t["entry_ts"]))
 
 
+def _gross_pnl(trade: dict) -> float:
+    """Execution-price P/L before commission/swap; spread is in fills already."""
+    value = trade.get("gross_pnl")
+    return float(trade["net_pnl"] if value is None else value)
+
+
+def _gross_totals(trades: List[dict]) -> tuple[float, float]:
+    values = [_gross_pnl(t) for t in trades]
+    return (sum(v for v in values if v > 1e-9),
+            sum(v for v in values if v < -1e-9))
+
+
 def compute_metrics(trades: List[dict], equity_curve: List[dict],
                     initial_capital: float) -> Dict[str, Any]:
     trades = _ordered(trades)
     wins = [t for t in trades if t["net_pnl"] > 1e-9]
     losses = [t for t in trades if t["net_pnl"] < -1e-9]
     breakeven = [t for t in trades if abs(t["net_pnl"]) <= 1e-9]
-    gross_profit = sum(t["net_pnl"] for t in wins)
-    gross_loss = sum(t["net_pnl"] for t in losses)
+    # Gross P/L is the trade's execution-price P/L before commission/swap;
+    # historical spread is already reflected in the entry/exit fills and must
+    # not be deducted again. Keep net win/loss averages and totals separate.
+    gross_profit, gross_loss = _gross_totals(trades)
+    net_wins = sum(t["net_pnl"] for t in wins)
+    net_losses = sum(t["net_pnl"] for t in losses)
     net = sum(t["net_pnl"] for t in trades)
     dd = drawdown_analysis(equity_curve)
     streaks = streak_analysis(trades)
@@ -70,8 +86,8 @@ def compute_metrics(trades: List[dict], equity_curve: List[dict],
         "gross_loss": round(gross_loss, 4),
         "net_profit": round(net, 4),
         "profit_factor": round(gross_profit / abs(gross_loss), 4) if gross_loss < 0 else None,
-        "avg_win": round(gross_profit / len(wins), 4) if wins else None,
-        "avg_loss": round(gross_loss / len(losses), 4) if losses else None,
+        "avg_win": round(net_wins / len(wins), 4) if wins else None,
+        "avg_loss": round(net_losses / len(losses), 4) if losses else None,
         "largest_win": round(max((t["net_pnl"] for t in wins), default=0.0), 4),
         "largest_loss": round(min((t["net_pnl"] for t in losses), default=0.0), 4),
         "expectancy": round(net / len(trades), 4) if trades else None,
@@ -232,9 +248,10 @@ def directional_stats(trades: List[dict], initial_capital: float) -> Dict[str, A
         sub = _ordered([t for t in trades if t["side"] == side])
         wins = [t for t in sub if t["net_pnl"] > 1e-9]
         losses = [t for t in sub if t["net_pnl"] < -1e-9]
-        gp = sum(t["net_pnl"] for t in wins)
-        gl = sum(t["net_pnl"] for t in losses)
-        net = gp + gl
+        gp, gl = _gross_totals(sub)
+        net = sum(t["net_pnl"] for t in sub)
+        net_wins = sum(t["net_pnl"] for t in wins)
+        net_losses = sum(t["net_pnl"] for t in losses)
         streaks = streak_analysis(sub)
         equity = [{"ts": sub[0]["exit_ts"] if sub else 0, "equity": float(initial_capital),
                    "balance": float(initial_capital)}]
@@ -252,8 +269,8 @@ def directional_stats(trades: List[dict], initial_capital: float) -> Dict[str, A
             "gross_profit": round(gp, 4), "gross_loss": round(gl, 4),
             "net_profit": round(net, 4),
             "profit_factor": round(gp / abs(gl), 6) if gl < 0 else None,
-            "avg_win": round(gp / len(wins), 4) if wins else None,
-            "avg_loss": round(gl / len(losses), 4) if losses else None,
+            "avg_win": round(net_wins / len(wins), 4) if wins else None,
+            "avg_loss": round(net_losses / len(losses), 4) if losses else None,
             "expectancy": round(net / len(sub), 4) if sub else None,
             "largest_win": round(max((t["net_pnl"] for t in wins), default=0.0), 4),
             "largest_loss": round(min((t["net_pnl"] for t in losses), default=0.0), 4),
@@ -312,8 +329,7 @@ def time_buckets(trades: List[dict]) -> Dict[str, List[dict]]:
                 cum += t["net_pnl"]
                 peak = max(peak, cum)
                 max_dd = max(max_dd, peak - cum)
-            gp = sum(t["net_pnl"] for t in wins)
-            gl = sum(t["net_pnl"] for t in losses)
+            gp, gl = _gross_totals(g)
             out.append({"bucket": label, "trades": len(g), "wins": len(wins), "losses": len(losses),
                         "win_rate": round(len(wins) / len(g), 4) if g else None,
                         "net_pnl": round(sum(t["net_pnl"] for t in g), 4),
@@ -365,8 +381,8 @@ def daily_table(trades: List[dict], equity_curve: List[dict]) -> List[dict]:
                     "trades": len(g), "wins": len(wins), "losses": len(losses),
                     "breakeven": len(g) - len(wins) - len(losses),
                     "win_rate": round(len(wins) / len(g), 4) if g else None,
-                    "gross_profit": round(sum(t["net_pnl"] for t in wins), 4),
-                    "gross_loss": round(sum(t["net_pnl"] for t in losses), 4),
+                    "gross_profit": round(_gross_totals(g)[0], 4),
+                    "gross_loss": round(_gross_totals(g)[1], 4),
                     "net_pnl": round(sum(t["net_pnl"] for t in g), 4),
                     "max_drawdown_amount": round(max_dd, 4),
                     "max_consecutive_losses": consec,

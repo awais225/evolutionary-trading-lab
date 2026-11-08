@@ -349,20 +349,24 @@ def _first_cross(node: Any) -> Optional[str]:
 
 
 def session_of(ts: int) -> str:
-    """UTC session label (entry-time attribution). Sessions overlap in
-    reality; a single deterministic label is assigned by precedence:
-    overlap > london > newyork > asian > off_hours. DST shifts the real
-    sessions - labels here are fixed UTC windows, stated explicitly."""
-    h = datetime.fromtimestamp(ts, tz=timezone.utc).hour
-    if 13 <= h < 17:
-        return "london_newyork_overlap"
-    if 8 <= h < 17:
+    """Single-label UTC entry-time attribution shared by execution analytics.
+
+    Weekends are UNASSIGNED; weekdays use the dashboard's contiguous windows:
+    ASIA 22-08, ASIA-LONDON 08-09, LONDON 09-13, LONDON-NY 13-17, NY 17-22.
+    """
+    dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+    if dt.weekday() >= 5:
+        return "unassigned"
+    h = dt.hour
+    if h >= 22 or h < 8:
+        return "asia"
+    if h < 9:
+        return "asia_london"
+    if h < 13:
         return "london"
-    if 13 <= h < 22:
-        return "newyork"
-    if 0 <= h < 9:
-        return "asian"
-    return "off_hours"
+    if h < 17:
+        return "london_newyork_overlap"
+    return "newyork"
 
 
 def _entry_filters_ok(cfg: RunConfig, ts: int) -> bool:

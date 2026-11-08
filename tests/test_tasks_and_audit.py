@@ -91,7 +91,13 @@ def test_audit_zip_contents_and_honest_labels():
             "initial_capital": 200000, "account_currency": "USD", "risk_mode": "percent",
             "risk_value": 1.0, "max_active_trades": 1,
             "requested_range": {"start": 1, "end": 2}, "actual_range": {"start": 1, "end": 2},
-            "coverage_status": "TESTED", "data_snapshot": {"instrument": "XAUUSD"}})
+            "coverage_status": "TESTED", "data_snapshot": {"instrument": "XAUUSD",
+                "source_provenance": {"status": "MATCHED_IMPORT_MANIFEST_ROW",
+                                      "candidates": [{"source_sha256": "sha-from-test",
+                                                      "fingerprint": "dataset-fingerprint"}]}},
+            "execution_specification_inputs": {"verification_status": "UNVERIFIED_NO_MT5_SNAPSHOT; explicit run inputs used",
+                                                "tick_size": 0.01, "tick_value_account": 1.0,
+                                                "tick_value_account_source": "run_config"}})
         assumptions_json = json.dumps({"spread_price": 0.0})
         metrics_json = json.dumps({"total_trades": 1})
         data_quality_json = json.dumps({"readiness": "READY"})
@@ -104,7 +110,7 @@ def test_audit_zip_contents_and_honest_labels():
                "entry_price": 100.0, "exit_price": 101.0, "volume": 1.0,
                "initial_stop": 99.0, "take_profit": 102.0, "final_stop": 99.0,
                "planned_risk": 100.0, "gross_pnl": 100.0, "commission": 0.0,
-               "swap": 0.0, "spread_cost": 0.0, "net_pnl": 100.0, "result": "WIN",
+               "swap": -5.0, "spread_cost": 40.0, "net_pnl": 95.0, "result": "WIN",
                "exit_reason": "TAKE_PROFIT", "holding_seconds": 3600}]
     data = build_audit_zip(run=FakeRun(), node=FakeNode(), trades=trades)
     z = zipfile.ZipFile(io.BytesIO(data))
@@ -115,6 +121,8 @@ def test_audit_zip_contents_and_honest_labels():
             "compliance_report.json", "data_references.json", "README.txt"} <= names
     manifest = json.loads(z.read("HERO1_TRADING_AUDIT/manifest.json"))
     assert manifest["scope"] == "FULL_RUN" and manifest["node"]["fingerprint"] == "abc123"
+    assert manifest["execution_specification_inputs"]["verification_status"].startswith("UNVERIFIED")
+    assert manifest["execution_specification_inputs"]["tick_value_account_source"] == "run_config"
     assert manifest["evidence_status"]["condition_evaluations"].startswith("INCOMPLETE")
     decisions = z.read("HERO1_TRADING_AUDIT/strategy_decisions.jsonl").decode()
     assert "INCOMPLETE EVIDENCE" in decisions and "TRADE_EXECUTED" in decisions
@@ -122,9 +130,45 @@ def test_audit_zip_contents_and_honest_labels():
     assert comp["summary_by_verdict"]["UNVERIFIED"] >= 3  # missing logs are not PASSes
     verdicts = {c["check"]: c["verdict"] for c in comp["checks"]}
     assert verdicts["entry_before_exit_chronology"] == "PASS"
+    assert verdicts["net_pnl_reconciles_gross_commission_signed_swap"] == "PASS"
+    net_check = next(c for c in comp["checks"] if c["check"] == "net_pnl_reconciles_gross_commission_signed_swap")
+    assert "not deducted again" in net_check["formula"]
+    refs = json.loads(z.read("HERO1_TRADING_AUDIT/data_references.json"))
+    assert refs["source_provenance"]["candidates"][0]["source_sha256"] == "sha-from-test"
     assert verdicts["entry_conditions_followed"] == "UNVERIFIED"
     csv_text = z.read("HERO1_TRADING_AUDIT/trades.csv").decode()
     assert "Thursday" in csv_text and "ASIA" in csv_text  # stored classification
+
+
+def test_deeptest_config_spec_fallback_and_import_provenance(tmp_path, monkeypatch):
+    from app import deeptesting_service as dt
+
+    monkeypatch.setattr(dt.metadata_service, "best_snapshot", lambda _instrument: None)
+    monkeypatch.setattr(dt.metadata_service, "snapshot_broker_meta", lambda _instrument: {})
+    spec = dt._instrument_spec("XAUUSD", {
+        "tick_size": 0.01, "tick_value_account": 1.0, "contract_size": 100.0,
+        "volume_min": 0.01, "volume_max": 100.0, "volume_step": 0.01,
+    })
+    assert spec.contract_size == 100.0
+    assert spec.tick_value_account == 1.0
+
+    manifest_path = tmp_path / "import_manifest.json"
+    manifest_path.write_text(json.dumps({"datasets": [{
+        "dataset_id": "dataset-1", "instrument": "XAUUSD", "timeframe": "M1",
+        "row_count": 100057, "first_ts": "2026-07-07 18:41:00",
+        "last_ts": "2026-10-16 12:31:00", "status": "AVAILABLE",
+        "source_file": "XAUUSD_M1.csv", "source_sha256": "source-sha",
+        "fingerprint": "candle-fingerprint", "validation_result": "PASS",
+    }]}), encoding="utf-8")
+    monkeypatch.setattr(dt.market_data_service, "manifest_path", lambda: manifest_path)
+    provenance = dt._dataset_provenance("XAUUSD", "M1", {
+        "first_ts": 1783449660, "last_ts": 1792153860, "candles": 100057,
+    })
+    assert provenance["status"] == "MATCHED_IMPORT_MANIFEST_ROW"
+    assert provenance["candidates"][0]["source_sha256"] == "source-sha"
+    assert dt._dataset_provenance("XAUUSD", "H1", {
+        "first_ts": 1783449660, "last_ts": 1792153860, "candles": 100057,
+    })["status"] == "UNVERIFIED_NO_MATCHING_IMPORT_MANIFEST_ROW"
 
 
 # ---------------------------------------------------------------------------

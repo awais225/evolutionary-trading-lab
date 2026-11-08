@@ -39,6 +39,26 @@ def test_directional_reconciliation_and_independent_drawdown():
     assert d["SHORT"]["profit_factor"] == round(20 / 60, 6)
 
 
+def test_gross_pnl_metrics_do_not_absorb_swap_or_commission_costs():
+    trades = [
+        {"net_pnl": 8.0, "gross_pnl": 10.0, "exit_ts": 200, "entry_ts": 100,
+         "side": "LONG", "volume": 1.0, "holding_seconds": 60},
+        {"net_pnl": -6.0, "gross_pnl": -5.0, "exit_ts": 300, "entry_ts": 240,
+         "side": "LONG", "volume": 1.0, "holding_seconds": 60},
+    ]
+    curve = [{"ts": 100, "equity": 1000.0, "balance": 1000.0, "open_positions": 0},
+             {"ts": 300, "equity": 1002.0, "balance": 1002.0, "open_positions": 0}]
+    metrics = compute_metrics(trades, curve, 1000.0)
+    assert metrics["gross_profit"] == 10.0
+    assert metrics["gross_loss"] == -5.0
+    assert metrics["net_profit"] == 2.0
+    assert metrics["profit_factor"] == 2.0
+    assert metrics["avg_win"] == 8.0  # average realized winning net P/L
+    assert metrics["avg_loss"] == -6.0
+    assert metrics["directional"]["LONG"]["gross_profit"] == 10.0
+    assert metrics["directional"]["LONG"]["gross_loss"] == -5.0
+
+
 def test_directional_empty_direction_is_zero_not_invented():
     d = directional_stats([tr(100, "LONG", 5)], 1000.0)
     assert d["SHORT"]["total_trades"] == 0
@@ -46,16 +66,24 @@ def test_directional_empty_direction_is_zero_not_invented():
     assert d["SHORT"]["drawdown"]["max_amount"] == 0.0
 
 
-def test_inspect_classification_weekend_unassigned():
+def test_inspect_classification_weekend_is_unassigned_in_both_dimensions():
     from app.deeptesting_service import inspect_cell
-    # Sunday 2026-01-04 23:00 UTC, Asia hours -> UNASSIGNED weekday, ASIA window
     from datetime import datetime, timezone
-    ts = int(datetime(2026, 1, 4, 23, tzinfo=timezone.utc).timestamp())
-    assert inspect_cell(ts) == ("UNASSIGNED", "ASIA")
-    ts_mon = int(datetime(2026, 1, 5, 8, tzinfo=timezone.utc).timestamp())
-    assert inspect_cell(ts_mon) == ("Monday", "ASIA-LONDON")
-    ts_sat = int(datetime(2026, 1, 3, 14, tzinfo=timezone.utc).timestamp())
-    assert inspect_cell(ts_sat) == ("UNASSIGNED", "LONDON-NY")
+    # Sunday 23:00 would be ASIA by clock time on a weekday, but weekends
+    # must never be placed in a named session bucket.
+    sunday = int(datetime(2026, 1, 4, 23, tzinfo=timezone.utc).timestamp())
+    saturday = int(datetime(2026, 1, 3, 14, tzinfo=timezone.utc).timestamp())
+    assert inspect_cell(sunday) == ("UNASSIGNED", "UNASSIGNED")
+    assert inspect_cell(saturday) == ("UNASSIGNED", "UNASSIGNED")
+    monday = int(datetime(2026, 1, 5, 8, tzinfo=timezone.utc).timestamp())
+    assert inspect_cell(monday) == ("Monday", "ASIA-LONDON")
+    from app.deeptesting_service import trade_matches_filters
+    from hero1_exec_semantics.engine import session_of
+    assert session_of(sunday) == "unassigned"
+    assert session_of(monday) == "asia_london"
+    weekend_trade = {"entry_ts": sunday, "net_pnl": 1.0}
+    assert not trade_matches_filters(weekend_trade, {"session": "ASIA"})
+    assert trade_matches_filters(weekend_trade, {"session": "UNASSIGNED"})
 
 
 def test_paginate_trades_server_side():

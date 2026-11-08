@@ -78,10 +78,14 @@ def build_audit_zip(*, run, node, trades: List[dict], scope: str = "FULL_RUN") -
         "offsets": config.get("offset_resolution"),
         "specification_snapshot": config.get("specification_snapshot"),
         "specification_assumption": config.get("specification_assumption"),
+        "execution_specification_inputs": config.get("execution_specification_inputs"),
         "assumptions": assumptions,
         "data": {"snapshot": config.get("data_snapshot"),
+                 "source_provenance": (config.get("data_snapshot") or {}).get("source_provenance"),
+                 "source_provenance_status": ((config.get("data_snapshot") or {}).get("source_provenance") or {}).get("status", "UNVERIFIED_NOT_CAPTURED"),
                  "readiness": quality,
                  "candles_available": config.get("candles_available")},
+        "instrument_specification_status": ("VERIFIED_SNAPSHOT" if config.get("specification_snapshot") else "UNVERIFIED_NO_MT5_SNAPSHOT"),
         "versions": {"compiler_version": run.compiler_version,
                      "engine_version": run.engine_version},
         "evidence_status": {
@@ -244,9 +248,16 @@ def build_audit_zip(*, run, node, trades: List[dict], scope: str = "FULL_RUN") -
         gross, net = t.get("gross_pnl"), t.get("net_pnl")
         if gross is None or net is None:
             return "UNVERIFIED"
-        costs = (t.get("commission") or 0) + (t.get("swap") or 0) + (t.get("spread_cost") or 0)
-        return "PASS" if abs((gross - costs) - net) <= 0.02 else "FAIL"
-    check("net_pnl_reconciles_gross_minus_costs", _net_ok)
+        commission = float(t.get("commission") or 0)
+        swap = float(t.get("swap") or 0)  # signed amount: negative reduces net
+        # gross_pnl is calculated from the actual execution fills (Ask entry /
+        # Bid exit for longs), so spread and configured slippage are already
+        # reflected. spread_cost is a diagnostic estimate, not a second debit.
+        expected_net = gross - commission + swap
+        return "PASS" if abs(expected_net - net) <= 0.02 else "FAIL"
+    check("net_pnl_reconciles_gross_commission_signed_swap", _net_ok)
+    checks[-1]["formula"] = ("gross_pnl - commission + signed swap; spread/slippage are reflected in fills; "
+                              "spread_cost is informational and is not deducted again")
 
     max_active = int(config.get("max_active_trades") or 0)
     if max_active > 0 and enriched:
@@ -296,11 +307,14 @@ def build_audit_zip(*, run, node, trades: List[dict], scope: str = "FULL_RUN") -
                   "rule": "a missing log is UNVERIFIED, never a PASS; warnings never "
                           "hide a confirmed FAIL"}
 
-    data_refs = {"data_snapshot": config.get("data_snapshot"),
+    data_snapshot = config.get("data_snapshot") or {}
+    data_refs = {"data_snapshot": data_snapshot,
+                 "source_provenance": data_snapshot.get("source_provenance"),
                  "candles_available": config.get("candles_available"),
-                 "note": "market data itself is not duplicated in this archive; "
-                         "the snapshot identifies the exact stored candle set "
-                         "(instrument, timeframe, first/last candle, count)"}
+                 "note": "market data itself is not duplicated in this archive; the snapshot "
+                         "records the candle range/count and, when available, the matching "
+                         "import-manifest source file SHA256 and dataset fingerprint. "
+                         "Missing or ambiguous provenance remains UNVERIFIED."}
 
     readme = (
         "HERO1 TRADING AUDIT EXPORT\n"

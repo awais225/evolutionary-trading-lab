@@ -2,6 +2,7 @@ import { render, screen, fireEvent, act } from '@testing-library/react'
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 import App from '../App'
+import { sessionCell } from '../pages/DeepTesting'
 
 const NODE = {
   id: 1, instrument_id: 'XAUUSD', origin: 'CUSTOM', name: 'Acceptance Node', description: null,
@@ -12,6 +13,15 @@ const NODE = {
 
 const renderDT = () =>
   render(<MemoryRouter initialEntries={['/deeptesting']}><App /></MemoryRouter>)
+
+describe('DeepTesting session classification', () => {
+  it('classifies weekend timestamps only as UNASSIGNED, never as ASIA or another session', () => {
+    expect(sessionCell(Date.UTC(2026, 0, 4, 23) / 1000)).toBe('UNASSIGNED')
+    expect(sessionCell(Date.UTC(2026, 0, 3, 14) / 1000)).toBe('UNASSIGNED')
+    expect(sessionCell(Date.UTC(2026, 0, 5, 7) / 1000)).toBe('ASIA')
+    expect(sessionCell(Date.UTC(2026, 0, 5, 8) / 1000)).toBe('ASIA-LONDON')
+  })
+})
 
 describe('DeepTesting refined layout', () => {
   beforeEach(() => {
@@ -85,6 +95,7 @@ describe('DeepTesting refined layout', () => {
     expect(screen.getByLabelText(/Weekday and session filters/i)).toBeTruthy()
     expect(screen.getByLabelText('Include Monday')).toBeTruthy()
     expect(screen.getByLabelText(/Include Monday ASIA-LONDON/i)).toBeTruthy()
+    expect(screen.getByLabelText('Include UNASSIGNED all days')).toBeTruthy()
     // unchecking Monday's ASIA session switches to a clearly-marked filtered view
     fireEvent.click(screen.getByLabelText(/Include Monday ASIA-LONDON/i))
     expect(await screen.findByText(/FILTERED VIEW/)).toBeTruthy()
@@ -121,6 +132,7 @@ describe('DeepTesting refined layout', () => {
     expect(aggCells()[0].textContent).toContain('1 trades') // TOTAL DAYS, counted once
     expect(aggCells()[1].textContent).toContain('1 trades') // ASIA across selected days
     expect(aggCells()[0].textContent).toContain('Net 200')
+    expect(aggCells()[0].textContent).toContain('DD 25 (2.5%)') // full TOTAL DAY uses run equity curve
     fireEvent.click(screen.getByLabelText('Include Tuesday ASIA'))
     expect(aggCells()[0].textContent).toContain('0 trades') // updates dynamically
     expect(aggCells()[1].textContent).toContain('0 trades')
