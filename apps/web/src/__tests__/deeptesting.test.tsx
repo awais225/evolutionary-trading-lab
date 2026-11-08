@@ -69,6 +69,34 @@ describe('DeepTesting refined layout', () => {
     expect(screen.getByLabelText(/Equity curve/)).toBeTruthy()
   })
 
+  it('node table has three sortable consecutive-loss columns matching inspection', async () => {
+    renderDT()
+    for (const h of [/^Max consec\. losses/, /^Max consec\. loss(?!$)/, /^Max consec\. loss %/]) {
+      expect((await screen.findAllByRole('button', { name: h })).length).toBeGreaterThan(0)
+    }
+    expect(screen.getByRole('button', { name: /^Max consec\. loss$/ })).toBeTruthy()
+    fireEvent.click(await screen.findByRole('button', { name: /^Inspect$/i }))
+    await screen.findByText(/Inspection — Acceptance Node/i)
+    expect(screen.getByText('Max consecutive losses')).toBeTruthy()
+    expect(screen.getByText('Max consecutive loss amount')).toBeTruthy()
+    expect(screen.getByText('Max consecutive loss %')).toBeTruthy()
+  })
+
+  it('aggregate TOTAL column combines selected days and updates with checkboxes', async () => {
+    const { container } = renderDT()
+    fireEvent.click(await screen.findByRole('button', { name: /^Inspect$/i }))
+    await screen.findByText(/Inspection — Acceptance Node/i)
+    expect(screen.getByText('TOTAL — selected days')).toBeTruthy()
+    const aggCells = () => container.querySelectorAll('td.dt-agg')
+    // mock run: 1 winning trade, Tuesday 22:13 UTC -> ASIA
+    expect(aggCells()[0].textContent).toContain('1 trades') // TOTAL DAYS, counted once
+    expect(aggCells()[1].textContent).toContain('1 trades') // ASIA across selected days
+    expect(aggCells()[0].textContent).toContain('Net 200')
+    fireEvent.click(screen.getByLabelText('Include Tuesday ASIA'))
+    expect(aggCells()[0].textContent).toContain('0 trades') // updates dynamically
+    expect(aggCells()[1].textContent).toContain('0 trades')
+  })
+
   it('scenario modal summarizes selections and saves', async () => {
     renderDT()
     fireEvent.click(await screen.findByRole('button', { name: /^Inspect$/i }))

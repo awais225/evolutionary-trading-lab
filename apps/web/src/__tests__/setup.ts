@@ -75,7 +75,7 @@ function route(url: string, method: string, bodyText?: string): Response {
       compiler_version: '1.2.0', engine_version: '3.0.0', error: null,
       started_at: 1700000000, finished_at: 1700003600,
       config: { initial_capital: 10000, account_currency: 'USD', risk_mode: 'percent', risk_value: 1, risk_basis: 'current_equity', max_active_trades: 1 },
-      metrics: { total_trades: 1, win_rate: 1, net_profit: 200, profit_factor: null, expectancy: 200, max_drawdown_amount: 0, max_drawdown_pct: 0, final_balance: 10200, final_equity: 10200, long_net: 200, short_net: 0, max_simultaneous_positions: 1, recovery_factor: null, sharpe_ratio: null, sortino_ratio: null, max_consecutive_losses: 0, time_buckets: { by_session: [{ bucket: 'london', trades: 1, win_rate: 1, net_pnl: 200, expectancy: 200 }] } },
+      metrics: { total_trades: 1, win_rate: 1, net_profit: 200, profit_factor: null, expectancy: 200, max_drawdown_amount: 0, max_drawdown_pct: 0, final_balance: 10200, final_equity: 10200, long_net: 200, short_net: 0, max_simultaneous_positions: 1, recovery_factor: null, sharpe_ratio: null, sortino_ratio: null, max_consecutive_losses: 0, max_consecutive_loss_amount: 0, max_consecutive_loss_pct: 0, time_buckets: { by_session: [{ bucket: 'london', trades: 1, win_rate: 1, net_pnl: 200, expectancy: 200 }] } },
       data_quality: { readiness: 'READY' }, assumptions: { spread_price: 0, spread_source: 'zero', ambiguity_policy: 'sl_first' },
       equity_curve: [{ ts: 1700000000, balance: 10000, equity: 10000, open_positions: 0 }, { ts: 1700003600, balance: 10200, equity: 10200, open_positions: 0 }],
       skipped_signals: [],

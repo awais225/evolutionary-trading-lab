@@ -5,6 +5,38 @@ exact commit SHA and tag. Claims only for what was implemented AND verified.
 
 ---
 
+## [DeepTesting correction] — 2026-11-08 — aggregate filter totals + consecutive-loss metrics
+
+- **Weekday/Session filter table:** added a TOTAL — selected days aggregate
+  column showing exactly the same cell statistics (trades, W/L/BE, win rate,
+  PF, gross profit/loss, net) combined across the currently selected
+  weekdays/sessions: TOTAL DAYS counts each qualifying trade once and the
+  ASIA / ASIA-LONDON / LONDON / LONDON-NY / NY aggregates include trades
+  from the currently selected weekdays only. Aggregates update live with
+  every weekday/session checkbox change. Existing cells, layout, session
+  attribution, overlap and timezone rules are unchanged.
+- **Consecutive-loss metrics** (backend `analytics` + Node Table +
+  Inspection): MAX CONSECUTIVE LOSSES (count), MAX CONSECUTIVE LOSS AMOUNT
+  (total realized net loss of the worst losing streak, positive magnitude)
+  and MAX CONSECUTIVE LOSS % (amount / the starting capital configured for
+  that node's own run x 100). Trades are evaluated in exit-time
+  (chronological execution) order; a win or breakeven trade breaks the
+  streak; ties in streak length resolve to the largest monetary loss.
+  Node Table shows three separate sortable columns (highest first; N/A
+  last in both directions via the shared sorter); Inspection shows the
+  three statistics with identical values; the filtered view recomputes
+  them from the matching trades. Recalculated with every new run.
+- Tests: backend 307 passed / 1 skipped (new: chronological streak metrics
+  from shuffled trades, incl. breakeven break and per-run capital %);
+  frontend 75/75 (aggregate column updates on checkbox change; three
+  columns + inspection statistics); production build clean. Live check on
+  the throwaway preview stack: new run persists the three metrics and
+  matches an independent recomputation from the persisted trade ledger.
+- No changes to the execution engine, risk model, date-range behaviour,
+  TP/SL precedence, data-readiness rules or any other statistics.
+
+---
+
 ## [DeepTesting UI refinement] — 2026-11-08 — exact seven-part layout, partial testing, pips offsets, scenario handoff
 
 - **Layout (exactly, in order):** Hard Constraints (defaults 200,000 USD /

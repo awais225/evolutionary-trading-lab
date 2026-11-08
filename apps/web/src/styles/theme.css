@@ -700,3 +700,5 @@ tr:hover .name-edit-btn, .name-text:focus-visible + .name-edit-btn { opacity: 1;
 }
 .dt-modal-summary { font-size: 12px; }
 .dt-modal-summary p { margin: 4px 0; }
+.dt-session-grid td.dt-agg { background: rgba(232,185,62,0.06); border-left: 2px solid var(--border, #2a2f3a); }
+.dt-session-grid td.dt-agg { background: rgba(232,185,62,0.06); }

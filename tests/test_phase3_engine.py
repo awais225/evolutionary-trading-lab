@@ -239,3 +239,30 @@ def test_sl_offset_pips_price_direction_long_and_short():
                           instrument=SPEC_INSTR, price_ctx=CTX)
     t = result["trades"][0]
     assert t["initial_stop"] == 93.0 and t["volume"] == 10.0
+
+
+def test_max_consecutive_loss_metrics_chronological():
+    """Worst losing streak: win/breakeven breaks it; exit-time order (NOT
+    input order); amount is the streak's total net loss as a positive
+    magnitude; % uses THIS run's starting capital."""
+    from hero1_exec_semantics.analytics import compute_metrics
+
+    def tr(exit_ts, pnl):
+        return {"net_pnl": pnl, "exit_ts": exit_ts, "entry_ts": exit_ts - 60,
+                "side": "LONG", "volume": 1.0, "holding_seconds": 60}
+
+    # Deliberately shuffled input: exit order is
+    # L(-10) L(-20) W(+5) L(-30) L(-40) L(-50) BE(0) L(-999)
+    trades = [tr(800, -999), tr(400, -30), tr(100, -10), tr(600, -50),
+              tr(200, -20), tr(700, 0), tr(500, -40), tr(300, 5)]
+    eq = [{"ts": 100, "equity": 200000.0, "balance": 200000.0, "open_positions": 0},
+          {"ts": 800, "equity": 198891.0, "balance": 198891.0, "open_positions": 0}]
+    m = compute_metrics(trades, eq, 200000.0)
+    assert m["max_consecutive_losses"] == 3
+    assert m["max_consecutive_loss_amount"] == 120.0
+    assert m["max_consecutive_loss_pct"] == 0.06
+    # No losses at all -> zero streak, zero amount, zero pct (not N/A).
+    m2 = compute_metrics([tr(100, 10)], eq, 1000.0)
+    assert m2["max_consecutive_losses"] == 0
+    assert m2["max_consecutive_loss_amount"] == 0.0
+    assert m2["max_consecutive_loss_pct"] == 0.0

@@ -185,6 +185,8 @@ export function DeepTesting() {
       profit_factor: m?.profit_factor, expectancy: m?.expectancy,
       max_drawdown_amount: m?.max_drawdown_amount, max_drawdown_pct: m?.max_drawdown_pct,
       recovery_factor: m?.recovery_factor, max_consecutive_losses: m?.max_consecutive_losses,
+      max_consecutive_loss_amount: m?.max_consecutive_loss_amount,
+      max_consecutive_loss_pct: m?.max_consecutive_loss_pct,
       winning_trades: m?.winning_trades, losing_trades: m?.losing_trades,
       last_tested: run?.finished_at,
       scenarioCount: runs.filter((r) => r.node_id === n.id && r.scenario_id).length,
@@ -215,7 +217,9 @@ export function DeepTesting() {
     { key: 'max_drawdown_amount', label: 'Max DD', type: 'absNumber', get: (r) => r.max_drawdown_amount },
     { key: 'max_drawdown_pct', label: 'Max DD %', type: 'absNumber', get: (r) => r.max_drawdown_pct },
     { key: 'recovery_factor', label: 'Recovery', type: 'number', get: (r) => r.recovery_factor },
-    { key: 'max_consecutive_losses', label: 'Consec. losses', type: 'number', get: (r) => r.max_consecutive_losses },
+    { key: 'max_consecutive_losses', label: 'Max consec. losses', type: 'number', get: (r) => r.max_consecutive_losses },
+    { key: 'max_consecutive_loss_amount', label: 'Max consec. loss', type: 'number', get: (r) => r.max_consecutive_loss_amount },
+    { key: 'max_consecutive_loss_pct', label: 'Max consec. loss %', type: 'number', get: (r) => r.max_consecutive_loss_pct },
     { key: 'last_tested', label: 'Last tested', type: 'date', get: (r) => r.last_tested },
   ]
   const sortedRows = useMemo(() => applySort(filteredRows, nodeSort, nodeColumns),
@@ -315,16 +319,28 @@ export function DeepTesting() {
              gp, gl, net: gp + gl, pf: gl < 0 ? gp / Math.abs(gl) : null }
   }
 
+  // Aggregate statistics across the CURRENTLY SELECTED weekdays/sessions
+  // (same fields as every weekday/session cell; each trade counted once).
+  const aggStats = (session: string) => cellStats(trades.filter((t) => {
+    const wd = WEEKDAYS[new Date(t.entry_ts * 1000).getUTCDay() - 1]
+    if (!wd || !daySel[wd] || !cellSel[`${wd}|${sessionCell(t.entry_ts)}`]) return false
+    return session === 'TOTAL DAY' || sessionCell(t.entry_ts) === session
+  }))
+
   const filteredStats = useMemo(() => {
     const g = [...filteredTrades].sort((a, b) => a.exit_ts - b.exit_ts)
     const base = cellStats(g)
     const wins = g.filter((t) => t.net_pnl > 1e-9), losses = g.filter((t) => t.net_pnl < -1e-9)
     let cum = 0, peak = 0, maxDd = 0, curW = 0, curL = 0, maxW = 0, maxL = 0
-    const streaks: number[] = []
+    let curLossAmt = 0, maxLossAmt = 0
     for (const t of g) {
       cum += t.net_pnl; peak = Math.max(peak, cum); maxDd = Math.max(maxDd, peak - cum)
-      if (t.net_pnl > 1e-9) { curW++; curL = 0 } else if (t.net_pnl < -1e-9) { curL++; curW = 0 }
-      maxW = Math.max(maxW, curW); maxL = Math.max(maxL, curL); streaks.push(maxL)
+      if (t.net_pnl > 1e-9) { curW++; curL = 0; curLossAmt = 0 }
+      else if (t.net_pnl < -1e-9) { curL++; curW = 0; curLossAmt += -t.net_pnl }
+      else { curW = 0; curL = 0; curLossAmt = 0 }
+      maxW = Math.max(maxW, curW)
+      if (curL > maxL || (curL === maxL && curLossAmt > maxLossAmt)) maxLossAmt = curLossAmt
+      maxL = Math.max(maxL, curL)
     }
     const ddMarks: number[] = []
     cum = 0; peak = 0
@@ -338,7 +354,7 @@ export function DeepTesting() {
              avgHolding: g.length ? g.reduce((a, t) => a + t.holding_seconds, 0) / g.length : null,
              maxDd, maxDdPct: (capital + peak) > 0 ? (maxDd / (capital + peak)) * 100 : null,
              avgDd: ddMarks.length ? ddMarks.reduce((a, b) => a + b, 0) / ddMarks.length : 0,
-             currentDd: peak - cum, maxW, maxL, curW, curL,
+             currentDd: peak - cum, maxW, maxL, curW, curL, maxLossAmt,
              balance: capital + base.net }
   }, [filteredTrades, capital])
 
@@ -356,6 +372,9 @@ export function DeepTesting() {
     max_drawdown_amount: filteredStats.maxDd, max_drawdown_pct: filteredStats.maxDdPct,
     avg_drawdown_amount: filteredStats.avgDd, current_drawdown_amount: filteredStats.currentDd,
     max_consecutive_wins: filteredStats.maxW, max_consecutive_losses: filteredStats.maxL,
+    max_consecutive_loss_amount: filteredStats.maxLossAmt,
+    max_consecutive_loss_pct: (m?.initial_capital ?? capital) > 0
+      ? (filteredStats.maxLossAmt / (m?.initial_capital ?? capital)) * 100 : null,
     current_streak: filteredStats.curW ? `W × ${filteredStats.curW}` : filteredStats.curL ? `L × ${filteredStats.curL}` : '—',
     max_simultaneous: 'N/A (filter view)', max_planned_open_risk: 'N/A (filter view)',
   } : m ? {
@@ -370,6 +389,8 @@ export function DeepTesting() {
     max_drawdown_amount: m.max_drawdown_amount, max_drawdown_pct: m.max_drawdown_pct,
     avg_drawdown_amount: m.avg_drawdown_amount, current_drawdown_amount: m.current_drawdown_amount,
     max_consecutive_wins: m.max_consecutive_wins, max_consecutive_losses: m.max_consecutive_losses,
+    max_consecutive_loss_amount: m.max_consecutive_loss_amount,
+    max_consecutive_loss_pct: m.max_consecutive_loss_pct,
     current_streak: m.current_streak ? `${m.current_streak.kind} × ${m.current_streak.count}` : '—',
     max_simultaneous: m.max_simultaneous_positions, max_planned_open_risk: m.max_planned_open_risk,
   } : null
@@ -575,6 +596,8 @@ export function DeepTesting() {
                     <td>{fmt(r.net_profit)}</td><td>{fmt(r.profit_factor, 3)}</td><td>{fmt(r.expectancy)}</td>
                     <td>{fmt(r.max_drawdown_amount)}</td><td>{fmt(r.max_drawdown_pct)}</td>
                     <td>{fmt(r.recovery_factor, 3)}</td><td>{fmt(r.max_consecutive_losses, 0)}</td>
+                    <td>{fmt(r.max_consecutive_loss_amount)}</td>
+                    <td>{r.max_consecutive_loss_pct != null ? `${fmt(r.max_consecutive_loss_pct)}%` : 'N/A'}</td>
                     <td>{tsFmt(r.last_tested)}</td>
                     <td>{fmt(r.winning_trades, 0)}/{fmt(r.losing_trades, 0)}</td>
                     <td>{r.scenarioCount}</td>
@@ -582,7 +605,7 @@ export function DeepTesting() {
                   </tr>
                 )
               })}
-              {pageRows.length === 0 && <tr><td colSpan={26} className="faint">No nodes match the active filters.</td></tr>}
+              {pageRows.length === 0 && <tr><td colSpan={28} className="faint">No nodes match the active filters.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -635,6 +658,8 @@ export function DeepTesting() {
                   <tr><td>DD duration</td><td>{isFilteredActive ? 'N/A (filter view)' : `${fmt((m?.max_drawdown_duration_seconds ?? 0) / 86400, 1)}d`}</td><td>Max simultaneous / planned open risk</td><td>{stats.max_simultaneous} / {fmt(stats.max_planned_open_risk)}</td></tr>
                   <tr><th colSpan={4}>Streak statistics</th></tr>
                   <tr><td>Max consec. W / L</td><td>{stats.max_consecutive_wins} / {stats.max_consecutive_losses}</td><td>Current streak</td><td>{stats.current_streak}</td></tr>
+                  <tr><td>Max consecutive losses</td><td>{stats.max_consecutive_losses}</td><td>Max consecutive loss amount</td><td>{fmt(stats.max_consecutive_loss_amount)}</td></tr>
+                  <tr><td>Max consecutive loss %</td><td>{stats.max_consecutive_loss_pct != null ? `${fmt(stats.max_consecutive_loss_pct)}%` : 'N/A'}</td><td>Of starting capital</td><td>{fmt(stats.initial_capital, 0)} {currency}</td></tr>
                   <tr><td>Avg W / L streak</td><td>{isFilteredActive ? 'N/A (filter view)' : `${fmt(m?.streaks?.avg_winning_streak)} / ${fmt(m?.streaks?.avg_losing_streak)}`}</td><td>Long / Short net</td><td>{isFilteredActive ? 'N/A (filter view)' : `${fmt(m?.long_net)} / ${fmt(m?.short_net)}`}</td></tr>
                 </tbody>
               </table>
@@ -653,6 +678,7 @@ export function DeepTesting() {
                           setCellSel({ ...cellSel, ...Object.fromEntries(SESSION_ROWS.slice(1).map((s) => [`${d}|${s}`, v])) })
                         }} /> {d}</label>
                     </th>))}
+                    <th>TOTAL — selected days</th>
                   </tr></thead>
                   <tbody>
                     {SESSION_ROWS.map((session) => (
@@ -679,6 +705,14 @@ export function DeepTesting() {
                             </td>
                           )
                         })}
+                        <td className="dt-agg">
+                          {(() => { const agg = aggStats(session); return (
+                          <span className="dt-cell-stats">
+                            {agg.trades} trades · {agg.wins}W/{agg.losses}L/{agg.be}BE<br />
+                            WR {agg.winRate != null ? `${fmt(agg.winRate * 100, 0)}%` : 'N/A'} · PF {fmt(agg.pf, 2)}<br />
+                            GP {fmt(agg.gp, 0)} · GL {fmt(agg.gl, 0)} · <strong>Net {fmt(agg.net, 0)}</strong>
+                          </span>) })()}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

@@ -100,6 +100,12 @@ def compute_metrics(trades: List[dict], equity_curve: List[dict],
         "sharpe_method": "daily equity returns, sqrt(252) annualization; null when <2 daily returns or no trades",
         "max_consecutive_wins": streaks["max_consecutive_wins"],
         "max_consecutive_losses": streaks["max_consecutive_losses"],
+        "max_consecutive_loss_amount": streaks["max_consecutive_loss_amount"],
+        # % of the STARTING CAPITAL CONFIGURED FOR THIS RUN (the
+        # initial_capital argument) - never a global/UI capital value.
+        "max_consecutive_loss_pct": (round(
+            streaks["max_consecutive_loss_amount"] / initial_capital * 100, 4)
+            if initial_capital and initial_capital > 0 else None),
         "current_streak": streaks["current"],
         "streaks": streaks,
         "long_trades": sum(1 for t in trades if t["side"] == "LONG"),
@@ -191,9 +197,18 @@ def streak_analysis(trades: List[dict]) -> Dict[str, Any]:
     win_runs = [r for r in runs if r["kind"] == "WIN"]
     loss_runs = [r for r in runs if r["kind"] == "LOSS"]
     total = len(trades) or 1
+    # Worst losing streak = the LONGEST run of consecutive losses (a win or
+    # a breakeven trade breaks it; trades are in exit-time order via
+    # _ordered). Its amount is the total realized net loss accumulated over
+    # that streak, reported as a POSITIVE magnitude; ties in length resolve
+    # to the largest monetary loss so the figure is deterministic.
+    max_loss_count = max((r["count"] for r in loss_runs), default=0)
+    max_loss_amount = max((-r["pnl"] for r in loss_runs if r["count"] == max_loss_count),
+                          default=0.0)
     return {
         "max_consecutive_wins": max((r["count"] for r in win_runs), default=0),
-        "max_consecutive_losses": max((r["count"] for r in loss_runs), default=0),
+        "max_consecutive_losses": max_loss_count,
+        "max_consecutive_loss_amount": round(max_loss_amount, 4),
         "avg_winning_streak": round(statistics.fmean([r["count"] for r in win_runs]), 3) if win_runs else None,
         "avg_losing_streak": round(statistics.fmean([r["count"] for r in loss_runs]), 3) if loss_runs else None,
         "pct_trades_in_win_streaks": round(sum(r["count"] for r in win_runs) / total * 100, 2),
