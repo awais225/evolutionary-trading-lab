@@ -125,40 +125,72 @@ def build_windows(mode: str, start_ts: int, end_ts: int, cfg: dict) -> List[dict
     raise DeepTestError("BAD_MODE", f"unknown testing mode {mode!r}")
 
 
-def resolve_offsets(config: dict, node_id: int, spec: dict) -> dict:
-    """TP/SL offset precedence (UI restructure brief, binding rules):
-    1. The strategy's own TP/SL logic is never replaced - offsets only
-       scale the declared initial distances, and never touch trailing /
-       break-even / management logic.
-    2. An explicit INDIVIDUAL node offset overrides the global offset.
-    3. The GLOBAL offset applies only when no individual value exists.
-    4. With neither, the effective offset is 0 and the source is the
-       strategy itself. Only ONE offset is ever applied (no stacking).
-    Returns effective values + sources + incompatibility warnings."""
+def resolve_offsets(config: dict, node_id: int, spec: dict,
+                    pip_size: Optional[float]) -> dict:
+    """TP/SL offset precedence with FOUR pips controls (SL+/SL-, TP+/TP-):
+    1. The strategy's own TP/SL logic is never replaced - offsets only move
+       the declared initial distances, never trailing/break-even logic.
+    2. Individual node offsets (its +/- pair) override the global pair.
+    3. Global offsets apply only when the node pair is unset.
+    Within a pair the signed offset is (+away) - (-closer) in pips,
+    converted to PRICE with the instrument's own pip_size from broker
+    metadata. Without a pip size the offset is reported NOT applied -
+    pip definitions are never assumed."""
     indiv = (config.get("node_offsets") or {}).get(str(node_id)) or {}
     out: Dict[str, Any] = {"warnings": []}
     exits = spec.get("exits") or {}
     declared = {"tp": bool((exits.get("take_profit") or {})),
                 "sl": bool((exits.get("stop_loss") or {}))}
-    for kind, cfg_key in (("tp", "tp_offset_pct"), ("sl", "sl_offset_pct")):
-        node_val = indiv.get(kind)
-        global_val = config.get(f"global_{kind}_offset_pct")
-        if node_val is not None:
-            effective, source = float(node_val), "individual_node"
-        elif global_val is not None:
-            effective, source = float(global_val), "global_deeptesting"
-        else:
-            effective, source = float(config.get(cfg_key) or 0.0), \
-                ("explicit" if config.get(cfg_key) else "strategy")
-        if effective != 0.0 and not declared[kind]:
+    for kind in ("tp", "sl"):
+        def pair(src: dict, prefix: str):
+            plus, minus = src.get(f"{prefix}_plus_pips"), src.get(f"{prefix}_minus_pips")
+            if plus is None and minus is None:
+                return None
+            return float(plus or 0.0) - float(minus or 0.0)
+
+        signed = pair(indiv, kind)
+        source = "individual_node"
+        if signed is None:
+            signed = pair(config, f"global_{kind}")
+            source = "global_deeptesting"
+        if signed is None or signed == 0.0:
+            out[kind] = {"offset_pips": 0.0, "offset_price": 0.0, "source": "strategy"}
+            continue
+        if not declared[kind]:
             out["warnings"].append(
-                f"{kind.upper()} offset {effective}% (source: {source}) configured but the "
+                f"{kind.upper()} offset {signed:+g} pips (source: {source}) configured but the "
                 f"strategy declares no {'take-profit' if kind == 'tp' else 'stop-loss'}; "
                 "offset NOT applied - strategy logic is never invented or replaced")
-            effective = 0.0
-            source = "strategy"
-        out[kind] = {"offset_pct": effective, "source": source}
+            out[kind] = {"offset_pips": 0.0, "offset_price": 0.0, "source": "strategy"}
+            continue
+        if not pip_size:
+            out["warnings"].append(
+                f"{kind.upper()} offset {signed:+g} pips (source: {source}) cannot be converted: "
+                "no pip_size in broker metadata for this instrument; offset NOT applied - "
+                "pip definitions are instrument-specific and never assumed")
+            out[kind] = {"offset_pips": 0.0, "offset_price": 0.0, "source": "strategy"}
+            continue
+        out[kind] = {"offset_pips": signed, "offset_price": signed * float(pip_size),
+                     "source": source}
     return out
+
+
+def available_bounds(instrument: str, timeframe: str) -> Optional[dict]:
+    """First/last eligible candle + count for one instrument/timeframe."""
+    from hero1_market_data import store as md_store
+    db = market_data_service.store_db_path()
+    if not db.exists():
+        return None
+    conn = md_store.connect_store(db)
+    try:
+        row = conn.execute(
+            "SELECT MIN(ts), MAX(ts), COUNT(*) FROM candles WHERE instrument=? AND timeframe=?",
+            (instrument.upper(), timeframe.upper())).fetchone()
+        if not row or row[2] == 0:
+            return None
+        return {"first_ts": int(row[0]), "last_ts": int(row[1]), "candles": int(row[2])}
+    finally:
+        conn.close()
 
 
 def execute_run(session: Session, *, instrument: str, node: im.Node,
@@ -176,11 +208,15 @@ def execute_run(session: Session, *, instrument: str, node: im.Node,
     session.refresh(run)
     try:
         spec = json.loads(node.spec_json) if node.spec_json else None
-        offsets = resolve_offsets(config, node.id, spec) if spec else None
+        broker_meta_pre = spec_service._resolve_broker_meta(instrument, config.get("broker_meta"))
+        pip_size = ((broker_meta_pre or {}).get(instrument.upper()) or {}).get("pip_size")
+        if pip_size is None and config.get("pip_size"):
+            pip_size = float(config["pip_size"])
+        offsets = resolve_offsets(config, node.id, spec, pip_size) if spec else None
         if offsets is not None:
             config = {**config,
-                      "tp_offset_pct": offsets["tp"]["offset_pct"],
-                      "sl_offset_pct": offsets["sl"]["offset_pct"],
+                      "tp_offset_price": offsets["tp"]["offset_price"],
+                      "sl_offset_price": offsets["sl"]["offset_price"],
                       "offset_resolution": offsets}
         if spec is None:
             raise DeepTestError("NODE_HAS_NO_SPEC", f"node {node.id} has no strategy specification")
@@ -189,7 +225,22 @@ def execute_run(session: Session, *, instrument: str, node: im.Node,
             raise DeepTestError("NODE_HAS_NO_TIMEFRAME", "node spec declares no timeframe")
         run.timeframe = tf
         rng = config.get("range") or {}
-        start_ts, end_ts = rng.get("start"), rng.get("end")
+        req_start, req_end = rng.get("start"), rng.get("end")
+        bounds = available_bounds(instrument, tf)
+        if bounds is None:
+            raise DeepTestError("DATA_BLOCKED",
+                                f"no eligible candles stored for {instrument} {tf}; nothing to test")
+        # PARTIAL TESTING: clamp the requested window to actually available
+        # data. Partial == the requested start precedes the first stored
+        # candle (requested duration exceeds history). The end anchors to
+        # the latest available candle and is never 'missing'.
+        start_ts = max(int(req_start), bounds["first_ts"]) if req_start else bounds["first_ts"]
+        end_ts = min(int(req_end), bounds["last_ts"]) if req_end else bounds["last_ts"]
+        partial = bool(req_start) and int(req_start) < bounds["first_ts"]
+        config = {**config, "requested_range": {"start": req_start, "end": req_end},
+                  "actual_range": {"start": start_ts, "end": end_ts},
+                  "coverage_status": "PARTIAL_TESTED" if partial else "TESTED",
+                  "candles_available": bounds["candles"]}
         dq = readiness(instrument, tf, start_ts, end_ts)
         run.data_quality_json = json.dumps(dq)
         if dq.get("readiness") == "BLOCKED":
@@ -217,8 +268,8 @@ def execute_run(session: Session, *, instrument: str, node: im.Node,
             ambiguity_policy=str(config.get("ambiguity_policy") or "sl_first"),
             sessions=config.get("sessions"), weekdays=config.get("weekdays"),
             months=config.get("months"),
-            tp_offset_pct=float(config.get("tp_offset_pct") or 0.0),
-            sl_offset_pct=float(config.get("sl_offset_pct") or 0.0),
+            tp_offset_price=float(config.get("tp_offset_price") or 0.0),
+            sl_offset_price=float(config.get("sl_offset_price") or 0.0),
         )
         spec_meta = _instrument_spec(instrument, config)
         m0 = ((broker_meta or {}).get(instrument.upper())) or {}
@@ -245,6 +296,9 @@ def execute_run(session: Session, *, instrument: str, node: im.Node,
             "engine_version": ENGINE_VERSION, "windows": windows,
             "risk_basis": rcfg.risk_basis, "max_active_trades": rcfg.max_active_trades,
             "effective_offsets": offsets,
+            "requested_range": config.get("requested_range"),
+            "actual_range": config.get("actual_range"),
+            "coverage_status": config.get("coverage_status"),
         })
         session.commit()
 
@@ -262,6 +316,10 @@ def execute_run(session: Session, *, instrument: str, node: im.Node,
             result = run_backtest(ir=compiled.ir, candles=candles, cfg=rcfg,
                                   instrument=spec_meta, price_ctx=price_ctx, management=mgmt)
             metrics = compute_metrics(result["trades"], result["equity_curve"], rcfg.initial_capital)
+            metrics["candles_tested"] = len(candles)
+            metrics["coverage_status"] = config.get("coverage_status")
+            metrics["requested_range"] = config.get("requested_range")
+            metrics["actual_range"] = config.get("actual_range")
             metrics["time_buckets"] = time_buckets(result["trades"])
             target = run if first else im.DeepTestRun(
                 instrument_id=instrument.upper(), node_id=node.id, node_version=node.version,
@@ -314,6 +372,9 @@ def run_summary(run: im.DeepTestRun) -> dict:
         "started_at": run.started_at, "finished_at": run.finished_at,
         "config": json.loads(run.config_json) if run.config_json else None,
         "metrics": metrics,
+        "requested_range": (json.loads(run.config_json).get("requested_range")
+                            if run.config_json else None),
+        "coverage_status": metrics.get("coverage_status") if metrics else None,
     }
 
 

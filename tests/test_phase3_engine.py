@@ -221,3 +221,21 @@ def test_exit_rule_priority_and_time_exit():
     result = run_backtest(ir=ir.ir, candles=candles_from_closes(closes), cfg=CFG,
                           instrument=SPEC_INSTR, price_ctx=CTX)
     assert result["trades"][0]["exit_reason"] == "EXIT_RULE:give_up"
+
+
+def test_sl_offset_pips_price_direction_long_and_short():
+    # +2.0 price SL offset (away) doubles the stop distance -> volume halves
+    ir = compile_spec(cross_spec())
+    wide = RunConfig(initial_capital=10000.0, risk_mode="percent", risk_value=1.0,
+                     risk_basis="initial_capital", max_active_trades=1, sl_offset_price=2.0)
+    result = run_backtest(ir=ir.ir, candles=candles_from_closes(CLOSES), cfg=wide,
+                          instrument=SPEC_INSTR, price_ctx=CTX)
+    t = result["trades"][0]
+    assert t["initial_stop"] == 90.0 and t["volume"] == 2.5  # 4.0 distance -> 40/lot
+    # -1.0 (closer) halves distance -> volume doubles
+    tight = RunConfig(initial_capital=10000.0, risk_mode="percent", risk_value=1.0,
+                      risk_basis="initial_capital", max_active_trades=1, sl_offset_price=-1.0)
+    result = run_backtest(ir=ir.ir, candles=candles_from_closes(CLOSES), cfg=tight,
+                          instrument=SPEC_INSTR, price_ctx=CTX)
+    t = result["trades"][0]
+    assert t["initial_stop"] == 93.0 and t["volume"] == 10.0

@@ -5,6 +5,51 @@ exact commit SHA and tag. Claims only for what was implemented AND verified.
 
 ---
 
+## [DeepTesting UI refinement] — 2026-11-08 — exact seven-part layout, partial testing, pips offsets, scenario handoff
+
+- **Layout (exactly, in order):** Hard Constraints (defaults 200,000 USD /
+  1% / MAX ACTIVE 1 for NEW configurations; saved user settings are never
+  overwritten) with FOUR global pips offsets (SL +away / SL -closer /
+  TP +away / TP -closer); eight date-range buttons (1 Week - 3 Years);
+  the main node table (filters, stars, per-node four pips offsets,
+  TESTED / PARTIAL TESTED / BLOCKED / RUNNING / FAILED status, Inspect);
+  Selected Node Inspection with ONE complete statistics table first;
+  ONE unified weekday/session checkbox table (Mon-Fri columns; Total Day,
+  ASIA, ASIA-LONDON, LONDON, LONDON-NY, NY rows; parent checkboxes with
+  indeterminate state; single-label non-overlapping UTC session windows;
+  statistics and equity recomputed live from the matching trades, the
+  original run never modified); SAVE FILTERS AS SCENARIO (compact modal;
+  reopening restores the exact checkbox state); ONE equity curve with a
+  dotted line at the configured initial capital and green/red segments
+  above/below it, switching colour at crossings.
+- **Removed:** the Test Configuration box, the Batch Node Scope box, the
+  trade ledger, duplicate daily/session tables, extra charts and the
+  fine-tune UI. No backend calculations or stored trades were removed.
+- **Partial testing:** a requested duration longer than the stored history
+  now runs ALL available eligible candles and is labelled PARTIAL TESTED
+  (requested range, actual range and candles tested are persisted);
+  sufficient coverage is TESTED. Previously such requests could only run
+  the exact window or fail.
+- **Offsets in pips:** engine applies signed PRICE offsets converted with
+  the instrument's own pip size from broker metadata (never assumed);
+  + widens / - tightens correctly for LONG and SHORT; precedence strategy
+  > individual node > global, applied once; an invalid tightened stop is
+  refused with an explicit record, an invalid target is dropped with a
+  notice - never silently changed.
+- **Scenario handoff:** `GET /deeptesting/scenarios/{id}` returns the
+  immutable saved scenario under the stable `deeptesting-scenario/v1`
+  reference for future Live Testing retrieval (persistence/retrieval
+  only; no live execution, no MT5 orders, no Live Testing toggle).
+- Tests: backend 306 passed / 1 skipped (new: partial-testing coverage,
+  pips offset direction LONG/SHORT, pips precedence); frontend 73/73;
+  production build clean. Verified live against a throwaway data root:
+  3-year request over short seeded history -> PARTIAL TESTED using all
+  18 candles; in-history request -> TESTED; scenario handoff round-trip.
+- Known limitations: Windows desktop shortcut and real MT5 terminal
+  behaviour NOT VERIFIED (Linux sandbox).
+
+---
+
 ## [DeepTesting UI restructure] — 2026-11-07 — three-area workspace, global/individual TP-SL offsets
 
 - The DeepTesting page is reorganized into exactly three primary areas:

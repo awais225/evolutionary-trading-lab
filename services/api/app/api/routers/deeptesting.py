@@ -141,6 +141,25 @@ def list_scenarios(instrument: str = Depends(get_instrument_context),
                            "created_at": r.created_at} for r in rows]}
 
 
+@router.get("/scenarios/{scenario_id}")
+def get_scenario(scenario_id: int, instrument: str = Depends(get_instrument_context),
+                 session: Session = Depends(get_instrument_session)):
+    """Stable scenario reference for future modules (e.g. Live Testing):
+    retrieve one saved DeepTesting scenario, with its full immutable
+    configuration, by its persistent ID. No execution happens here."""
+    r = session.query(im.DeepTestScenarioDef).filter_by(id=scenario_id).first()
+    if r is None:
+        raise HTTPException(404, "scenario not found")
+    cfg = json.loads(r.config_json)
+    return {"id": r.id, "name": r.name, "folder": r.folder, "version": r.version,
+            "parent_scenario_id": r.parent_scenario_id,
+            "node_id": cfg.get("nodeId"), "node_version": cfg.get("nodeVersion"),
+            "run_id": cfg.get("runId"),
+            "config": cfg, "config_hash": r.config_hash,
+            "created_at": r.created_at, "instrument": r.instrument_id,
+            "handoff": "deeptesting-scenario/v1"}
+
+
 @router.post("/scenarios")
 def create_scenario(body: ScenarioBody, instrument: str = Depends(get_instrument_context),
                     session: Session = Depends(get_instrument_session)):

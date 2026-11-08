@@ -123,8 +123,8 @@ class RunConfig:
     sessions: Optional[List[str]] = None       # entry filter, UTC labels
     weekdays: Optional[List[int]] = None       # 0=Mon .. 6=Sun, entry filter
     months: Optional[List[int]] = None         # 1..12, entry filter
-    tp_offset_pct: float = 0.0                 # scenario offsets, % of distance
-    sl_offset_pct: float = 0.0
+    tp_offset_price: float = 0.0               # scenario offset, PRICE units (service converts pips)
+    sl_offset_price: float = 0.0
 
 
 @dataclass
@@ -454,8 +454,15 @@ def run_backtest(*, ir: dict, candles: List[dict], cfg: RunConfig,
             elif anchor == "signal_high":
                 base = float(candles[signal_i]["high"])
             stop_price = base - d if side == "LONG" else base + d
-            if cfg.sl_offset_pct:
-                dist = abs(entry_price - stop_price) * (1 + cfg.sl_offset_pct / 100.0)
+            if cfg.sl_offset_price:
+                # positive = away from entry (wider), negative = closer; symmetric LONG/SHORT
+                dist = abs(entry_price - stop_price) + cfg.sl_offset_price
+                if dist <= 0:
+                    skipped.append({"ts": int(candles[i]["ts"]), "side": side,
+                                    "reason": "SL_OFFSET_INVALID: configured SL offset would place "
+                                              "the stop at or beyond the entry price; trade refused, "
+                                              "strategy never silently altered"})
+                    return
                 stop_price = entry_price - dist if side == "LONG" else entry_price + dist
         tp_ir = exits_ir.get("take_profit") or {}
         if tp_ir.get("distance"):
@@ -465,9 +472,16 @@ def run_backtest(*, ir: dict, candles: List[dict], cfg: RunConfig,
         elif tp_ir.get("ratio") and stop_price is not None:
             dist = abs(entry_price - stop_price) * float(tp_ir["ratio"])
             tp_price = entry_price + dist if side == "LONG" else entry_price - dist
-        if tp_price is not None and cfg.tp_offset_pct:
-            dist = abs(tp_price - entry_price) * (1 + cfg.tp_offset_pct / 100.0)
-            tp_price = entry_price + dist if side == "LONG" else entry_price - dist
+        if tp_price is not None and cfg.tp_offset_price:
+            dist = abs(tp_price - entry_price) + cfg.tp_offset_price
+            if dist <= 0:
+                notices.append({"ts": int(candles[i]["ts"]),
+                                "reason": "TP_OFFSET_INVALID: configured TP offset would place the "
+                                          "target at or beyond entry; target dropped for this trade, "
+                                          "strategy never silently altered"})
+                tp_price = None
+            else:
+                tp_price = entry_price + dist if side == "LONG" else entry_price - dist
         equity_now = equity_curve[-1]["equity"] if equity_curve else balance
         sized = size_position(cfg=cfg, spec=instrument, equity_now=equity_now,
                               entry_price=entry_price, stop_price=stop_price, side=side)
@@ -485,6 +499,7 @@ def run_backtest(*, ir: dict, candles: List[dict], cfg: RunConfig,
 
 
     n = len(candles)
+    notices: List[dict] = []
     pending_entries: List[dict] = []   # signals from previous bar close (next_bar_open)
     pending_exits: List[Position] = [] # rule/time exits decided at previous close
 
@@ -602,6 +617,7 @@ def run_backtest(*, ir: dict, candles: List[dict], cfg: RunConfig,
         "engine_version": ENGINE_VERSION,
         "trades": trades,
         "skipped_signals": skipped,
+        "notices": notices,
         "equity_curve": equity_curve,
         "final_balance": round(balance, 6),
         "initial_capital": cfg.initial_capital,

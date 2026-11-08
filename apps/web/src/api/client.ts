@@ -145,6 +145,8 @@ export const api = {
       request<any>('POST', `/api/v1/instruments/${instrument}/deeptesting/runs/${id}/rerun`),
     rankings: (instrument: string, body: Record<string, unknown>) =>
       request<{ ranking: any[] }>('POST', `/api/v1/instruments/${instrument}/deeptesting/rankings`, body),
+    getScenario: (instrument: string, id: number) =>
+      request<any>('GET', `/api/v1/instruments/${instrument}/deeptesting/scenarios/${id}`),
     listScenarios: (instrument: string) =>
       request<{ scenarios: any[] }>('GET', `/api/v1/instruments/${instrument}/deeptesting/scenarios`),
     createScenario: (instrument: string, body: Record<string, unknown>) =>

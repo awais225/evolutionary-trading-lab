@@ -13,69 +13,71 @@ const NODE = {
 const renderDT = () =>
   render(<MemoryRouter initialEntries={['/deeptesting']}><App /></MemoryRouter>)
 
-describe('DeepTesting workspace — three-area layout', () => {
+describe('DeepTesting refined layout', () => {
   beforeEach(() => {
     ;(globalThis as { __hero1NodeItems?: unknown[] }).__hero1NodeItems = [NODE]
     localStorage.clear()
   })
 
-  it('Area 1 hard constraints come first; MAX ACTIVE TRADES defaults to 1; global offsets exist', async () => {
+  it('defaults: capital 200,000, risk 1%, MAX ACTIVE 1; four global pips offsets', async () => {
     renderDT()
     expect(await screen.findByText(/Hard Constraints/i)).toBeTruthy()
+    expect((screen.getByLabelText(/Initial capital/i) as HTMLInputElement).value).toBe('200000')
+    expect((screen.getByLabelText(/Risk per trade/i) as HTMLInputElement).value).toBe('1')
     expect((screen.getByLabelText(/Max active trades/i) as HTMLInputElement).value).toBe('1')
-    expect(screen.getByLabelText(/Global TP offset/i)).toBeTruthy()
-    expect(screen.getByLabelText(/Global SL offset/i)).toBeTruthy()
-    const constraints = document.getElementById('dt-constraints')!
-    const nodes = document.getElementById('dt-nodes')!
-    expect(constraints.compareDocumentPosition(nodes) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    for (const label of [/Global SL plus/i, /Global SL minus/i, /Global TP plus/i, /Global TP minus/i]) {
+      expect(screen.getByLabelText(label)).toBeTruthy()
+    }
+    expect(screen.getAllByText('pips').length).toBeGreaterThan(3)
   })
 
-  it('Area 2 main table: star, selection and offset-source precedence display', async () => {
+  it('shows all eight range buttons, highlights selection, no Test Configuration or Batch Scope', async () => {
     renderDT()
-    const star = await screen.findByLabelText(/Star node 1/i)
-    fireEvent.click(star)
-    expect(await screen.findByLabelText(/Unstar node 1/i)).toBeTruthy()
-
-    const box = screen.getByLabelText(/Select node 1/i)
-    fireEvent.click(box)
-    expect((box as HTMLInputElement).checked).toBe(true)
-
-    // global offset applies when no individual value exists
-    fireEvent.change(screen.getByLabelText(/Global TP offset/i), { target: { value: '10' } })
-    expect(screen.getAllByText(/Global DeepTesting/).length).toBeGreaterThan(0)
-    // individual value overrides the global one (source label flips)
-    fireEvent.change(screen.getByLabelText(/TP offset node 1/i), { target: { value: '-5' } })
-    expect(screen.getByText(/Individual node/)).toBeTruthy()
+    for (const label of ['1 Week', '2 Weeks', '1 Month', '3 Months', '6 Months', '1 Year', '2 Years', '3 Years']) {
+      expect(await screen.findByRole('button', { name: label })).toBeTruthy()
+    }
+    const twoYears = screen.getByRole('button', { name: '2 Years' })
+    fireEvent.click(twoYears)
+    expect(twoYears.getAttribute('aria-pressed')).toBe('true')
+    expect(screen.queryByText(/Test Configuration/i)).toBeNull()
+    expect(screen.queryByText(/Batch Node Scope/i)).toBeNull()
   })
 
-  it('starred filter hides unstarred nodes and combines with search', async () => {
+  it('node table exposes four individual offset inputs and offset sources', async () => {
     renderDT()
-    fireEvent.click(await screen.findByLabelText(/Star node 1/i))
-    fireEvent.change(screen.getByLabelText(/Starred filter/i), { target: { value: 'unstarred' } })
-    expect(screen.getByText(/No nodes match/i)).toBeTruthy()
-    fireEvent.change(screen.getByLabelText(/Starred filter/i), { target: { value: 'starred' } })
-    expect(await screen.findByLabelText(/Select node 1/i)).toBeTruthy()
+    expect(await screen.findByLabelText(/SL plus node 1/i)).toBeTruthy()
+    for (const label of [/SL minus node 1/i, /TP plus node 1/i, /TP minus node 1/i]) {
+      expect(screen.getByLabelText(label)).toBeTruthy()
+    }
+    expect(screen.getByText(/TESTED/)).toBeTruthy() // latest mock run is DONE + TESTED
+    fireEvent.change(screen.getByLabelText(/TP plus node 1/i), { target: { value: '50' } })
+    expect(screen.getAllByText(/Individual node/).length).toBeGreaterThan(0)
   })
 
-  it('Area 3 inspection opens BELOW the main table with reconciling detail', async () => {
+  it('inspection: stats first, weekday/session grid, live filtered view, ONE equity curve', async () => {
     renderDT()
     fireEvent.click(await screen.findByRole('button', { name: /^Inspect$/i }))
     expect(await screen.findByText(/Inspection — Acceptance Node/i)).toBeTruthy()
-    const nodesSection = document.getElementById('dt-nodes')!
-    const inspect = document.getElementById('dt-inspect')!
-    expect(nodesSection.compareDocumentPosition(inspect) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(screen.getByText(/Detailed statistics|Trading performance/i)).toBeTruthy()
-    expect(screen.getAllByText(/TAKE_PROFIT/).length).toBeGreaterThan(0)
-    const inspectButtons = await screen.findAllByRole('button', { name: /^Inspect$/i })
-    fireEvent.click(inspectButtons[inspectButtons.length - 1])
-    expect(await screen.findByText(/Indicators at entry/i)).toBeTruthy()
+    expect(screen.getByLabelText(/Complete statistics/i)).toBeTruthy()
+    expect(screen.getByLabelText(/Weekday and session filters/i)).toBeTruthy()
+    expect(screen.getByLabelText('Include Monday')).toBeTruthy()
+    expect(screen.getByLabelText(/Include Monday ASIA-LONDON/i)).toBeTruthy()
+    // unchecking Monday's ASIA session switches to a clearly-marked filtered view
+    fireEvent.click(screen.getByLabelText(/Include Monday ASIA-LONDON/i))
+    expect(await screen.findByText(/FILTERED VIEW/)).toBeTruthy()
+    expect(screen.getByRole('button', { name: /SAVE FILTERS AS SCENARIO/i })).toBeTruthy()
+    expect(screen.getByLabelText(/Equity curve/)).toBeTruthy()
   })
 
-  it('closing inspection removes Area 3', async () => {
+  it('scenario modal summarizes selections and saves', async () => {
     renderDT()
     fireEvent.click(await screen.findByRole('button', { name: /^Inspect$/i }))
-    expect(await screen.findByText(/Inspection — Acceptance Node/i)).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: /✕ Close/i }))
-    expect(screen.queryByText(/Inspection — Acceptance Node/i)).toBeNull()
+    await screen.findByText(/Inspection — Acceptance Node/i)
+    fireEvent.click(screen.getByRole('button', { name: /SAVE FILTERS AS SCENARIO/i }))
+    expect(await screen.findByRole('dialog')).toBeTruthy()
+    fireEvent.change(screen.getByLabelText(/Scenario name/i), { target: { value: 'London weekdays' } })
+    expect(screen.getByText(/Days\/Sessions:/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /Save Scenario/i }))
+    expect(await screen.findByText(/persistent ID/)).toBeTruthy()
   })
 })

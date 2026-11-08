@@ -1,57 +1,91 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api/client'
 import { useInstrument } from '../state/instrument'
-import { BatchScope } from '../components/BatchScope'
 import { applySort, loadSortPref, nextSortState, saveSortPref, type SortColumn, type SortState } from '../lib/tableSort'
 
 /**
- * DeepTesting workspace — THREE areas only:
- *  1. Hard Constraints (capital, risk, MAX ACTIVE TRADES, global offsets)
- *  2. Main Node Table (filters, stars, selection, individual offsets,
- *     persisted results, sorting, Inspect)
- *  3. Selected Node Inspection below the table (statistics, daily/session
- *     tables, filters, trade ledger, charts, scenarios)
- * Everything displayed originates from actual persisted engine runs.
+ * DeepTesting workspace — the compact, table-driven layout:
+ *  1. Hard Constraints (capital / risk / MAX ACTIVE / global SL·TP offsets)
+ *  2. Date-range buttons (1W … 3Y, partial testing supported)
+ *  3. Main Node Table (filters, stars, selection, 4 individual offsets,
+ *     TESTED / PARTIAL TESTED statistics, sorting, horizontal scroll)
+ *  4. Selected Node Inspection: complete statistics table, then the
+ *     weekday/session filter table, SAVE FILTERS AS SCENARIO, and ONE
+ *     equity curve. Nothing else.
  */
 
-const SESSIONS = ['asian', 'london', 'newyork', 'london_newyork_overlap', 'off_hours']
-const MODES = [
-  { v: 'initial', label: 'Initial Backtest' }, { v: 'deeptest', label: 'DeepTest' },
-  { v: 'oos', label: 'Out-of-Sample' }, { v: 'walkforward', label: 'Walk-Forward' },
-  { v: 'robustness', label: 'Robustness' },
+const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'] as const
+const SESSION_ROWS = ['TOTAL DAY', 'ASIA', 'ASIA-LONDON', 'LONDON', 'LONDON-NY', 'NY'] as const
+const DURATIONS = [
+  { label: '1 Week', days: 7 }, { label: '2 Weeks', days: 14 },
+  { label: '1 Month', days: 30 }, { label: '3 Months', days: 91 },
+  { label: '6 Months', days: 182 }, { label: '1 Year', days: 365 },
+  { label: '2 Years', days: 730 }, { label: '3 Years', days: 1095 },
 ]
+
+/** Single-label session cells (UTC, entry time). Windows are contiguous
+ * and non-overlapping so weekday/session cells never double-count:
+ * ASIA 00-08 & 22-24, ASIA-LONDON 08-09, LONDON 09-13, LONDON-NY 13-17,
+ * NY 17-22. ASIA-LONDON / LONDON-NY are the explicitly defined overlaps. */
+export function sessionCell(ts: number): string {
+  const h = new Date(ts * 1000).getUTCHours()
+  if (h >= 22 || h < 8) return 'ASIA'
+  if (h < 9) return 'ASIA-LONDON'
+  if (h < 13) return 'LONDON'
+  if (h < 17) return 'LONDON-NY'
+  return 'NY'
+}
+
 const fmt = (v: unknown, d = 2): string =>
   v === null || v === undefined || (typeof v === 'number' && Number.isNaN(v))
     ? 'N/A' : typeof v === 'number' ? v.toLocaleString(undefined, { maximumFractionDigits: d }) : String(v)
 const tsFmt = (ts?: number) => (ts ? new Date(ts * 1000).toISOString().replace('T', ' ').slice(0, 16) : '—')
-const dayOf = (ts: number) => new Date(ts * 1000).toISOString().slice(0, 10)
 
-function LineChart({ points, label, color = '#4da3ff' }: { points: { x: number; y: number }[]; label: string; color?: string }) {
-  if (points.length < 2) return <p className="faint">{label}: not enough data (N/A).</p>
-  const xs = points.map((p) => p.x), ys = points.map((p) => p.y)
+function EquityCurve({ points, capital, label }: { points: { x: number; y: number; title: string }[]; capital: number; label: string }) {
+  if (points.length < 2) return <p className="faint">{label}: not enough equity data (N/A).</p>
+  const W = 900, H = 260, PAD = 10
+  const xs = points.map((p) => p.x), ys = [...points.map((p) => p.y), capital]
   const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys)
-  const W = 640, H = 150, PAD = 8
   const sx = (x: number) => PAD + ((x - minX) / Math.max(1, maxX - minX)) * (W - 2 * PAD)
   const sy = (y: number) => H - PAD - ((y - minY) / Math.max(1e-9, maxY - minY)) * (H - 2 * PAD)
-  const d = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${sx(p.x).toFixed(1)},${sy(p.y).toFixed(1)}`).join(' ')
+  const capY = sy(capital)
+  // split into green/red segments at capital crossings
+  const segments: { d: string; color: string }[] = []
+  let cur: { d: string; color: string } | null = null
+  const push = (x: number, y: number, color: string, move: boolean) => {
+    if (!cur || cur.color !== color) {
+      cur = { d: `${move ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`, color }
+      segments.push(cur)
+    } else cur.d += ` L${x.toFixed(1)},${y.toFixed(1)}`
+  }
+  points.forEach((p, i) => {
+    const color = p.y >= capital ? '#3fb950' : '#f85149'
+    if (i > 0) {
+      const prev = points[i - 1]
+      if ((prev.y - capital) * (p.y - capital) < 0) {
+        const t = (capital - prev.y) / (p.y - prev.y)
+        const cx = sx(prev.x + (p.x - prev.x) * t)
+        push(cx, capY, prev.y >= capital ? '#3fb950' : '#f85149', false)
+        cur = null
+        push(cx, capY, color, true)
+      }
+    }
+    push(sx(p.x), sy(p.y), color, i === 0)
+  })
+  const hoverEvery = Math.max(1, Math.floor(points.length / 60))
   return (
-    <figure className="dt-chart"><figcaption className="faint">{label} · min {fmt(minY)} · max {fmt(maxY)}</figcaption>
-      <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label={label}><path d={d} fill="none" stroke={color} strokeWidth="1.5" /></svg>
+    <figure className="dt-chart dt-equity">
+      <figcaption className="faint">{label} · capital reference {fmt(capital, 0)} · green above / red below</figcaption>
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label={label}>
+        <line x1={PAD} x2={W - PAD} y1={capY} y2={capY} stroke="#e8b93e" strokeWidth="1.4" strokeDasharray="3 5" />
+        {segments.map((s, i) => <path key={i} d={s.d} fill="none" stroke={s.color} strokeWidth="1.6" />)}
+        {points.filter((_, i) => i % hoverEvery === 0).map((p, i) => (
+          <circle key={i} cx={sx(p.x)} cy={sy(p.y)} r="5" fill="transparent">
+            <title>{p.title}</title>
+          </circle>
+        ))}
+      </svg>
     </figure>
-  )
-}
-
-function BarChart({ data, label }: { data: { label: string; value: number }[]; label: string }) {
-  if (!data.length) return <p className="faint">{label}: no data (N/A).</p>
-  const max = Math.max(...data.map((d) => Math.abs(d.value)), 1e-9)
-  return (
-    <figure className="dt-chart"><figcaption className="faint">{label}</figcaption>
-      <div className="dt-bars">{data.map((d, i) => (
-        <div key={i} className="dt-bar-col" title={`${d.label}: ${fmt(d.value)}`}>
-          <div className={`dt-bar ${d.value < 0 ? 'neg' : ''}`} style={{ height: `${Math.max(2, (Math.abs(d.value) / max) * 56)}px` }} />
-          <span>{d.label}</span><strong>{fmt(d.value, Math.abs(d.value) < 10 ? 2 : 0)}</strong>
-        </div>))}
-      </div></figure>
   )
 }
 
@@ -62,36 +96,37 @@ function SortTh({ col, sort, setSort }: { col: SortColumn<any>; sort: SortState 
   )
 }
 
+interface Offsets { slPlus: string; slMinus: string; tpPlus: string; tpMinus: string }
+const EMPTY_OFF: Offsets = { slPlus: '', slMinus: '', tpPlus: '', tpMinus: '' }
+
 export function DeepTesting() {
   const { instrument } = useInstrument()
-  /* ================= AREA 1 — HARD CONSTRAINTS ================= */
-  const [capital, setCapital] = useState(10000)
-  const [currency, setCurrency] = useState('USD')
-  const [riskMode, setRiskMode] = useState<'percent' | 'fixed'>('percent')
-  const [riskValue, setRiskValue] = useState(1)
-  const [riskBasis, setRiskBasis] = useState<'current_equity' | 'initial_capital'>('current_equity')
-  const [maxActive, setMaxActive] = useState(1)
-  const [globalTp, setGlobalTp] = useState(0)
-  const [globalSl, setGlobalSl] = useState(0)
 
-  /* test configuration (lives with Area 1 config flow) */
-  const [mode, setMode] = useState('initial')
-  const [range, setRange] = useState({ start: '', end: '' })
-  const [spread, setSpread] = useState(0)
-  const [slippage, setSlippage] = useState(0)
-  const [commission, setCommission] = useState(0)
-  const [ambiguity, setAmbiguity] = useState('sl_first')
-  const [sessions, setSessions] = useState<string[]>([])
-  const [tickValue, setTickValue] = useState('')
+  /* ============ 1. HARD CONSTRAINTS (defaults 200k / 1% / 1) ============ */
+  const saved = (() => { try { return JSON.parse(localStorage.getItem('hero1.dt.constraints') ?? 'null') } catch { return null } })()
+  const [capital, setCapital] = useState<number>(saved?.capital ?? 200000)
+  const [currency, setCurrency] = useState<string>(saved?.currency ?? 'USD')
+  const [riskMode, setRiskMode] = useState<'percent' | 'fixed'>(saved?.riskMode ?? 'percent')
+  const [riskValue, setRiskValue] = useState<number>(saved?.riskValue ?? 1)
+  const [riskBasis, setRiskBasis] = useState<'current_equity' | 'initial_capital'>(saved?.riskBasis ?? 'current_equity')
+  const [maxActive, setMaxActive] = useState<number>(saved?.maxActive ?? 1)
+  const [globalOff, setGlobalOff] = useState<Offsets>(saved?.globalOff ?? EMPTY_OFF)
+  useEffect(() => {
+    localStorage.setItem('hero1.dt.constraints', JSON.stringify(
+      { capital, currency, riskMode, riskValue, riskBasis, maxActive, globalOff }))
+  }, [capital, currency, riskMode, riskValue, riskBasis, maxActive, globalOff])
 
-  /* ================= AREA 2 — MAIN NODE TABLE ================= */
+  /* ============ 2. RANGE BUTTONS ============ */
+  const [duration, setDuration] = useState(365)
+
+  /* ============ 3. MAIN NODE TABLE ============ */
   const [nodes, setNodes] = useState<any[]>([])
   const [runs, setRuns] = useState<any[]>([])
   const [selected, setSelected] = useState<Set<number>>(new Set())
-  const [nodeOffsets, setNodeOffsets] = useState<Record<number, { tp: string; sl: string }>>(() => {
-    try { return JSON.parse(localStorage.getItem('hero1.dt.nodeOffsets') ?? '{}') } catch { return {} }
+  const [nodeOffsets, setNodeOffsets] = useState<Record<number, Offsets>>(() => {
+    try { return JSON.parse(localStorage.getItem('hero1.dt.nodeOffsets2') ?? '{}') } catch { return {} }
   })
-  useEffect(() => { localStorage.setItem('hero1.dt.nodeOffsets', JSON.stringify(nodeOffsets)) }, [nodeOffsets])
+  useEffect(() => { localStorage.setItem('hero1.dt.nodeOffsets2', JSON.stringify(nodeOffsets)) }, [nodeOffsets])
   const [fSearch, setFSearch] = useState('')
   const [fStarred, setFStarred] = useState('all')
   const [fOrigin, setFOrigin] = useState('')
@@ -102,23 +137,21 @@ export function DeepTesting() {
   const PAGE_SIZE = 25
   const [nodeSort, setNodeSort] = useState<SortState | null>(() => loadSortPref('deeptesting-nodes', ['id', 'name']))
   useEffect(() => { saveSortPref('deeptesting-nodes', nodeSort) }, [nodeSort])
+  const [busy, setBusy] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
 
-  /* ================= AREA 3 — INSPECTION ================= */
+  /* ============ 4. INSPECTION ============ */
   const [inspectId, setInspectId] = useState<number | null>(null)
   const [activeRun, setActiveRun] = useState<any | null>(null)
   const [trades, setTrades] = useState<any[]>([])
-  const [expanded, setExpanded] = useState<number | null>(null)
-  const [tf, setTf] = useState({ logic: 'AND', outcome: '', session: '', weekday: '', exitReason: '', side: '', minPnl: '', maxPnl: '', day: '', trailing: '' })
-  const [tradeSort, setTradeSort] = useState<SortState | null>(() => loadSortPref('deeptesting-trades', ['entry_ts', 'net_pnl']))
-  const [dailySort, setDailySort] = useState<SortState | null>(null)
-  useEffect(() => { saveSortPref('deeptesting-trades', tradeSort) }, [tradeSort])
+  const [daySel, setDaySel] = useState<Record<string, boolean>>(
+    Object.fromEntries(WEEKDAYS.map((d) => [d, true])))
+  const [cellSel, setCellSel] = useState<Record<string, boolean>>(
+    Object.fromEntries(WEEKDAYS.flatMap((d) => SESSION_ROWS.slice(1).map((s) => [`${d}|${s}`, true]))))
   const [scenarios, setScenarios] = useState<any[]>([])
-  const [scenarioName, setScenarioName] = useState('')
-  const [genDims, setGenDims] = useState({ tp: '-10,0,10', sl: '0,5', risk: '' })
-  const [genPreview, setGenPreview] = useState<number | null>(null)
-  const [suggestions, setSuggestions] = useState<any[]>([])
-  const [busy, setBusy] = useState(false)
-  const [notice, setNotice] = useState<string | null>(null)
+  const [modal, setModal] = useState(false)
+  const [scName, setScName] = useState('')
+  const [scDesc, setScDesc] = useState('')
 
   useEffect(() => {
     api.nodes.list(instrument, { limit: 500 }).then((r) => setNodes(r.items ?? [])).catch(() => setNodes([]))
@@ -128,33 +161,33 @@ export function DeepTesting() {
   }, [instrument])
 
   const refreshRuns = () => api.deeptesting.listRuns(instrument).then((r) => setRuns(r.runs ?? [])).catch(() => {})
-
   const latestByNode = useMemo(() => {
     const map = new Map<number, any>()
-    for (const r of runs) {
-      if (r.status !== 'DONE') continue
-      const cur = map.get(r.node_id)
-      if (!cur || r.id > cur.id) map.set(r.node_id, r)
-    }
+    for (const r of runs) { const cur = map.get(r.node_id); if (!cur || r.id > cur.id) map.set(r.node_id, r) }
     return map
   }, [runs])
 
-  const directionOf = (n: any): string => {
-    try { return JSON.parse(n.spec_json ?? '{}')?.identity?.direction ?? '—' } catch { return '—' }
+  const testingStatus = (r: any): string => {
+    if (!r) return 'UNTESTED'
+    if (r.status === 'RUNNING') return 'RUNNING'
+    if (r.status === 'FAILED') return String(r.error ?? '').includes('DATA_BLOCKED') ? 'BLOCKED' : 'FAILED'
+    return r.coverage_status === 'PARTIAL_TESTED' ? 'PARTIAL TESTED' : 'TESTED'
   }
 
   const rows = useMemo(() => nodes.map((n) => {
     const run = latestByNode.get(n.id)
-    const m = run?.metrics
+    const m = run?.status === 'DONE' ? run.metrics : null
+    let direction = '—'
+    try { direction = JSON.parse(n.spec_json ?? '{}')?.identity?.direction ?? '—' } catch { /* keep — */ }
     return {
-      node: n, run, direction: directionOf(n),
-      testingStatus: run ? 'TESTED' : (runs.some((r) => r.node_id === n.id && r.status === 'FAILED') ? 'FAILED' : 'UNTESTED'),
+      node: n, run, direction, status: testingStatus(run),
       total_trades: m?.total_trades, win_rate: m?.win_rate, net_profit: m?.net_profit,
       profit_factor: m?.profit_factor, expectancy: m?.expectancy,
       max_drawdown_amount: m?.max_drawdown_amount, max_drawdown_pct: m?.max_drawdown_pct,
       recovery_factor: m?.recovery_factor, max_consecutive_losses: m?.max_consecutive_losses,
       winning_trades: m?.winning_trades, losing_trades: m?.losing_trades,
-      last_tested: run?.finished_at, scenarioCount: runs.filter((r) => r.node_id === n.id && r.scenario_id).length,
+      last_tested: run?.finished_at,
+      scenarioCount: runs.filter((r) => r.node_id === n.id && r.scenario_id).length,
     }
   }), [nodes, latestByNode, runs])
 
@@ -166,8 +199,8 @@ export function DeepTesting() {
     if (fOrigin && n.origin !== fOrigin) return false
     if (fTf && n.timeframe !== fTf) return false
     if (fDir && r.direction !== fDir) return false
-    if (fTesting === 'tested' && r.testingStatus !== 'TESTED') return false
-    if (fTesting === 'untested' && r.testingStatus === 'TESTED') return false
+    if (fTesting === 'tested' && !['TESTED', 'PARTIAL TESTED'].includes(r.status)) return false
+    if (fTesting === 'untested' && r.status !== 'UNTESTED') return false
     return true
   }), [rows, fSearch, fStarred, fOrigin, fTf, fDir, fTesting])
 
@@ -190,33 +223,38 @@ export function DeepTesting() {
     [filteredRows, nodeSort])
   const pageRows = sortedRows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
 
-  const moneyRisk = riskMode === 'percent' ? (capital * riskValue) / 100 : riskValue
-
-  const offsetSource = (nodeId: number, kind: 'tp' | 'sl'): string => {
-    const v = nodeOffsets[nodeId]?.[kind]
-    if (v !== undefined && v !== '') return 'Individual node'
-    if ((kind === 'tp' ? globalTp : globalSl) !== 0) return 'Global DeepTesting'
+  const pair = (o: Offsets, kind: 'sl' | 'tp') => {
+    const plus = kind === 'sl' ? o.slPlus : o.tpPlus
+    const minus = kind === 'sl' ? o.slMinus : o.tpMinus
+    return { plus, minus, set: plus !== '' || minus !== '' }
+  }
+  const offsetSource = (nodeId: number, kind: 'sl' | 'tp'): string => {
+    if (pair(nodeOffsets[nodeId] ?? EMPTY_OFF, kind).set) return 'Individual node'
+    if (pair(globalOff, kind).set) return 'Global DeepTesting'
     return 'Strategy'
   }
 
-  const buildConfig = (extra: Record<string, unknown> = {}) => ({
-    mode,
-    range: {
-      start: range.start ? Math.floor(new Date(range.start).getTime() / 1000) : undefined,
-      end: range.end ? Math.floor(new Date(range.end).getTime() / 1000) : undefined,
-    },
-    initial_capital: capital, account_currency: currency,
-    risk_mode: riskMode, risk_value: riskValue, risk_basis: riskBasis,
-    max_active_trades: maxActive,
-    spread_price: spread, slippage_price: slippage, commission_per_lot_round_turn: commission,
-    ambiguity_policy: ambiguity, sessions: sessions.length ? sessions : undefined,
-    global_tp_offset_pct: globalTp, global_sl_offset_pct: globalSl,
-    node_offsets: Object.fromEntries(Object.entries(nodeOffsets).map(([id, o]) => [id, {
-      tp: o.tp === '' ? null : Number(o.tp), sl: o.sl === '' ? null : Number(o.sl),
-    }])),
-    ...(tickValue ? { tick_value_account: Number(tickValue) } : {}),
-    ...extra,
-  })
+  const buildConfig = (extra: Record<string, unknown> = {}) => {
+    const end = Math.floor(Date.now() / 1000)
+    return {
+      mode: 'initial',
+      range: { start: end - duration * 86400, end },
+      initial_capital: capital, account_currency: currency,
+      risk_mode: riskMode, risk_value: riskValue, risk_basis: riskBasis,
+      max_active_trades: maxActive,
+      global_sl_plus_pips: globalOff.slPlus === '' ? null : Number(globalOff.slPlus),
+      global_sl_minus_pips: globalOff.slMinus === '' ? null : Number(globalOff.slMinus),
+      global_tp_plus_pips: globalOff.tpPlus === '' ? null : Number(globalOff.tpPlus),
+      global_tp_minus_pips: globalOff.tpMinus === '' ? null : Number(globalOff.tpMinus),
+      node_offsets: Object.fromEntries(Object.entries(nodeOffsets).map(([id, o]) => [id, {
+        sl_plus_pips: o.slPlus === '' ? null : Number(o.slPlus),
+        sl_minus_pips: o.slMinus === '' ? null : Number(o.slMinus),
+        tp_plus_pips: o.tpPlus === '' ? null : Number(o.tpPlus),
+        tp_minus_pips: o.tpMinus === '' ? null : Number(o.tpMinus),
+      }])),
+      ...extra,
+    }
+  }
 
   const runNodes = async (ids: number[], extra: Record<string, unknown> = {}) => {
     if (!ids.length) { setNotice('Select at least one node first.'); return }
@@ -226,7 +264,7 @@ export function DeepTesting() {
       const failed = res.runs.filter((r) => r.status === 'FAILED')
       setNotice(failed.length
         ? failed.map((f) => `node ${f.node_id}: ${f.error}`).join(' · ')
-        : `Completed ${res.runs.length} run(s). The table now shows the persisted results.`)
+        : `Completed ${res.runs.length} run(s) using the last ${duration} days (partial where history is shorter).`)
       await refreshRuns()
       if (inspectId && ids.includes(inspectId)) await openNodeRun(inspectId)
     } catch (e) { setNotice(String(e)) } finally { setBusy(false) }
@@ -235,97 +273,187 @@ export function DeepTesting() {
   const openNodeRun = async (nodeId: number, runId?: number) => {
     setInspectId(nodeId)
     const target = runId ?? latestByNode.get(nodeId)?.id
-    if (!target) { setActiveRun(null); setTrades([]); setSuggestions([]); return }
+    if (!target) { setActiveRun(null); setTrades([]); return }
     const run = await api.deeptesting.getRun(instrument, target)
     setActiveRun(run)
     const t = await api.deeptesting.trades(instrument, target)
     setTrades(t.trades ?? [])
-    const s = await api.deeptesting.suggestions(instrument, target).catch(() => ({ suggestions: [] }))
-    setSuggestions(s.suggestions ?? [])
   }
 
   const toggleStar = async (n: any) => {
     const next = !n.starred
     setNodes(nodes.map((x) => (x.id === n.id ? { ...x, starred: next } : x)))
-    try { await api.nodes.setStarred(instrument, n.id, next) } catch { /* keep optimistic state visible */ }
+    try { await api.nodes.setStarred(instrument, n.id, next) } catch { /* optimistic state stays visible */ }
   }
 
-  /* ---- inspection derivations ---- */
-  const visibleTrades = useMemo(() => {
-    const checks = trades.map((t) => {
-      const parts: boolean[] = []
-      if (tf.outcome) parts.push(t.result === tf.outcome)
-      if (tf.session) parts.push(t.session === tf.session)
-      if (tf.side) parts.push(t.side === tf.side)
-      if (tf.exitReason) parts.push(String(t.exit_reason).startsWith(tf.exitReason))
-      if (tf.weekday !== '') parts.push(new Date(t.entry_ts * 1000).getUTCDay() === (Number(tf.weekday) + 1) % 7)
-      if (tf.day) parts.push(dayOf(t.entry_ts) === tf.day)
-      if (tf.minPnl !== '') parts.push(t.net_pnl >= Number(tf.minPnl))
-      if (tf.maxPnl !== '') parts.push(t.net_pnl <= Number(tf.maxPnl))
-      if (tf.trailing === 'yes') parts.push((t.stop_history?.length ?? 0) > 0)
-      if (tf.trailing === 'no') parts.push(!(t.stop_history?.length ?? 0))
-      if (!parts.length) return true
-      return tf.logic === 'AND' ? parts.every(Boolean) : parts.some(Boolean)
+  /* ---- weekday/session engine over REAL trades ---- */
+  const cellKey = (t: any) => {
+    const wd = WEEKDAYS[new Date(t.entry_ts * 1000).getUTCDay() - 1]
+    return wd ? `${wd}|${sessionCell(t.entry_ts)}` : null
+  }
+  const isFilteredActive = useMemo(() =>
+    Object.values(daySel).some((v) => !v) || Object.values(cellSel).some((v) => !v),
+    [daySel, cellSel])
+  const filteredTrades = useMemo(() => {
+    if (!isFilteredActive) return trades
+    return trades.filter((t) => {
+      const wd = WEEKDAYS[new Date(t.entry_ts * 1000).getUTCDay() - 1]
+      if (!wd || !daySel[wd]) return false
+      if (!cellSel[`${wd}|${sessionCell(t.entry_ts)}`]) return false
+      return true
     })
-    return trades.filter((_, i) => checks[i])
-  }, [trades, tf])
+  }, [trades, daySel, cellSel, isFilteredActive])
+
+  const cellStats = (list: any[]) => {
+    const wins = list.filter((t) => t.net_pnl > 1e-9)
+    const losses = list.filter((t) => t.net_pnl < -1e-9)
+    const gp = wins.reduce((a, t) => a + t.net_pnl, 0)
+    const gl = losses.reduce((a, t) => a + t.net_pnl, 0)
+    return { trades: list.length, wins: wins.length, losses: losses.length,
+             be: list.length - wins.length - losses.length,
+             winRate: list.length ? wins.length / list.length : null,
+             gp, gl, net: gp + gl, pf: gl < 0 ? gp / Math.abs(gl) : null }
+  }
 
   const filteredStats = useMemo(() => {
-    const g = visibleTrades
+    const g = [...filteredTrades].sort((a, b) => a.exit_ts - b.exit_ts)
+    const base = cellStats(g)
     const wins = g.filter((t) => t.net_pnl > 1e-9), losses = g.filter((t) => t.net_pnl < -1e-9)
-    const gp = wins.reduce((a, t) => a + t.net_pnl, 0), gl = losses.reduce((a, t) => a + t.net_pnl, 0)
-    let run = 0, maxConsLoss = 0
-    for (const t of [...g].sort((a, b) => a.exit_ts - b.exit_ts)) { run = t.net_pnl < -1e-9 ? run + 1 : 0; maxConsLoss = Math.max(maxConsLoss, run) }
-    return { trades: g.length, wins: wins.length, losses: losses.length, net: gp + gl,
-             winRate: g.length ? wins.length / g.length : null,
-             pf: gl < 0 ? gp / Math.abs(gl) : null, expectancy: g.length ? (gp + gl) / g.length : null,
-             maxConsLoss }
-  }, [visibleTrades])
+    let cum = 0, peak = 0, maxDd = 0, curW = 0, curL = 0, maxW = 0, maxL = 0
+    const streaks: number[] = []
+    for (const t of g) {
+      cum += t.net_pnl; peak = Math.max(peak, cum); maxDd = Math.max(maxDd, peak - cum)
+      if (t.net_pnl > 1e-9) { curW++; curL = 0 } else if (t.net_pnl < -1e-9) { curL++; curW = 0 }
+      maxW = Math.max(maxW, curW); maxL = Math.max(maxL, curL); streaks.push(maxL)
+    }
+    const ddMarks: number[] = []
+    cum = 0; peak = 0
+    for (const t of g) { cum += t.net_pnl; peak = Math.max(peak, cum); if (peak > cum) ddMarks.push(peak - cum) }
+    return { ...base,
+             avgWin: wins.length ? wins.reduce((a, t) => a + t.net_pnl, 0) / wins.length : null,
+             avgLoss: losses.length ? losses.reduce((a, t) => a + t.net_pnl, 0) / losses.length : null,
+             expectancy: g.length ? base.net / g.length : null,
+             largestWin: wins.length ? Math.max(...wins.map((t) => t.net_pnl)) : null,
+             largestLoss: losses.length ? Math.min(...losses.map((t) => t.net_pnl)) : null,
+             avgHolding: g.length ? g.reduce((a, t) => a + t.holding_seconds, 0) / g.length : null,
+             maxDd, maxDdPct: (capital + peak) > 0 ? (maxDd / (capital + peak)) * 100 : null,
+             avgDd: ddMarks.length ? ddMarks.reduce((a, b) => a + b, 0) / ddMarks.length : 0,
+             currentDd: peak - cum, maxW, maxL, curW, curL,
+             balance: capital + base.net }
+  }, [filteredTrades, capital])
 
-  const tradeColumns: SortColumn<any>[] = [
-    { key: 'id', label: 'ID', type: 'natural', get: (t) => t.entry_ts },
-    { key: 'entry_ts', label: 'Entry', type: 'date', get: (t) => t.entry_ts },
-    { key: 'net_pnl', label: 'Net P/L', type: 'number', get: (t) => t.net_pnl },
-    { key: 'volume', label: 'Size', type: 'number', get: (t) => t.volume },
-    { key: 'holding_seconds', label: 'Holding', type: 'number', get: (t) => t.holding_seconds },
-  ]
-  const sortedTrades = useMemo(() => applySort(visibleTrades, tradeSort, tradeColumns),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [visibleTrades, tradeSort])
-
-  const dailyColumns: SortColumn<any>[] = [
-    { key: 'date', label: 'Date', type: 'date', get: (d) => d.date },
-    { key: 'net_pnl', label: 'Net P/L', type: 'number', get: (d) => d.net_pnl },
-    { key: 'trades', label: 'Trades', type: 'number', get: (d) => d.trades },
-    { key: 'win_rate', label: 'Win rate', type: 'number', get: (d) => d.win_rate },
-    { key: 'max_drawdown_amount', label: 'Max DD', type: 'absNumber', get: (d) => d.max_drawdown_amount },
-  ]
   const m = activeRun?.metrics
+  const stats = isFilteredActive ? {
+    total_trades: filteredStats.trades, winning_trades: filteredStats.wins,
+    losing_trades: filteredStats.losses, breakeven_trades: filteredStats.be,
+    win_rate: filteredStats.winRate, gross_profit: filteredStats.gp, gross_loss: filteredStats.gl,
+    net_profit: filteredStats.net, profit_factor: filteredStats.pf,
+    avg_win: filteredStats.avgWin, avg_loss: filteredStats.avgLoss,
+    expectancy: filteredStats.expectancy, largest_win: filteredStats.largestWin,
+    largest_loss: filteredStats.largestLoss, avg_holding_seconds: filteredStats.avgHolding,
+    initial_capital: capital, final_balance: filteredStats.balance,
+    final_equity: filteredStats.balance, return_pct: (filteredStats.net / capital) * 100,
+    max_drawdown_amount: filteredStats.maxDd, max_drawdown_pct: filteredStats.maxDdPct,
+    avg_drawdown_amount: filteredStats.avgDd, current_drawdown_amount: filteredStats.currentDd,
+    max_consecutive_wins: filteredStats.maxW, max_consecutive_losses: filteredStats.maxL,
+    current_streak: filteredStats.curW ? `W × ${filteredStats.curW}` : filteredStats.curL ? `L × ${filteredStats.curL}` : '—',
+    max_simultaneous: 'N/A (filter view)', max_planned_open_risk: 'N/A (filter view)',
+  } : m ? {
+    total_trades: m.total_trades, winning_trades: m.winning_trades, losing_trades: m.losing_trades,
+    breakeven_trades: m.breakeven_trades, win_rate: m.win_rate, gross_profit: m.gross_profit,
+    gross_loss: m.gross_loss, net_profit: m.net_profit, profit_factor: m.profit_factor,
+    avg_win: m.avg_win, avg_loss: m.avg_loss, expectancy: m.expectancy,
+    largest_win: m.largest_win, largest_loss: m.largest_loss,
+    avg_holding_seconds: m.avg_holding_seconds, initial_capital: m.initial_capital,
+    final_balance: m.final_balance, final_equity: m.final_equity,
+    return_pct: m.return_on_initial_capital_pct,
+    max_drawdown_amount: m.max_drawdown_amount, max_drawdown_pct: m.max_drawdown_pct,
+    avg_drawdown_amount: m.avg_drawdown_amount, current_drawdown_amount: m.current_drawdown_amount,
+    max_consecutive_wins: m.max_consecutive_wins, max_consecutive_losses: m.max_consecutive_losses,
+    current_streak: m.current_streak ? `${m.current_streak.kind} × ${m.current_streak.count}` : '—',
+    max_simultaneous: m.max_simultaneous_positions, max_planned_open_risk: m.max_planned_open_risk,
+  } : null
+
+  const equityPoints = useMemo(() => {
+    if (isFilteredActive) {
+      const sorted = [...filteredTrades].sort((a, b) => a.exit_ts - b.exit_ts)
+      let cum = capital
+      const pts = [{ x: sorted[0]?.entry_ts ?? 0, y: capital, title: `start · equity ${fmt(capital, 0)}` }]
+      for (const t of sorted) {
+        cum += t.net_pnl
+        pts.push({ x: t.exit_ts, y: cum, title: `${tsFmt(t.exit_ts)} · equity ${fmt(cum)} · trade ${fmt(t.net_pnl)}` })
+      }
+      return pts
+    }
+    return (activeRun?.equity_curve ?? []).map((e: any) => ({
+      x: e.ts, y: e.equity,
+      title: `${tsFmt(e.ts)} · equity ${fmt(e.equity)} · balance ${fmt(e.balance)} · open ${e.open_positions}`,
+    }))
+  }, [activeRun, filteredTrades, isFilteredActive, capital])
+
+  const dayCheckboxRefs = useRef<Record<string, HTMLInputElement | null>>({})
+  useEffect(() => {
+    for (const d of WEEKDAYS) {
+      const el = dayCheckboxRefs.current[d]
+      if (!el) continue
+      const kids = SESSION_ROWS.slice(1).map((s) => cellSel[`${d}|${s}`])
+      el.indeterminate = kids.some(Boolean) && !kids.every(Boolean)
+    }
+  }, [cellSel])
+
   const inspectNode = nodes.find((n) => n.id === inspectId)
   const nodeScenarios = scenarios.filter((sc) => (sc.config?.node_ids ?? []).includes(inspectId))
-  const rollingWinRate = useMemo(() => {
-    const sorted = [...trades].sort((a, b) => a.exit_ts - b.exit_ts)
-    return sorted.map((_, i) => {
-      const w = sorted.slice(Math.max(0, i - 9), i + 1)
-      return { x: i + 1, y: (w.filter((t) => t.net_pnl > 0).length / w.length) * 100 }
-    })
-  }, [trades])
 
-  const resetFilters = () => setTf({ logic: 'AND', outcome: '', session: '', weekday: '', exitReason: '', side: '', minPnl: '', maxPnl: '', day: '', trailing: '' })
+  const saveScenario = async () => {
+    if (!scName || inspectId === null) return
+    const config = buildConfig({
+      node_ids: [inspectId],
+      description: scDesc,
+      day_selections: daySel, session_selections: cellSel,
+      source_run_id: activeRun?.id ?? null,
+      node_version: inspectNode?.version ?? null,
+      fingerprint: activeRun?.fingerprint ?? null,
+      requested_range: activeRun?.metrics?.requested_range ?? null,
+      actual_range: activeRun?.metrics?.actual_range ?? null,
+      coverage_status: activeRun?.metrics?.coverage_status ?? null,
+      data_quality: activeRun?.data_quality ?? null,
+      assumptions: activeRun?.assumptions ?? null,
+      filtered_metrics: { trades: filteredStats.trades, net: filteredStats.net,
+                          win_rate: filteredStats.winRate, profit_factor: filteredStats.pf },
+    })
+    await api.deeptesting.createScenario(instrument, { name: scName, folder: `node-${inspectId}`, config })
+    setModal(false); setScName(''); setScDesc('')
+    api.deeptesting.listScenarios(instrument).then((r) => setScenarios(r.scenarios ?? []))
+    setNotice('Scenario saved with a persistent ID — retrievable by future Live Testing via the scenario handoff reference.')
+  }
+
+  const openScenario = async (sc: any) => {
+    if (sc.config?.day_selections) setDaySel(sc.config.day_selections)
+    if (sc.config?.session_selections) setCellSel(sc.config.session_selections)
+    if (sc.config?.source_run_id) await openNodeRun(inspectId!, sc.config.source_run_id)
+    setNotice(`Scenario "${sc.name}" loaded — checkbox states restored exactly as saved (scenario #${sc.id}, deeptesting-scenario/v1).`)
+  }
+
+  const moneyRisk = riskMode === 'percent' ? (capital * riskValue) / 100 : riskValue
+  const offInput = (label: string, value: string, onChange: (v: string) => void, aria: string) => (
+    <label className="mini-field">{label}
+      <span className="dt-off"><input className="input input-xs num" style={{ width: 72 }} type="number" step="any"
+        value={value} aria-label={aria} onChange={(e) => onChange(e.target.value)} /> pips</span></label>
+  )
 
   return (
     <div className="deeptesting-page">
       <h2>DeepTesting</h2>
       {notice && <div className="json-invalid-banner" role="status">{notice}</div>}
 
-      {/* ================= AREA 1: HARD CONSTRAINTS ================= */}
+      {/* ================= 1. HARD CONSTRAINTS ================= */}
       <section className="builder-section" aria-labelledby="dt-constraints">
-        <h4 id="dt-constraints"><span className="section-num">1</span> Hard Constraints — Capital, Risk, Maximum Active Trades &amp; Global Offsets</h4>
+        <h4 id="dt-constraints"><span className="section-num">1</span> Hard Constraints</h4>
         <div className="exits-grid">
           <fieldset className="exit-block">
             <legend>Initial capital</legend>
             <div className="segmented mini" role="group" aria-label="Capital presets">
-              {[1000, 5000, 10000, 25000].map((v) => (
+              {[1000, 5000, 10000, 25000, 200000].map((v) => (
                 <button key={v} type="button" className={capital === v ? 'active' : ''} onClick={() => setCapital(v)}>${v.toLocaleString()}</button>
               ))}
             </div>
@@ -353,7 +481,7 @@ export function DeepTesting() {
                   <option value="initial_capital">Initial capital</option>
                 </select></label>
             )}
-            <p className="faint">Money at risk: <strong>{currency} {fmt(moneyRisk)}</strong> per trade. Sizes round down; insufficient budget refuses the trade.</p>
+            <p className="faint">Money at risk: <strong>{currency} {fmt(moneyRisk)}</strong>. Defaults 200,000 / 1% / 1 apply to new configurations; your saved values are kept.</p>
           </fieldset>
 
           <fieldset className="exit-block">
@@ -361,63 +489,32 @@ export function DeepTesting() {
             <label className="mini-field">Simultaneous positions per node/scenario
               <input className="input input-xs num" type="number" min={1} max={50} value={maxActive} aria-label="Max active trades"
                      onChange={(e) => setMaxActive(Math.max(1, Math.floor(Number(e.target.value) || 1)))} /></label>
-            <p className="faint">Default 1 — next trade only after the previous fully closes. Independent per node/scenario.</p>
+            <p className="faint">Default 1 — enforced by the backend engine per node/scenario.</p>
           </fieldset>
 
           <fieldset className="exit-block">
-            <legend>Global TP / SL offsets <span className="faint">(apply only when the node row has no individual value; never replace strategy logic or trailing)</span></legend>
-            <label className="mini-field">Global TP offset %
-              <input className="input input-xs num" type="number" step="any" value={globalTp} aria-label="Global TP offset"
-                     onChange={(e) => setGlobalTp(Number(e.target.value))} /></label>
-            <label className="mini-field">Global SL offset %
-              <input className="input input-xs num" type="number" step="any" value={globalSl} aria-label="Global SL offset"
-                     onChange={(e) => setGlobalSl(Number(e.target.value))} /></label>
-            <p className="faint micro">Precedence: Strategy TP/SL &amp; management &gt; individual node offset &gt; global offset. Effective values + source are stored on every run.</p>
-          </fieldset>
-
-          <fieldset className="exit-block">
-            <legend>Test configuration</legend>
-            <label className="mini-field">Mode
-              <select className="input input-xs" value={mode} onChange={(e) => setMode(e.target.value)} aria-label="Testing mode">
-                {MODES.map((mo) => <option key={mo.v} value={mo.v}>{mo.label}</option>)}
-              </select></label>
-            <label className="mini-field">Start (UTC)
-              <input className="input input-xs" type="datetime-local" value={range.start} aria-label="Start date"
-                     onChange={(e) => setRange({ ...range, start: e.target.value })} /></label>
-            <label className="mini-field">End (UTC)
-              <input className="input input-xs" type="datetime-local" value={range.end} aria-label="End date"
-                     onChange={(e) => setRange({ ...range, end: e.target.value })} /></label>
-            <div>{[30, 90, 365].map((d) => (
-              <button key={d} type="button" className="btn btn-ghost btn-xs"
-                      onClick={() => { const end = new Date(); const start = new Date(end.getTime() - d * 86400000); setRange({ start: start.toISOString().slice(0, 16), end: end.toISOString().slice(0, 16) }) }}>{d}d</button>
-            ))}</div>
-            <label className="mini-field">Spread (price)
-              <input className="input input-xs num" type="number" min={0} step="any" value={spread} onChange={(e) => setSpread(Number(e.target.value))} /></label>
-            <label className="mini-field">Slippage (price)
-              <input className="input input-xs num" type="number" min={0} step="any" value={slippage} onChange={(e) => setSlippage(Number(e.target.value))} /></label>
-            <label className="mini-field">Commission / lot
-              <input className="input input-xs num" type="number" min={0} step="any" value={commission} onChange={(e) => setCommission(Number(e.target.value))} /></label>
-            <label className="mini-field">Tick value override
-              <input className="input input-xs num" type="number" min={0} step="any" value={tickValue} placeholder="broker metadata"
-                     onChange={(e) => setTickValue(e.target.value)} /></label>
-            <label className="mini-field">Same-candle SL/TP
-              <select className="input input-xs" value={ambiguity} onChange={(e) => setAmbiguity(e.target.value)}>
-                <option value="sl_first">SL first (conservative, flagged)</option>
-                <option value="tp_first">TP first (flagged)</option>
-              </select></label>
-            <div className="mini-field">Sessions (entry filter, UTC)
-              <div>{SESSIONS.map((s) => (
-                <label key={s} className="check small"><input type="checkbox" checked={sessions.includes(s)}
-                  onChange={(e) => setSessions(e.target.checked ? [...sessions, s] : sessions.filter((x) => x !== s))} /> {s}</label>
-              ))}</div></div>
+            <legend>Global TP / SL offsets <span className="faint">(pips · individual node values override · strategy logic never replaced)</span></legend>
+            {offInput('SL + (Away from Entry)', globalOff.slPlus, (v) => setGlobalOff({ ...globalOff, slPlus: v }), 'Global SL plus offset')}
+            {offInput('SL − (Closer to Entry)', globalOff.slMinus, (v) => setGlobalOff({ ...globalOff, slMinus: v }), 'Global SL minus offset')}
+            {offInput('TP + (Away from Entry)', globalOff.tpPlus, (v) => setGlobalOff({ ...globalOff, tpPlus: v }), 'Global TP plus offset')}
+            {offInput('TP − (Closer to Entry)', globalOff.tpMinus, (v) => setGlobalOff({ ...globalOff, tpMinus: v }), 'Global TP minus offset')}
           </fieldset>
         </div>
       </section>
 
-      {/* ================= AREA 2: MAIN NODE TABLE ================= */}
+      {/* ================= 2. RANGE BUTTONS ================= */}
+      <div className="dt-range-row" role="group" aria-label="Testing range">
+        <span className="faint">Testing range (ends at the latest available candle per node):</span>
+        {DURATIONS.map((d) => (
+          <button key={d.label} type="button" aria-pressed={duration === d.days}
+                  className={`btn btn-xs ${duration === d.days ? 'btn-primary' : 'btn-ghost'}`}
+                  onClick={() => setDuration(d.days)}>{d.label}</button>
+        ))}
+      </div>
+
+      {/* ================= 3. MAIN NODE TABLE ================= */}
       <section className="builder-section" aria-labelledby="dt-nodes">
-        <h4 id="dt-nodes"><span className="section-num">2</span> Nodes <span className="faint">({filteredRows.length} filtered · {selected.size} selected · each node runs independently on its own instrument/timeframe)</span></h4>
-        <BatchScope />
+        <h4 id="dt-nodes"><span className="section-num">2</span> Nodes <span className="faint">({filteredRows.length} filtered · {selected.size} selected · own instrument/timeframe per node)</span></h4>
         <div className="dt-toolbar">
           <input className="input input-sm" placeholder="Search name or ID…" value={fSearch} aria-label="Search nodes"
                  onChange={(e) => { setFSearch(e.target.value); setPage(0) }} />
@@ -446,19 +543,20 @@ export function DeepTesting() {
         </div>
 
         <div className="dt-table-scroll">
-          <table className="node-table">
+          <table className="node-table dt-node-table">
             <thead><tr>
               <th>★</th><th>✓</th>
               {nodeColumns.slice(0, 2).map((c) => <SortTh key={c.key} col={c} sort={nodeSort} setSort={setNodeSort} />)}
-              <th>Type</th><th>Instrument</th><th>TF</th><th>Dir</th><th>Testing</th>
-              <th>TP offset % (source)</th><th>SL offset % (source)</th>
+              <th>Type</th><th>Instrument</th><th>TF</th><th>Dir</th><th>Status</th>
+              <th>SL + pips</th><th>SL − pips</th><th>TP + pips</th><th>TP − pips</th><th>Offset source</th>
               {nodeColumns.slice(2).map((c) => <SortTh key={c.key} col={c} sort={nodeSort} setSort={setNodeSort} />)}
               <th>Win/Loss</th><th>Scenarios</th><th></th>
             </tr></thead>
             <tbody>
               {pageRows.map((r) => {
                 const n = r.node
-                const off = nodeOffsets[n.id] ?? { tp: '', sl: '' }
+                const off = nodeOffsets[n.id] ?? EMPTY_OFF
+                const setOff = (patch: Partial<Offsets>) => setNodeOffsets({ ...nodeOffsets, [n.id]: { ...off, ...patch } })
                 return (
                   <tr key={n.id} className={inspectId === n.id ? 'row-active' : ''}>
                     <td><button type="button" className="btn btn-ghost btn-xs" aria-label={`${n.starred ? 'Unstar' : 'Star'} node ${n.id}`}
@@ -466,19 +564,13 @@ export function DeepTesting() {
                     <td><input type="checkbox" aria-label={`Select node ${n.id}`} checked={selected.has(n.id)}
                                onChange={(e) => { const nx = new Set(selected); if (e.target.checked) nx.add(n.id); else nx.delete(n.id); setSelected(nx) }} /></td>
                     <td>{n.id}</td><td>{n.name}</td><td>{n.origin}</td><td>{instrument}</td><td>{n.timeframe ?? '—'}</td>
-                    <td>{r.direction}</td><td>{r.testingStatus}</td>
-                    <td>
-                      <input className="input input-xs num" style={{ width: 64 }} type="number" step="any" placeholder="global"
-                             aria-label={`TP offset node ${n.id}`} value={off.tp}
-                             onChange={(e) => setNodeOffsets({ ...nodeOffsets, [n.id]: { ...off, tp: e.target.value } })} />
-                      <span className="faint micro"> {offsetSource(n.id, 'tp')}</span>
-                    </td>
-                    <td>
-                      <input className="input input-xs num" style={{ width: 64 }} type="number" step="any" placeholder="global"
-                             aria-label={`SL offset node ${n.id}`} value={off.sl}
-                             onChange={(e) => setNodeOffsets({ ...nodeOffsets, [n.id]: { ...off, sl: e.target.value } })} />
-                      <span className="faint micro"> {offsetSource(n.id, 'sl')}</span>
-                    </td>
+                    <td>{r.direction}</td>
+                    <td><span className={`chip chip-${r.status.replace(' ', '-').toLowerCase()}`}>{r.status}</span></td>
+                    <td><input className="input input-xs num dt-off-in" type="number" step="any" aria-label={`SL plus node ${n.id}`} value={off.slPlus} onChange={(e) => setOff({ slPlus: e.target.value })} /></td>
+                    <td><input className="input input-xs num dt-off-in" type="number" step="any" aria-label={`SL minus node ${n.id}`} value={off.slMinus} onChange={(e) => setOff({ slMinus: e.target.value })} /></td>
+                    <td><input className="input input-xs num dt-off-in" type="number" step="any" aria-label={`TP plus node ${n.id}`} value={off.tpPlus} onChange={(e) => setOff({ tpPlus: e.target.value })} /></td>
+                    <td><input className="input input-xs num dt-off-in" type="number" step="any" aria-label={`TP minus node ${n.id}`} value={off.tpMinus} onChange={(e) => setOff({ tpMinus: e.target.value })} /></td>
+                    <td className="faint micro">SL: {offsetSource(n.id, 'sl')}<br />TP: {offsetSource(n.id, 'tp')}</td>
                     <td>{fmt(r.total_trades, 0)}</td><td>{r.win_rate != null ? `${fmt(r.win_rate * 100, 1)}%` : 'N/A'}</td>
                     <td>{fmt(r.net_profit)}</td><td>{fmt(r.profit_factor, 3)}</td><td>{fmt(r.expectancy)}</td>
                     <td>{fmt(r.max_drawdown_amount)}</td><td>{fmt(r.max_drawdown_pct)}</td>
@@ -490,7 +582,7 @@ export function DeepTesting() {
                   </tr>
                 )
               })}
-              {pageRows.length === 0 && <tr><td colSpan={22} className="faint">No nodes match the active filters.</td></tr>}
+              {pageRows.length === 0 && <tr><td colSpan={26} className="faint">No nodes match the active filters.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -501,234 +593,153 @@ export function DeepTesting() {
         </div>
       </section>
 
-      {/* ================= AREA 3: SELECTED NODE INSPECTION ================= */}
+      {/* ================= 4. INSPECTION ================= */}
       {inspectId !== null && (
         <section className="builder-section" aria-labelledby="dt-inspect">
           <h4 id="dt-inspect"><span className="section-num">3</span> Inspection — {inspectNode?.name ?? 'node'} <span className="faint">#{inspectId} · {instrument} {inspectNode?.timeframe ?? ''} v{inspectNode?.version}</span>
             <button type="button" className="btn btn-ghost btn-xs" onClick={() => setInspectId(null)}>✕ Close</button></h4>
 
-          {!activeRun && <p className="faint">No completed DeepTesting run for this node yet. Run it from the table above — statistics appear here from the persisted result.</p>}
+          {!activeRun && <p className="faint">No DeepTesting run for this node yet. Select a range above and run it — statistics, day/session filters and the equity curve appear here from the persisted result.</p>}
 
-          {activeRun && m && (
+          {activeRun && stats && (
             <>
-              <p className="faint">Run #{activeRun.id} · {activeRun.mode}{activeRun.window_label ? ` · ${activeRun.window_label}` : ''} · fingerprint {String(activeRun.fingerprint ?? '').slice(0, 12)}… · compiler {activeRun.compiler_version} · engine {activeRun.engine_version} · readiness {activeRun.data_quality?.readiness}
-                · effective offsets TP {activeRun.assumptions?.effective_offsets?.tp?.offset_pct ?? 0}% ({activeRun.assumptions?.effective_offsets?.tp?.source ?? 'strategy'}) / SL {activeRun.assumptions?.effective_offsets?.sl?.offset_pct ?? 0}% ({activeRun.assumptions?.effective_offsets?.sl?.source ?? 'strategy'})
+              <p className="faint">
+                Run #{activeRun.id} · <strong>{testingStatus(activeRun)}</strong>
+                · requested {tsFmt(activeRun.metrics?.requested_range?.start)} → {tsFmt(activeRun.metrics?.requested_range?.end)}
+                · actual {tsFmt(activeRun.metrics?.actual_range?.start)} → {tsFmt(activeRun.metrics?.actual_range?.end)}
+                · candles tested {fmt(activeRun.metrics?.candles_tested, 0)}
+                · readiness {activeRun.data_quality?.readiness}
+                {(activeRun.data_quality?.warnings ?? []).length > 0 && <> · warnings: {(activeRun.data_quality?.warnings ?? []).join('; ')}</>}
+                · effective offsets SL {activeRun.assumptions?.effective_offsets?.sl?.offset_pips ?? 0} pips ({activeRun.assumptions?.effective_offsets?.sl?.source ?? 'strategy'}) / TP {activeRun.assumptions?.effective_offsets?.tp?.offset_pips ?? 0} pips ({activeRun.assumptions?.effective_offsets?.tp?.source ?? 'strategy'})
                 {(activeRun.assumptions?.effective_offsets?.warnings ?? []).map((w: string) => <span key={w} className="field-error"> {w}</span>)}
-                <button type="button" className="btn btn-ghost btn-xs" onClick={async () => { await api.deeptesting.rerun(instrument, activeRun.id); await refreshRuns(); openNodeRun(inspectId) }}>Rerun</button>
+                {isFilteredActive
+                  ? <span className="chip chip-partial-tested"> FILTERED VIEW — statistics below are recalculated from the {filteredTrades.length} matching trades; the original run is untouched</span>
+                  : <span className="chip"> ORIGINAL full DeepTesting result</span>}
               </p>
 
-              {/* detailed statistics — ONE compact table */}
-              <table className="node-table" aria-label="Detailed statistics">
+              {/* complete statistics — ONE compact table, stats first */}
+              <table className="node-table" aria-label="Complete statistics">
                 <tbody>
-                  <tr><th colSpan={4}>Trading performance</th></tr>
-                  <tr><td>Total trades</td><td>{m.total_trades}</td><td>Win / Loss / BE</td><td>{m.winning_trades} / {m.losing_trades} / {m.breakeven_trades}</td></tr>
-                  <tr><td>Win rate</td><td>{m.win_rate != null ? `${fmt(m.win_rate * 100, 1)}%` : 'N/A'}</td><td>Gross profit / loss</td><td>{fmt(m.gross_profit)} / {fmt(m.gross_loss)}</td></tr>
-                  <tr><td>Net profit</td><td>{fmt(m.net_profit)}</td><td>Profit factor</td><td>{fmt(m.profit_factor, 3)}</td></tr>
-                  <tr><td>Avg win / loss</td><td>{fmt(m.avg_win)} / {fmt(m.avg_loss)}</td><td>Expectancy</td><td>{fmt(m.expectancy)}</td></tr>
-                  <tr><td>Largest win / loss</td><td>{fmt(m.largest_win)} / {fmt(m.largest_loss)}</td><td>Avg / max holding</td><td>{fmt((m.avg_holding_seconds ?? 0) / 3600, 1)}h / {fmt((m.max_holding_seconds ?? 0) / 3600, 1)}h</td></tr>
-                  <tr><th colSpan={4}>Account performance</th></tr>
-                  <tr><td>Initial capital</td><td>{fmt(m.initial_capital, 0)} {activeRun.config?.account_currency}</td><td>Balance / Equity</td><td>{fmt(m.final_balance)} / {fmt(m.final_equity)}</td></tr>
-                  <tr><td>Total return</td><td>{fmt(m.net_profit)} ({fmt(m.return_on_initial_capital_pct)}%)</td><td>Unrealized at end</td><td>{fmt(m.unrealized_at_end)}</td></tr>
-                  <tr><td>Avg position size</td><td>{fmt(m.avg_volume, 3)} lots</td><td>Planned open risk (max)</td><td>{fmt(m.max_planned_open_risk)}</td></tr>
-                  <tr><th colSpan={4}>Risk performance</th></tr>
-                  <tr><td>Max drawdown</td><td>{fmt(m.max_drawdown_amount)} ({fmt(m.max_drawdown_pct)}%)</td><td>Average drawdown</td><td>{fmt(m.avg_drawdown_amount)}</td></tr>
-                  <tr><td>Current drawdown</td><td>{fmt(m.current_drawdown_amount)} ({fmt(m.current_drawdown_pct)}%)</td><td>Recovery factor</td><td>{fmt(m.recovery_factor, 3)}</td></tr>
-                  <tr><td>DD duration / recovery</td><td>{fmt(m.max_drawdown_duration_seconds / 86400, 1)}d / {fmt(m.max_recovery_seconds / 86400, 1)}d</td><td>Max simultaneous</td><td>{m.max_simultaneous_positions} (limit {activeRun.config?.max_active_trades})</td></tr>
-                  <tr><td>Sharpe / Sortino</td><td>{fmt(m.sharpe_ratio, 3)} / {fmt(m.sortino_ratio, 3)}</td><td>Method</td><td className="faint">{m.sharpe_method}</td></tr>
-                  <tr><th colSpan={4}>Streaks</th></tr>
-                  <tr><td>Max consec. W / L</td><td>{m.max_consecutive_wins} / {m.max_consecutive_losses}</td><td>Current streak</td><td>{m.current_streak ? `${m.current_streak.kind} × ${m.current_streak.count}` : '—'}</td></tr>
-                  <tr><td>Avg W / L streak</td><td>{fmt(m.streaks?.avg_winning_streak)} / {fmt(m.streaks?.avg_losing_streak)}</td><td>Long / Short net</td><td>{fmt(m.long_net)} / {fmt(m.short_net)}</td></tr>
+                  <tr><th colSpan={4}>Trading statistics {isFilteredActive ? '(filtered)' : ''}</th></tr>
+                  <tr><td>Total trades</td><td>{stats.total_trades}</td><td>Winning / Losing / Breakeven</td><td>{stats.winning_trades} / {stats.losing_trades} / {stats.breakeven_trades}</td></tr>
+                  <tr><td>Win rate / Loss rate</td><td>{stats.win_rate != null ? `${fmt(stats.win_rate * 100, 1)}%` : 'N/A'} / {stats.win_rate != null ? `${fmt((1 - stats.win_rate) * 100, 1)}%` : 'N/A'}</td><td>Gross profit / loss</td><td>{fmt(stats.gross_profit)} / {fmt(stats.gross_loss)}</td></tr>
+                  <tr><td>Net profit/loss</td><td>{fmt(stats.net_profit)}</td><td>Profit factor</td><td>{fmt(stats.profit_factor, 3)}</td></tr>
+                  <tr><td>Avg win / loss</td><td>{fmt(stats.avg_win)} / {fmt(stats.avg_loss)}</td><td>Expectancy</td><td>{fmt(stats.expectancy)}</td></tr>
+                  <tr><td>Largest win / loss</td><td>{fmt(stats.largest_win)} / {fmt(stats.largest_loss)}</td><td>Avg holding</td><td>{fmt((stats.avg_holding_seconds ?? 0) / 3600, 1)}h</td></tr>
+                  <tr><th colSpan={4}>Account statistics</th></tr>
+                  <tr><td>Initial capital</td><td>{fmt(stats.initial_capital, 0)} {currency}</td><td>Balance / Equity</td><td>{fmt(stats.final_balance)} / {fmt(stats.final_equity)}</td></tr>
+                  <tr><td>Total return</td><td>{fmt(stats.net_profit)} ({fmt(stats.return_pct)}%)</td><td>Unrealized P/L</td><td>{isFilteredActive ? 'N/A (filter view)' : fmt(m?.unrealized_at_end)}</td></tr>
+                  <tr><th colSpan={4}>Risk statistics</th></tr>
+                  <tr><td>Max drawdown</td><td>{fmt(stats.max_drawdown_amount)} ({fmt(stats.max_drawdown_pct)}%)</td><td>Average drawdown</td><td>{fmt(stats.avg_drawdown_amount)}</td></tr>
+                  <tr><td>Current drawdown</td><td>{fmt(stats.current_drawdown_amount)} ({fmt(m?.current_drawdown_pct)}%)</td><td>Recovery factor</td><td>{isFilteredActive ? 'N/A (filter view)' : fmt(m?.recovery_factor, 3)}</td></tr>
+                  <tr><td>DD duration</td><td>{isFilteredActive ? 'N/A (filter view)' : `${fmt((m?.max_drawdown_duration_seconds ?? 0) / 86400, 1)}d`}</td><td>Max simultaneous / planned open risk</td><td>{stats.max_simultaneous} / {fmt(stats.max_planned_open_risk)}</td></tr>
+                  <tr><th colSpan={4}>Streak statistics</th></tr>
+                  <tr><td>Max consec. W / L</td><td>{stats.max_consecutive_wins} / {stats.max_consecutive_losses}</td><td>Current streak</td><td>{stats.current_streak}</td></tr>
+                  <tr><td>Avg W / L streak</td><td>{isFilteredActive ? 'N/A (filter view)' : `${fmt(m?.streaks?.avg_winning_streak)} / ${fmt(m?.streaks?.avg_losing_streak)}`}</td><td>Long / Short net</td><td>{isFilteredActive ? 'N/A (filter view)' : `${fmt(m?.long_net)} / ${fmt(m?.short_net)}`}</td></tr>
                 </tbody>
               </table>
 
-              {/* charts */}
-              <div className="dt-charts">
-                <LineChart points={(activeRun.equity_curve ?? []).map((e: any) => ({ x: e.ts, y: e.equity }))} label="Equity curve" />
-                <LineChart points={(activeRun.equity_curve ?? []).map((e: any) => ({ x: e.ts, y: e.balance }))} label="Balance curve" color="#7ad67a" />
-                <LineChart points={(activeRun.equity_curve ?? []).reduce((acc: any[], e: any) => {
-                  const peak = Math.max(acc.length ? acc[acc.length - 1].peak : -Infinity, e.equity)
-                  acc.push({ x: e.ts, y: peak - e.equity, peak }); return acc
-                }, [])} label="Drawdown (currency)" color="#ff7a7a" />
-                <BarChart data={(m.daily ?? []).map((d: any) => ({ label: d.date.slice(5), value: d.net_pnl }))} label="Daily P/L" />
-                <BarChart data={(m.time_buckets?.by_month ?? []).map((b: any) => ({ label: b.bucket, value: b.net_pnl }))} label="Monthly P/L" />
-                <BarChart data={(m.time_buckets?.by_session ?? []).map((b: any) => ({ label: b.bucket, value: b.net_pnl }))} label="Session comparison (net P/L)" />
-                <LineChart points={rollingWinRate} label="Rolling win rate % (10-trade window)" color="#c792ea" />
-              </div>
-
-              {/* daily + session tables */}
-              <table className="node-table" aria-label="Daily performance">
-                <thead><tr>
-                  {dailyColumns.map((c) => <SortTh key={c.key} col={c} sort={dailySort} setSort={setDailySort} />)}
-                  <th>Weekday</th><th>Win/Loss/BE</th><th>Gross +/−</th><th>Consec. losses</th><th>Avg hold</th>
-                </tr></thead>
-                <tbody>
-                  {applySort(m.daily ?? [], dailySort, dailyColumns).map((d: any) => (
-                    <tr key={d.date} onClick={() => setTf({ ...tf, day: d.date })} title="Click to filter trades to this day">
-                      <td>{d.date}</td><td>{fmt(d.net_pnl)}</td><td>{d.trades}</td>
-                      <td>{d.win_rate != null ? `${fmt(d.win_rate * 100, 0)}%` : 'N/A'}</td><td>{fmt(d.max_drawdown_amount)}</td>
-                      <td>{d.weekday}</td><td>{d.wins}/{d.losses}/{d.breakeven}</td>
-                      <td>{fmt(d.gross_profit)} / {fmt(d.gross_loss)}</td><td>{d.max_consecutive_losses}</td>
-                      <td>{fmt((d.avg_holding_seconds ?? 0) / 3600, 1)}h</td>
-                    </tr>
-                  ))}
-                  {(m.daily ?? []).length === 0 && <tr><td colSpan={10} className="faint">No daily data.</td></tr>}
-                </tbody>
-              </table>
-
-              <table className="node-table" aria-label="Session performance">
-                <thead><tr><th>Session (entry, UTC)</th><th>Trades</th><th>W/L</th><th>Win rate</th><th>Net P/L</th><th>PF</th><th>Expectancy</th><th>Max DD</th><th>Avg hold</th></tr></thead>
-                <tbody>{(m.time_buckets?.by_session ?? []).map((b: any) => (
-                  <tr key={b.bucket}><td>{b.bucket}</td><td>{b.trades}</td><td>{b.wins}/{b.losses}</td>
-                    <td>{b.win_rate != null ? `${fmt(b.win_rate * 100, 1)}%` : 'N/A'}</td><td>{fmt(b.net_pnl)}</td>
-                    <td>{fmt(b.profit_factor, 3)}</td><td>{fmt(b.expectancy)}</td><td>{fmt(b.max_drawdown_amount)}</td>
-                    <td>{fmt((b.avg_holding_seconds ?? 0) / 3600, 1)}h</td></tr>
-                ))}</tbody>
-              </table>
-
-              {/* filters */}
-              <div className="dt-toolbar" aria-label="Trade filters">
-                <select className="input input-xs" value={tf.logic} onChange={(e) => setTf({ ...tf, logic: e.target.value })} aria-label="Filter logic">
-                  <option>AND</option><option>OR</option>
-                </select>
-                <select className="input input-xs" value={tf.outcome} onChange={(e) => setTf({ ...tf, outcome: e.target.value })} aria-label="Outcome filter">
-                  <option value="">All outcomes</option><option value="WIN">Winning</option><option value="LOSS">Losing</option><option value="BREAKEVEN">Breakeven</option>
-                </select>
-                <select className="input input-xs" value={tf.session} onChange={(e) => setTf({ ...tf, session: e.target.value })} aria-label="Session filter">
-                  <option value="">All sessions</option>{SESSIONS.map((s) => <option key={s}>{s}</option>)}
-                </select>
-                <select className="input input-xs" value={tf.side} onChange={(e) => setTf({ ...tf, side: e.target.value })} aria-label="Direction filter (trades)">
-                  <option value="">Long + Short</option><option>LONG</option><option>SHORT</option>
-                </select>
-                <select className="input input-xs" value={tf.weekday} onChange={(e) => setTf({ ...tf, weekday: e.target.value })} aria-label="Weekday filter">
-                  <option value="">All weekdays</option>{['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d, i) => <option key={d} value={i}>{d}</option>)}
-                </select>
-                <select className="input input-xs" value={tf.exitReason} onChange={(e) => setTf({ ...tf, exitReason: e.target.value })} aria-label="Exit reason filter">
-                  <option value="">All exit reasons</option>{['STOP_LOSS', 'TAKE_PROFIT', 'EXIT_RULE', 'MAX_HOLDING', 'TIME_EXIT', 'END_OF_DATA'].map((r) => <option key={r}>{r}</option>)}
-                </select>
-                <select className="input input-xs" value={tf.trailing} onChange={(e) => setTf({ ...tf, trailing: e.target.value })} aria-label="Trailing filter">
-                  <option value="">Trailing: any</option><option value="yes">Trailing involved</option><option value="no">No trailing</option>
-                </select>
-                <input className="input input-xs num" style={{ width: 84 }} type="number" placeholder="Min P/L" value={tf.minPnl}
-                       onChange={(e) => setTf({ ...tf, minPnl: e.target.value })} aria-label="Minimum P/L" />
-                <input className="input input-xs num" style={{ width: 84 }} type="number" placeholder="Max P/L" value={tf.maxPnl}
-                       onChange={(e) => setTf({ ...tf, maxPnl: e.target.value })} aria-label="Maximum P/L" />
-                {tf.day && <span className="chip">Day: {tf.day} <button type="button" className="btn btn-ghost btn-xs" onClick={() => setTf({ ...tf, day: '' })}>✕</button></span>}
-                <button type="button" className="btn btn-ghost btn-xs" onClick={resetFilters}>Reset filters</button>
-                <span className="faint">Filtered: {filteredStats.trades} trades · net {fmt(filteredStats.net)} · win rate {filteredStats.winRate != null ? `${fmt(filteredStats.winRate * 100, 1)}%` : 'N/A'} · PF {fmt(filteredStats.pf, 3)} · expectancy {fmt(filteredStats.expectancy)} · max consec. losses {filteredStats.maxConsLoss} (recalculated from matching trades)</span>
-              </div>
-
-              {/* trade ledger */}
-              <table className="node-table" aria-label="Trade ledger">
-                <thead><tr>
-                  {tradeColumns.map((c) => <SortTh key={c.key} col={c} sort={tradeSort} setSort={setTradeSort} />)}
-                  <th>Side</th><th>Exit</th><th>Reason</th><th>Gross</th><th>Costs (comm/swap/spread)</th><th>Planned risk</th><th>SL → final</th><th>Result</th><th></th>
-                </tr></thead>
-                <tbody>
-                  {sortedTrades.map((t, i) => (
-                    <>
-                      <tr key={`t${i}`}>
-                        <td>{i + 1}</td><td>{tsFmt(t.entry_ts)}</td><td>{fmt(t.net_pnl)}</td><td>{fmt(t.volume, 2)}</td>
-                        <td>{fmt(t.holding_seconds / 3600, 1)}h</td><td>{t.side}</td><td>{fmt(t.exit_price, 3)}</td>
-                        <td>{t.exit_reason}{t.ambiguous_same_candle ? ' ⚠' : ''}{t.gap_overrun ? ' ⚠gap' : ''}</td>
-                        <td>{fmt(t.gross_pnl)}</td><td>{fmt(t.commission)}/{fmt(t.swap)}/{fmt(t.spread_cost)}</td>
-                        <td>{fmt(t.planned_risk)}</td><td>{fmt(t.initial_stop, 3)} → {fmt(t.final_stop, 3)}</td><td>{t.result}</td>
-                        <td><button type="button" className="btn btn-ghost btn-xs" onClick={() => setExpanded(expanded === i ? null : i)}>Inspect</button></td>
+              {/* weekday/session filter table */}
+              <div className="dt-table-scroll">
+                <table className="node-table dt-session-grid" aria-label="Weekday and session filters">
+                  <thead><tr><th>Session</th>{WEEKDAYS.map((d) => (
+                    <th key={d}>
+                      <label className="check small"><input type="checkbox"
+                        ref={(el) => { dayCheckboxRefs.current[d] = el }}
+                        checked={daySel[d]} aria-label={`Include ${d}`}
+                        onChange={(e) => {
+                          const v = e.target.checked
+                          setDaySel({ ...daySel, [d]: v })
+                          setCellSel({ ...cellSel, ...Object.fromEntries(SESSION_ROWS.slice(1).map((s) => [`${d}|${s}`, v])) })
+                        }} /> {d}</label>
+                    </th>))}
+                  </tr></thead>
+                  <tbody>
+                    {SESSION_ROWS.map((session) => (
+                      <tr key={session}>
+                        <th>{session}</th>
+                        {WEEKDAYS.map((d) => {
+                          const list = session === 'TOTAL DAY'
+                            ? trades.filter((t) => WEEKDAYS[new Date(t.entry_ts * 1000).getUTCDay() - 1] === d)
+                            : trades.filter((t) => cellKey(t) === `${d}|${session}`)
+                          const st = cellStats(list)
+                          const key = `${d}|${session}`
+                          return (
+                            <td key={key} className={session !== 'TOTAL DAY' && !cellSel[key] ? 'dt-cell-off' : ''}>
+                              {session !== 'TOTAL DAY' && (
+                                <label className="check small"><input type="checkbox" checked={cellSel[key]}
+                                  aria-label={`Include ${d} ${session}`}
+                                  onChange={(e) => setCellSel({ ...cellSel, [key]: e.target.checked })} /> </label>
+                              )}
+                              <span className="dt-cell-stats">
+                                {st.trades} trades · {st.wins}W/{st.losses}L/{st.be}BE<br />
+                                WR {st.winRate != null ? `${fmt(st.winRate * 100, 0)}%` : 'N/A'} · PF {fmt(st.pf, 2)}<br />
+                                GP {fmt(st.gp, 0)} · GL {fmt(st.gl, 0)} · <strong>Net {fmt(st.net, 0)}</strong>
+                              </span>
+                            </td>
+                          )
+                        })}
                       </tr>
-                      {expanded === i && (
-                        <tr key={`d${i}`}><td colSpan={14} className="faint">
-                          Entry {fmt(t.entry_price, 3)} @ {tsFmt(t.entry_ts)} · exit {fmt(t.exit_price, 3)} @ {tsFmt(t.exit_ts)} · TP {fmt(t.take_profit, 3)} · session {t.session} · MFE {fmt(t.mfe_price, 3)} / MAE {fmt(t.mae_price, 3)}<br />
-                          Stop changes: {t.stop_history?.length ? t.stop_history.map((h: any) => `${tsFmt(h.ts)}: ${fmt(h.from, 3)} → ${fmt(h.to, 3)} (${h.rule})`).join(' · ') : 'none'}<br />
-                          Indicators at entry: <code>{JSON.stringify(t.entry_indicators)}</code> · P/L = gross {fmt(t.gross_pnl)} − commission {fmt(t.commission)} + swap {fmt(t.swap)} (spread/slippage embedded in fills)
-                        </td></tr>
-                      )}
-                    </>
-                  ))}
-                  {sortedTrades.length === 0 && <tr><td colSpan={14} className="faint">No trades match. Skipped signals: {activeRun.skipped_signals?.length ?? 0}.</td></tr>}
-                </tbody>
-              </table>
-
-              {/* scenarios inside inspection */}
-              <h5>Scenarios for {inspectNode?.name} <span className="faint">(node #{inspectId} v{inspectNode?.version} · edits create new versions)</span></h5>
-              <div className="dt-toolbar">
-                <input className="input input-sm" placeholder="Scenario name…" value={scenarioName} aria-label="Scenario name"
-                       onChange={(e) => setScenarioName(e.target.value)} />
-                <button type="button" className="btn btn-ghost btn-xs" onClick={async () => {
-                  if (!scenarioName) { setNotice('Name the scenario first.'); return }
-                  await api.deeptesting.createScenario(instrument, {
-                    name: scenarioName,
-                    config: buildConfig({ node_ids: [inspectId], trade_filters: tf }) })
-                  setScenarioName('')
-                  api.deeptesting.listScenarios(instrument).then((r) => setScenarios(r.scenarios ?? []))
-                }}>Save current configuration + filters as scenario</button>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-              <table className="node-table" aria-label="Node scenarios">
-                <thead><tr><th>ID</th><th>Name</th><th>Version</th><th>Capital / Risk / Max</th><th>Actions</th></tr></thead>
-                <tbody>
-                  {nodeScenarios.map((sc) => (
-                    <tr key={sc.id}><td>{sc.id}</td><td>{sc.name}</td><td>v{sc.version}</td>
-                      <td>{fmt(sc.config?.initial_capital, 0)} / {sc.config?.risk_mode} {sc.config?.risk_value} / {sc.config?.max_active_trades}</td>
-                      <td>
-                        <button type="button" className="btn btn-ghost btn-xs" onClick={() => runNodes([inspectId], { ...sc.config, scenario_id: sc.id })}>Rerun</button>
-                        <button type="button" className="btn btn-ghost btn-xs" onClick={async () => {
-                          await api.deeptesting.createScenario(instrument, { name: `${sc.name} (copy)`, folder: sc.folder, config: sc.config })
-                          api.deeptesting.listScenarios(instrument).then((r) => setScenarios(r.scenarios ?? []))
-                        }}>Duplicate</button>
-                        <button type="button" className="btn btn-ghost btn-xs" onClick={async () => {
-                          await api.deeptesting.editScenario(instrument, sc.id, { name: sc.name, config: buildConfig({ node_ids: [inspectId], trade_filters: tf }) })
-                          api.deeptesting.listScenarios(instrument).then((r) => setScenarios(r.scenarios ?? []))
-                        }}>Edit with current config (v+1)</button>
-                        <button type="button" className="btn btn-ghost btn-xs" onClick={async () => {
-                          await api.deeptesting.deleteScenario(instrument, sc.id)
-                          api.deeptesting.listScenarios(instrument).then((r) => setScenarios(r.scenarios ?? []))
-                        }}>Delete</button>
-                      </td></tr>
-                  ))}
-                  {nodeScenarios.length === 0 && <tr><td colSpan={5} className="faint">No scenarios saved for this node.</td></tr>}
-                </tbody>
-              </table>
+              <p className="faint micro">Sessions are single-label UTC entry-time cells (ASIA 00–08 &amp; 22–24 · ASIA-LONDON 08–09 · LONDON 09–13 · LONDON-NY 13–17 · NY 17–22) so cells never double-count; totals always reconcile with unique trades. Unchecking a weekday excludes all its sessions; partial selection shows the weekday checkbox as indeterminate. Statistics and the equity curve recalculate live from the matching trades.</p>
               <div className="dt-toolbar">
-                <label className="mini-field">TP offsets %
-                  <input className="input input-xs" value={genDims.tp} onChange={(e) => setGenDims({ ...genDims, tp: e.target.value })} /></label>
-                <label className="mini-field">SL offsets %
-                  <input className="input input-xs" value={genDims.sl} onChange={(e) => setGenDims({ ...genDims, sl: e.target.value })} /></label>
-                <label className="mini-field">Risk values
-                  <input className="input input-xs" value={genDims.risk} placeholder="e.g. 0.5,1,2" onChange={(e) => setGenDims({ ...genDims, risk: e.target.value })} /></label>
-                <button type="button" className="btn btn-ghost btn-xs" onClick={async () => {
-                  const dims: Record<string, number[]> = { tp_offset_pct: genDims.tp.split(',').map(Number), sl_offset_pct: genDims.sl.split(',').map(Number) }
-                  if (genDims.risk) dims.risk_value = genDims.risk.split(',').map(Number)
-                  try {
-                    const res = await api.deeptesting.generateScenarios(instrument, {
-                      base_config: buildConfig({ node_ids: [inspectId] }), dimensions: dims, max_count: 200, save: false })
-                    setGenPreview(res.count)
-                  } catch (e) { setNotice(String(e)) }
-                }}>Preview count</button>
-                <button type="button" className="btn btn-ghost btn-xs" onClick={async () => {
-                  const dims: Record<string, number[]> = { tp_offset_pct: genDims.tp.split(',').map(Number), sl_offset_pct: genDims.sl.split(',').map(Number) }
-                  if (genDims.risk) dims.risk_value = genDims.risk.split(',').map(Number)
-                  try {
-                    await api.deeptesting.generateScenarios(instrument, {
-                      base_config: buildConfig({ node_ids: [inspectId] }), dimensions: dims, max_count: 200, save: true, folder: `node-${inspectId}` })
-                    api.deeptesting.listScenarios(instrument).then((r) => setScenarios(r.scenarios ?? []))
-                  } catch (e) { setNotice(String(e)) }
-                }}>Generate &amp; save</button>
-                {genPreview !== null && <span className="faint">{genPreview} scenario(s) (cap 200 enforced server-side)</span>}
+                <button type="button" className="btn btn-ghost btn-xs" onClick={() => {
+                  setDaySel(Object.fromEntries(WEEKDAYS.map((d) => [d, true])))
+                  setCellSel(Object.fromEntries(WEEKDAYS.flatMap((d) => SESSION_ROWS.slice(1).map((s) => [`${d}|${s}`, true]))))
+                }}>Select all days/sessions</button>
+                <button type="button" className="btn btn-ghost btn-xs" onClick={() => {
+                  setDaySel(Object.fromEntries(WEEKDAYS.map((d) => [d, false])))
+                  setCellSel(Object.fromEntries(WEEKDAYS.flatMap((d) => SESSION_ROWS.slice(1).map((s) => [`${d}|${s}`, false]))))
+                }}>Deselect all</button>
               </div>
 
-              {suggestions.length > 0 && (
-                <div>
-                  <h5>Fine-tune suggestions (evidence-based, never auto-applied)</h5>
-                  {suggestions.map((s, i) => (
-                    <div key={i} className="exit-body"><strong>{s.kind}</strong> — {s.rationale}
-                      {s.patch?.spec && <button type="button" className="btn btn-ghost btn-xs"
-                        onClick={async () => { const r = await api.deeptesting.fineTuneApply(instrument, activeRun.id, s); setNotice(`Created FINE_TUNED child node #${r.child_node_id} (v${r.version}) from #${r.parent_node_id}.`) }}>
-                        Create child node</button>}
-                    </div>
-                  ))}
-                </div>
-              )}
+              {/* save scenario */}
+              <div className="dt-toolbar">
+                <button type="button" className="btn btn-primary" onClick={() => setModal(true)}>SAVE FILTERS AS SCENARIO</button>
+                {nodeScenarios.map((sc) => (
+                  <span key={sc.id} className="chip">
+                    <button type="button" className="btn btn-ghost btn-xs" onClick={() => openScenario(sc)}>{sc.name} (#{sc.id})</button>
+                    <button type="button" className="btn btn-ghost btn-xs" aria-label={`Delete scenario ${sc.id}`}
+                            onClick={async () => { await api.deeptesting.deleteScenario(instrument, sc.id); api.deeptesting.listScenarios(instrument).then((r) => setScenarios(r.scenarios ?? [])) }}>✕</button>
+                  </span>
+                ))}
+                {nodeScenarios.length > 0 && <span className="faint micro">Saved scenarios keep a persistent ID (deeptesting-scenario/v1) for the future Live Testing handoff.</span>}
+              </div>
+
+              {/* ONE equity curve */}
+              <EquityCurve points={equityPoints} capital={capital}
+                label={isFilteredActive ? 'Equity curve (filtered trades, cumulative)' : 'Equity curve (engine, incl. unrealized)'} />
             </>
           )}
         </section>
+      )}
+
+      {/* scenario modal */}
+      {modal && (
+        <div className="dt-modal-backdrop" role="dialog" aria-modal="true" aria-label="Save filters as scenario">
+          <div className="dt-modal">
+            <h4>Save Filters as Scenario</h4>
+            <label className="mini-field">Scenario Name
+              <input className="input input-sm" value={scName} aria-label="Scenario name" onChange={(e) => setScName(e.target.value)} /></label>
+            <label className="mini-field">Scenario Description
+              <textarea className="input input-sm" rows={2} value={scDesc} aria-label="Scenario description" onChange={(e) => setScDesc(e.target.value)} /></label>
+            <div className="faint dt-modal-summary">
+              <p><strong>Node:</strong> #{inspectId} {inspectNode?.name} v{inspectNode?.version} · fingerprint {String(activeRun?.fingerprint ?? '').slice(0, 12)}…</p>
+              <p><strong>Capital / Risk / Max active:</strong> {fmt(capital, 0)} {currency} · {riskMode} {riskValue} ({riskBasis}) · {maxActive}</p>
+              <p><strong>Range:</strong> last {duration} days · requested {tsFmt(activeRun?.metrics?.requested_range?.start)} → {tsFmt(activeRun?.metrics?.requested_range?.end)} · actual {tsFmt(activeRun?.metrics?.actual_range?.start)} → {tsFmt(activeRun?.metrics?.actual_range?.end)} ({activeRun?.metrics?.coverage_status})</p>
+              <p><strong>Offsets:</strong> global SL +{globalOff.slPlus || 0}/−{globalOff.slMinus || 0} · TP +{globalOff.tpPlus || 0}/−{globalOff.tpMinus || 0} pips · node #{inspectId} SL +{nodeOffsets[inspectId ?? -1]?.slPlus || 0}/−{nodeOffsets[inspectId ?? -1]?.slMinus || 0} · TP +{nodeOffsets[inspectId ?? -1]?.tpPlus || 0}/−{nodeOffsets[inspectId ?? -1]?.tpMinus || 0} pips</p>
+              <p><strong>Days/Sessions:</strong> {WEEKDAYS.map((d) => `${d} ${daySel[d] ? '✓' : '✗'} (${SESSION_ROWS.slice(1).map((s) => `${s} ${cellSel[`${d}|${s}`] ? '✓' : '✗'}`).join(', ')})`).join(' · ')}</p>
+              <p><strong>Filtered result:</strong> {filteredStats.trades} trades · net {fmt(filteredStats.net)} · win rate {filteredStats.winRate != null ? `${fmt(filteredStats.winRate * 100, 1)}%` : 'N/A'}</p>
+            </div>
+            <div className="dt-toolbar">
+              <button type="button" className="btn btn-primary" onClick={saveScenario}>Save Scenario</button>
+              <button type="button" className="btn btn-ghost" onClick={() => setModal(false)}>Cancel</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

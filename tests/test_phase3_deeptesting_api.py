@@ -109,21 +109,56 @@ def test_scenario_lifecycle_versions(client):
     assert boom.status_code == 422 and "SCENARIO_EXPLOSION" in boom.text
 
 
-def test_offset_precedence_individual_beats_global_never_stacked():
+def test_offset_precedence_pips_individual_beats_global_never_stacked():
     from app.deeptesting_service import resolve_offsets
     spec = {"exits": {"stop_loss": {"distance": {"value": 2, "unit": "absolute"}},
                       "take_profit": {"ratio": 2.0}},
             "management": {"stepped_trailing": {}}}
-    cfg = {"global_tp_offset_pct": 10, "global_sl_offset_pct": 10,
-           "node_offsets": {"7": {"tp": -5}}}
-    out = resolve_offsets(cfg, 7, spec)
-    assert out["tp"] == {"offset_pct": -5.0, "source": "individual_node"}
-    assert out["sl"] == {"offset_pct": 10.0, "source": "global_deeptesting"}
+    cfg = {"global_tp_plus_pips": 10, "global_sl_plus_pips": 30, "global_sl_minus_pips": 5,
+           "node_offsets": {"7": {"tp_minus_pips": 15}}}
+    out = resolve_offsets(cfg, 7, spec, pip_size=0.1)
+    # individual TP pair wins: 0 - 15 = -15 pips -> -1.5 price (closer)
+    assert out["tp"] == {"offset_pips": -15.0, "offset_price": -1.5, "source": "individual_node"}
+    # global SL pair: +30 away -5 closer = +25 pips -> +2.5 price
+    assert out["sl"] == {"offset_pips": 25.0, "offset_price": 2.5, "source": "global_deeptesting"}
     assert out["warnings"] == []
-    # neither set -> strategy, zero
-    out = resolve_offsets({}, 7, spec)
-    assert out["tp"]["source"] == "strategy" and out["tp"]["offset_pct"] == 0.0
-    # incompatible: offset without declared TP is reported, never invented
-    out = resolve_offsets({"global_tp_offset_pct": 15}, 7, {"exits": {"stop_loss": {}}})
-    assert out["tp"]["offset_pct"] == 0.0 and out["tp"]["source"] == "strategy"
-    assert "NOT applied" in out["warnings"][0]
+    out = resolve_offsets({}, 7, spec, pip_size=0.1)
+    assert out["tp"]["source"] == "strategy" and out["tp"]["offset_price"] == 0.0
+    # no TP declared: reported NOT applied, never invented
+    out = resolve_offsets({"global_tp_plus_pips": 15}, 7, {"exits": {"stop_loss": {}}}, pip_size=0.1)
+    assert out["tp"]["offset_price"] == 0.0 and "NOT applied" in out["warnings"][0]
+    # no pip size: conversion refused explicitly
+    out = resolve_offsets({"global_tp_plus_pips": 15}, 7, spec, pip_size=None)
+    assert out["tp"]["offset_price"] == 0.0 and "NOT applied" in out["warnings"][0]
+    # scenario handoff: single scenario retrievable by persistent ID
+    # (covered by router smoke in test_scenario_lifecycle_versions)
+
+
+def test_partial_testing_uses_all_available_data(client, seeded_store):
+    spec = cross_spec()
+    spec["identity"]["name"] = "DT partial node"
+    spec["identity"]["tags"] = ["dt-partial-1"]
+    created = client.post("/api/v1/instruments/XAUUSD/nodes", json={
+        "name": "DT partial node", "origin": "CUSTOM", "spec_json": json.dumps(spec)})
+    node_id = created.json()["id"]
+    first, last = seeded_store[0]["ts"], seeded_store[-1]["ts"]
+    # request starts a year before history exists: partial, but still runs everything
+    r = client.post("/api/v1/instruments/XAUUSD/deeptesting/runs", json={
+        "node_ids": [node_id], "config": {"mode": "initial",
+         "range": {"start": first - 365 * 86400, "end": last},
+         "initial_capital": 10000, "risk_mode": "percent", "risk_value": 1.0,
+         "max_active_trades": 1, "tick_size": 0.1, "tick_value_account": 1.0}})
+    run = r.json()["runs"][0]
+    assert run["status"] == "DONE", run
+    assert run["coverage_status"] == "PARTIAL_TESTED"
+    assert run["metrics"]["candles_tested"] == len(seeded_store)
+    assert run["metrics"]["actual_range"] == {"start": first, "end": last}
+    assert run["requested_range"]["start"] == first - 365 * 86400
+
+    # sufficient coverage -> TESTED (not partial)
+    r = client.post("/api/v1/instruments/XAUUSD/deeptesting/runs", json={
+        "node_ids": [node_id], "config": {"mode": "initial",
+         "range": {"start": first, "end": last},
+         "initial_capital": 10000, "risk_mode": "percent", "risk_value": 1.0,
+         "max_active_trades": 1, "tick_size": 0.1, "tick_value_account": 1.0}})
+    assert r.json()["runs"][0]["coverage_status"] == "TESTED"

@@ -157,11 +157,11 @@ describe('Multi-timeframe strategy generation (frontend)', () => {
     expect(alerts.some((a) => /select at least one timeframe/i.test(a.textContent ?? ''))).toBe(true)
   })
 
-  it('DeepTesting renders the shared timeframe scope for batch selection', async () => {
+  it('DeepTesting has NO Batch Node Scope box (removed by refinement brief)', async () => {
     renderAt('/deeptesting')
-    expect(await screen.findByText(/Batch Node Scope/i)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /timeframes in scope/i })).toBeInTheDocument()
-    expect(screen.getByText(/W1\/MN1 are not supported/i)).toBeInTheDocument()
+    expect(await screen.findByText(/Hard Constraints/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Batch Node Scope/i)).toBeNull()
+    expect(screen.getByRole('button', { name: '1 Month' })).toBeInTheDocument()
   })
 
   it('keyboard: timeframe listbox opens, moves and toggles with arrows+space', async () => {

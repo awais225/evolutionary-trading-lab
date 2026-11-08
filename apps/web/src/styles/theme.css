@@ -667,3 +667,36 @@ tr:hover .name-edit-btn, .name-text:focus-visible + .name-edit-btn { opacity: 1;
 .sort-ind.idle { opacity: .28; color: inherit; }
 .market-sort-row { display: grid; grid-template-columns: 38px 92px 148px 148px 76px minmax(0, 1fr); gap: 10px; align-items: baseline; padding-bottom: 2px; }
 .log-sort-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 4px 2px 8px; font-size: 11px; }
+
+/* ---- DeepTesting (Phase 3 refinement): compact table-driven layout ---- */
+.dt-range-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 10px 0 2px; }
+.dt-toolbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0; }
+.dt-table-scroll { overflow-x: auto; max-width: 100%; border: 1px solid var(--border, #2a2f3a); border-radius: 6px; }
+.dt-table-scroll .node-table { min-width: 1180px; }
+.dt-node-table th, .dt-node-table td { white-space: nowrap; }
+.dt-node-table th:first-child, .dt-node-table td:first-child,
+.dt-node-table th:nth-child(3), .dt-node-table td:nth-child(3) {
+  position: sticky; background: var(--panel, #14171f); z-index: 1;
+}
+.dt-node-table td:first-child, .dt-node-table th:first-child { left: 0; }
+.dt-node-table td:nth-child(3), .dt-node-table th:nth-child(3) { left: 68px; }
+.dt-off-in { width: 58px; }
+.dt-off { display: inline-flex; gap: 4px; align-items: center; }
+.dt-chart { margin: 10px 0; }
+.dt-equity svg { background: rgba(255,255,255,0.02); border: 1px solid var(--border, #2a2f3a); border-radius: 6px; }
+.chip-partial-tested { border-color: #e8b93e; color: #e8b93e; }
+.chip-blocked, .chip-failed { border-color: #f85149; color: #f85149; }
+.chip-tested { border-color: #3fb950; color: #3fb950; }
+.dt-session-grid td { vertical-align: top; min-width: 148px; }
+.dt-session-grid td.dt-cell-off { opacity: 0.45; }
+.dt-cell-stats { font-size: 11px; line-height: 1.45; }
+.dt-modal-backdrop {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.55);
+  display: flex; align-items: center; justify-content: center; z-index: 60;
+}
+.dt-modal {
+  background: var(--panel, #14171f); border: 1px solid var(--border, #2a2f3a);
+  border-radius: 8px; padding: 16px; width: min(560px, 92vw); max-height: 88vh; overflow-y: auto;
+}
+.dt-modal-summary { font-size: 12px; }
+.dt-modal-summary p { margin: 4px 0; }
