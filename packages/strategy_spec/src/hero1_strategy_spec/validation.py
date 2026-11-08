@@ -22,7 +22,7 @@ from pydantic import BaseModel, ConfigDict
 from .expressions import (
     MAX_TREE_DEPTH, MAX_TREE_NODES, CandleOperand, Comparison, ComparisonOp,
     FormingCandleOperand, IndicatorOperand, LogicNode,
-    ConstantOperand, tree_depth, tree_size, walk,
+    ConstantOperand, ReferenceOperand, tree_depth, tree_size, walk,
 )
 from .indicators import IndicatorName, indicator_warmup, validate_indicator_params
 from .risk import DistanceUnit
@@ -125,12 +125,26 @@ def _check_comparison(comp: Comparison, path: str, spec: StrategySpec, issues: L
                             "constant-vs-constant comparison is static and carries no market information"))
 
     if comp.op in (ComparisonOp.CROSS_ABOVE, ComparisonOp.CROSS_BELOW):
-        directional = (CandleOperand, FormingCandleOperand, IndicatorOperand)
+        directional = (CandleOperand, FormingCandleOperand, IndicatorOperand, ReferenceOperand)
         if not (isinstance(left, directional) and isinstance(right, directional)):
             issues.append(_err(
                 "E_CROSS_OPERAND", path,
-                "cross_above / cross_below require both operands to be candles or indicators "
+                "cross_above / cross_below require both operands to be candles, indicators "
+                "or calculated reference levels "
                 "(they compare value transitions between the previous and the current completed candle)",
+            ))
+
+    if comp.op is ComparisonOp.TOUCH:
+        # A touch is contact/crossing of a price with a calculated level:
+        # one side must be a reference level, the other a price series.
+        price_side = (CandleOperand, FormingCandleOperand, IndicatorOperand, ReferenceOperand)
+        if not (isinstance(left, price_side) and isinstance(right, price_side)) or not (
+                isinstance(left, ReferenceOperand) or isinstance(right, ReferenceOperand)):
+            issues.append(_err(
+                "E_TOUCH_OPERAND", path,
+                "touch requires a calculated reference level on one side and a price "
+                "(candle/indicator/reference) on the other - it detects crossing or "
+                "contact with the level, never exact floating-point equality",
             ))
 
 

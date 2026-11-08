@@ -5,6 +5,76 @@ exact commit SHA and tag. Claims only for what was implemented AND verified.
 
 ---
 
+## [Master prompt] — 2026-11-08 — NODE 1 + price reference levels + DeepTesting Apply/interactivity + reconciliation
+
+- **NODE 1 — Previous Day High Low Momentum Reversal** (official seed,
+  XAUUSD H1, BOTH): touches of Previous Day High/Low enter OPPOSITE to the
+  immediate M1 momentum (completed M1 closes; up -> SHORT, down -> LONG,
+  equal -> no trade; the touched level never picks the side). SL 300 pips
+  (broker-metadata pip conversion, never assumed), TP = SL distance x
+  reward_risk_ratio 2.0 (an editable spec parameter - 1.5/1.0/3.0 need no
+  engine change). No trailing/break-even/indicator/time exits. Seeded
+  idempotently at startup through canonical persistence (fingerprint
+  631e5f8c87af...); a user-edited NODE 1 is never overwritten or
+  duplicated. Canonical importable export:
+  docs/examples/node1_prev_day_high_low_momentum_reversal.spec.json.
+  OHLC execution disclosure: touch = fresh bar-range contact, fills at
+  next bar open; tick precision is not claimed.
+- **Calculated price reference levels (Part 3):** new `reference` operand
+  (Prev Day / Asia / Asia-London / London / London-NY / New York
+  highs/lows) and `momentum` operand plus a genuine `touch` operator,
+  implemented across schema, validator, compiler (IR data_requirements)
+  and engine. Session definitions are configurable IANA-timezone windows
+  with DST and midnight-crossing handling; levels are causal (developing
+  session uses only bars available at evaluation; no look-ahead) and
+  timeframe-independent (M1 aux series when available; absence recorded,
+  momentum never substituted). Builder exposes levels/momentum/touch in
+  the condition editor. Fingerprints of all pre-existing specs unchanged
+  (new fields stripped while semantically absent).
+- **DeepTesting Apply (Parts 4-6):** Hard Constraints and per-node
+  offsets are pending until APPLY; only applied values reach the backend
+  and are persisted with each result. A result generated under different
+  applied values is labelled ORIGINAL. Inspect shows the values used by
+  the result: original strategy SL/TP, global/node offsets as run, and
+  effective SL/TP offsets with source (strategy / individual node /
+  global). Scenario modal shows the applied configuration.
+- **Interactive Inspect grid (Part 7):** whole boxes clickable (weekday
+  toggles the day, session heading toggles across all days, cell toggles
+  one weekday/session; parents/children/indeterminate preserved);
+  statistics boxes redesigned: centered checkbox, four centered lines,
+  Net last in green/red/neutral. Buttons: SELECT ALL DAYS/SESSIONS,
+  DESELECT ALL, DESELECT -VE NET BOXES. Aggregate TOTAL column retained.
+- **Reconciliation fix (Part 12):** weekend entries were silently dropped
+  from the weekday/session breakdown (382 vs 385 trades; 3 losing trades,
+  -6,034.66 gross loss on the owner's C1#1 Run #4). They now land in an
+  explicit UNASSIGNED (weekend) column, so ledger = weekday = session =
+  aggregate. Full report: docs/DEEPTESTING_C1_1_RECONCILIATION.md
+  (supplied arithmetic independently verified; drawdown % documented as
+  peak-equity based). Run #4 itself was not modified.
+- **Date ranges (Part 10):** requested windows anchor to the latest
+  eligible candle per node (start = latest - duration); PARTIAL TESTED
+  when the anchored start precedes stored history.
+- **Responsive (Part 11):** `.content-inner` 1180px cap removed - the
+  dashboard now uses the full viewport (1920/2560/5120 Odyssey G9);
+  dense tables keep container-confined scrolling.
+- Tests: backend 323 passed / 1 skipped (new: reference levels incl. DST
+  and midnight crossing, NODE 1 four-direction matrix / geometry / ratio
+  change / duplicate-touch / no-lookahead / all seven timeframes, seed
+  idempotency + edit-safety, NODE 1 DeepTesting end-to-end via API);
+  frontend 77/77 (APPLY pending/applied, per-node Apply, whole-box and
+  session-heading toggles, DESELECT -VE NET BOXES); production build
+  clean. Live preview verified: NODE 1 seeded at startup (node #3,
+  fingerprint match) and deep-tested (SHORT @ 105.0 on the synthetic
+  two-day M1+H1 set; pip size from broker metadata, never assumed).
+- Known limitations: the owner's Run #4 ledger lives in their local DATA
+  root (not in Git), so the three weekend trade IDs are identified by
+  rule (Saturday/Sunday entries) and now surface in UNASSIGNED, not by
+  fabricated IDs. Entry fills use the existing next-bar-open model;
+  exact level/tick fills are not claimed from OHLC. Windows/MT5 NOT
+  VERIFIED (Linux sandbox).
+
+---
+
 ## [DeepTesting correction] — 2026-11-08 — aggregate filter totals + consecutive-loss metrics
 
 - **Weekday/Session filter table:** added a TOTAL — selected days aggregate

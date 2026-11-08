@@ -27,6 +27,8 @@ export function operandSummary(o: any): string {
     case 'forming_candle': return `forming ${String(o.field).toUpperCase()} (opt-in)`
     case 'indicator': return indicatorSummary(o)
     case 'constant': return String(o.value)
+    case 'reference': return String(o.level ?? 'reference').replace(/_/g, ' ')
+    case 'momentum': return 'M1 momentum'
     default: return String(o.kind ?? '?')
   }
 }

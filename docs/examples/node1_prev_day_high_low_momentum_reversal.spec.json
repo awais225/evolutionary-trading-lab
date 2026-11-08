@@ -1,0 +1,94 @@
+{
+  "schema_version": "1.1.0",
+  "identity": {
+    "name": "NODE 1 \u2014 Previous Day High Low Momentum Reversal",
+    "description": "Previous Day High/Low touch + M1 momentum reversal. Touch either level, then trade opposite to the immediate M1 momentum (up -> SHORT, down -> LONG, equal -> no trade). SL 300 pips; TP = SL distance x reward_risk_ratio (2.0). OHLC touch = bar-range contact; tick precision is not claimed.",
+    "instrument": "XAUUSD",
+    "timeframe": "H1",
+    "direction": "BOTH",
+    "origin": "CUSTOM",
+    "tags": [
+      "node-1",
+      "price-reference",
+      "momentum-reversal"
+    ],
+    "metadata": {
+      "reward_risk_ratio": 2.0,
+      "official_seed": true
+    }
+  },
+  "entry": {
+    "type": "and",
+    "children": [
+      {
+        "type": "or",
+        "children": [
+          {
+            "type": "compare",
+            "op": "touch",
+            "left": {
+              "kind": "candle",
+              "field": "close",
+              "offset": 0
+            },
+            "right": {
+              "kind": "reference",
+              "level": "PREV_DAY_HIGH"
+            }
+          },
+          {
+            "type": "compare",
+            "op": "touch",
+            "left": {
+              "kind": "candle",
+              "field": "close",
+              "offset": 0
+            },
+            "right": {
+              "kind": "reference",
+              "level": "PREV_DAY_LOW"
+            }
+          }
+        ]
+      },
+      {
+        "type": "compare",
+        "op": "neq",
+        "left": {
+          "kind": "momentum",
+          "source": "M1"
+        },
+        "right": {
+          "kind": "constant",
+          "value": 0
+        }
+      }
+    ]
+  },
+  "exits": {
+    "stop_loss": {
+      "anchor": "entry_price",
+      "distance": {
+        "unit": "pips",
+        "value": 300
+      }
+    },
+    "take_profit": {
+      "ratio": 2.0
+    }
+  },
+  "risk": {
+    "sizing": {
+      "mode": "fixed_risk",
+      "risk_pct": 1.0
+    }
+  },
+  "execution": {
+    "entry_side_rule": "m1_momentum_reversal",
+    "entry_timing": "next_bar_open",
+    "candle": "completed",
+    "permit_forming_candle": false,
+    "order_type": "market",
+    "position_handling": "single"
+  }
+}

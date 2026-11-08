@@ -6,7 +6,8 @@ passes through the same validation and deterministic compilation pipeline.
 """
 from .expressions import (
     CandleOperand, Comparison, ComparisonOp, ConstantOperand, FormingCandleOperand,
-    IndicatorOperand, LogicAnd, LogicNot, LogicNode, LogicOr,
+    IndicatorOperand, LogicAnd, LogicNot, LogicNode, LogicOr, MomentumOperand,
+    ReferenceLevel, ReferenceOperand,
 )
 from .spec import (
     KNOWN_INSTRUMENTS, SUPPORTED_SCHEMA_VERSIONS, SUPPORTED_TIMEFRAMES,
@@ -37,7 +38,8 @@ __all__ = [
     "FixedTrailingRule", "IndicatorTrailingRule", "TradeManagement",
     "Direction", "Origin", "LogicNode", "LogicAnd", "LogicOr", "LogicNot", "Comparison",
     "ComparisonOp", "CandleOperand", "FormingCandleOperand", "IndicatorOperand",
-    "ConstantOperand", "IndicatorName", "indicator_warmup",
+    "ConstantOperand", "ReferenceOperand", "ReferenceLevel", "MomentumOperand",
+    "IndicatorName", "indicator_warmup",
     "Distance", "ZeroableDistance", "DistanceUnit", "PositionSizing", "RiskConfig", "StopLoss", "TakeProfit", "DirectionRisk",
     "Issue", "ReportStatus", "Severity", "ValidationReport", "validate_spec",
     "CompileResult", "SpecCompilationError", "canonical_json", "compile_spec",

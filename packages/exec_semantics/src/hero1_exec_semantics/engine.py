@@ -70,6 +70,7 @@ from hero1_indicators import compute_indicator
 from hero1_strategy_spec.management import TradeManagement
 from hero1_strategy_spec.risk import Distance
 
+from .reference_levels import TF_SECONDS, compute_momentum_series, compute_reference_series
 from .stop_management import PriceContext, evaluate_stop_management
 
 ENGINE_VERSION = "3.0.0"
@@ -170,6 +171,21 @@ def _operand_value(operand: dict, i: int, candles, series_cache: dict, cache_key
             raise EngineError("MISSING_INDICATOR_FIELD",
                               f"indicator {operand['name']} has no field {fld!r}")
         return vals[idx]
+    if kind == "reference":
+        if i < 0:
+            return None
+        series = series_cache.get(("__reference__", operand.get("level")))
+        if series is None:
+            raise EngineError("MISSING_REFERENCE_SERIES",
+                              f"reference level {operand.get('level')!r} was not precomputed")
+        return series[i] if 0 <= i < len(series) else None
+    if kind == "momentum":
+        if i < 0:
+            return None
+        series = series_cache.get(("__momentum__", operand.get("source", "M1")))
+        if series is None:
+            raise EngineError("MISSING_MOMENTUM_SERIES", "M1 momentum series was not precomputed")
+        return series[i] if 0 <= i < len(series) else None
     raise EngineError("BAD_OPERAND", f"unknown operand kind {kind!r}")
 
 
@@ -212,6 +228,8 @@ def evaluate_tree(node: dict, i: int, candles, series_cache) -> Optional[bool]:
             if None in (cur_l, cur_r, prev_l, prev_r):
                 return None
             return (prev_l <= prev_r and cur_l > cur_r) if op == "cross_above" else (prev_l >= prev_r and cur_l < cur_r)
+        if op == "touch":
+            return _touch(left, right, i, candles, series_cache)
         lv = _operand_value(left, i, candles, series_cache)
         rv = _operand_value(right, i, candles, series_cache)
         if lv is None or rv is None:
@@ -221,6 +239,46 @@ def evaluate_tree(node: dict, i: int, candles, series_cache) -> Optional[bool]:
     raise EngineError("BAD_NODE", f"unknown logic node type {t!r}")
 
 
+def _touch(left: dict, right: dict, i: int, candles, series_cache) -> Optional[bool]:
+    """TOUCH: crossing or contact with a calculated level - never exact
+    float equality. With a candle price operand the touch is FRESH contact:
+    the level lies inside the current bar's [low, high] range and was NOT
+    inside the previous bar's range, so one approach to a level produces
+    one signal (no duplicate entries from repeated detection). With value
+    series operands it is a crossing/contact of the two series between the
+    previous and current bar. OHLC cannot establish intrabar sequencing -
+    disclosed wherever this operator is used."""
+    l_ref = left.get("kind") == "reference"
+    r_ref = right.get("kind") == "reference"
+    if l_ref != r_ref:
+        price_op, level_op = (right, left) if l_ref else (left, right)
+        level = _operand_value(level_op, i, candles, series_cache)
+        if level is None or i < 0 or i >= len(candles):
+            return None
+        if price_op.get("kind") in ("candle", "forming_candle"):
+            bar = candles[i]
+            if not (float(bar["low"]) <= level <= float(bar["high"])):
+                return False
+            if i > 0:
+                prev = candles[i - 1]
+                if float(prev["low"]) <= level <= float(prev["high"]):
+                    return False  # same approach still in contact - not a new touch
+            return True
+        cur = _operand_value(price_op, i, candles, series_cache)
+        prev = _operand_value(price_op, i - 1, candles, series_cache)
+        if cur is None or prev is None:
+            return None
+        return min(prev, cur) <= level <= max(prev, cur)
+    lv = _operand_value(left, i, candles, series_cache)
+    rv = _operand_value(right, i, candles, series_cache)
+    pl = _operand_value(left, i - 1, candles, series_cache)
+    pr = _operand_value(right, i - 1, candles, series_cache)
+    if None in (lv, rv, pl, pr):
+        return None
+    d_cur, d_prev = lv - rv, pl - pr
+    return d_cur == 0 or (d_prev < 0 < d_cur) or (d_prev > 0 > d_cur)
+
+
 def _entry_side(ir: dict, i: int, candles, series_cache) -> Optional[str]:
     direction = ir["strategy"]["direction"]
     result = evaluate_tree(ir["entry"], i, candles, series_cache)
@@ -228,6 +286,14 @@ def _entry_side(ir: dict, i: int, candles, series_cache) -> Optional[str]:
         return None
     if direction in ("LONG", "SHORT"):
         return direction
+    # Explicit rule (schema 1.1.0): side = OPPOSITE of the M1 momentum at
+    # the signal bar. Momentum up -> SHORT, down -> LONG, equal/missing ->
+    # no trade. The touched level never chooses the side.
+    if (ir.get("execution") or {}).get("entry_side_rule") == "m1_momentum_reversal":
+        mom = _operand_value({"kind": "momentum", "source": "M1"}, i, candles, series_cache)
+        if mom is None or mom == 0:
+            return None
+        return "SHORT" if mom > 0 else "LONG"
     # BOTH: cross comparisons determine the side from the tree's first cross op
     cross = _first_cross(ir["entry"])
     if cross == "cross_above":
@@ -340,7 +406,8 @@ def _resolve_distance(distance: Optional[dict], ctx: PriceContext, atr_series, i
 
 def run_backtest(*, ir: dict, candles: List[dict], cfg: RunConfig,
                  instrument: InstrumentSpec, price_ctx: PriceContext,
-                 management: Optional[TradeManagement] = None) -> dict:
+                 management: Optional[TradeManagement] = None,
+                 aux_candles: Optional[List[dict]] = None) -> dict:
     """Execute one compiled strategy over candles. Returns trades, equity
     curve, skipped signals and run accounting. Raises EngineError for any
     unsupported/underspecified semantics - never guesses."""
@@ -366,6 +433,37 @@ def run_backtest(*, ir: dict, candles: List[dict], cfg: RunConfig,
         ind_name = ind.name.value if hasattr(ind.name, "value") else str(ind.name)
         needed[(ind_name, _params_key(ind.params or {}))] = (ind_name, ind.params or {})
     series_cache: dict = {}
+    # ---- calculated reference levels + M1 momentum (timeframe-independent)
+    reqs = ir.get("data_requirements") or {}
+    ref_levels = list(reqs.get("reference_levels") or [])
+    need_momentum = bool(reqs.get("m1_momentum"))
+    if not ref_levels or not need_momentum:
+        found = {"levels": [], "momentum": False}
+        def _scan(node):
+            if isinstance(node, dict):
+                if node.get("kind") == "reference" and node.get("level") not in found["levels"]:
+                    found["levels"].append(node.get("level"))
+                if node.get("kind") == "momentum":
+                    found["momentum"] = True
+                for v in node.values():
+                    _scan(v)
+            elif isinstance(node, list):
+                for v in node:
+                    _scan(v)
+        _scan(ir.get("entry"))
+        for _r in ir.get("ordered_exit_rules") or []:
+            _scan(_r.get("condition"))
+        ref_levels = ref_levels or found["levels"]
+        need_momentum = need_momentum or found["momentum"]
+    tf_seconds = TF_SECONDS.get(str((ir.get("strategy") or {}).get("timeframe") or "H1"), 3600)
+    if ref_levels:
+        source = aux_candles if aux_candles else candles
+        for level, series in compute_reference_series(
+                ref_levels, candles, source, tf_seconds).items():
+            series_cache[("__reference__", level)] = series
+    if need_momentum:
+        series_cache[("__momentum__", "M1")] = compute_momentum_series(
+            candles, aux_candles, tf_seconds)
     for key, (name, params) in needed.items():
         try:
             series_cache[key] = compute_indicator(name, params, candles)

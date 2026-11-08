@@ -50,8 +50,22 @@ describe('DeepTesting refined layout', () => {
       expect(screen.getByLabelText(label)).toBeTruthy()
     }
     expect(screen.getByText(/TESTED/)).toBeTruthy() // latest mock run is DONE + TESTED
+    // offsets are PENDING until the node's Apply is clicked (Part 4)
     fireEvent.change(screen.getByLabelText(/TP plus node 1/i), { target: { value: '50' } })
+    expect(screen.getByText('pending')).toBeTruthy()
+    expect(screen.queryAllByText(/Individual node/).length).toBe(0)
+    fireEvent.click(screen.getByLabelText(/Apply offsets node 1/i))
     expect(screen.getAllByText(/Individual node/).length).toBeGreaterThan(0)
+  })
+
+  it('Hard Constraints edits stay pending until APPLY', async () => {
+    renderDT()
+    expect(await screen.findByText(/^Applied$/)).toBeTruthy()
+    fireEvent.change(screen.getByLabelText(/Global TP plus/i), { target: { value: '25' } })
+    expect(screen.getByText(/Pending changes — not applied yet/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /^APPLY$/i }))
+    expect(await screen.findByText(/^Applied$/)).toBeTruthy()
+    expect(screen.getByText(/global offsets SL \+0\/−0 · TP \+25\/−0 pips/)).toBeTruthy()
   })
 
   it('inspection: stats first, weekday/session grid, live filtered view, ONE equity curve', async () => {
@@ -65,6 +79,12 @@ describe('DeepTesting refined layout', () => {
     // unchecking Monday's ASIA session switches to a clearly-marked filtered view
     fireEvent.click(screen.getByLabelText(/Include Monday ASIA-LONDON/i))
     expect(await screen.findByText(/FILTERED VIEW/)).toBeTruthy()
+    // whole-box click toggles too: clicking the Tuesday ASIA cell removes its trade
+    const tueAsiaCell = screen.getByLabelText('Include Tuesday ASIA').closest('td') as HTMLElement
+    fireEvent.click(tueAsiaCell)
+    expect((screen.getByLabelText('Include Tuesday ASIA') as HTMLInputElement).checked).toBe(false)
+    fireEvent.click(tueAsiaCell) // restore so the equity curve has data again
+    expect((screen.getByLabelText('Include Tuesday ASIA') as HTMLInputElement).checked).toBe(true)
     expect(screen.getByRole('button', { name: /SAVE FILTERS AS SCENARIO/i })).toBeTruthy()
     expect(screen.getByLabelText(/Equity curve/)).toBeTruthy()
   })
@@ -95,6 +115,22 @@ describe('DeepTesting refined layout', () => {
     fireEvent.click(screen.getByLabelText('Include Tuesday ASIA'))
     expect(aggCells()[0].textContent).toContain('0 trades') // updates dynamically
     expect(aggCells()[1].textContent).toContain('0 trades')
+  })
+
+  it('whole session heading toggles across days; DESELECT -VE NET BOXES works', async () => {
+    renderDT()
+    fireEvent.click(await screen.findByRole('button', { name: /^Inspect$/i }))
+    await screen.findByText(/Inspection — Acceptance Node/i)
+    // mock trade is Tuesday ASIA with net +200: session heading click clears it everywhere
+    fireEvent.click(screen.getByLabelText('Include ASIA all days'))
+    expect((screen.getByLabelText('Include Tuesday ASIA') as HTMLInputElement).checked).toBe(false)
+    fireEvent.click(screen.getByLabelText('Include ASIA all days'))
+    expect((screen.getByLabelText('Include Tuesday ASIA') as HTMLInputElement).checked).toBe(true)
+    // +200 net is positive: negative-net deselect must leave it selected
+    fireEvent.click(screen.getByRole('button', { name: /DESELECT -VE NET BOXES/i }))
+    expect((screen.getByLabelText('Include Tuesday ASIA') as HTMLInputElement).checked).toBe(true)
+    expect(screen.getAllByRole('button', { name: /DESELECT ALL/i }).length).toBeGreaterThan(0)
+    expect(screen.getByRole('button', { name: /SELECT ALL DAYS\/SESSIONS/i })).toBeTruthy()
   })
 
   it('scenario modal summarizes selections and saves', async () => {

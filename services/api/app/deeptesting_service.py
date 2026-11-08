@@ -139,6 +139,12 @@ def resolve_offsets(config: dict, node_id: int, spec: dict,
     indiv = (config.get("node_offsets") or {}).get(str(node_id)) or {}
     out: Dict[str, Any] = {"warnings": []}
     exits = spec.get("exits") or {}
+    # The strategy's own declared SL/TP, recorded verbatim for the Inspect
+    # 'original strategy' display (distance descriptor or ratio; null when
+    # the strategy declares none - offsets are then reported NOT applied).
+    out["strategy"] = {
+        kind: (exits.get(key) or None) for kind, key in
+        (("sl", "stop_loss"), ("tp", "take_profit"))}
     declared = {"tp": bool((exits.get("take_profit") or {})),
                 "sl": bool((exits.get("stop_loss") or {}))}
     for kind in ("tp", "sl"):
@@ -230,14 +236,23 @@ def execute_run(session: Session, *, instrument: str, node: im.Node,
         if bounds is None:
             raise DeepTestError("DATA_BLOCKED",
                                 f"no eligible candles stored for {instrument} {tf}; nothing to test")
-        # PARTIAL TESTING: clamp the requested window to actually available
-        # data. Partial == the requested start precedes the first stored
-        # candle (requested duration exceeds history). The end anchors to
-        # the latest available candle and is never 'missing'.
-        start_ts = max(int(req_start), bounds["first_ts"]) if req_start else bounds["first_ts"]
+        # DATE WINDOW (Part 10): the requested end anchors to the LATEST
+        # eligible candle of this node's own instrument/timeframe - never
+        # to wall-clock 'now'. When the caller asked beyond the data end,
+        # the whole window re-anchors (start = latest - requested duration)
+        # so a duration button always means 'that much history ending at
+        # the last candle'. PARTIAL TESTING: if the (anchored) requested
+        # start precedes the first stored candle, ALL available eligible
+        # data is tested and the run is PARTIAL_TESTED - never labelled
+        # TESTED, never blocked merely for short history.
         end_ts = min(int(req_end), bounds["last_ts"]) if req_end else bounds["last_ts"]
-        partial = bool(req_start) and int(req_start) < bounds["first_ts"]
-        config = {**config, "requested_range": {"start": req_start, "end": req_end},
+        if req_end and int(req_end) > bounds["last_ts"] and req_start:
+            anchored_start = end_ts - (int(req_end) - int(req_start))
+        else:
+            anchored_start = int(req_start) if req_start else bounds["first_ts"]
+        start_ts = max(anchored_start, bounds["first_ts"])
+        partial = anchored_start < bounds["first_ts"]
+        config = {**config, "requested_range": {"start": anchored_start, "end": end_ts},
                   "actual_range": {"start": start_ts, "end": end_ts},
                   "coverage_status": "PARTIAL_TESTED" if partial else "TESTED",
                   "candles_available": bounds["candles"]}
@@ -305,6 +320,24 @@ def execute_run(session: Session, *, instrument: str, node: im.Node,
         # Multi-window modes execute per window and persist per-window runs;
         # this row represents the first window; siblings are created below.
         first = True
+        reqs = (compiled.ir or {}).get("data_requirements") or {}
+        aux_candles = None
+        if reqs.get("reference_levels") or reqs.get("m1_momentum"):
+            # Finest series (M1) for timeframe-independent reference levels
+            # and M1 momentum; widened backwards so previous-day/session
+            # levels exist from the first tested bar. Absence is recorded,
+            # never silently substituted (momentum stays unevaluable).
+            aux_candles = load_candles(instrument, "M1",
+                                       int(start_ts) - 4 * 86400, int(end_ts)) or None
+            _assump = json.loads(run.assumptions_json or "{}")
+            _assump["reference_data_basis"] = (
+                "M1 candles (finest series) for reference levels and M1 momentum"
+                if aux_candles else
+                "M1 unavailable: reference levels fall back to the node timeframe; "
+                "M1 momentum is NOT substituted and stays unevaluable (no entries)")
+            _assump["data_requirements"] = reqs
+            run.assumptions_json = json.dumps(_assump)
+            session.commit()
         for window in windows:
             candles = load_candles(instrument, tf, window["start"], window["end"])
             if len(candles) > MAX_CANDLES_PER_RUN:
@@ -314,7 +347,8 @@ def execute_run(session: Session, *, instrument: str, node: im.Node,
             if spec.get("management"):
                 mgmt = TradeManagement.model_validate(spec["management"])
             result = run_backtest(ir=compiled.ir, candles=candles, cfg=rcfg,
-                                  instrument=spec_meta, price_ctx=price_ctx, management=mgmt)
+                                  instrument=spec_meta, price_ctx=price_ctx, management=mgmt,
+                                  aux_candles=aux_candles)
             metrics = compute_metrics(result["trades"], result["equity_curve"], rcfg.initial_capital)
             metrics["candles_tested"] = len(candles)
             metrics["coverage_status"] = config.get("coverage_status")

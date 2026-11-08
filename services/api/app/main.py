@@ -40,6 +40,18 @@ async def lifespan(app: FastAPI):
         log.info("market-data baseline check", extra={"baseline": str(_baseline)[:500]})
     except Exception:
         log.exception("market-data baseline check failed (continuing without it)")
+    try:  # official seed nodes (NODE 1) - idempotent, never overwrites user edits
+        from app import seed_nodes
+        from hero1_storage.engine import instrument_session
+        _seed_session = instrument_session(seed_nodes.SEED_INSTRUMENT)
+        try:
+            _created = seed_nodes.ensure_seed_nodes(_seed_session, seed_nodes.SEED_INSTRUMENT)
+            if _created:
+                log.info("seed nodes created", extra={"seed_created_ids": _created})
+        finally:
+            _seed_session.close()
+    except Exception:
+        log.exception("seed-node check failed (continuing without it)")
     try:  # automatic MT5 connection (ISSUE-056): background, bounded retries
         from app import mt5_autoconnect
         mt5_autoconnect.start_auto_connect()

@@ -74,6 +74,10 @@ def semantic_canonical(data: Any) -> str:
     if isinstance(exits, dict) and not exits.get("exit_rules"):
         exits = {k: v for k, v in exits.items() if k != "exit_rules"}
         payload = {**payload, "exits": exits}
+    execution = payload.get("execution")
+    if isinstance(execution, dict) and execution.get("entry_side_rule") is None:
+        execution = {k: v for k, v in execution.items() if k != "entry_side_rule"}
+        payload = {**payload, "execution": execution}
     ident = payload.get("identity")
     if isinstance(ident, dict):
         ident = {k: v for k, v in ident.items() if k not in PRESENTATION_IDENTITY_FIELDS}
@@ -85,6 +89,40 @@ def semantic_fingerprint(spec: "StrategySpec") -> Tuple[str, str]:
     """(fingerprint, semantic canonical JSON) for an already-validated spec."""
     canon = semantic_canonical(spec.model_dump(mode="json"))
     return hashlib.sha256(canon.encode("utf-8")).hexdigest(), canon
+
+
+def _data_requirements(spec: StrategySpec) -> dict:
+    levels: list[str] = []
+    momentum = False
+    trees = [spec.entry]
+    if spec.exits.explicit_exit is not None:
+        trees.append(spec.exits.explicit_exit)
+    trees.extend(r.condition for r in spec.exits.exit_rules)
+    stack = list(trees)
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            stack.extend(node.values())
+        elif isinstance(node, list):
+            stack.extend(node)
+        elif hasattr(node, "model_dump"):
+            stack.append(node.model_dump(mode="json"))
+    # walk the dumped JSON form (uniform for dicts and models)
+    def scan(node: Any) -> None:
+        nonlocal momentum
+        if isinstance(node, dict):
+            if node.get("kind") == "reference" and node.get("level") not in levels:
+                levels.append(str(node.get("level")))
+            if node.get("kind") == "momentum":
+                momentum = True
+            for v in node.values():
+                scan(v)
+        elif isinstance(node, list):
+            for v in node:
+                scan(v)
+    for t in trees:
+        scan(t.model_dump(mode="json"))
+    return {"reference_levels": sorted(levels), "m1_momentum": momentum}
 
 
 def compile_spec(data: Any, *, expected_instrument: Optional[str] = None,
@@ -141,7 +179,10 @@ def compile_spec(data: Any, *, expected_instrument: Optional[str] = None,
                 "condition": r.condition.model_dump(mode="json")}
                for r in sorted(spec.exits.exit_rules, key=lambda r: r.priority)]),
         "risk": spec.risk.model_dump(mode="json", exclude_none=True),
-        "execution": spec.execution.model_dump(mode="json"),
+        "execution": spec.execution.model_dump(mode="json", exclude_none=True),
+        # Data the engine must load beyond the node's own candles: calculated
+        # reference levels and/or M1 momentum (timeframe-independent).
+        "data_requirements": _data_requirements(spec),
     }
 
     return CompileResult(

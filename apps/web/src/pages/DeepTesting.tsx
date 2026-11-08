@@ -15,6 +15,13 @@ import { applySort, loadSortPref, nextSortState, saveSortPref, type SortColumn, 
  */
 
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'] as const
+/** Grid columns: Mon-Fri plus an explicit UNASSIGNED bucket. Trades whose
+ * entry falls on a weekend (e.g. Sunday-evening market open) are NEVER
+ * silently dropped from the breakdown - they land in UNASSIGNED so the
+ * weekday/session totals always reconcile with the main statistics. */
+const COL_DAYS: string[] = [...WEEKDAYS, 'UNASSIGNED']
+export const weekdayOf = (t: any): string =>
+  WEEKDAYS[new Date(t.entry_ts * 1000).getUTCDay() - 1] ?? 'UNASSIGNED'
 const SESSION_ROWS = ['TOTAL DAY', 'ASIA', 'ASIA-LONDON', 'LONDON', 'LONDON-NY', 'NY'] as const
 const DURATIONS = [
   { label: '1 Week', days: 7 }, { label: '2 Weeks', days: 14 },
@@ -36,6 +43,13 @@ export function sessionCell(ts: number): string {
   return 'NY'
 }
 
+const fmtDist = (d: any): string => {
+  if (!d) return 'none declared'
+  if (d.ratio !== null && d.ratio !== undefined) return `SL distance x ${d.ratio} (ratio)`
+  const dist = d.distance ?? d
+  if (dist && typeof dist === 'object' && dist.value !== undefined) return `${dist.value} ${dist.unit}`
+  return 'declared'
+}
 const fmt = (v: unknown, d = 2): string =>
   v === null || v === undefined || (typeof v === 'number' && Number.isNaN(v))
     ? 'N/A' : typeof v === 'number' ? v.toLocaleString(undefined, { maximumFractionDigits: d }) : String(v)
@@ -111,10 +125,30 @@ export function DeepTesting() {
   const [riskBasis, setRiskBasis] = useState<'current_equity' | 'initial_capital'>(saved?.riskBasis ?? 'current_equity')
   const [maxActive, setMaxActive] = useState<number>(saved?.maxActive ?? 1)
   const [globalOff, setGlobalOff] = useState<Offsets>(saved?.globalOff ?? EMPTY_OFF)
-  useEffect(() => {
-    localStorage.setItem('hero1.dt.constraints', JSON.stringify(
-      { capital, currency, riskMode, riskValue, riskBasis, maxActive, globalOff }))
-  }, [capital, currency, riskMode, riskValue, riskBasis, maxActive, globalOff])
+  // APPLIED configuration: the ONLY values ever sent to the backend.
+  // Inputs above are pending until the user clicks APPLY (Part 4).
+  const [applied, setApplied] = useState(() => ({
+    capital: saved?.capital ?? 200000, currency: saved?.currency ?? 'USD',
+    riskMode: (saved?.riskMode ?? 'percent') as 'percent' | 'fixed',
+    riskValue: saved?.riskValue ?? 1,
+    riskBasis: (saved?.riskBasis ?? 'current_equity') as 'current_equity' | 'initial_capital',
+    maxActive: saved?.maxActive ?? 1, globalOff: saved?.globalOff ?? EMPTY_OFF,
+  }))
+  const pendingDirty = JSON.stringify({ capital, currency, riskMode, riskValue, riskBasis, maxActive, globalOff })
+    !== JSON.stringify(applied)
+  const applyConstraints = () => {
+    if (!(capital > 0)) { setNotice('Initial capital must be a positive amount.'); return }
+    if (!(riskValue > 0)) { setNotice('Risk per trade must be positive.'); return }
+    if (!(maxActive >= 1)) { setNotice('Maximum active trades must be at least 1.'); return }
+    const offVals = [globalOff.slPlus, globalOff.slMinus, globalOff.tpPlus, globalOff.tpMinus]
+    if (offVals.some((v) => v !== '' && !Number.isFinite(Number(v)))) {
+      setNotice('TP/SL offsets must be numeric values in pips.'); return
+    }
+    const next = { capital, currency, riskMode, riskValue, riskBasis, maxActive, globalOff }
+    setApplied(next)
+    localStorage.setItem('hero1.dt.constraints', JSON.stringify(next))
+    setNotice('Hard Constraints APPLIED — they take effect on the next DeepTesting execution. Existing results are not modified; rerun a node to produce a new result with these values.')
+  }
 
   /* ============ 2. RANGE BUTTONS ============ */
   const [duration, setDuration] = useState(365)
@@ -127,6 +161,21 @@ export function DeepTesting() {
     try { return JSON.parse(localStorage.getItem('hero1.dt.nodeOffsets2') ?? '{}') } catch { return {} }
   })
   useEffect(() => { localStorage.setItem('hero1.dt.nodeOffsets2', JSON.stringify(nodeOffsets)) }, [nodeOffsets])
+  // Per-node APPLIED offsets (pending row inputs apply only on confirmation)
+  const [appliedNodeOffsets, setAppliedNodeOffsets] = useState<Record<number, Offsets>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('hero1.dt.nodeOffsetsApplied') ?? 'null')
+        ?? JSON.parse(localStorage.getItem('hero1.dt.nodeOffsets2') ?? '{}')
+    } catch { return {} }
+  })
+  const applyNodeOffsets = (id: number) => {
+    const next = { ...appliedNodeOffsets, [id]: nodeOffsets[id] ?? EMPTY_OFF }
+    setAppliedNodeOffsets(next)
+    localStorage.setItem('hero1.dt.nodeOffsetsApplied', JSON.stringify(next))
+    setNotice(`Node #${id} offsets APPLIED — effective on its next DeepTesting run; other nodes are unaffected.`)
+  }
+  const nodePending = (id: number) =>
+    JSON.stringify(nodeOffsets[id] ?? EMPTY_OFF) !== JSON.stringify(appliedNodeOffsets[id] ?? EMPTY_OFF)
   const [fSearch, setFSearch] = useState('')
   const [fStarred, setFStarred] = useState('all')
   const [fOrigin, setFOrigin] = useState('')
@@ -145,9 +194,9 @@ export function DeepTesting() {
   const [activeRun, setActiveRun] = useState<any | null>(null)
   const [trades, setTrades] = useState<any[]>([])
   const [daySel, setDaySel] = useState<Record<string, boolean>>(
-    Object.fromEntries(WEEKDAYS.map((d) => [d, true])))
+    Object.fromEntries(COL_DAYS.map((d) => [d, true])))
   const [cellSel, setCellSel] = useState<Record<string, boolean>>(
-    Object.fromEntries(WEEKDAYS.flatMap((d) => SESSION_ROWS.slice(1).map((s) => [`${d}|${s}`, true]))))
+    Object.fromEntries(COL_DAYS.flatMap((d) => SESSION_ROWS.slice(1).map((s) => [`${d}|${s}`, true]))))
   const [scenarios, setScenarios] = useState<any[]>([])
   const [modal, setModal] = useState(false)
   const [scName, setScName] = useState('')
@@ -166,6 +215,23 @@ export function DeepTesting() {
     for (const r of runs) { const cur = map.get(r.node_id); if (!cur || r.id > cur.id) map.set(r.node_id, r) }
     return map
   }, [runs])
+
+  const runDiffersFromApplied = (r: any): boolean => {
+    const c = r?.config
+    if (!c) return false
+    const num = (v: any) => (v === null || v === undefined || v === '' ? 0 : Number(v))
+    const off = appliedNodeOffsets[r.node_id] ?? EMPTY_OFF
+    const no = (c.node_offsets ?? {})[String(r.node_id)] ?? {}
+    return num(c.initial_capital) !== applied.capital
+      || num(c.risk_value) !== applied.riskValue
+      || num(c.max_active_trades) !== applied.maxActive
+      || num(c.global_sl_plus_pips) !== num(applied.globalOff.slPlus)
+      || num(c.global_sl_minus_pips) !== num(applied.globalOff.slMinus)
+      || num(c.global_tp_plus_pips) !== num(applied.globalOff.tpPlus)
+      || num(c.global_tp_minus_pips) !== num(applied.globalOff.tpMinus)
+      || num(no.sl_plus_pips) !== num(off.slPlus) || num(no.sl_minus_pips) !== num(off.slMinus)
+      || num(no.tp_plus_pips) !== num(off.tpPlus) || num(no.tp_minus_pips) !== num(off.tpMinus)
+  }
 
   const testingStatus = (r: any): string => {
     if (!r) return 'UNTESTED'
@@ -233,8 +299,8 @@ export function DeepTesting() {
     return { plus, minus, set: plus !== '' || minus !== '' }
   }
   const offsetSource = (nodeId: number, kind: 'sl' | 'tp'): string => {
-    if (pair(nodeOffsets[nodeId] ?? EMPTY_OFF, kind).set) return 'Individual node'
-    if (pair(globalOff, kind).set) return 'Global DeepTesting'
+    if (pair(appliedNodeOffsets[nodeId] ?? EMPTY_OFF, kind).set) return 'Individual node'
+    if (pair(applied.globalOff, kind).set) return 'Global DeepTesting'
     return 'Strategy'
   }
 
@@ -243,14 +309,14 @@ export function DeepTesting() {
     return {
       mode: 'initial',
       range: { start: end - duration * 86400, end },
-      initial_capital: capital, account_currency: currency,
-      risk_mode: riskMode, risk_value: riskValue, risk_basis: riskBasis,
-      max_active_trades: maxActive,
-      global_sl_plus_pips: globalOff.slPlus === '' ? null : Number(globalOff.slPlus),
-      global_sl_minus_pips: globalOff.slMinus === '' ? null : Number(globalOff.slMinus),
-      global_tp_plus_pips: globalOff.tpPlus === '' ? null : Number(globalOff.tpPlus),
-      global_tp_minus_pips: globalOff.tpMinus === '' ? null : Number(globalOff.tpMinus),
-      node_offsets: Object.fromEntries(Object.entries(nodeOffsets).map(([id, o]) => [id, {
+      initial_capital: applied.capital, account_currency: applied.currency,
+      risk_mode: applied.riskMode, risk_value: applied.riskValue, risk_basis: applied.riskBasis,
+      max_active_trades: applied.maxActive,
+      global_sl_plus_pips: applied.globalOff.slPlus === '' ? null : Number(applied.globalOff.slPlus),
+      global_sl_minus_pips: applied.globalOff.slMinus === '' ? null : Number(applied.globalOff.slMinus),
+      global_tp_plus_pips: applied.globalOff.tpPlus === '' ? null : Number(applied.globalOff.tpPlus),
+      global_tp_minus_pips: applied.globalOff.tpMinus === '' ? null : Number(applied.globalOff.tpMinus),
+      node_offsets: Object.fromEntries(Object.entries(appliedNodeOffsets).map(([id, o]) => [id, {
         sl_plus_pips: o.slPlus === '' ? null : Number(o.slPlus),
         sl_minus_pips: o.slMinus === '' ? null : Number(o.slMinus),
         tp_plus_pips: o.tpPlus === '' ? null : Number(o.tpPlus),
@@ -291,18 +357,15 @@ export function DeepTesting() {
   }
 
   /* ---- weekday/session engine over REAL trades ---- */
-  const cellKey = (t: any) => {
-    const wd = WEEKDAYS[new Date(t.entry_ts * 1000).getUTCDay() - 1]
-    return wd ? `${wd}|${sessionCell(t.entry_ts)}` : null
-  }
+  const cellKey = (t: any) => `${weekdayOf(t)}|${sessionCell(t.entry_ts)}`
   const isFilteredActive = useMemo(() =>
     Object.values(daySel).some((v) => !v) || Object.values(cellSel).some((v) => !v),
     [daySel, cellSel])
   const filteredTrades = useMemo(() => {
     if (!isFilteredActive) return trades
     return trades.filter((t) => {
-      const wd = WEEKDAYS[new Date(t.entry_ts * 1000).getUTCDay() - 1]
-      if (!wd || !daySel[wd]) return false
+      const wd = weekdayOf(t)
+      if (!daySel[wd]) return false
       if (!cellSel[`${wd}|${sessionCell(t.entry_ts)}`]) return false
       return true
     })
@@ -322,11 +385,40 @@ export function DeepTesting() {
   // Aggregate statistics across the CURRENTLY SELECTED weekdays/sessions
   // (same fields as every weekday/session cell; each trade counted once).
   const aggStats = (session: string) => cellStats(trades.filter((t) => {
-    const wd = WEEKDAYS[new Date(t.entry_ts * 1000).getUTCDay() - 1]
-    if (!wd || !daySel[wd] || !cellSel[`${wd}|${sessionCell(t.entry_ts)}`]) return false
+    const wd = weekdayOf(t)
+    if (!daySel[wd] || !cellSel[`${wd}|${sessionCell(t.entry_ts)}`]) return false
     return session === 'TOTAL DAY' || sessionCell(t.entry_ts) === session
   }))
 
+  // Deselect every visible weekday/session box whose net P/L is negative
+  const deselectNegative = () => {
+    const nd = { ...daySel }; const nc = { ...cellSel }
+    for (const d of COL_DAYS) {
+      const dayTrades = trades.filter((t) => weekdayOf(t) === d)
+      if (dayTrades.length && cellStats(dayTrades).net < 0) {
+        nd[d] = false
+        for (const s2 of SESSION_ROWS.slice(1)) nc[`${d}|${s2}`] = false
+        continue
+      }
+      for (const s2 of SESSION_ROWS.slice(1)) {
+        const list = trades.filter((t) => cellKey(t) === `${d}|${s2}`)
+        if (list.length && cellStats(list).net < 0) nc[`${d}|${s2}`] = false
+      }
+    }
+    setDaySel(nd); setCellSel(nc)
+  }
+  const toggleDay = (d: string, v: boolean) => {
+    setDaySel({ ...daySel, [d]: v })
+    setCellSel({ ...cellSel, ...Object.fromEntries(SESSION_ROWS.slice(1).map((s2) => [`${d}|${s2}`, v])) })
+  }
+  const toggleSessionAll = (session: string, v: boolean) =>
+    setCellSel({ ...cellSel, ...Object.fromEntries(COL_DAYS.map((d) => [`${d}|${session}`, v])) })
+  const sessionState = (session: string) => {
+    const vals = COL_DAYS.map((d) => !!cellSel[`${d}|${session}`])
+    return { all: vals.every(Boolean), some: vals.some(Boolean) }
+  }
+
+  const runCapital = activeRun?.metrics?.initial_capital ?? applied.capital
   const filteredStats = useMemo(() => {
     const g = [...filteredTrades].sort((a, b) => a.exit_ts - b.exit_ts)
     const base = cellStats(g)
@@ -352,11 +444,11 @@ export function DeepTesting() {
              largestWin: wins.length ? Math.max(...wins.map((t) => t.net_pnl)) : null,
              largestLoss: losses.length ? Math.min(...losses.map((t) => t.net_pnl)) : null,
              avgHolding: g.length ? g.reduce((a, t) => a + t.holding_seconds, 0) / g.length : null,
-             maxDd, maxDdPct: (capital + peak) > 0 ? (maxDd / (capital + peak)) * 100 : null,
+             maxDd, maxDdPct: (runCapital + peak) > 0 ? (maxDd / (runCapital + peak)) * 100 : null,
              avgDd: ddMarks.length ? ddMarks.reduce((a, b) => a + b, 0) / ddMarks.length : 0,
              currentDd: peak - cum, maxW, maxL, curW, curL, maxLossAmt,
-             balance: capital + base.net }
-  }, [filteredTrades, capital])
+             balance: runCapital + base.net }
+  }, [filteredTrades, runCapital])
 
   const m = activeRun?.metrics
   const stats = isFilteredActive ? {
@@ -367,14 +459,14 @@ export function DeepTesting() {
     avg_win: filteredStats.avgWin, avg_loss: filteredStats.avgLoss,
     expectancy: filteredStats.expectancy, largest_win: filteredStats.largestWin,
     largest_loss: filteredStats.largestLoss, avg_holding_seconds: filteredStats.avgHolding,
-    initial_capital: capital, final_balance: filteredStats.balance,
-    final_equity: filteredStats.balance, return_pct: (filteredStats.net / capital) * 100,
+    initial_capital: runCapital, final_balance: filteredStats.balance,
+    final_equity: filteredStats.balance, return_pct: runCapital > 0 ? (filteredStats.net / runCapital) * 100 : null,
     max_drawdown_amount: filteredStats.maxDd, max_drawdown_pct: filteredStats.maxDdPct,
     avg_drawdown_amount: filteredStats.avgDd, current_drawdown_amount: filteredStats.currentDd,
     max_consecutive_wins: filteredStats.maxW, max_consecutive_losses: filteredStats.maxL,
     max_consecutive_loss_amount: filteredStats.maxLossAmt,
-    max_consecutive_loss_pct: (m?.initial_capital ?? capital) > 0
-      ? (filteredStats.maxLossAmt / (m?.initial_capital ?? capital)) * 100 : null,
+    max_consecutive_loss_pct: (m?.initial_capital ?? runCapital) > 0
+      ? (filteredStats.maxLossAmt / (m?.initial_capital ?? runCapital)) * 100 : null,
     current_streak: filteredStats.curW ? `W × ${filteredStats.curW}` : filteredStats.curL ? `L × ${filteredStats.curL}` : '—',
     max_simultaneous: 'N/A (filter view)', max_planned_open_risk: 'N/A (filter view)',
   } : m ? {
@@ -398,8 +490,8 @@ export function DeepTesting() {
   const equityPoints = useMemo(() => {
     if (isFilteredActive) {
       const sorted = [...filteredTrades].sort((a, b) => a.exit_ts - b.exit_ts)
-      let cum = capital
-      const pts = [{ x: sorted[0]?.entry_ts ?? 0, y: capital, title: `start · equity ${fmt(capital, 0)}` }]
+      let cum = runCapital
+      const pts = [{ x: sorted[0]?.entry_ts ?? 0, y: runCapital, title: `start · equity ${fmt(runCapital, 0)}` }]
       for (const t of sorted) {
         cum += t.net_pnl
         pts.push({ x: t.exit_ts, y: cum, title: `${tsFmt(t.exit_ts)} · equity ${fmt(cum)} · trade ${fmt(t.net_pnl)}` })
@@ -410,11 +502,16 @@ export function DeepTesting() {
       x: e.ts, y: e.equity,
       title: `${tsFmt(e.ts)} · equity ${fmt(e.equity)} · balance ${fmt(e.balance)} · open ${e.open_positions}`,
     }))
-  }, [activeRun, filteredTrades, isFilteredActive, capital])
+  }, [activeRun, filteredTrades, isFilteredActive, runCapital])
 
   const dayCheckboxRefs = useRef<Record<string, HTMLInputElement | null>>({})
+  const sessionCheckboxRefs = useRef<Record<string, HTMLInputElement | null>>({})
   useEffect(() => {
-    for (const d of WEEKDAYS) {
+    for (const s2 of SESSION_ROWS.slice(1)) {
+      const el = sessionCheckboxRefs.current[s2]
+      if (el) { const st = sessionState(s2); el.indeterminate = st.some && !st.all }
+    }
+    for (const d of COL_DAYS) {
       const el = dayCheckboxRefs.current[d]
       if (!el) continue
       const kids = SESSION_ROWS.slice(1).map((s) => cellSel[`${d}|${s}`])
@@ -449,8 +546,11 @@ export function DeepTesting() {
   }
 
   const openScenario = async (sc: any) => {
-    if (sc.config?.day_selections) setDaySel(sc.config.day_selections)
-    if (sc.config?.session_selections) setCellSel(sc.config.session_selections)
+    if (sc.config?.day_selections) setDaySel({
+      ...Object.fromEntries(COL_DAYS.map((d) => [d, true])), ...sc.config.day_selections })
+    if (sc.config?.session_selections) setCellSel({
+      ...Object.fromEntries(COL_DAYS.flatMap((d) => SESSION_ROWS.slice(1).map((s2) => [`${d}|${s2}`, true]))),
+      ...sc.config.session_selections })
     if (sc.config?.source_run_id) await openNodeRun(inspectId!, sc.config.source_run_id)
     setNotice(`Scenario "${sc.name}" loaded — checkbox states restored exactly as saved (scenario #${sc.id}, deeptesting-scenario/v1).`)
   }
@@ -520,6 +620,17 @@ export function DeepTesting() {
             {offInput('TP + (Away from Entry)', globalOff.tpPlus, (v) => setGlobalOff({ ...globalOff, tpPlus: v }), 'Global TP plus offset')}
             {offInput('TP − (Closer to Entry)', globalOff.tpMinus, (v) => setGlobalOff({ ...globalOff, tpMinus: v }), 'Global TP minus offset')}
           </fieldset>
+        </div>
+        <div className="dt-toolbar">
+          <button type="button" className="btn btn-primary" onClick={applyConstraints}>APPLY</button>
+          {pendingDirty
+            ? <span className="chip chip-partial-tested">Pending changes — not applied yet</span>
+            : <span className="chip">Applied</span>}
+          <span className="faint micro">
+            Applied: {fmt(applied.capital, 0)} {applied.currency} · risk {applied.riskMode === 'percent' ? `${applied.riskValue}%` : fmt(applied.riskValue)} ({applied.riskBasis}) · max active {applied.maxActive}
+            · global offsets SL +{applied.globalOff.slPlus || 0}/−{applied.globalOff.slMinus || 0} · TP +{applied.globalOff.tpPlus || 0}/−{applied.globalOff.tpMinus || 0} pips.
+            Edits stay pending until APPLY; applied values drive the next run and are recorded in its result.
+          </span>
         </div>
       </section>
 
@@ -591,7 +702,10 @@ export function DeepTesting() {
                     <td><input className="input input-xs num dt-off-in" type="number" step="any" aria-label={`SL minus node ${n.id}`} value={off.slMinus} onChange={(e) => setOff({ slMinus: e.target.value })} /></td>
                     <td><input className="input input-xs num dt-off-in" type="number" step="any" aria-label={`TP plus node ${n.id}`} value={off.tpPlus} onChange={(e) => setOff({ tpPlus: e.target.value })} /></td>
                     <td><input className="input input-xs num dt-off-in" type="number" step="any" aria-label={`TP minus node ${n.id}`} value={off.tpMinus} onChange={(e) => setOff({ tpMinus: e.target.value })} /></td>
-                    <td className="faint micro">SL: {offsetSource(n.id, 'sl')}<br />TP: {offsetSource(n.id, 'tp')}</td>
+                    <td className="faint micro">SL: {offsetSource(n.id, 'sl')}<br />TP: {offsetSource(n.id, 'tp')}<br />
+                      <button type="button" className="btn btn-ghost btn-xs" aria-label={`Apply offsets node ${n.id}`}
+                              onClick={() => applyNodeOffsets(n.id)}>Apply</button>
+                      {nodePending(n.id) && <span className="chip chip-partial-tested">pending</span>}</td>
                     <td>{fmt(r.total_trades, 0)}</td><td>{r.win_rate != null ? `${fmt(r.win_rate * 100, 1)}%` : 'N/A'}</td>
                     <td>{fmt(r.net_profit)}</td><td>{fmt(r.profit_factor, 3)}</td><td>{fmt(r.expectancy)}</td>
                     <td>{fmt(r.max_drawdown_amount)}</td><td>{fmt(r.max_drawdown_pct)}</td>
@@ -637,8 +751,32 @@ export function DeepTesting() {
                 {(activeRun.assumptions?.effective_offsets?.warnings ?? []).map((w: string) => <span key={w} className="field-error"> {w}</span>)}
                 {isFilteredActive
                   ? <span className="chip chip-partial-tested"> FILTERED VIEW — statistics below are recalculated from the {filteredTrades.length} matching trades; the original run is untouched</span>
-                  : <span className="chip"> ORIGINAL full DeepTesting result</span>}
+                  : runDiffersFromApplied(activeRun)
+                    ? <span className="chip chip-partial-tested"> ORIGINAL result — generated with different applied constraints; rerun to use the current settings</span>
+                    : <span className="chip"> ORIGINAL full DeepTesting result</span>}
               </p>
+
+              {(() => {
+                const eff = activeRun.assumptions?.effective_offsets ?? {}
+                const strat = eff.strategy ?? {}
+                const rc = activeRun.config ?? {}
+                const rno = (rc.node_offsets ?? {})[String(inspectId)] ?? {}
+                return (
+                  <table className="node-table" aria-label="Effective offsets">
+                    <tbody>
+                      <tr><th colSpan={4}>Effective offsets — values used by this result (pending edits are NOT shown here)</th></tr>
+                      <tr><td>Original strategy SL / TP</td><td>{fmtDist(strat.sl)} / {fmtDist(strat.tp)}</td>
+                          <td>Source</td><td>strategy</td></tr>
+                      <tr><td>Global offsets (as run)</td><td colSpan={3}>SL +{rc.global_sl_plus_pips ?? 0} / −{rc.global_sl_minus_pips ?? 0} · TP +{rc.global_tp_plus_pips ?? 0} / −{rc.global_tp_minus_pips ?? 0} pips</td></tr>
+                      <tr><td>Node offsets (as run)</td><td colSpan={3}>SL +{rno.sl_plus_pips ?? 0} / −{rno.sl_minus_pips ?? 0} · TP +{rno.tp_plus_pips ?? 0} / −{rno.tp_minus_pips ?? 0} pips</td></tr>
+                      <tr><td>Effective SL offset</td><td>{eff.sl?.offset_pips ?? 0} pips ({eff.sl?.source ?? 'strategy'})</td>
+                          <td>Effective TP offset</td><td>{eff.tp?.offset_pips ?? 0} pips ({eff.tp?.source ?? 'strategy'})</td></tr>
+                      {(eff.warnings ?? []).map((w: string) => (
+                        <tr key={w}><td colSpan={4} className="field-error">{w}</td></tr>))}
+                    </tbody>
+                  </table>
+                )
+              })()}
 
               {/* complete statistics — ONE compact table, stats first */}
               <table className="node-table" aria-label="Complete statistics">
@@ -664,53 +802,68 @@ export function DeepTesting() {
                 </tbody>
               </table>
 
-              {/* weekday/session filter table */}
+              {/* weekday/session filter table — whole boxes clickable */}
               <div className="dt-table-scroll">
                 <table className="node-table dt-session-grid" aria-label="Weekday and session filters">
-                  <thead><tr><th>Session</th>{WEEKDAYS.map((d) => (
-                    <th key={d}>
-                      <label className="check small"><input type="checkbox"
+                  <thead><tr><th>Session</th>{COL_DAYS.map((d) => (
+                    <th key={d} className="dt-clickable" onClick={() => toggleDay(d, !daySel[d])}>
+                      <label className="check small" onClick={(e) => e.stopPropagation()}><input type="checkbox"
                         ref={(el) => { dayCheckboxRefs.current[d] = el }}
-                        checked={daySel[d]} aria-label={`Include ${d}`}
-                        onChange={(e) => {
-                          const v = e.target.checked
-                          setDaySel({ ...daySel, [d]: v })
-                          setCellSel({ ...cellSel, ...Object.fromEntries(SESSION_ROWS.slice(1).map((s) => [`${d}|${s}`, v])) })
-                        }} /> {d}</label>
+                        checked={!!daySel[d]} aria-label={`Include ${d}`}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => toggleDay(d, e.target.checked)} /> {d === 'UNASSIGNED' ? 'UNASSIGNED (weekend)' : d}</label>
                     </th>))}
                     <th>TOTAL — selected days</th>
                   </tr></thead>
                   <tbody>
                     {SESSION_ROWS.map((session) => (
                       <tr key={session}>
-                        <th>{session}</th>
-                        {WEEKDAYS.map((d) => {
+                        {session === 'TOTAL DAY'
+                          ? <th>TOTAL DAY</th>
+                          : <th className="dt-clickable" onClick={() => toggleSessionAll(session, !sessionState(session).all)}>
+                              <label className="check small" onClick={(e) => e.stopPropagation()}><input type="checkbox"
+                                ref={(el) => { sessionCheckboxRefs.current[session] = el }}
+                                checked={sessionState(session).all} aria-label={`Include ${session} all days`}
+                                onClick={(e) => e.stopPropagation()}
+                                onChange={(e) => toggleSessionAll(session, e.target.checked)} /> {session}</label>
+                            </th>}
+                        {COL_DAYS.map((d) => {
                           const list = session === 'TOTAL DAY'
-                            ? trades.filter((t) => WEEKDAYS[new Date(t.entry_ts * 1000).getUTCDay() - 1] === d)
+                            ? trades.filter((t) => weekdayOf(t) === d)
                             : trades.filter((t) => cellKey(t) === `${d}|${session}`)
                           const st = cellStats(list)
                           const key = `${d}|${session}`
+                          const netCls = st.net > 0 ? 'dt-net-pos' : st.net < 0 ? 'dt-net-neg' : 'dt-net-zero'
                           return (
-                            <td key={key} className={session !== 'TOTAL DAY' && !cellSel[key] ? 'dt-cell-off' : ''}>
-                              {session !== 'TOTAL DAY' && (
-                                <label className="check small"><input type="checkbox" checked={cellSel[key]}
-                                  aria-label={`Include ${d} ${session}`}
-                                  onChange={(e) => setCellSel({ ...cellSel, [key]: e.target.checked })} /> </label>
-                              )}
-                              <span className="dt-cell-stats">
-                                {st.trades} trades · {st.wins}W/{st.losses}L/{st.be}BE<br />
-                                WR {st.winRate != null ? `${fmt(st.winRate * 100, 0)}%` : 'N/A'} · PF {fmt(st.pf, 2)}<br />
-                                GP {fmt(st.gp, 0)} · GL {fmt(st.gl, 0)} · <strong>Net {fmt(st.net, 0)}</strong>
+                            <td key={key}
+                                className={`dt-clickable ${session !== 'TOTAL DAY' && !cellSel[key] ? 'dt-cell-off' : ''}`}
+                                onClick={() => { if (session === 'TOTAL DAY') toggleDay(d, !daySel[d]); else setCellSel({ ...cellSel, [key]: !cellSel[key] }) }}>
+                              <span className="dt-cell-box">
+                                {session !== 'TOTAL DAY' && (
+                                  <input type="checkbox" checked={!!cellSel[key]}
+                                    aria-label={`Include ${d} ${session}`}
+                                    onClick={(e) => e.stopPropagation()}
+                                    onChange={(e) => setCellSel({ ...cellSel, [key]: e.target.checked })} />
+                                )}
+                                <span className="dt-cell-stats">
+                                  <span>{st.trades} trades · {st.wins}W/{st.losses}L/{st.be}BE</span>
+                                  <span>WR {st.winRate != null ? `${fmt(st.winRate * 100, 0)}%` : 'N/A'} · PF {fmt(st.pf, 2)}</span>
+                                  <span>GP {fmt(st.gp, 0)} · GL {fmt(st.gl, 0)}</span>
+                                  <span className={netCls}><strong>Net {fmt(st.net, 0)}</strong></span>
+                                </span>
                               </span>
                             </td>
                           )
                         })}
                         <td className="dt-agg">
-                          {(() => { const agg = aggStats(session); return (
-                          <span className="dt-cell-stats">
-                            {agg.trades} trades · {agg.wins}W/{agg.losses}L/{agg.be}BE<br />
-                            WR {agg.winRate != null ? `${fmt(agg.winRate * 100, 0)}%` : 'N/A'} · PF {fmt(agg.pf, 2)}<br />
-                            GP {fmt(agg.gp, 0)} · GL {fmt(agg.gl, 0)} · <strong>Net {fmt(agg.net, 0)}</strong>
+                          {(() => { const agg = aggStats(session); const netCls = agg.net > 0 ? 'dt-net-pos' : agg.net < 0 ? 'dt-net-neg' : 'dt-net-zero'; return (
+                          <span className="dt-cell-box">
+                            <span className="dt-cell-stats">
+                              <span>{agg.trades} trades · {agg.wins}W/{agg.losses}L/{agg.be}BE</span>
+                              <span>WR {agg.winRate != null ? `${fmt(agg.winRate * 100, 0)}%` : 'N/A'} · PF {fmt(agg.pf, 2)}</span>
+                              <span>GP {fmt(agg.gp, 0)} · GL {fmt(agg.gl, 0)}</span>
+                              <span className={netCls}><strong>Net {fmt(agg.net, 0)}</strong></span>
+                            </span>
                           </span>) })()}
                         </td>
                       </tr>
@@ -718,16 +871,17 @@ export function DeepTesting() {
                   </tbody>
                 </table>
               </div>
-              <p className="faint micro">Sessions are single-label UTC entry-time cells (ASIA 00–08 &amp; 22–24 · ASIA-LONDON 08–09 · LONDON 09–13 · LONDON-NY 13–17 · NY 17–22) so cells never double-count; totals always reconcile with unique trades. Unchecking a weekday excludes all its sessions; partial selection shows the weekday checkbox as indeterminate. Statistics and the equity curve recalculate live from the matching trades.</p>
+              <p className="faint micro">Click any box to toggle it: a weekday box toggles the whole day, a session heading toggles that session across all days, a cell toggles only that weekday/session. Sessions are single-label UTC entry-time cells (ASIA 22–08 · ASIA-LONDON 08–09 · LONDON 09–13 · LONDON-NY 13–17 · NY 17–22) so cells never double-count; weekend entries land in UNASSIGNED (weekend) instead of being dropped, so totals always reconcile with the trade ledger. Statistics and the equity curve recalculate live from the matching trades; the original result is never modified.</p>
               <div className="dt-toolbar">
                 <button type="button" className="btn btn-ghost btn-xs" onClick={() => {
-                  setDaySel(Object.fromEntries(WEEKDAYS.map((d) => [d, true])))
-                  setCellSel(Object.fromEntries(WEEKDAYS.flatMap((d) => SESSION_ROWS.slice(1).map((s) => [`${d}|${s}`, true]))))
-                }}>Select all days/sessions</button>
+                  setDaySel(Object.fromEntries(COL_DAYS.map((d) => [d, true])))
+                  setCellSel(Object.fromEntries(COL_DAYS.flatMap((d) => SESSION_ROWS.slice(1).map((s) => [`${d}|${s}`, true]))))
+                }}>SELECT ALL DAYS/SESSIONS</button>
                 <button type="button" className="btn btn-ghost btn-xs" onClick={() => {
-                  setDaySel(Object.fromEntries(WEEKDAYS.map((d) => [d, false])))
-                  setCellSel(Object.fromEntries(WEEKDAYS.flatMap((d) => SESSION_ROWS.slice(1).map((s) => [`${d}|${s}`, false]))))
-                }}>Deselect all</button>
+                  setDaySel(Object.fromEntries(COL_DAYS.map((d) => [d, false])))
+                  setCellSel(Object.fromEntries(COL_DAYS.flatMap((d) => SESSION_ROWS.slice(1).map((s) => [`${d}|${s}`, false]))))
+                }}>DESELECT ALL</button>
+                <button type="button" className="btn btn-ghost btn-xs" onClick={deselectNegative}>DESELECT -VE NET BOXES</button>
               </div>
 
               {/* save scenario */}
@@ -744,7 +898,7 @@ export function DeepTesting() {
               </div>
 
               {/* ONE equity curve */}
-              <EquityCurve points={equityPoints} capital={capital}
+              <EquityCurve points={equityPoints} capital={runCapital}
                 label={isFilteredActive ? 'Equity curve (filtered trades, cumulative)' : 'Equity curve (engine, incl. unrealized)'} />
             </>
           )}
@@ -762,10 +916,11 @@ export function DeepTesting() {
               <textarea className="input input-sm" rows={2} value={scDesc} aria-label="Scenario description" onChange={(e) => setScDesc(e.target.value)} /></label>
             <div className="faint dt-modal-summary">
               <p><strong>Node:</strong> #{inspectId} {inspectNode?.name} v{inspectNode?.version} · fingerprint {String(activeRun?.fingerprint ?? '').slice(0, 12)}…</p>
-              <p><strong>Capital / Risk / Max active:</strong> {fmt(capital, 0)} {currency} · {riskMode} {riskValue} ({riskBasis}) · {maxActive}</p>
+              <p><strong>Capital / Risk / Max active (applied):</strong> {fmt(applied.capital, 0)} {applied.currency} · {applied.riskMode} {applied.riskValue} ({applied.riskBasis}) · {applied.maxActive}</p>
               <p><strong>Range:</strong> last {duration} days · requested {tsFmt(activeRun?.metrics?.requested_range?.start)} → {tsFmt(activeRun?.metrics?.requested_range?.end)} · actual {tsFmt(activeRun?.metrics?.actual_range?.start)} → {tsFmt(activeRun?.metrics?.actual_range?.end)} ({activeRun?.metrics?.coverage_status})</p>
-              <p><strong>Offsets:</strong> global SL +{globalOff.slPlus || 0}/−{globalOff.slMinus || 0} · TP +{globalOff.tpPlus || 0}/−{globalOff.tpMinus || 0} pips · node #{inspectId} SL +{nodeOffsets[inspectId ?? -1]?.slPlus || 0}/−{nodeOffsets[inspectId ?? -1]?.slMinus || 0} · TP +{nodeOffsets[inspectId ?? -1]?.tpPlus || 0}/−{nodeOffsets[inspectId ?? -1]?.tpMinus || 0} pips</p>
-              <p><strong>Days/Sessions:</strong> {WEEKDAYS.map((d) => `${d} ${daySel[d] ? '✓' : '✗'} (${SESSION_ROWS.slice(1).map((s) => `${s} ${cellSel[`${d}|${s}`] ? '✓' : '✗'}`).join(', ')})`).join(' · ')}</p>
+              <p><strong>Offsets (applied):</strong> global SL +{applied.globalOff.slPlus || 0}/−{applied.globalOff.slMinus || 0} · TP +{applied.globalOff.tpPlus || 0}/−{applied.globalOff.tpMinus || 0} pips · node #{inspectId} SL +{appliedNodeOffsets[inspectId ?? -1]?.slPlus || 0}/−{appliedNodeOffsets[inspectId ?? -1]?.slMinus || 0} · TP +{appliedNodeOffsets[inspectId ?? -1]?.tpPlus || 0}/−{appliedNodeOffsets[inspectId ?? -1]?.tpMinus || 0} pips · effective SL {activeRun?.assumptions?.effective_offsets?.sl?.offset_pips ?? 0} pips ({activeRun?.assumptions?.effective_offsets?.sl?.source ?? 'strategy'}) · TP {activeRun?.assumptions?.effective_offsets?.tp?.offset_pips ?? 0} pips ({activeRun?.assumptions?.effective_offsets?.tp?.source ?? 'strategy'})</p>
+              <p><strong>Original result:</strong> run #{activeRun?.id} (immutable — this scenario references it; it is never edited)</p>
+              <p><strong>Days/Sessions:</strong> {COL_DAYS.map((d) => `${d} ${daySel[d] ? '✓' : '✗'} (${SESSION_ROWS.slice(1).map((s) => `${s} ${cellSel[`${d}|${s}`] ? '✓' : '✗'}`).join(', ')})`).join(' · ')}</p>
               <p><strong>Filtered result:</strong> {filteredStats.trades} trades · net {fmt(filteredStats.net)} · win rate {filteredStats.winRate != null ? `${fmt(filteredStats.winRate * 100, 1)}%` : 'N/A'}</p>
             </div>
             <div className="dt-toolbar">

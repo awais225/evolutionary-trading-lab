@@ -22,6 +22,23 @@ export const OPERATORS: { op: string; label: string }[] = [
   { op: 'neq', label: '!=' },
   { op: 'cross_above', label: 'crosses above' },
   { op: 'cross_below', label: 'crosses below' },
+  { op: 'touch', label: 'touches' },
+]
+
+/** Calculated price reference levels (backend-computed from candles). */
+export const REFERENCE_LEVELS: { level: string; label: string }[] = [
+  { level: 'PREV_DAY_HIGH', label: 'Previous Day High' },
+  { level: 'PREV_DAY_LOW', label: 'Previous Day Low' },
+  { level: 'ASIA_HIGH', label: 'Asia High' },
+  { level: 'ASIA_LOW', label: 'Asia Low' },
+  { level: 'ASIA_LONDON_HIGH', label: 'Asia-London High' },
+  { level: 'ASIA_LONDON_LOW', label: 'Asia-London Low' },
+  { level: 'LONDON_HIGH', label: 'London High' },
+  { level: 'LONDON_LOW', label: 'London Low' },
+  { level: 'LONDON_NEW_YORK_HIGH', label: 'London-New York High' },
+  { level: 'LONDON_NEW_YORK_LOW', label: 'London-New York Low' },
+  { level: 'NEW_YORK_HIGH', label: 'New York High' },
+  { level: 'NEW_YORK_LOW', label: 'New York Low' },
 ]
 export const OPERATOR_LABELS: Record<string, string> = Object.fromEntries(OPERATORS.map((o) => [o.op, o.label]))
 

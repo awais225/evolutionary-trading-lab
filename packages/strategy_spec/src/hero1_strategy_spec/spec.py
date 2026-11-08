@@ -88,6 +88,14 @@ class Exits(_Strict):
 
 
 class ExecutionConfig(_Strict):
+    entry_side_rule: Optional[Literal["m1_momentum_reversal"]] = Field(
+        default=None,
+        description="Optional explicit entry-side rule. 'm1_momentum_reversal': "
+                    "for BOTH-direction strategies the side is the OPPOSITE of the "
+                    "M1 momentum at the signal bar (momentum up -> SHORT, down -> "
+                    "LONG, equal -> no trade). Absent = the documented default "
+                    "side semantics; absent values never change old fingerprints "
+                    "(the compiler strips the field while unset).")
     entry_timing: Literal["next_bar_open", "signal_close"] = "next_bar_open"
     candle: Literal["completed", "forming"] = "completed"
     permit_forming_candle: bool = False

@@ -148,3 +148,60 @@ def example_specs() -> List[dict]:
 
 def example_spec(timeframe: str) -> Dict:
     return bullish_engulfing("XAUUSD", timeframe)
+
+
+def prev_day_high_low_momentum_reversal(instrument: str = "XAUUSD",
+                                        timeframe: str = "H1") -> dict:
+    """NODE 1 — Previous Day High/Low Momentum Reversal (official seed).
+
+    Monitors the Previous Day High and Previous Day Low. When price touches
+    either level, the trade side is the OPPOSITE of the immediate M1
+    momentum (completed M1 closes, independent of the node timeframe):
+    momentum UP -> SHORT, momentum DOWN -> LONG, equal -> no trade. The
+    touched level does NOT choose the side. Fixed SL 300 pips; TP distance
+    = SL distance x reward_risk_ratio (exits.take_profit.ratio = 2.0,
+    editable without touching the engine). No trailing, no break-even, no
+    indicator/time exits. Execution model: signals evaluate on completed
+    candles and fill at the next bar open (existing engine semantics);
+    with OHLC data a touch is bar-range contact with the level - exact
+    intrabar/tick sequencing is NOT claimed."""
+    touch_high = {"type": "compare", "op": "touch",
+                  "left": {"kind": "candle", "field": "close", "offset": 0},
+                  "right": {"kind": "reference", "level": "PREV_DAY_HIGH"}}
+    touch_low = {"type": "compare", "op": "touch",
+                 "left": {"kind": "candle", "field": "close", "offset": 0},
+                 "right": {"kind": "reference", "level": "PREV_DAY_LOW"}}
+    momentum_live = {"type": "compare", "op": "neq",
+                     "left": {"kind": "momentum", "source": "M1"},
+                     "right": {"kind": "constant", "value": 0}}
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "identity": {
+            "name": "NODE 1 — Previous Day High Low Momentum Reversal",
+            "description": ("Previous Day High/Low touch + M1 momentum reversal. "
+                            "Touch either level, then trade opposite to the immediate "
+                            "M1 momentum (up -> SHORT, down -> LONG, equal -> no trade). "
+                            "SL 300 pips; TP = SL distance x reward_risk_ratio (2.0). "
+                            "OHLC touch = bar-range contact; tick precision is not claimed."),
+            "instrument": instrument.upper(),
+            "timeframe": timeframe,
+            "direction": "BOTH",
+            "origin": "CUSTOM",
+            "tags": ["node-1", "price-reference", "momentum-reversal"],
+            "metadata": {"reward_risk_ratio": 2.0, "official_seed": True},
+        },
+        "entry": {"type": "and", "children": [
+            {"type": "or", "children": [touch_high, touch_low]},
+            momentum_live,
+        ]},
+        "exits": {
+            "stop_loss": {"anchor": "entry_price",
+                          "distance": {"unit": "pips", "value": 300}},
+            "take_profit": {"ratio": 2.0},
+        },
+        "risk": {"sizing": {"mode": "fixed_risk", "risk_pct": 1.0}},
+        "execution": {"entry_side_rule": "m1_momentum_reversal",
+                      "entry_timing": "next_bar_open", "candle": "completed",
+                      "permit_forming_candle": False, "order_type": "market",
+                      "position_handling": "single"},
+    }

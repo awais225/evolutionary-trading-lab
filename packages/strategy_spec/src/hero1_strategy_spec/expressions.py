@@ -44,6 +44,7 @@ class ComparisonOp(str, Enum):
     NEQ = "neq"
     CROSS_ABOVE = "cross_above"
     CROSS_BELOW = "cross_below"
+    TOUCH = "touch"
 
 
 class _Strict(BaseModel):
@@ -78,7 +79,42 @@ class ConstantOperand(_Strict):
     value: float
 
 
-Operand = Union[CandleOperand, FormingCandleOperand, IndicatorOperand, ConstantOperand]
+class ReferenceLevel(str, Enum):
+    """Calculated price reference levels (Part 3). Values are computed by
+    the backend from historical candles - never typed in by hand. Session
+    windows are configurable (see hero1_exec_semantics.reference_levels);
+    these identifiers name the level, not a fixed clock time."""
+    PREV_DAY_HIGH = "PREV_DAY_HIGH"
+    PREV_DAY_LOW = "PREV_DAY_LOW"
+    ASIA_HIGH = "ASIA_HIGH"
+    ASIA_LOW = "ASIA_LOW"
+    ASIA_LONDON_HIGH = "ASIA_LONDON_HIGH"
+    ASIA_LONDON_LOW = "ASIA_LONDON_LOW"
+    LONDON_HIGH = "LONDON_HIGH"
+    LONDON_LOW = "LONDON_LOW"
+    LONDON_NEW_YORK_HIGH = "LONDON_NEW_YORK_HIGH"
+    LONDON_NEW_YORK_LOW = "LONDON_NEW_YORK_LOW"
+    NEW_YORK_HIGH = "NEW_YORK_HIGH"
+    NEW_YORK_LOW = "NEW_YORK_LOW"
+
+
+class ReferenceOperand(_Strict):
+    """A calculated price reference level as of the evaluation bar
+    (causal: only data available before the bar's close is used)."""
+    kind: Literal["reference"] = "reference"
+    level: ReferenceLevel
+
+
+class MomentumOperand(_Strict):
+    """Signed momentum of the finest timeframe (M1), independent of the
+    node's own timeframe: +1 when the last completed M1 close is above the
+    preceding completed M1 close, -1 when below, 0 when equal."""
+    kind: Literal["momentum"] = "momentum"
+    source: Literal["M1"] = "M1"
+
+
+Operand = Union[CandleOperand, FormingCandleOperand, IndicatorOperand, ConstantOperand,
+                ReferenceOperand, MomentumOperand]
 
 
 class LogicAnd(_Strict):

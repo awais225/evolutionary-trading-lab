@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import {
   INDICATORS, INDICATOR_CATEGORIES, PRICE_SOURCES, CANDLE_FIELDS,
-  UNSUPPORTED_INDICATORS, OPERATORS,
+  UNSUPPORTED_INDICATORS, OPERATORS, REFERENCE_LEVELS,
   defaultParams, getIndicator, validateParamsClient,
 } from '../builder/indicatorMeta'
 import {
@@ -157,7 +157,11 @@ export function StrategyBuilder({ spec, onChange, jsonError, onRevertJson, instr
         ? (() => { const ind = INDICATORS[0]; return { kind: 'indicator', name: ind.name, params: defaultParams(ind), ...(ind.fields ? { field: ind.fields[0] } : {}), offset: 0 } })()
         : kind === 'candle'
           ? { kind: 'candle', field: 'close', offset: 0 }
-          : { kind: 'constant', value: 0 }
+          : kind === 'reference'
+            ? { kind: 'reference', level: 'PREV_DAY_HIGH' }
+            : kind === 'momentum'
+              ? { kind: 'momentum', source: 'M1' }
+              : { kind: 'constant', value: 0 }
       return { ...clone, entry: updateOperand(clone.entry, cmpPath, side, () => next) }
     })
     const setOperand = (patchFn: (operand: any) => any) => apply((draft) => {
@@ -171,6 +175,8 @@ export function StrategyBuilder({ spec, onChange, jsonError, onRevertJson, instr
           <option value="indicator">Indicator</option>
           <option value="candle">Candle</option>
           <option value="constant">Number</option>
+          <option value="reference">Price reference level</option>
+          <option value="momentum">M1 momentum</option>
         </select>
 
         {op?.kind === 'indicator' && (
@@ -186,6 +192,15 @@ export function StrategyBuilder({ spec, onChange, jsonError, onRevertJson, instr
                      onChange={(e) => { const v = parseNum(e.target.value); if (v !== null && Number.isInteger(v) && v >= 0 && v <= MAX_OFFSET) setOperand((o) => ({ ...o, offset: v })) }} />
             </label>
           </div>
+        )}
+        {op?.kind === 'reference' && (
+          <select className="input input-xs" value={op.level} aria-label="Reference level"
+                  onChange={(e) => setOperand((o) => ({ ...o, level: e.target.value }))}>
+            {REFERENCE_LEVELS.map((r) => <option key={r.level} value={r.level}>{r.label}</option>)}
+          </select>
+        )}
+        {op?.kind === 'momentum' && (
+          <span className="faint micro">M1 momentum (+1 up / −1 down / 0 equal, completed M1 closes)</span>
         )}
         {op?.kind === 'constant' && (
           <input className="input input-xs num" type="number" step="any" value={op.value ?? 0}

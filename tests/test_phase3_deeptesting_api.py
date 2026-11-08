@@ -162,3 +162,53 @@ def test_partial_testing_uses_all_available_data(client, seeded_store):
          "initial_capital": 10000, "risk_mode": "percent", "risk_value": 1.0,
          "max_active_trades": 1, "tick_size": 0.1, "tick_value_account": 1.0}})
     assert r.json()["runs"][0]["coverage_status"] == "TESTED"
+
+
+@pytest.fixture()
+def seeded_m1_h1(tmp_path, monkeypatch):
+    """Two days of H1 + M1: day-1 extremes PDH=110/PDL=90 (in M1), day-2 H1
+    bar touches 110 with M1 momentum UP into its close -> NODE 1 SHORT."""
+    from test_node1_strategy import T, C, aux_m1, node_candles
+    db = tmp_path / "market_data.db"
+    conn = md.connect_store(db)
+    h1, cutoff = node_candles(3600, "high")
+    m1 = aux_m1("up", cutoff)
+    with conn:
+        for tf, rows in (("H1", h1), ("M1", m1)):
+            md.merge_candles(conn, dataset_id="test", instrument="XAUUSD", timeframe=tf,
+                             rows=[{**r, "ts_iso": md.ts_iso_of(r["ts"]), "tick_volume": 100,
+                                    "spread": 0} for r in rows], policy="import")
+    conn.close()
+    monkeypatch.setattr(svc, "store_db_path", lambda: db)
+    return h1
+
+
+def test_node1_deeptesting_end_to_end(client, seeded_m1_h1):
+    # broker metadata passed per-request (never stored, so other tests'
+    # NEEDS_METADATA behaviour is untouched); 300 pips resolves via pip=0.1
+    broker_meta = {"XAUUSD": {"pip_size": 0.1, "point_size": 0.01,
+                              "tick_size": 0.01, "contract_size": 100}}
+    # the officially seeded NODE 1 (creating an identical spec is refused
+    # as SPEC_DUPLICATE by the canonical pipeline - by design)
+    items = client.get("/api/v1/instruments/XAUUSD/nodes?limit=500").json()["items"]
+    node_id = next(n["id"] for n in items
+                   if n["name"].startswith("NODE 1 — Previous Day"))
+    start, end = seeded_m1_h1[0]["ts"], seeded_m1_h1[-1]["ts"]
+    r = client.post("/api/v1/instruments/XAUUSD/deeptesting/runs", json={
+        "node_ids": [node_id],
+        "config": {"mode": "initial", "range": {"start": start, "end": end},
+                   "initial_capital": 200000, "risk_mode": "percent", "risk_value": 1.0,
+                   "max_active_trades": 1,
+                   "tick_size": 0.1, "tick_value_account": 1.0,
+                   "broker_meta": broker_meta,
+                   "volume_min": 0.01, "volume_max": 100, "volume_step": 0.01}})
+    assert r.status_code == 200, r.text
+    run = r.json()["runs"][0]
+    assert run["status"] == "DONE", run
+    trades = client.get(
+        f"/api/v1/instruments/XAUUSD/deeptesting/runs/{run['id']}/trades").json()
+    assert trades["count"] == 1
+    assert trades["trades"][0]["side"] == "SHORT"  # PDH touch + M1 momentum UP
+    detail = client.get(f"/api/v1/instruments/XAUUSD/deeptesting/runs/{run['id']}").json()
+    assert detail["assumptions"]["data_requirements"]["m1_momentum"] is True
+    assert "M1 candles" in detail["assumptions"]["reference_data_basis"]
