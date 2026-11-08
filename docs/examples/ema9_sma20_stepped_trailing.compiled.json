@@ -1,0 +1,89 @@
+{
+  "compiler_version": "1.2.0",
+  "entry": {
+    "left": {
+      "field": "value",
+      "kind": "indicator",
+      "name": "EMA",
+      "offset": 0,
+      "params": {
+        "period": 9
+      }
+    },
+    "op": "cross_above",
+    "right": {
+      "field": "value",
+      "kind": "indicator",
+      "name": "SMA",
+      "offset": 0,
+      "params": {
+        "period": 20
+      }
+    },
+    "type": "compare"
+  },
+  "execution": {
+    "candle": "completed",
+    "entry_timing": "next_bar_open",
+    "order_type": "market",
+    "permit_forming_candle": false,
+    "position_handling": "single"
+  },
+  "exits": {
+    "exit_rules": [],
+    "stop_loss": {
+      "anchor": "entry_price",
+      "distance": {
+        "unit": "pips",
+        "value": 25.0
+      }
+    }
+  },
+  "fingerprint": "afb7d826f84a1d924dee89bf6e89182c6b5d94f8bc013107209c754e7cffa0a2",
+  "ir_version": "1.1.0",
+  "management": {
+    "stepped_trailing": {
+      "activation": {
+        "unit": "pips",
+        "value": 30.0
+      },
+      "advance_per_step": {
+        "unit": "pips",
+        "value": 30.0
+      },
+      "applies_to": "BOTH",
+      "first_step_to_breakeven": true,
+      "initial_locked_profit": {
+        "unit": "pips",
+        "value": 0.0
+      },
+      "start": "after_activation",
+      "step": {
+        "unit": "pips",
+        "value": 30.0
+      }
+    }
+  },
+  "ordered_exit_rules": [],
+  "required_warmup_candles": 21,
+  "risk": {
+    "sizing": {
+      "mode": "fixed_risk",
+      "risk_pct": 1.0
+    }
+  },
+  "schema_version": "1.1.0",
+  "strategy": {
+    "direction": "LONG",
+    "instrument": "XAUUSD",
+    "name": "EMA9/SMA20 Cross + Stepped Trail \u00b7 XAUUSD H1",
+    "origin": "CUSTOM",
+    "tags": [
+      "trend",
+      "crossover",
+      "stepped_trailing",
+      "reference"
+    ],
+    "timeframe": "H1"
+  }
+}

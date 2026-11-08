@@ -1,10 +1,20 @@
-"""Shared execution semantics — Phase 3. ONE implementation shared by
-backtesting, DeepTesting and MT5 live execution. Phase 1: skeleton only.
+"""HERO1 shared execution semantics - ONE definition of what a compiled
+strategy DOES at runtime, consumed identically by DeepTesting (Phase 3)
+and MT5 Live Testing (Phase 5). Engines may differ in data arrival and
+fill modelling; they may never reinterpret rules.
 
-Hard rules for the eventual implementation:
-  * Fills modeled at next-bar-open (backtest) and broker-exact (live) from one
-    cost model interface.
-  * Position sizing uses broker tick value/size; refuses to guess when unknown.
-  * SL/TP respect broker stops_level; every rejection is typed and explicit.
-"""
-__phase__ = 3
+Phase 2 provides the pure reference evaluator for dynamic stop
+management (`stop_management`): activation, stepped/fixed trailing,
+break-even composition, never-backwards clamping, tick rounding and
+explicit refusal of not-yet-defined semantics. Indicator mathematics and
+bar/tick simulation arrive in Phase 3 and must call, not re-implement,
+this module."""
+from .stop_management import (
+    PriceContext, RuleEffect, SemanticsError, StopEvaluation,
+    evaluate_stop_management, resolve_distance,
+)
+
+__version__ = "0.2.0"
+
+__all__ = ["PriceContext", "RuleEffect", "SemanticsError", "StopEvaluation",
+           "evaluate_stop_management", "resolve_distance", "__version__"]

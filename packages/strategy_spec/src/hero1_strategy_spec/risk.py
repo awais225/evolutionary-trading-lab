@@ -40,6 +40,14 @@ class Distance(_Strict):
         return self
 
 
+class ZeroableDistance(Distance):
+    """Distance that may be exactly zero - e.g. a break-even rule locking
+    0 profit. Still explicit about its unit; still never negative, never
+    ambiguous."""
+
+    value: float = Field(ge=0)
+
+
 class StopLoss(_Strict):
     anchor: Literal["entry_price", "signal_low", "signal_high", "atr"] = "entry_price"
     distance: Distance

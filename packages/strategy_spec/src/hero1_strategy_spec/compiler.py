@@ -20,8 +20,8 @@ from pydantic import BaseModel, ConfigDict
 from .spec import SCHEMA_VERSION, StrategySpec
 from .validation import ReportStatus, ValidationReport, validate_spec
 
-COMPILER_VERSION = "1.1.0"
-IR_VERSION = "1.0.0"
+COMPILER_VERSION = "1.2.0"
+IR_VERSION = "1.1.0"
 
 
 class SpecCompilationError(Exception):
@@ -60,8 +60,20 @@ PRESENTATION_IDENTITY_FIELDS = ("name", "description")
 
 
 def semantic_canonical(data: Any) -> str:
-    """Canonical JSON source for the fingerprint: the full spec minus display fields."""
+    """Canonical JSON source for the fingerprint: the full spec minus display fields.
+
+    Backward-compatibility rule (schema 1.1.0): sections introduced after
+    1.0.0 are stripped while semantically ABSENT - `management: null` and
+    `exits.exit_rules: []` - so a pre-existing spec keeps the exact
+    fingerprint it had under compiler 1.1.0. The moment either section
+    carries content, it is fingerprinted like everything else."""
     payload = data if isinstance(data, dict) else data.model_dump(mode="json")
+    if payload.get("management") is None:
+        payload = {k: v for k, v in payload.items() if k != "management"}
+    exits = payload.get("exits")
+    if isinstance(exits, dict) and not exits.get("exit_rules"):
+        exits = {k: v for k, v in exits.items() if k != "exit_rules"}
+        payload = {**payload, "exits": exits}
     ident = payload.get("identity")
     if isinstance(ident, dict):
         ident = {k: v for k, v in ident.items() if k not in PRESENTATION_IDENTITY_FIELDS}
@@ -114,6 +126,20 @@ def compile_spec(data: Any, *, expected_instrument: Optional[str] = None,
         },
         "entry": spec.entry.model_dump(mode="json"),
         "exits": spec.exits.model_dump(mode="json", exclude_none=True),
+        "management": (spec.management.model_dump(mode="json", exclude_none=True)
+                       if spec.management is not None else None),
+        # Ordered evaluation contract for explicit exits: the legacy single
+        # explicit_exit is an implicit priority-0 rule; numbered rules follow
+        # in strictly ascending priority. SL/TP and time-based exits are
+        # price/time events evaluated by the engines before rule conditions
+        # on the same bar (see exec semantics); nothing is reordered here.
+        "ordered_exit_rules": (
+            ([{"name": "explicit_exit", "priority": 0, "action": "close_position",
+               "condition": spec.exits.explicit_exit.model_dump(mode="json")}]
+             if spec.exits.explicit_exit is not None else [])
+            + [{"name": r.name, "priority": r.priority, "action": r.action,
+                "condition": r.condition.model_dump(mode="json")}
+               for r in sorted(spec.exits.exit_rules, key=lambda r: r.priority)]),
         "risk": spec.risk.model_dump(mode="json", exclude_none=True),
         "execution": spec.execution.model_dump(mode="json"),
     }

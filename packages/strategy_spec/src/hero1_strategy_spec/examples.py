@@ -21,6 +21,63 @@ from typing import Dict, List
 from .spec import SCHEMA_VERSION
 
 
+def ema_sma_stepped_trailing(instrument: str, timeframe: str = "H1",
+                             activation_pips: float = 30.0) -> dict:
+    """EMA(9) cross above SMA(20) entry with a stepped trailing stop.
+
+    The ladder figures (activation 30 pips, then +30 pips per step) are a
+    CONFIGURABLE EXAMPLE matching the owner's request - they live in the
+    spec data below and are never baked into engine code. Stop-loss is a
+    fixed 25-pip initial stop; the stepped rule locks profit as favourable
+    excursion grows. Pip sizes resolve ONLY from broker metadata.
+    """
+    instrument = instrument.upper()
+
+    def ind(name: str, period: int, offset: int = 0) -> dict:
+        return {"kind": "indicator", "name": name, "params": {"period": period},
+                "field": "value", "offset": offset}
+
+    def pips(value: float) -> dict:
+        return {"value": value, "unit": "pips"}
+
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "identity": {
+            "name": f"EMA9/SMA20 Cross + Stepped Trail · {instrument} {timeframe}",
+            "description": (
+                "Long when EMA(9) crosses above SMA(20) on the last completed candle. "
+                "Initial stop 25 pips; stepped trailing arms at +30 pips locking 0 "
+                "(break-even), then advances 30 pips for every further 30 pips of "
+                "favourable excursion. Mirrors mechanically for shorts."
+            ),
+            "instrument": instrument,
+            "timeframe": timeframe,
+            "direction": "LONG",
+            "origin": "CUSTOM",
+            "tags": ["trend", "crossover", "stepped_trailing", "reference"],
+        },
+        "entry": {"type": "compare", "op": "cross_above",
+                  "left": ind("EMA", 9), "right": ind("SMA", 20)},
+        "exits": {
+            "stop_loss": {"anchor": "entry_price", "distance": pips(25.0)},
+            "take_profit": None,
+        },
+        "management": {
+            "stepped_trailing": {
+                "start": "after_activation",
+                "activation": pips(activation_pips),
+                "initial_locked_profit": pips(0.0),
+                "step": pips(30.0),
+                "advance_per_step": pips(30.0),
+                "first_step_to_breakeven": True,
+                "applies_to": "BOTH",
+            }
+        },
+        "risk": {"sizing": {"mode": "fixed_risk", "risk_pct": 1.0}},
+        "execution": {"entry_timing": "next_bar_open", "candle": "completed"},
+    }
+
+
 def bullish_engulfing(instrument: str, timeframe: str) -> dict:
     if timeframe not in ("M1", "M5", "M15", "M30", "H1", "H4", "D1"):
         raise ValueError(f"unsupported timeframe {timeframe!r}")

@@ -63,7 +63,7 @@ def test_compile_endpoint_valid(client):
     assert r.status_code == 200
     body = r.json()
     assert len(body["fingerprint"]) == 64
-    assert body["schema_version"] == "1.0.0" and body["compiler_version"] == "1.1.0"
+    assert body["schema_version"] == "1.1.0" and body["compiler_version"] == "1.2.0"
     assert body["ir"]["strategy"]["instrument"] == "XAUUSD"
     assert body["ir"]["execution"]["entry_timing"] == "next_bar_open"
 
@@ -180,7 +180,7 @@ def test_get_node_returns_full_spec(client):
     got = client.get(f"/api/v1/instruments/XAUUSD/nodes/{r.json()['id']}").json()
     assert got["spec_json"] is not None
     parsed = json.loads(got["spec_json"])
-    assert parsed["schema_version"] == "1.0.0"
+    assert parsed["schema_version"] == "1.1.0"
     assert parsed["entry"]["type"] == "and"
 
 

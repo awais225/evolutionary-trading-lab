@@ -36,7 +36,9 @@ Last synchronized: 2026-11-07 (HERO-V1.4.1 · ISSUE-037 launcher persistence). K
 ├───────────────────────────────────────────────────────────────┤
 │ packages/strategy_spec  IMPLEMENTED (Phase 2): typed DSL,      │
 │  layered validator, deterministic compiler → IR + SHA-256       │
-│ packages/exec_semantics · indicators · research                  │
+│ packages/exec_semantics  PARTIAL (Phase 2 completion): pure stop-
+│   management reference evaluator (shared DeepTesting/Live semantics);
+│   indicators · research  (Phase 3+)                  │
 │  Planned skeletons (Phase 3+) — no math, no execution          │
 │ packages/ai_orchestrator  AIProvider interface                 │
 │  PARTIALLY IMPLEMENTED: interface + OllamaProvider + JSON probe │

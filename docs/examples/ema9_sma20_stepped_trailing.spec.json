@@ -1,0 +1,82 @@
+{
+  "schema_version": "1.1.0",
+  "identity": {
+    "name": "EMA9/SMA20 Cross + Stepped Trail \u00b7 XAUUSD H1",
+    "description": "Long when EMA(9) crosses above SMA(20) on the last completed candle. Initial stop 25 pips; stepped trailing arms at +30 pips locking 0 (break-even), then advances 30 pips for every further 30 pips of favourable excursion. Mirrors mechanically for shorts.",
+    "instrument": "XAUUSD",
+    "timeframe": "H1",
+    "direction": "LONG",
+    "origin": "CUSTOM",
+    "tags": [
+      "trend",
+      "crossover",
+      "stepped_trailing",
+      "reference"
+    ]
+  },
+  "entry": {
+    "type": "compare",
+    "op": "cross_above",
+    "left": {
+      "kind": "indicator",
+      "name": "EMA",
+      "params": {
+        "period": 9
+      },
+      "field": "value",
+      "offset": 0
+    },
+    "right": {
+      "kind": "indicator",
+      "name": "SMA",
+      "params": {
+        "period": 20
+      },
+      "field": "value",
+      "offset": 0
+    }
+  },
+  "exits": {
+    "stop_loss": {
+      "anchor": "entry_price",
+      "distance": {
+        "value": 25.0,
+        "unit": "pips"
+      }
+    },
+    "take_profit": null
+  },
+  "management": {
+    "stepped_trailing": {
+      "start": "after_activation",
+      "activation": {
+        "value": 30.0,
+        "unit": "pips"
+      },
+      "initial_locked_profit": {
+        "value": 0.0,
+        "unit": "pips"
+      },
+      "step": {
+        "value": 30.0,
+        "unit": "pips"
+      },
+      "advance_per_step": {
+        "value": 30.0,
+        "unit": "pips"
+      },
+      "first_step_to_breakeven": true,
+      "applies_to": "BOTH"
+    }
+  },
+  "risk": {
+    "sizing": {
+      "mode": "fixed_risk",
+      "risk_pct": 1.0
+    }
+  },
+  "execution": {
+    "entry_timing": "next_bar_open",
+    "candle": "completed"
+  }
+}

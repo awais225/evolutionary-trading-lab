@@ -206,3 +206,29 @@ describe('Manual Nodes — visual strategy builder', () => {
     expect(screen.getByText(/no strategy loaded/i)).toBeInTheDocument()
   })
 })
+
+describe('Strategy builder — Phase 2 completion (exit rules + trade management)', () => {
+  it('adds a prioritized exit rule and stepped trailing, visible in the JSON', async () => {
+    renderNodes()
+    await startBlank()
+    // add an exit rule (default condition), then enable stepped trailing
+    fireEvent.click(screen.getByRole('button', { name: /\+ exit rule/i }))
+    const stepped = screen.getByRole('checkbox', { name: /stepped trailing/i })
+    fireEvent.click(stepped)
+    jsonTab()
+    const j = jsonText()
+    expect(j).toContain('"exit_rules"')
+    expect(j).toContain('"priority": 1')
+    expect(j).toContain('"stepped_trailing"')
+    expect(j).toContain('"first_step_to_breakeven": true')
+    expect(j).toContain('"initial_locked_profit"')
+    expect(j).toContain('"unit": "pips"') // explicit units, never assumed
+  })
+
+  it('warns that management requires an initial stop loss', async () => {
+    renderNodes()
+    await startBlank()
+    fireEvent.click(screen.getByRole('checkbox', { name: /stepped trailing/i }))
+    expect(await screen.findByText(/E_MANAGEMENT_REQUIRES_SL/)).toBeTruthy()
+  })
+})

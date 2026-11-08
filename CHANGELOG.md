@@ -5,6 +5,49 @@ exact commit SHA and tag. Claims only for what was implemented AND verified.
 
 ---
 
+## [Phase 2 completion] — 2026-11-07 — strategy spec completion: trade management, prioritized exits, shared stop semantics
+
+- **Spec (schema 1.1.0; 1.0.0 still accepted, old fingerprints byte-identical):**
+  new optional `management` section (break-even, stepped trailing, fixed
+  trailing, indicator trailing - definition only) and prioritized
+  `exits.exit_rules` (unique priorities; the legacy `explicit_exit` is an
+  implicit priority-0 rule). Semantically-absent new sections are stripped
+  from the fingerprint source, so pre-existing nodes keep their identity.
+  Stepped trailing is fully configurable (activation, initial locked
+  profit, step, advance per step, first-step-to-breakeven agreement,
+  immediate vs after-activation start, optional max trail distance,
+  LONG/SHORT/BOTH mirroring) - the 30-pip ladder is example data, never
+  code. Every distance carries an explicit unit; pip/point/tick sizes
+  resolve only from broker metadata (NEEDS_METADATA otherwise).
+- **Compiler 1.2.0 / IR 1.1.0:** IR now carries the management block and an
+  `ordered_exit_rules` evaluation contract; fingerprints unchanged in
+  derivation (compiler bumps never fork identity). Validation names the
+  exact offending rule (management contradictions, duplicate priorities,
+  direction mismatches, locked-beyond-activation) - nothing is silently
+  ignored, reordered or approximated.
+- **Shared execution semantics:** `hero1_exec_semantics` now contains the
+  pure reference stop-management evaluator both future engines must call:
+  closing-side reference (LONG bid / SHORT ask), activation, most-
+  protective composition, never-backwards clamping, idempotent
+  re-evaluation, tick rounding toward the position, explicit
+  clamped-inside-market flagging, and explicit refusal
+  (INDICATOR_TRAILING_NOT_EVALUABLE_PHASE2) until the Phase 3 indicator
+  engine defines indicator values. No DeepTesting/MT5 execution built.
+- **Builder:** Trade Management section (break-even / stepped / fixed /
+  indicator toggles with unit-explicit distance editors), prioritized
+  exit-rule editor in Exit Conditions, management-requires-stop warning.
+- **Tests:** backend 290 passed / 1 skipped (29 new Phase-2 regressions:
+  condition shapes, stepped LONG/SHORT, idempotence, never-backwards,
+  pip-vs-point conversion, tick rounding, contradictions, fingerprint
+  backward compatibility, rename invariance); frontend 68/68 + production
+  build clean. Reference artifacts:
+  `docs/examples/ema9_sma20_stepped_trailing.{spec,compiled}.json`
+  (fingerprint `afb7d826f84a1d924dee89bf6e89182c6b5d94f8bc013107209c754e7cffa0a2`).
+- **Limitations:** indicator-trailing evaluation arrives with Phase 3;
+  exit-rule condition trees are JSON-edited (summaries shown in the
+  builder, same documented treatment as the legacy explicit exit);
+  Windows/MT5 NOT VERIFIED (unchanged).
+
 ## [Unreleased] — 2026-11-07 — HERO V1.5.0 repair — canonical CSV deployment, UTC registry, incremental fetch fix — AWAITING WINDOWS ACCEPTANCE
 
 - Implementation commit: `fbd4a45973bc86402919b38853e80bf8095e8261` (on top of HERO-V1.5.0

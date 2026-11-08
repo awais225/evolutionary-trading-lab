@@ -63,6 +63,13 @@ export function StrategyBuilder({ spec, onChange, jsonError, onRevertJson, instr
   const patchIdentity = (key: string, value: unknown) => patch(['identity', key], value)
   const patchExec = (key: string, value: unknown) => patch(['execution', key], value)
   const patchExits = (value: any) => patch(['exits'], value)
+  const management = spec?.management ?? null
+  const patchManagement = (value: any) => patch(['management'], value)
+  const DEFAULT_EXIT_CONDITION = {
+    type: 'compare', op: 'cross_below',
+    left: { kind: 'indicator', name: 'EMA', params: { period: 9 }, offset: 0 },
+    right: { kind: 'indicator', name: 'SMA', params: { period: 20 }, offset: 0 },
+  }
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -445,14 +452,133 @@ export function StrategyBuilder({ spec, onChange, jsonError, onRevertJson, instr
             </fieldset>
           )}
         </div>
-        {!exits.stop_loss && !exits.take_profit && exits.max_holding_candles == null && !exits.time_exit_utc && !exits.explicit_exit && (
-          <p className="field-error">At least one exit is required — validation will reject this spec (EXIT_REQUIRED). Add a stop loss, take profit, max holding or time exit.</p>
+        {!exits.stop_loss && !exits.take_profit && exits.max_holding_candles == null && !exits.time_exit_utc && !exits.explicit_exit && !(exits.exit_rules?.length) && (
+          <p className="field-error">At least one exit is required — validation will reject this spec (EXIT_REQUIRED). Add a stop loss, take profit, max holding, time exit or an exit rule.</p>
         )}
+
+        <fieldset className="exit-block" style={{ marginTop: 12 }}>
+          <legend>Prioritized exit rules <span className="faint">— lowest priority number evaluates first; ties are rejected by validation</span></legend>
+          {(exits.exit_rules ?? []).map((rule: any, i: number) => (
+            <div key={i} className="exit-body" style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 6 }}>
+              <label className="mini-field">name
+                <input className="input input-xs" value={rule.name ?? ''} disabled={damaged}
+                       onChange={(e) => { const rules = [...(exits.exit_rules ?? [])]; rules[i] = { ...rules[i], name: e.target.value }; patchExits({ ...exits, exit_rules: rules }) }} />
+              </label>
+              <label className="mini-field">priority
+                <input className="input input-xs num" type="number" min={1} max={1000} value={rule.priority ?? 1} disabled={damaged}
+                       onChange={(e) => { const v = parseNum(e.target.value); if (v !== null && Number.isInteger(v) && v >= 1 && v <= 1000) { const rules = [...(exits.exit_rules ?? [])]; rules[i] = { ...rules[i], priority: v }; patchExits({ ...exits, exit_rules: rules }) } }} />
+              </label>
+              <code className="cond-summary">{isComparison(rule.condition) ? comparisonSummary(rule.condition) : `${logicLabel(rule.condition?.type)} group · ${treeSize(rule.condition)} node(s) — condition tree edited in the JSON editor (preserved)`}</code>
+              <button type="button" className="btn btn-ghost btn-xs" disabled={damaged}
+                      onClick={() => patchExits({ ...exits, exit_rules: (exits.exit_rules ?? []).filter((_: any, j: number) => j !== i) })}>✕ remove</button>
+            </div>
+          ))}
+          <button type="button" className="btn btn-ghost btn-xs" disabled={damaged}
+                  onClick={() => {
+                    const rules = exits.exit_rules ?? []
+                    const nextPriority = rules.length ? Math.max(...rules.map((r: any) => r.priority ?? 0)) + 1 : 1
+                    patchExits({ ...exits, exit_rules: [...rules, { name: `Exit rule ${rules.length + 1}`, priority: nextPriority, condition: structuredClone(DEFAULT_EXIT_CONDITION), action: 'close_position' }] })
+                  }}>+ exit rule <span className="faint">(default: EMA9 cross below SMA20 — refine the condition in the JSON editor)</span></button>
+          {exits.explicit_exit && <p className="faint">The legacy single explicit exit (above) evaluates as an implicit priority-0 rule, before all numbered rules.</p>}
+        </fieldset>
+      </section>
+
+      {/* ================= SECTION 3 — TRADE MANAGEMENT ================= */}
+      <section className="builder-section" aria-labelledby="sec-mgmt">
+        <h4 id="sec-mgmt"><span className="section-num">3</span> Trade Management <span className="faint">(dynamic stops — adjusts the declared stop loss; never loosens it)</span></h4>
+        {!exits.stop_loss && management && (
+          <p className="field-error">Trade management manages an initial stop — declare a Stop loss above or validation will reject this spec (E_MANAGEMENT_REQUIRES_SL).</p>
+        )}
+        {(() => {
+          const D = (label: string, value: any, onChange: (d: any) => void, allowZero = false) => (
+            <div className="exit-body"><span className="faint">{label}</span>
+              <DistanceEditor value={value ?? { unit: 'pips', value: 10 }} onChange={onChange} disabled={damaged} allowZero={allowZero} /></div>
+          )
+          const applies = (label: string, value: any, onChange: (v: string) => void) => (
+            <label className="mini-field">{label}
+              <select className="input input-xs" value={value ?? 'BOTH'} disabled={damaged} onChange={(e) => onChange(e.target.value)}>
+                <option value="BOTH">BOTH</option><option value="LONG">LONG</option><option value="SHORT">SHORT</option>
+              </select></label>
+          )
+          const be = management?.break_even, st = management?.stepped_trailing, ft = management?.fixed_trailing, it = management?.indicator_trailing
+          const setMgmt = (key: string, value: any) => {
+            const next: any = { ...(management ?? {}) }
+            if (value == null) delete next[key]; else next[key] = value
+            patchManagement(Object.keys(next).length ? next : null)
+          }
+          const PIPS = (v: number) => ({ unit: 'pips', value: v })
+          return (
+            <div className="exits-grid">
+              <fieldset className="exit-block">
+                <legend><label className="check"><input type="checkbox" checked={!!be} disabled={damaged}
+                  onChange={(e) => setMgmt('break_even', e.target.checked ? { activation: PIPS(20), locked_profit: PIPS(0), applies_to: 'BOTH' } : null)} /> Break-even</label></legend>
+                {be && (<>
+                  {D('Arms after favourable move of', be.activation, (d) => setMgmt('break_even', { ...be, activation: d }))}
+                  {D('Then locks profit of', be.locked_profit, (d) => setMgmt('break_even', { ...be, locked_profit: d }), true)}
+                  {applies('Applies to', be.applies_to, (v) => setMgmt('break_even', { ...be, applies_to: v }))}
+                </>)}
+              </fieldset>
+
+              <fieldset className="exit-block">
+                <legend><label className="check"><input type="checkbox" checked={!!st} disabled={damaged}
+                  onChange={(e) => setMgmt('stepped_trailing', e.target.checked ? { start: 'after_activation', activation: PIPS(30), initial_locked_profit: PIPS(0), step: PIPS(30), advance_per_step: PIPS(30), first_step_to_breakeven: true, applies_to: 'BOTH' } : null)} /> Stepped trailing</label></legend>
+                {st && (<>
+                  <label className="mini-field">Starts
+                    <select className="input input-xs" value={st.start ?? 'after_activation'} disabled={damaged}
+                            onChange={(e) => { const start = e.target.value; const nextRule: any = { ...st, start }; if (start === 'immediate') delete nextRule.activation; else nextRule.activation = st.activation ?? PIPS(30); setMgmt('stepped_trailing', nextRule) }}>
+                      <option value="after_activation">after activation</option><option value="immediate">immediately (from entry)</option>
+                    </select></label>
+                  {(st.start ?? 'after_activation') === 'after_activation' && D('Activation (favourable move)', st.activation, (d) => setMgmt('stepped_trailing', { ...st, activation: d }))}
+                  {D('Initial locked profit', st.initial_locked_profit, (d) => setMgmt('stepped_trailing', { ...st, initial_locked_profit: d, first_step_to_breakeven: Number(d?.value) === 0 }), true)}
+                  <label className="check small"><input type="checkbox" checked={!!st.first_step_to_breakeven} disabled={damaged}
+                    onChange={(e) => setMgmt('stepped_trailing', { ...st, first_step_to_breakeven: e.target.checked, initial_locked_profit: e.target.checked ? { ...(st.initial_locked_profit ?? PIPS(0)), value: 0 } : (Number(st.initial_locked_profit?.value) === 0 ? { ...(st.initial_locked_profit ?? PIPS(0)), value: 5 } : st.initial_locked_profit) })} /> first step moves stop to break-even</label>
+                  {D('Each further step of', st.step, (d) => setMgmt('stepped_trailing', { ...st, step: d }))}
+                  {D('Advances the stop by', st.advance_per_step, (d) => setMgmt('stepped_trailing', { ...st, advance_per_step: d }))}
+                  <label className="check small"><input type="checkbox" checked={st.max_trail_distance != null} disabled={damaged}
+                    onChange={(e) => { const nextRule: any = { ...st }; if (e.target.checked) nextRule.max_trail_distance = PIPS(60); else delete nextRule.max_trail_distance; setMgmt('stepped_trailing', nextRule) }} /> cap max distance behind best price</label>
+                  {st.max_trail_distance != null && D('Max trail distance', st.max_trail_distance, (d) => setMgmt('stepped_trailing', { ...st, max_trail_distance: d }))}
+                  {applies('Applies to', st.applies_to, (v) => setMgmt('stepped_trailing', { ...st, applies_to: v }))}
+                  <p className="faint micro">Example only — every figure is yours to change; nothing is hardcoded. Mirrors mechanically for shorts; the stop never moves backwards.</p>
+                </>)}
+              </fieldset>
+
+              <fieldset className="exit-block">
+                <legend><label className="check"><input type="checkbox" checked={!!ft} disabled={damaged}
+                  onChange={(e) => setMgmt('fixed_trailing', e.target.checked ? { start: 'after_activation', activation: PIPS(20), trail_distance: PIPS(15), applies_to: 'BOTH' } : null)} /> Fixed trailing</label></legend>
+                {ft && (<>
+                  <label className="mini-field">Starts
+                    <select className="input input-xs" value={ft.start ?? 'after_activation'} disabled={damaged}
+                            onChange={(e) => { const start = e.target.value; const nextRule: any = { ...ft, start }; if (start === 'immediate') delete nextRule.activation; else nextRule.activation = ft.activation ?? PIPS(20); setMgmt('fixed_trailing', nextRule) }}>
+                      <option value="after_activation">after activation</option><option value="immediate">immediately (from entry)</option>
+                    </select></label>
+                  {(ft.start ?? 'after_activation') === 'after_activation' && D('Activation (favourable move)', ft.activation, (d) => setMgmt('fixed_trailing', { ...ft, activation: d }))}
+                  {D('Trails behind best price by', ft.trail_distance, (d) => setMgmt('fixed_trailing', { ...ft, trail_distance: d }))}
+                  {applies('Applies to', ft.applies_to, (v) => setMgmt('fixed_trailing', { ...ft, applies_to: v }))}
+                </>)}
+              </fieldset>
+
+              <fieldset className="exit-block">
+                <legend><label className="check"><input type="checkbox" checked={!!it} disabled={damaged}
+                  onChange={(e) => setMgmt('indicator_trailing', e.target.checked ? { indicator: { kind: 'indicator', name: 'ATR', params: { period: 14 }, offset: 0 }, applies_to: 'BOTH' } : null)} /> Indicator trailing</label></legend>
+                {it && (<>
+                  <label className="mini-field">Indicator
+                    <select className="input input-xs" value={it.indicator?.name ?? 'ATR'} disabled={damaged}
+                            onChange={(e) => { const ind = getIndicator(e.target.value); setMgmt('indicator_trailing', { ...it, indicator: { kind: 'indicator', name: e.target.value, params: ind ? defaultParams(ind) : {}, ...(ind?.fields ? { field: ind.fields[0] } : {}), offset: 0 } }) }}>
+                      {INDICATORS.map((i) => <option key={i.name} value={i.name}>{i.name}</option>)}
+                    </select></label>
+                  <p className="faint micro">Definition only in this phase: the spec stores the rule, but evaluation semantics arrive with the Phase 3 indicator engine — engines refuse to approximate it rather than guess.</p>
+                  {applies('Applies to', it.applies_to, (v) => setMgmt('indicator_trailing', { ...it, applies_to: v }))}
+                </>)}
+              </fieldset>
+            </div>
+          )
+        })()}
+        {!management && <p className="faint">No dynamic stop management. Enable break-even or a trailing rule above — the initial stop loss stays the risk floor either way.</p>}
       </section>
 
       {/* ================= SECTION 3 — EXECUTION & DESCRIPTION ================= */}
       <section className="builder-section" aria-labelledby="sec-exec">
-        <h4 id="sec-exec"><span className="section-num">3</span> Execution &amp; description</h4>
+        <h4 id="sec-exec"><span className="section-num">4</span> Execution &amp; description</h4>
         <div className="info-grid">
           <label className="mini-field wide">Description <span className="faint">(display only — not part of the semantic fingerprint)</span>
             <textarea className="input input-sm" rows={2} value={identity?.description ?? ''} disabled={damaged}
@@ -558,7 +684,7 @@ function IndicatorOperandEditor({ op, onChange, disabled }: { op: any; onChange:
   )
 }
 
-function DistanceEditor({ value, onChange, disabled }: { value: { unit?: string; value?: number; atr_period?: number }; onChange: (d: any) => void; disabled?: boolean }) {
+function DistanceEditor({ value, onChange, disabled, allowZero }: { value: { unit?: string; value?: number; atr_period?: number }; onChange: (d: any) => void; disabled?: boolean; allowZero?: boolean }) {
   const unit = value?.unit ?? 'pips'
   const needsAtr = unit === 'atr_multiple'
   return (
@@ -576,7 +702,7 @@ function DistanceEditor({ value, onChange, disabled }: { value: { unit?: string;
         </select></label>
       <label className="mini-field">value{needsAtr ? ' (×ATR)' : ''}
         <input className="input input-xs num" type="number" min={0} step="any" value={String(value?.value ?? '')} disabled={disabled}
-               onChange={(e) => { const v = parseNum(e.target.value); if (v !== null && v > 0) onChange({ ...value, value: v }) }} />
+               onChange={(e) => { const v = parseNum(e.target.value); if (v !== null && (allowZero ? v >= 0 : v > 0)) onChange({ ...value, value: v }) }} />
       </label>
       {needsAtr && (
         <label className="mini-field">ATR period

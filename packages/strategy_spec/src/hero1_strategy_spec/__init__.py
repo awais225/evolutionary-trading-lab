@@ -10,7 +10,11 @@ from .expressions import (
 )
 from .spec import (
     KNOWN_INSTRUMENTS, SUPPORTED_SCHEMA_VERSIONS, SUPPORTED_TIMEFRAMES,
-    SCHEMA_VERSION, Direction, Identity, Origin, StrategySpec, Exits, ExecutionConfig,
+    SCHEMA_VERSION, Direction, Identity, Origin, StrategySpec, Exits, ExitRule, ExecutionConfig,
+)
+from .management import (
+    AppliesTo, TrailingStart, BreakEvenRule, SteppedTrailingRule,
+    FixedTrailingRule, IndicatorTrailingRule, TradeManagement,
 )
 from .risk import Distance, DistanceUnit, PositionSizing, RiskConfig, StopLoss, TakeProfit, DirectionRisk
 from .indicators import IndicatorName, indicator_warmup
@@ -21,20 +25,22 @@ from .compiler import (
     COMPILER_VERSION, IR_VERSION, PRESENTATION_IDENTITY_FIELDS, CompileResult,
     SpecCompilationError, canonical_json, compile_spec, semantic_canonical, semantic_fingerprint,
 )
-from .examples import bullish_engulfing, example_spec, example_specs, EXAMPLE_TIMEFRAMES
+from .examples import bullish_engulfing, ema_sma_stepped_trailing, example_spec, example_specs, EXAMPLE_TIMEFRAMES
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 __phase__ = 2
 
 __all__ = [
     "SCHEMA_VERSION", "COMPILER_VERSION", "IR_VERSION", "SUPPORTED_TIMEFRAMES",
-    "KNOWN_INSTRUMENTS", "StrategySpec", "Identity", "Exits", "ExecutionConfig",
+    "KNOWN_INSTRUMENTS", "StrategySpec", "Identity", "Exits", "ExitRule", "ExecutionConfig",
+    "AppliesTo", "TrailingStart", "BreakEvenRule", "SteppedTrailingRule",
+    "FixedTrailingRule", "IndicatorTrailingRule", "TradeManagement",
     "Direction", "Origin", "LogicNode", "LogicAnd", "LogicOr", "LogicNot", "Comparison",
     "ComparisonOp", "CandleOperand", "FormingCandleOperand", "IndicatorOperand",
     "ConstantOperand", "IndicatorName", "indicator_warmup",
-    "Distance", "DistanceUnit", "PositionSizing", "RiskConfig", "StopLoss", "TakeProfit", "DirectionRisk",
+    "Distance", "ZeroableDistance", "DistanceUnit", "PositionSizing", "RiskConfig", "StopLoss", "TakeProfit", "DirectionRisk",
     "Issue", "ReportStatus", "Severity", "ValidationReport", "validate_spec",
     "CompileResult", "SpecCompilationError", "canonical_json", "compile_spec",
     "PRESENTATION_IDENTITY_FIELDS", "semantic_canonical", "semantic_fingerprint",
-    "bullish_engulfing", "example_spec", "example_specs", "EXAMPLE_TIMEFRAMES",
+    "bullish_engulfing", "ema_sma_stepped_trailing", "example_spec", "example_specs", "EXAMPLE_TIMEFRAMES",
 ]

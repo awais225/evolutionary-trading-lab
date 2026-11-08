@@ -9,13 +9,15 @@ log + WS LIVE FEED (replay, no polling), web shell with the new visual
 identity (8 tabs, instrument switcher, collapsible feed), `doctor`, CI
 workflow, tests, docs. No trading capability.
 
-## Phase 2 — Strategy specification, validation & deterministic compiler ✅ (HERO-V1.1.0, 2026-11-06)
+## Phase 2 — Strategy specification, validation & deterministic compiler ✅ (HERO-V1.1.0, 2026-11-06; completed 2026-11-07)
 Typed strategy spec DSL (never executable code): JSON-typed entry/exit/risk/
 execution models, layered validator (structural → semantic → instrument →
 timeframe → indicator → risk → execution → safety) with structured issues and
 VALID/WARNING/NEEDS_METADATA/INVALID severities, deterministic compiler to
 declarative IR with SHA-256 fingerprint, immutable node versioning with
-parent-linked lineage, Manual Nodes spec workspace UI. NOT included (by design):
+parent-linked lineage, Manual Nodes spec workspace UI.
+COMPLETION (2026-11-07): optional `management` section (break-even, stepped/fixed trailing, indicator trailing as definition), prioritized `exit_rules` (legacy `explicit_exit` = implicit priority 0), schema 1.1.0 with byte-identical fingerprints for 1.0.0 specs, compiler 1.2.0 / IR 1.1.0, and the pure shared stop-management reference evaluator in `hero1_exec_semantics` (activation, never-backwards, tick rounding, idempotence; indicator trailing explicitly refuses until Phase 3). Builder gained Trade Management + exit-rule editors.
+NOT included (by design):
 natural-language → spec generation (Phase 7/WWW), backtesting (Phase 4),
 execution (Phase 5), indicator math (Phase 3).
 

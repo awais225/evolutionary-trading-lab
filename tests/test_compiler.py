@@ -62,9 +62,9 @@ def test_different_meaningful_specs_differ():
 
 def test_compiler_records_versions_and_warmup():
     r = compile_spec(_spec(), expected_instrument="XAUUSD", broker_meta=XAU_META)
-    assert r.schema_version == SCHEMA_VERSION == "1.0.0"
-    assert r.compiler_version == COMPILER_VERSION == "1.1.0"
-    assert r.ir["ir_version"] == "1.0.0"
+    assert r.schema_version == SCHEMA_VERSION == "1.1.0"
+    assert r.compiler_version == COMPILER_VERSION == "1.2.0"
+    assert r.ir["ir_version"] == "1.1.0"
     assert r.ir["strategy"]["instrument"] == "XAUUSD"
     assert r.ir["strategy"]["origin"] == "CUSTOM"
     assert isinstance(r.required_warmup_candles, int) and r.required_warmup_candles >= 1
