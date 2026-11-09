@@ -28,7 +28,8 @@ def _jsonl(rows) -> str:
     return "".join(json.dumps(r, default=str) + "\n" for r in rows)
 
 
-def build_audit_zip(*, run, node, trades: List[dict], scope: str = "FULL_RUN") -> bytes:
+def build_audit_zip(*, run, node, trades: List[dict], scope: str = "FULL_RUN",
+                    decision_events: Optional[List[dict]] = None) -> bytes:
     config = json.loads(run.config_json) if run.config_json else {}
     assumptions = json.loads(run.assumptions_json) if run.assumptions_json else {}
     metrics = json.loads(run.metrics_json) if run.metrics_json else {}
@@ -36,7 +37,8 @@ def build_audit_zip(*, run, node, trades: List[dict], scope: str = "FULL_RUN") -
     skipped = json.loads(run.skipped_json) if run.skipped_json else []
     # Only contemporaneously persisted ledger rows are evidence. Never derive
     # a historical ledger from current candles or trades during export.
-    decision_ledger = json.loads(run.decision_ledger_json) if getattr(run, "decision_ledger_json", None) else []
+    decision_ledger = (decision_events if decision_events is not None else
+                       json.loads(run.decision_ledger_json) if getattr(run, "decision_ledger_json", None) else [])
     spec = None
     if node is not None and node.spec_json:
         try:
@@ -89,7 +91,7 @@ def build_audit_zip(*, run, node, trades: List[dict], scope: str = "FULL_RUN") -
                  "readiness": quality,
                  "candles_available": config.get("candles_available")},
         "instrument_specification_status": ((config.get("specification_snapshot") or {}).get("provenance_class")
-            if (config.get("specification_snapshot") or {}).get("provenance_class") in ("LIVE_MT5_CAPTURE", "MT5_SAVED_SNAPSHOT")
+            if (config.get("specification_snapshot") or {}).get("provenance_class") in ("MT5_LIVE_CAPTURE", "MT5_SAVED_SNAPSHOT", "CURRENT_SPECIFICATION_USED_FOR_HISTORICAL_TEST")
             else "RUN_CONFIG_ONLY" if config.get("execution_specification_inputs") else "UNAVAILABLE"),
         "versions": {"compiler_version": run.compiler_version,
                      "engine_version": run.engine_version},
@@ -222,6 +224,42 @@ def build_audit_zip(*, run, node, trades: List[dict], scope: str = "FULL_RUN") -
         indicator_rows.append({"record_type": "EVIDENCE_STATUS", "status": "INCOMPLETE EVIDENCE",
                               "detail": "no entry-indicator snapshots recorded for this run"})
 
+    # ---- independent evidence verifiers -----------------------------------
+    from .execution_evidence_verifiers import (
+        verify_decision_outcomes, verify_entry_conditions, verify_no_lookahead,
+        verify_position_sizing, verify_reference_levels, verify_snapshot_provenance,
+    )
+    decision_verification = verify_decision_outcomes(decision_ledger, enriched)
+    no_lookahead_verification = verify_no_lookahead(decision_ledger)
+    sizing_verification = verify_position_sizing(enriched)
+    source_candles = []
+    try:
+        actual = config.get("actual_range") or {}
+        if actual.get("start") is not None and actual.get("end") is not None:
+            source_candles = dts.load_candles(run.instrument_id, run.timeframe,
+                                               int(actual["start"]), int(actual["end"]))
+    except Exception:  # keep evidence absence explicit in the verification report
+        source_candles = []
+    entry_verification = verify_entry_conditions(spec, decision_ledger, source_candles)
+    def _contains_reference(value):
+        if isinstance(value, dict):
+            return value.get("kind") == "reference" or any(_contains_reference(v) for v in value.values())
+        if isinstance(value, list):
+            return any(_contains_reference(v) for v in value)
+        return False
+    reference_verification = verify_reference_levels([], [], _contains_reference(spec))
+    snapshot_verification = verify_snapshot_provenance(config.get("specification_snapshot"))
+    verification_results = {
+        "verifier_version": "hero1-evidence-verifier/1",
+        "verified_at_utc": datetime.now(timezone.utc).isoformat(),
+        "entry_conditions_followed": entry_verification,
+        "signal_outcome_reconciliation": decision_verification,
+        "no_look_ahead": no_lookahead_verification,
+        "reference_level_calculations": reference_verification,
+        "position_sizing_and_risk_limit": sizing_verification,
+        "instrument_specification_provenance": snapshot_verification,
+    }
+
     # ---- compliance --------------------------------------------------------
     checks = []
 
@@ -348,6 +386,7 @@ def build_audit_zip(*, run, node, trades: List[dict], scope: str = "FULL_RUN") -
         z.writestr(f"{root}/trade_events.jsonl", _jsonl(trade_events))
         z.writestr(f"{root}/strategy_decisions.jsonl", _jsonl(decisions))
         z.writestr(f"{root}/decision_ledger.jsonl", _jsonl(decision_ledger))
+        z.writestr(f"{root}/independent_verification.json", json.dumps(verification_results, indent=2, default=str))
         z.writestr(f"{root}/condition_evaluations.jsonl", _jsonl(condition_rows))
         z.writestr(f"{root}/indicator_evidence.jsonl", _jsonl(indicator_rows))
         z.writestr(f"{root}/execution_events.jsonl", _jsonl(execution_events))

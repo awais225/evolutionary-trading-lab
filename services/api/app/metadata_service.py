@@ -148,9 +148,9 @@ def best_snapshot(instrument: str) -> Optional[Dict[str, Any]]:
             actual = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
             data["integrity_verified"] = bool(supplied and supplied == actual)
             if data.get("source") == "mt5-terminal" and data.get("integrity_verified"):
-                data["provenance_class"] = "MT5_SAVED_SNAPSHOT"
+                data["verified_source_class"] = "MT5_SAVED_SNAPSHOT"
             elif data.get("source") == "mt5-terminal":
-                data["provenance_class"] = "UNVERIFIED_LEGACY_MT5_SNAPSHOT"
+                data["verified_source_class"] = "UNVERIFIED_LEGACY_MT5_SNAPSHOT"
             data["_stored_path"] = str(file)
             candidates.append(data)
     if not candidates:

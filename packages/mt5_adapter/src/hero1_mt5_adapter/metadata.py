@@ -240,7 +240,10 @@ def build_snapshot(*, broker_server: str, symbol: str, raw_symbol: Any,
         },
     }
     snapshot["snapshot_id"] = uuid.uuid4().hex
-    snapshot["provenance_class"] = "LIVE_MT5_CAPTURE" if source == "mt5-terminal" else "UNVERIFIED_EXTERNAL_IMPORT"
+    snapshot["provenance_class"] = "MT5_LIVE_CAPTURE" if source == "mt5-terminal" else "UNVERIFIED_EXTERNAL_IMPORT"
+    snapshot["field_provenance"] = {key: ("MT5_LIVE_CAPTURE" if value is not None else "UNAVAILABLE")
+                                    for key, value in snapshot["fields"].items()}
+    snapshot["derived_provenance"] = {key: "DERIVED" for key in snapshot["derived"]}
     canonical = json.dumps(snapshot, sort_keys=True, separators=(",", ":"),
                            ensure_ascii=True, allow_nan=False, default=str)
     snapshot["integrity_sha256"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()

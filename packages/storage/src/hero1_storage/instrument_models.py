@@ -149,6 +149,29 @@ class DeepTestRun(Base):
     finished_at: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
+class DeepTestDecisionEvent(Base):
+    """Append-only, idempotent decision evidence written in bounded batches."""
+    __tablename__ = "deeptest_decision_events"
+    __table_args__ = (
+        Index("ix_dde_run_sequence", "run_id", "sequence"),
+        Index("ix_dde_run_signal", "run_id", "signal_id"),
+        Index("ix_dde_run_candle", "run_id", "candle_ts"),
+    )
+    event_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    run_id: Mapped[int] = mapped_column(Integer, ForeignKey("deeptest_runs.id", ondelete="CASCADE"), nullable=False)
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    node_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    node_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    instrument_id: Mapped[str] = mapped_column(String(16), nullable=False)
+    timeframe: Mapped[str] = mapped_column(String(4), nullable=False)
+    signal_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    related_event_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    candle_ts: Mapped[int] = mapped_column(Integer, nullable=False)
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
+
+
 class DeepTestRunTrade(Base):
     """One simulated trade belonging to a run. Full ledger per Part N."""
     __tablename__ = "deeptest_run_trades"

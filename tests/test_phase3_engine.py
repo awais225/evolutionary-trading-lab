@@ -166,6 +166,27 @@ def test_no_lookahead_prefix_consistency():
                for t in full["trades"])
 
 
+def test_ledger_callback_flushes_bounded_batches_and_preserves_prior_batches_on_failure():
+    ir = compile_spec(cross_spec())
+    candles = candles_from_closes([100 + (i % 3) for i in range(180)])
+    durable = []
+
+    def persist(batch):
+        durable.extend(batch)
+        if len(durable) >= 512:
+            raise RuntimeError("simulated persistence interruption")
+
+    with pytest.raises(RuntimeError, match="simulated persistence interruption"):
+        run_backtest(ir=ir.ir, candles=candles, cfg=CFG,
+                     instrument=SPEC_INSTR, price_ctx=CTX, ledger_cb=persist,
+                     evidence_context={"run_id": 999, "node_id": 1,
+                                       "node_version": 1, "fingerprint": "f" * 64})
+    assert durable
+    assert len(durable) >= 256
+    assert len({e["event_id"] for e in durable}) == len(durable)
+    assert all(e["run_id"] == 999 and e["node_id"] == 1 for e in durable)
+
+
 def test_future_bar_mutation_cannot_change_prior_signal_or_entry():
     import copy
 

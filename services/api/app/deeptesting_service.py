@@ -363,22 +363,37 @@ def execute_run(session: Session, *, instrument: str, node: im.Node,
                                 + "; ".join(dq.get("blocked_reasons") or dq.get("reasons") or []))
         broker_meta = spec_service._resolve_broker_meta(instrument, config.get("broker_meta"))
         broker_snapshot = metadata_service.best_snapshot(instrument)
+        # A metadata row without a valid integrity hash is not authoritative
+        # run provenance. Continue only from explicit run inputs in that case.
+        if broker_snapshot and not broker_snapshot.get("integrity_verified"):
+            broker_snapshot = None
         if broker_snapshot:
             config = {**config, "specification_snapshot": {
                 "snapshot_id": broker_snapshot.get("snapshot_id"),
                 "integrity_sha256": broker_snapshot.get("integrity_sha256"),
                 "provenance_class": ("CURRENT_SPECIFICATION_USED_FOR_HISTORICAL_TEST"
-                    if broker_snapshot.get("provenance_class") == "LIVE_MT5_CAPTURE"
-                    else "SAVED_MT5_SNAPSHOT" if broker_snapshot.get("provenance_class") == "MT5_SAVED_SNAPSHOT"
-                    else "UNVERIFIED_EXTERNAL_IMPORT"),
+                    if broker_snapshot.get("verified_source_class") == "MT5_SAVED_SNAPSHOT" or broker_snapshot.get("provenance_class") == "MT5_LIVE_CAPTURE"
+                    else "RUN_CONFIG_ONLY"),
                 "broker_server": broker_snapshot.get("broker_server"),
                 "retrieved_at": broker_snapshot.get("retrieved_at"),
                 "fingerprint": broker_snapshot.get("fingerprint"),
                 "source": broker_snapshot.get("source"),
                 "symbol_name": broker_snapshot.get("symbol_name") or instrument.upper(),
                 "fields": broker_snapshot.get("fields") or {},
+                "raw": broker_snapshot.get("raw") or {},
                 "tick": broker_snapshot.get("tick") or {},
                 "derived": broker_snapshot.get("derived") or {},
+                "terminal": broker_snapshot.get("terminal") or {},
+                "field_provenance": broker_snapshot.get("field_provenance") or {},
+                "integrity_verified": bool(broker_snapshot.get("integrity_verified")),
+                "source": broker_snapshot.get("source"),
+                "snapshot_payload": {k: v for k, v in broker_snapshot.items()
+                                     if not str(k).startswith("_") and k not in ("integrity_verified", "verified_source_class")},
+                "verified_source_class": broker_snapshot.get("verified_source_class"),
+                "run_use_classification": ("CURRENT_SPECIFICATION_USED_FOR_HISTORICAL_TEST"
+                    if broker_snapshot.get("provenance_class") == "MT5_LIVE_CAPTURE"
+                    else broker_snapshot.get("provenance_class")),
+                "retrieval_timestamp": broker_snapshot.get("retrieved_at"),
                 "account_currency": (broker_snapshot.get("account") or {}).get("currency"),
             }, "specification_assumption": "current MT5 snapshot used; historical snapshot unavailable"}
         else:
@@ -579,6 +594,12 @@ def execute_run(session: Session, *, instrument: str, node: im.Node,
                                run_id=run.id, node_id=node.id, instrument=instrument,
                                timeframe=tf, started=started, details=engine_details)
 
+            def _persist_decision_batch(batch):
+                # Bounded, append-only persistence. Stable event IDs make retries idempotent.
+                from app.decision_ledger import persist_event_batch
+                persist_event_batch(session, batch, run_id=run.id, node_id=node.id,
+                    node_version=node.version, fingerprint=compiled.fingerprint,
+                    instrument=instrument, timeframe=tf)
             result = run_backtest(ir=compiled.ir, candles=candles, cfg=rcfg,
                                   instrument=spec_meta, price_ctx=price_ctx, management=mgmt,
                                   aux_candles=aux_candles, progress_cb=progress_cb,
@@ -587,7 +608,10 @@ def execute_run(session: Session, *, instrument: str, node: im.Node,
                                   evidence_context={"run_id": run.id, "node_id": node.id,
                                       "node_version": node.version, "fingerprint": compiled.fingerprint,
                                       "compiler_version": compiled.compiler_version, "instrument": instrument.upper(),
-                                      "timeframe": tf})
+                                      "timeframe": tf,
+                                      "specification_snapshot_id": (config.get("specification_snapshot") or {}).get("snapshot_id"),
+                                      "specification_provenance": (config.get("specification_snapshot") or {}).get("provenance_class", "RUN_CONFIG_ONLY"),
+                                      "profit_currency": config.get("currency_profit")}, ledger_cb=_persist_decision_batch)
             _execution_log("ENGINE_EXECUTION", "COMPLETED", task_id=task_id, run_id=run.id, node_id=node.id, instrument=instrument, timeframe=tf, started=started, details={"signals_skipped": len(result.get("skipped_signals", [])), "trades": len(result.get("trades", [])), "warnings": len(result.get("notices", []))})
             assumptions = json.loads(run.assumptions_json or "{}")
             execution_warnings = list(result.get("notices", []))

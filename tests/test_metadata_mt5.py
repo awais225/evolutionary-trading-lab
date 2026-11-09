@@ -60,7 +60,7 @@ def test_snapshot_integrity_id_and_live_provenance_are_explicit():
     snap = build_snapshot(broker_server="LocalMock", symbol="XAUUSD",
                           raw_symbol=ICMARKETS_XAUUSD, source="mt5-terminal")
     assert snap["snapshot_id"]
-    assert snap["provenance_class"] == "LIVE_MT5_CAPTURE"
+    assert snap["provenance_class"] == "MT5_LIVE_CAPTURE"
     payload = dict(snap)
     claimed = payload.pop("integrity_sha256")
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"),

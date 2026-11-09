@@ -168,7 +168,10 @@ def audit_export(run_id: int, scope: str = "full", filters: Optional[str] = None
         page = dts.paginate_trades(trades, page=0, page_size="all",
                                    cells=cell_list, filters=structured)
         trades = page["trades"]
-    data = ax.build_audit_zip(run=run, node=node, trades=trades, scope=label)
+    from app.decision_ledger import load_all_events
+    ledger_events = load_all_events(session, run_id)
+    data = ax.build_audit_zip(run=run, node=node, trades=trades, scope=label,
+                              decision_events=ledger_events)
     return Response(content=data, media_type="application/zip", headers={
         "Content-Disposition": f'attachment; filename="hero1_audit_run{run_id}_{label.lower()}.zip"'})
 
