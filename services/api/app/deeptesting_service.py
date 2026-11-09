@@ -365,6 +365,12 @@ def execute_run(session: Session, *, instrument: str, node: im.Node,
         broker_snapshot = metadata_service.best_snapshot(instrument)
         if broker_snapshot:
             config = {**config, "specification_snapshot": {
+                "snapshot_id": broker_snapshot.get("snapshot_id"),
+                "integrity_sha256": broker_snapshot.get("integrity_sha256"),
+                "provenance_class": ("CURRENT_SPECIFICATION_USED_FOR_HISTORICAL_TEST"
+                    if broker_snapshot.get("provenance_class") == "LIVE_MT5_CAPTURE"
+                    else "SAVED_MT5_SNAPSHOT" if broker_snapshot.get("provenance_class") == "MT5_SAVED_SNAPSHOT"
+                    else "UNVERIFIED_EXTERNAL_IMPORT"),
                 "broker_server": broker_snapshot.get("broker_server"),
                 "retrieved_at": broker_snapshot.get("retrieved_at"),
                 "fingerprint": broker_snapshot.get("fingerprint"),
@@ -577,7 +583,11 @@ def execute_run(session: Session, *, instrument: str, node: im.Node,
                                   instrument=spec_meta, price_ctx=price_ctx, management=mgmt,
                                   aux_candles=aux_candles, progress_cb=progress_cb,
                                   stage_cb=_stage_cb,
-                                  detailed_logging=bool(config.get("detailed_logging")))
+                                  detailed_logging=bool(config.get("detailed_logging")),
+                                  evidence_context={"run_id": run.id, "node_id": node.id,
+                                      "node_version": node.version, "fingerprint": compiled.fingerprint,
+                                      "compiler_version": compiled.compiler_version, "instrument": instrument.upper(),
+                                      "timeframe": tf})
             _execution_log("ENGINE_EXECUTION", "COMPLETED", task_id=task_id, run_id=run.id, node_id=node.id, instrument=instrument, timeframe=tf, started=started, details={"signals_skipped": len(result.get("skipped_signals", [])), "trades": len(result.get("trades", [])), "warnings": len(result.get("notices", []))})
             assumptions = json.loads(run.assumptions_json or "{}")
             execution_warnings = list(result.get("notices", []))
@@ -612,6 +622,7 @@ def execute_run(session: Session, *, instrument: str, node: im.Node,
             target.metrics_json = json.dumps(metrics)
             target.equity_json = json.dumps(result["equity_curve"])
             target.skipped_json = json.dumps(result["skipped_signals"])
+            target.decision_ledger_json = json.dumps(result.get("decision_ledger", []), separators=(",", ":"))
             target.status = "DONE"
             target.finished_at = time.time()
             for t in result["trades"]:

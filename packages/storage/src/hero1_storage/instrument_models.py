@@ -143,6 +143,7 @@ class DeepTestRun(Base):
     metrics_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     equity_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     skipped_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    decision_ledger_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[float] = mapped_column(Float, nullable=False, default=utcnow)
     finished_at: Mapped[float | None] = mapped_column(Float, nullable=True)

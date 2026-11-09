@@ -150,6 +150,20 @@ def test_no_lookahead_prefix_consistency():
                           instrument=SPEC_INSTR, price_ctx=CTX)
     assert prefix["trades"][0]["entry_price"] == full["trades"][0]["entry_price"]
     assert prefix["trades"][0]["entry_ts"] == full["trades"][0]["entry_ts"]
+    # Ledger captures every candle and full causal condition evaluations,
+    # including false conditions, rather than only executed/rejected trades.
+    ledger = full["decision_ledger"]
+    candle_rows = [e for e in ledger if e["event"] == "CANDLE_EVALUATED"]
+    condition_rows = [e for e in ledger if e["event"] == "CONDITION_EVALUATED"]
+    assert len(candle_rows) == len(CLOSES)
+    assert len(condition_rows) == len(CLOSES)
+    assert len({e["event_id"] for e in ledger}) == len(ledger)
+    assert all(e["max_input_ts"] <= e["evaluation_ts"] for e in condition_rows)
+    assert any(e["event"] == "SIGNAL_DETECTED" for e in ledger)
+    assert any(e["event"] == "SIGNAL_REJECTED_CONDITION" for e in ledger)
+    assert any(e["event"] == "TRADE_EXECUTED" for e in ledger)
+    assert all(t["sizing_calculation"]["formula_version"] == "risk_size_v1"
+               for t in full["trades"])
 
 
 def test_future_bar_mutation_cannot_change_prior_signal_or_entry():
@@ -171,6 +185,17 @@ def test_future_bar_mutation_cannot_change_prior_signal_or_entry():
                      instrument=SPEC_INSTR, price_ctx=CTX)["trades"][0]
     assert (a["signal_ts"], a["entry_ts"], a["entry_price"], a["initial_stop"], a["take_profit"]) == \
            (b["signal_ts"], b["entry_ts"], b["entry_price"], b["initial_stop"], b["take_profit"])
+    all_a = run_backtest(ir=ir.ir, candles=original, cfg=CFG,
+                         instrument=SPEC_INSTR, price_ctx=CTX)["decision_ledger"]
+    all_b = run_backtest(ir=ir.ir, candles=mutated, cfg=CFG,
+                         instrument=SPEC_INSTR, price_ctx=CTX)["decision_ledger"]
+    stable_events = {"CANDLE_EVALUATED", "CONDITION_EVALUATED", "SIGNAL_DETECTED",
+                     "SIGNAL_REJECTED_CONDITION"}
+    prefix_a = [(e["event"], e["candle_ts"], e.get("conditions"), e.get("direction"))
+                for e in all_a if e["candle_ts"] <= original[12]["ts"] and e["event"] in stable_events]
+    prefix_b = [(e["event"], e["candle_ts"], e.get("conditions"), e.get("direction"))
+                for e in all_b if e["candle_ts"] <= original[12]["ts"] and e["event"] in stable_events]
+    assert prefix_a == prefix_b
 
 
 def test_gap_over_stop_and_same_candle_ambiguity():

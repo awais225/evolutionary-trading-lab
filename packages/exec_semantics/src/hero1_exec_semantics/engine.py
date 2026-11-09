@@ -62,6 +62,8 @@ EXECUTION MODEL (every ambiguity is decided here, in writing):
 from __future__ import annotations
 
 import inspect
+import hashlib
+import json
 import math
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -417,7 +419,8 @@ def size_position(*, cfg: RunConfig, spec: InstrumentSpec, equity_now: float,
     if planned > budget * 1.0000001:
         return {"volume": None, "budget": budget,
                 "reason": "RISK_BUDGET_EXCEEDED: rounded volume would exceed the risk budget"}
-    return {"volume": volume, "planned_risk": planned, "budget": budget,
+    return {"volume": volume, "calculated_unrounded_volume": raw,
+            "rounded_volume": volume, "planned_risk": planned, "budget": budget,
             "loss_per_lot": loss_per_lot, "reason": None}
 
 
@@ -441,7 +444,8 @@ def run_backtest(*, ir: dict, candles: List[dict], cfg: RunConfig,
                  instrument: InstrumentSpec, price_ctx: PriceContext,
                  management: Optional[TradeManagement] = None,
                  aux_candles: Optional[List[dict]] = None,
-                 progress_cb=None, stage_cb=None, detailed_logging: bool = False) -> dict:
+                 progress_cb=None, stage_cb=None, detailed_logging: bool = False,
+                 evidence_context: Optional[dict] = None) -> dict:
     """Execute one compiled strategy over candles. Returns trades, equity
     curve, skipped signals and run accounting. Raises EngineError for any
     unsupported/underspecified semantics - never guesses."""
@@ -458,6 +462,23 @@ def run_backtest(*, ir: dict, candles: List[dict], cfg: RunConfig,
     entry_timing = execution.get("entry_timing", "next_bar_open")
 
     signal_log_budget = [0]
+    # Compact, deterministic run-bound ledger; one candle row plus the full
+    # condition tree result for each evaluation. No rejected signal is omitted.
+    decision_ledger = []
+    evidence_context = dict(evidence_context or {})
+    def _ledger_event(kind, index, **fields):
+        bar = candles[index]
+        identity = f"{evidence_context.get('run_id', 'pending')}:{index}:{kind}:{len(decision_ledger)}"
+        event_id = hashlib.sha256(identity.encode()).hexdigest()[:32]
+        decision_ledger.append({"event_id": event_id, "event": kind,
+            "run_id": evidence_context.get("run_id"), "node_id": evidence_context.get("node_id"),
+            "node_version": evidence_context.get("node_version"),
+            "strategy_fingerprint": evidence_context.get("fingerprint"),
+            "compiler_version": evidence_context.get("compiler_version"),
+            "engine_version": ENGINE_VERSION, "instrument": evidence_context.get("instrument"),
+            "timeframe": evidence_context.get("timeframe"), "candle_index": index,
+            "candle_ts": int(bar["ts"]), "evaluation_ts": int(bar["ts"]),
+            "max_input_ts": int(bar["ts"]), **fields})
     detailed_stages = {"SIGNAL_DETECTED", "SIGNAL_REJECTION", "POSITION_SIZING",
                        "SL_TP_CALCULATION", "ORDER_EXECUTION_SIMULATION", "EXIT_EXECUTION"}
 
@@ -681,6 +702,18 @@ def run_backtest(*, ir: dict, candles: List[dict], cfg: RunConfig,
              stop_price=stop_price, equity_before_entry=equity_now)
         sized = size_position(cfg=cfg, spec=instrument, equity_now=equity_now,
                               entry_price=entry_price, stop_price=stop_price, side=side)
+        sized.update({"formula_version": "risk_size_v1", "risk_mode": cfg.risk_mode,
+            "risk_value": cfg.risk_value, "risk_basis": cfg.risk_basis,
+            "account_currency": cfg.account_currency, "equity_before_entry": equity_now,
+            "entry_price": entry_price, "initial_stop_price": stop_price,
+            "stop_distance": abs(entry_price - stop_price) if stop_price is not None else None,
+            "tick_size": instrument.tick_size, "tick_value_account": instrument.tick_value_account,
+            "tick_value_quote": instrument.tick_value_quote, "fx_to_account": instrument.fx_to_account,
+            "contract_size": instrument.contract_size, "volume_min": instrument.volume_min,
+            "volume_max": instrument.volume_max, "volume_step": instrument.volume_step,
+            "point_size": price_ctx.point_size, "pip_size": price_ctx.pip_size,
+            "max_active_trades": cfg.max_active_trades, "active_trades_at_entry": len(positions),
+            "risk_limit_decision": "PASS" if sized.get("volume") is not None else "REJECTED"})
         if sized["volume"] is None:
             emit("POSITION_SIZING", "REJECTED", reason=sized.get("reason"), details=sized)
             emit("SIGNAL_REJECTION", "REJECTED", ts=int(candles[i]["ts"]), side=side,
@@ -745,6 +778,7 @@ def run_backtest(*, ir: dict, candles: List[dict], cfg: RunConfig,
                 progress_cb = None
         bar = candles[i]
         ts = int(bar["ts"])
+        _ledger_event("CANDLE_EVALUATED", i, candle={k: bar.get(k) for k in ("open", "high", "low", "close", "spread")})
 
         # 1) execute pending rule/time exits at this open
         for pos in list(pending_exits):
@@ -819,15 +853,21 @@ def run_backtest(*, ir: dict, candles: List[dict], cfg: RunConfig,
                     positions.remove(pos)
 
         # 5) entry signals at this close
+        condition_evaluations = _condition_audit(ir["entry"], i, candles, series_cache)
         side = _entry_side(ir, i, candles, series_cache)
+        _ledger_event("CONDITION_EVALUATED", i, conditions=condition_evaluations, result=side is not None,
+                      direction=side, indicators={str(k): (v[i] if i < len(v) else None) for k, v in series_cache.items() if isinstance(k, tuple) and k[0] != "__reference__" and isinstance(v, list)},
+                      reference_levels={str(k[1]): (v[i] if i < len(v) else None) for k, v in series_cache.items() if isinstance(k, tuple) and k[0] == "__reference__" and isinstance(v, list)},
+                      reference_source_basis="auxiliary candles" if aux_candles else "node timeframe candles" if ref_levels else None)
         if side is None:
+            _ledger_event("SIGNAL_REJECTED_CONDITION", i, reason="ENTRY_CONDITIONS_FALSE", conditions=condition_evaluations, active_trades=len(positions))
             no_signal_bars += 1
             if detailed_logging:
                 emit("ENTRY_CONDITION_EVALUATION", "NO_SIGNAL", ts=ts,
                      condition_evaluations=_condition_audit(ir["entry"], i, candles, series_cache))
         else:
             detected_signals += 1
-            condition_evaluations = _condition_audit(ir["entry"], i, candles, series_cache)
+            _ledger_event("SIGNAL_DETECTED", i, side=side, conditions=condition_evaluations, active_trades=len(positions))
             emit("SIGNAL_DETECTED", "COMPLETED", ts=ts, side=side,
                  conditions=condition_evaluations if detailed_logging else len(condition_evaluations))
             sig = {"side": side, "signal_index": i,
@@ -876,10 +916,33 @@ def run_backtest(*, ir: dict, candles: List[dict], cfg: RunConfig,
     emit("TRADE_MANAGEMENT", "COMPLETED", enabled=mgmt_model is not None)
     emit("ENGINE_EXECUTION", "COMPLETED", candle_count=n, detected_signals=detected_signals,
          executed_trades=len(trades), skipped_signals=len(skipped), warnings=len(notices))
+    # Link final engine outcomes to their original signal candle. This is done
+    # after IDs exist, so every executed/rejected signal has an exact reference.
+    by_ts = {int(c["ts"]): idx for idx, c in enumerate(candles)}
+    for trade in trades:
+        idx = by_ts.get(int(trade.get("signal_ts") or trade.get("entry_ts") or 0))
+        if idx is None:
+            continue
+        _ledger_event("TRADE_EXECUTED", idx, decision="EXECUTED", trade_id=trade.get("id"),
+                      side=trade.get("side"), entry_ts=trade.get("entry_ts"),
+                      entry_candle_ts=trade.get("entry_ts"), max_entry_input_ts=int(trade.get("signal_ts") or 0))
+        _ledger_event("TRADE_EXITED", by_ts.get(int(trade.get("exit_ts") or 0), idx),
+                      trade_id=trade.get("id"), exit_ts=trade.get("exit_ts"),
+                      exit_reason=trade.get("exit_reason"))
+    for skipped_item in skipped:
+        idx = by_ts.get(int(skipped_item.get("ts") or 0))
+        if idx is not None:
+            reason = str(skipped_item.get("reason") or "")
+            _ledger_event("SIGNAL_REJECTED_ACTIVE_TRADE_LIMIT" if "MAX_ACTIVE" in reason else
+                          "SIGNAL_REJECTED_SESSION_FILTER" if "FILTER" in reason else
+                          "SIGNAL_REJECTED_INVALID_DATA", idx, reason=reason, decision="REJECTED",
+                          side=skipped_item.get("side"), active_trades=len(positions))
+
     return {
         "engine_version": ENGINE_VERSION,
         "trades": trades,
         "skipped_signals": skipped,
+        "decision_ledger": decision_ledger,
         "notices": notices,
         "equity_curve": equity_curve,
         "final_balance": round(balance, 6),

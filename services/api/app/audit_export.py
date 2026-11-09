@@ -34,6 +34,9 @@ def build_audit_zip(*, run, node, trades: List[dict], scope: str = "FULL_RUN") -
     metrics = json.loads(run.metrics_json) if run.metrics_json else {}
     quality = json.loads(run.data_quality_json) if run.data_quality_json else {}
     skipped = json.loads(run.skipped_json) if run.skipped_json else []
+    # Only contemporaneously persisted ledger rows are evidence. Never derive
+    # a historical ledger from current candles or trades during export.
+    decision_ledger = json.loads(run.decision_ledger_json) if getattr(run, "decision_ledger_json", None) else []
     spec = None
     if node is not None and node.spec_json:
         try:
@@ -85,10 +88,14 @@ def build_audit_zip(*, run, node, trades: List[dict], scope: str = "FULL_RUN") -
                  "source_provenance_status": ((config.get("data_snapshot") or {}).get("source_provenance") or {}).get("status", "UNVERIFIED_NOT_CAPTURED"),
                  "readiness": quality,
                  "candles_available": config.get("candles_available")},
-        "instrument_specification_status": ("VERIFIED_SNAPSHOT" if config.get("specification_snapshot") else "UNVERIFIED_NO_MT5_SNAPSHOT"),
+        "instrument_specification_status": ((config.get("specification_snapshot") or {}).get("provenance_class")
+            if (config.get("specification_snapshot") or {}).get("provenance_class") in ("LIVE_MT5_CAPTURE", "MT5_SAVED_SNAPSHOT")
+            else "RUN_CONFIG_ONLY" if config.get("execution_specification_inputs") else "UNAVAILABLE"),
         "versions": {"compiler_version": run.compiler_version,
                      "engine_version": run.engine_version},
         "evidence_status": {
+            "decision_ledger": "RECORDED" if decision_ledger else "INCOMPLETE HISTORICAL EVIDENCE",
+            "decision_ledger_event_count": len(decision_ledger),
             "trade_ledger": "RECORDED",
             "skipped_signals": "RECORDED" if has_decisions else "INCOMPLETE EVIDENCE",
             "condition_evaluations": ("RECORDED FOR EXECUTED SIGNALS; REJECTIONS/OTHER BARS UNVERIFIED"
@@ -340,6 +347,7 @@ def build_audit_zip(*, run, node, trades: List[dict], scope: str = "FULL_RUN") -
         z.writestr(f"{root}/trades.csv", trades_csv)
         z.writestr(f"{root}/trade_events.jsonl", _jsonl(trade_events))
         z.writestr(f"{root}/strategy_decisions.jsonl", _jsonl(decisions))
+        z.writestr(f"{root}/decision_ledger.jsonl", _jsonl(decision_ledger))
         z.writestr(f"{root}/condition_evaluations.jsonl", _jsonl(condition_rows))
         z.writestr(f"{root}/indicator_evidence.jsonl", _jsonl(indicator_rows))
         z.writestr(f"{root}/execution_events.jsonl", _jsonl(execution_events))

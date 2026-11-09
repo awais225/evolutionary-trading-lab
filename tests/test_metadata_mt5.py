@@ -55,6 +55,22 @@ def _snapshot(symbol="ZZTESTA", server="UnitTestBroker-Demo", raw=None, retrieve
 
 # ------------------------------------------------------------ sizing rules
 
+def test_snapshot_integrity_id_and_live_provenance_are_explicit():
+    import hashlib
+    snap = build_snapshot(broker_server="LocalMock", symbol="XAUUSD",
+                          raw_symbol=ICMARKETS_XAUUSD, source="mt5-terminal")
+    assert snap["snapshot_id"]
+    assert snap["provenance_class"] == "LIVE_MT5_CAPTURE"
+    payload = dict(snap)
+    claimed = payload.pop("integrity_sha256")
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"),
+                           ensure_ascii=True, allow_nan=False, default=str)
+    assert claimed == hashlib.sha256(canonical.encode()).hexdigest()
+    imported = build_snapshot(broker_server="LocalMock", symbol="XAUUSD",
+                              raw_symbol=ICMARKETS_XAUUSD, source="manual-import")
+    assert imported["provenance_class"] == "UNVERIFIED_EXTERNAL_IMPORT"
+
+
 def test_pip_point_digits_rules_never_guessed():
     assert sizing.point_from_digits(5) == pytest.approx(1e-5)
     assert sizing.point_from_digits(2) == pytest.approx(0.01)

@@ -88,6 +88,11 @@ def save_snapshot(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     if not server or not symbol:
         raise ValueError("snapshot needs broker_server and instrument")
     path = _snapshot_path(server, symbol)
+    snapshot = dict(snapshot)
+    snapshot.pop("integrity_sha256", None)
+    canonical = json.dumps(snapshot, sort_keys=True, separators=(",", ":"),
+                           ensure_ascii=True, allow_nan=False, default=str)
+    snapshot["integrity_sha256"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
     _atomic_write_json(path, snapshot)
     manifest = _rebuild_manifest()
     sha = _sha256_file(path)
@@ -135,6 +140,17 @@ def best_snapshot(instrument: str) -> Optional[Dict[str, Any]]:
         except Exception:  # noqa: BLE001
             continue
         if str(data.get("instrument") or "").upper() == want:
+            supplied = data.get("integrity_sha256")
+            unhashed = dict(data)
+            unhashed.pop("integrity_sha256", None)
+            canonical = json.dumps(unhashed, sort_keys=True, separators=(",", ":"),
+                                   ensure_ascii=True, allow_nan=False, default=str)
+            actual = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+            data["integrity_verified"] = bool(supplied and supplied == actual)
+            if data.get("source") == "mt5-terminal" and data.get("integrity_verified"):
+                data["provenance_class"] = "MT5_SAVED_SNAPSHOT"
+            elif data.get("source") == "mt5-terminal":
+                data["provenance_class"] = "UNVERIFIED_LEGACY_MT5_SNAPSHOT"
             data["_stored_path"] = str(file)
             candidates.append(data)
     if not candidates:
