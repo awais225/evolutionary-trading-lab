@@ -12,53 +12,93 @@ from typing import Any
 VERIFIER_VERSION = "hero1-evidence-verifier/1"
 
 
-def verify_entry_conditions(strategy: dict | None, events: list[dict], source_candles: list[dict]) -> dict:
+def verify_entry_conditions(strategy: dict | None, events: list[dict], source_candles: list[dict],
+                            expected_fingerprint: str | None = None) -> dict:
     if not strategy or not events or not source_candles:
         return {"verdict": "UNVERIFIED", "detail": "strategy, decision ledger, or exact source candles missing"}
     entry = strategy.get("entry") or {}
+    fingerprint_mismatches = [e.get("event_id") for e in events
+        if e.get("strategy_fingerprint") is not None and expected_fingerprint is not None
+        and e.get("strategy_fingerprint") != expected_fingerprint]
+    strategy_fingerprint = None
+    if expected_fingerprint is not None:
+        try:
+            from hero1_strategy_spec import StrategySpec, semantic_fingerprint
+            strategy_fingerprint, _ = semantic_fingerprint(StrategySpec.model_validate(strategy))
+        except Exception as exc:  # unsupported historical schema remains incomplete
+            return {"verdict": "UNVERIFIED", "detail": f"strategy fingerprint could not be recomputed: {exc}"}
+        if strategy_fingerprint != expected_fingerprint:
+            fingerprint_mismatches.append("strategy_definition")
+    if fingerprint_mismatches:
+        return {"verdict": "FAIL", "fingerprint_mismatches": fingerprint_mismatches,
+                "recomputed_strategy_fingerprint": strategy_fingerprint,
+                "detail": "ledger or strategy fingerprint differs from run fingerprint"}
     by_ts = {int(c["ts"]): c for c in source_candles}
     evaluations = [e for e in events if e.get("event") == "CONDITION_EVALUATED"]
     mismatches, unresolved = [], []
 
-    def operand(op, index):
+    ordered = sorted(source_candles, key=lambda c: int(c["ts"]))
+    index_by_ts = {int(c["ts"]): i for i, c in enumerate(ordered)}
+
+    def operand(op, candle_i):
         kind = op.get("kind")
         if kind == "constant":
             return op.get("value")
-        if kind == "candle":
-            offset = int(op.get("offset", 0))
-            ts = int(evaluations[index].get("candle_ts", 0))
-            # Exact candle interval reference: current and previous bars are
-            # indexed by the persisted sorted source candles.
-            idx = next((j for j, c in enumerate(source_candles) if int(c["ts"]) == ts), None)
-            if idx is None or idx - offset < 0:
+        if kind in ("candle", "forming_candle"):
+            if kind == "forming_candle":
+                raise ValueError("forming-candle operand requires explicit evidence policy")
+            source_i = candle_i - int(op.get("offset", 0))
+            if source_i < 0:
                 return None
-            candle = source_candles[idx - offset]
-            return candle.get(op.get("field"))
+            return ordered[source_i].get(op.get("field"))
         raise ValueError(f"unsupported independent operand kind {kind!r}")
 
-    def evaluate(node, index):
+    def evaluate(node, candle_i, path="entry", leaves=None):
         typ = node.get("type")
-        if typ == "and":
-            return all(evaluate(c, index) is True for c in node.get("children", []))
-        if typ == "or":
-            return any(evaluate(c, index) is True for c in node.get("children", []))
+        if typ in ("and", "or"):
+            vals = [evaluate(c, candle_i, f"{path}.{typ}[{j}]", leaves)
+                    for j, c in enumerate(node.get("children", []))]
+            if typ == "and":
+                result = False if any(v is False for v in vals) else True if all(v is True for v in vals) else None
+            else:
+                result = True if any(v is True for v in vals) else False if all(v is False for v in vals) else None
+            return result
         if typ == "not":
-            v = evaluate(node.get("child") or {}, index)
-            return None if v is None else not v
+            value = evaluate(node.get("child") or {}, candle_i, f"{path}.not", leaves)
+            return None if value is None else not value
         if typ == "compare":
-            a, b = operand(node.get("left", {}), index), operand(node.get("right", {}), index)
-            if a is None or b is None:
-                return None
-            return {"gt": lambda: a > b, "gte": lambda: a >= b,
-                    "lt": lambda: a < b, "lte": lambda: a <= b,
-                    "eq": lambda: a == b, "neq": lambda: a != b}.get(node.get("op"), lambda: None)()
+            op = node.get("op")
+            left, right = node.get("left", {}), node.get("right", {})
+            a, b = operand(left, candle_i), operand(right, candle_i)
+            if op in ("cross_above", "cross_below"):
+                if candle_i <= 0:
+                    result = None
+                else:
+                    pa, pb = operand(left, candle_i - 1), operand(right, candle_i - 1)
+                    if None in (a, b, pa, pb):
+                        result = None
+                    elif op == "cross_above":
+                        result = pa <= pb and a > b
+                    else:
+                        result = pa >= pb and a < b
+            elif a is None or b is None:
+                result = None
+            else:
+                result = {"gt": lambda: a > b, "gte": lambda: a >= b,
+                          "lt": lambda: a < b, "lte": lambda: a <= b,
+                          "eq": lambda: a == b, "neq": lambda: a != b}.get(op, lambda: None)()
+            if leaves is not None:
+                leaves[path] = result
+            return result
         raise ValueError(f"unsupported independent condition type {typ!r}")
 
-    ordered = sorted(source_candles, key=lambda c: int(c["ts"]))
-    source_candles[:] = ordered
-    for index, event in enumerate(evaluations):
+    for event in evaluations:
         try:
-            result = evaluate(entry, index)
+            candle_i = index_by_ts.get(int(event.get("candle_ts", -1)))
+            if candle_i is None:
+                raise ValueError("evaluation candle timestamp is absent from the source dataset")
+            leaves = {}
+            result = evaluate(entry, candle_i, leaves=leaves)
         except (ValueError, TypeError, KeyError) as exc:
             unresolved.append({"event_id": event.get("event_id"), "reason": str(exc)})
             continue
@@ -67,6 +107,15 @@ def verify_entry_conditions(strategy: dict | None, events: list[dict], source_ca
         elif bool(result) != bool(event.get("result")):
             mismatches.append({"event_id": event.get("event_id"), "expected": result,
                                "recorded": event.get("result")})
+        recorded_leaves = {str(v.get("path")): v.get("result")
+                           for v in (event.get("conditions") or []) if isinstance(v, dict)}
+        for path, expected in leaves.items():
+            if path not in recorded_leaves:
+                mismatches.append({"event_id": event.get("event_id"), "condition_path": path,
+                                   "reason": "missing recorded leaf"})
+            elif recorded_leaves[path] != expected:
+                mismatches.append({"event_id": event.get("event_id"), "condition_path": path,
+                                   "expected": expected, "recorded": recorded_leaves[path]})
     verdict = "FAIL" if mismatches else "UNVERIFIED" if unresolved else "PASS"
     return {"verdict": verdict, "evaluations_checked": len(evaluations),
             "mismatches": mismatches, "unresolved": unresolved,

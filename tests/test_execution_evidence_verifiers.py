@@ -9,7 +9,8 @@ def test_independent_entry_verifier_detects_corrupt_condition_result():
         "left": {"kind": "candle", "field": "close", "offset": 0},
         "right": {"kind": "candle", "field": "open", "offset": 0}}]}}
     candle = {"ts": 100, "open": 1, "high": 3, "low": 0, "close": 2}
-    event = {"event": "CONDITION_EVALUATED", "event_id": "e1", "candle_ts": 100, "result": True}
+    event = {"event": "CONDITION_EVALUATED", "event_id": "e1", "candle_ts": 100, "result": True,
+             "conditions": [{"path": "entry.and[0]", "result": True}]}
     assert verify_entry_conditions(spec, [event], [candle])["verdict"] == "PASS"
     result = verify_entry_conditions(spec, [{**event, "result": False}], [candle])
     assert result["verdict"] == "FAIL"

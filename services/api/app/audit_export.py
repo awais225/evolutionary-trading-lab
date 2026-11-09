@@ -240,7 +240,8 @@ def build_audit_zip(*, run, node, trades: List[dict], scope: str = "FULL_RUN",
                                                int(actual["start"]), int(actual["end"]))
     except Exception:  # keep evidence absence explicit in the verification report
         source_candles = []
-    entry_verification = verify_entry_conditions(spec, decision_ledger, source_candles)
+    entry_verification = verify_entry_conditions(spec, decision_ledger, source_candles,
+                                                expected_fingerprint=run.fingerprint)
     def _contains_reference(value):
         if isinstance(value, dict):
             return value.get("kind") == "reference" or any(_contains_reference(v) for v in value.values())
