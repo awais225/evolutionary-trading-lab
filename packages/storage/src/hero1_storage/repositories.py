@@ -310,6 +310,7 @@ class NodeRepository:
         tables = [
             ("backtest_runs", im.BacktestRun),
             ("deeptest_scenarios", im.DeepTestScenario),
+            ("deeptest_saved_scenarios", im.DeepTestScenarioDef),
             ("deeptest_trades", im.DeepTestTrade),
             ("live_configs", im.LiveConfig),
             ("live_trades", im.LiveTrade),

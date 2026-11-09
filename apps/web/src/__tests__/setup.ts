@@ -93,7 +93,7 @@ function route(url: string, method: string, bodyText?: string): Response {
     if (url.includes('/fine-tune-suggestions')) return json({ suggestions: [] })
     if (/\/runs\/\datz/.test(url)) return json({}, 500)
     if (/\/runs\/\d+\/trades/.test(url)) {
-      const trade = { side: 'LONG', volume: 5, entry_ts: 1700000000, entry_price: 94, exit_ts: 1700003600, exit_price: 98, exit_reason: 'TAKE_PROFIT', net_pnl: 200, gross_pnl: 200, commission: 0, swap: 0, spread_cost: 0, planned_risk: 100, initial_stop: 92, take_profit: 98, final_stop: 92, result: 'WIN', holding_seconds: 3600, session: 'london', mfe_price: 98.6, mae_price: 93.9, stop_history: [], entry_indicators: {}, ambiguous_same_candle: false, gap_overrun: false }
+      const trade = { id: 1, side: 'LONG', volume: 5, entry_ts: 1700000000, entry_price: 94, exit_ts: 1700003600, exit_price: 98, exit_reason: 'TAKE_PROFIT', net_pnl: 200, gross_pnl: 200, commission: 0, swap: 0, spread_cost: 0, planned_risk: 100, initial_stop: 92, take_profit: 98, final_stop: 92, result: 'WIN', holding_seconds: 3600, session: 'london', mfe_price: 98.6, mae_price: 93.9, stop_history: [], entry_indicators: {}, ambiguous_same_candle: false, gap_overrun: false }
       if (url.includes('page=')) return json({ trades: [{ ...trade, id: 1, weekday: 'Tuesday', session: 'ASIA' }], count: 1, page: 0, page_size: 25, pages: 1, sort: 'entry_ts', dir: 'asc' })
       return json({ count: 1, trades: [trade] })
     }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api/client'
 import { useInstrument } from '../state/instrument'
 import { TERMINAL, useTasks } from '../state/tasks'
@@ -206,6 +206,17 @@ export function DeepTesting() {
   const [fTesting, setFTesting] = useState('all')
   const [page, setPage] = useState(0)
   const PAGE_SIZE = 25
+const scenarioFilterSummary = (f: any) => {
+  const filters = f?.filters ?? f ?? {}
+  const days = filters.day_selections ?? {}
+  const sessions = filters.session_selections ?? {}
+  const excludedDays = Object.entries(days).filter(([, v]) => v === false).map(([k]) => k)
+  const excludedSessions = Object.entries(sessions).filter(([, v]) => v === false).map(([k]) => k.replace('|', ' / '))
+  const trade = filters.trade_filters ?? {}
+  const extra = Object.entries(trade).filter(([, v]) => v !== '' && v != null).map(([k, v]) => `${k}=${v}`)
+  return [...(excludedDays.length ? [`Exclude ${excludedDays.join(', ')}`] : []),
+    ...(excludedSessions.length ? [`Exclude ${excludedSessions.join(', ')}`] : []), ...extra].join(' · ') || 'No exclusions'
+}
   const [nodeSort, setNodeSort] = useState<SortState | null>(() => loadSortPref('deeptesting-nodes', ['id', 'name']))
   useEffect(() => { saveSortPref('deeptesting-nodes', nodeSort) }, [nodeSort])
   const [busy, setBusy] = useState(false)
@@ -220,6 +231,7 @@ export function DeepTesting() {
   const [cellSel, setCellSel] = useState<Record<string, boolean>>(
     Object.fromEntries(COL_DAYS.flatMap((d) => SESSION_ROWS.slice(1).map((s) => [`${d}|${s}`, true]))))
   const [scenarios, setScenarios] = useState<any[]>([])
+  const [expandedScenarioParents, setExpandedScenarioParents] = useState<Set<number>>(new Set())
   const [modal, setModal] = useState(false)
   const [scName, setScName] = useState('')
   const [scDesc, setScDesc] = useState('')
@@ -278,9 +290,9 @@ export function DeepTesting() {
       max_consecutive_loss_pct: m?.max_consecutive_loss_pct,
       winning_trades: m?.winning_trades, losing_trades: m?.losing_trades,
       last_tested: run?.finished_at,
-      scenarioCount: runs.filter((r) => r.node_id === n.id && r.scenario_id).length,
+      scenarioCount: scenarios.filter((sc) => (sc.node_id ?? sc.config?.node_id ?? sc.config?.node_ids?.[0]) === n.id).length,
     }
-  }), [nodes, latestByNode, runs])
+  }), [nodes, latestByNode, runs, scenarios])
 
   const filteredRows = useMemo(() => rows.filter((r) => {
     const n = r.node
@@ -699,7 +711,7 @@ export function DeepTesting() {
   }, [cellSel])
 
   const inspectNode = nodes.find((n) => n.id === inspectId)
-  const nodeScenarios = scenarios.filter((sc) => (sc.config?.node_ids ?? []).includes(inspectId))
+  const nodeScenarios = scenarios.filter((sc) => (sc.node_id ?? sc.config?.node_id ?? sc.config?.node_ids?.[0]) === inspectId)
 
   const saveScenario = async () => {
     if (!scName || inspectId === null) return
@@ -707,6 +719,8 @@ export function DeepTesting() {
       node_ids: [inspectId],
       description: scDesc,
       day_selections: daySel, session_selections: cellSel,
+      trade_filters: tf, filters: { day_selections: daySel, session_selections: cellSel, trade_filters: tf },
+      filtered_trade_ids: filteredTrades.map((t: any) => t.id),
       source_run_id: activeRun?.id ?? null,
       node_version: inspectNode?.version ?? null,
       fingerprint: activeRun?.fingerprint ?? null,
@@ -715,13 +729,17 @@ export function DeepTesting() {
       coverage_status: activeRun?.metrics?.coverage_status ?? null,
       data_quality: activeRun?.data_quality ?? null,
       assumptions: activeRun?.assumptions ?? null,
-      filtered_metrics: { trades: filteredStats.trades, net: filteredStats.net,
-                          win_rate: filteredStats.winRate, profit_factor: filteredStats.pf },
+      filtered_metrics: { ...filteredStats, net_profit: filteredStats.net,
+                          total_trades: filteredStats.trades, win_rate: filteredStats.winRate,
+                          profit_factor: filteredStats.pf },
+      filtered_trades: filteredTrades,
     })
-    await api.deeptesting.createScenario(instrument, { name: scName, folder: `node-${inspectId}`, config })
+    const savedScenario = await api.deeptesting.createScenario(instrument, { name: scName, folder: `node-${inspectId}`, config })
     setModal(false); setScName(''); setScDesc('')
-    api.deeptesting.listScenarios(instrument).then((r) => setScenarios(r.scenarios ?? []))
-    setNotice('Scenario saved with a persistent ID — retrievable by future Live Testing via the scenario handoff reference.')
+    const refreshed = await api.deeptesting.listScenarios(instrument)
+    setScenarios(refreshed.scenarios ?? [])
+    setExpandedScenarioParents(prev => new Set(prev).add(inspectId))
+    setNotice(`Scenario ${scName} saved as persistent child #${savedScenario.id} with ${filteredTrades.length} source-run trades and its filter-specific statistics.`)
   }
 
   const openScenario = async (sc: any) => {
@@ -983,13 +1001,15 @@ export function DeepTesting() {
                 const n = r.node
                 const off = nodeOffsets[n.id] ?? EMPTY_OFF
                 const setOff = (patch: Partial<Offsets>) => setNodeOffsets({ ...nodeOffsets, [n.id]: { ...off, ...patch } })
+                const childScenarios = scenarios.filter((sc) => (sc.node_id ?? sc.config?.node_id ?? sc.config?.node_ids?.[0]) === n.id)
                 return (
-                  <tr key={n.id} className={inspectId === n.id ? 'row-active' : ''}>
+                  <Fragment key={n.id}>
+                  <tr className={inspectId === n.id ? 'row-active' : ''}>
                     <td><button type="button" className="btn btn-ghost btn-xs" aria-label={`${n.starred ? 'Unstar' : 'Star'} node ${n.id}`}
                                 onClick={() => toggleStar(n)}>{n.starred ? '★' : '☆'}</button></td>
                     <td><input type="checkbox" aria-label={`Select node ${n.id}`} checked={selected.has(n.id)}
                                onChange={(e) => { const nx = new Set(selected); if (e.target.checked) nx.add(n.id); else nx.delete(n.id); setSelected(nx) }} /></td>
-                    <td>{n.id}</td><td>{n.name}</td><td>{n.origin}</td><td>{instrument}</td><td>{n.timeframe ?? '—'}</td>
+                    <td>{n.id}</td><td>{childScenarios.length > 0 && <button type="button" className="btn btn-ghost btn-xs" aria-label={`${expandedScenarioParents.has(n.id) ? 'Collapse' : 'Expand'} scenarios for node ${n.id}`} onClick={() => setExpandedScenarioParents(prev => { const next = new Set(prev); next.has(n.id) ? next.delete(n.id) : next.add(n.id); return next })}>{expandedScenarioParents.has(n.id) ? '▾' : '▸'} </button>}{n.name}</td><td>{n.origin}</td><td>{instrument}</td><td>{n.timeframe ?? '—'}</td>
                     <td>{r.direction}</td>
                     <td><span className={`chip chip-${r.status.replace(' ', '-').toLowerCase()}`}>{r.status}</span></td>
                     <td><input className="input input-xs num dt-off-in" type="number" step="any" aria-label={`SL plus node ${n.id}`} value={off.slPlus} onChange={(e) => setOff({ slPlus: e.target.value })} /></td>
@@ -1008,9 +1028,11 @@ export function DeepTesting() {
                     <td>{r.max_consecutive_loss_pct != null ? `${fmt(r.max_consecutive_loss_pct)}%` : 'N/A'}</td>
                     <td>{tsFmt(r.last_tested)}</td>
                     <td>{fmt(r.winning_trades, 0)}/{fmt(r.losing_trades, 0)}</td>
-                    <td>{r.scenarioCount}</td>
+                    <td>{childScenarios.length > 0 ? <button type="button" className="btn btn-ghost btn-xs" onClick={() => setExpandedScenarioParents(prev => { const next = new Set(prev); next.has(n.id) ? next.delete(n.id) : next.add(n.id); return next })}>{r.scenarioCount} saved · {expandedScenarioParents.has(n.id) ? 'hide' : 'show'}</button> : 0}</td>
                     <td><button type="button" className="btn btn-ghost btn-xs" onClick={() => openNodeRun(n.id)}>Inspect</button></td>
                   </tr>
+                  {expandedScenarioParents.has(n.id) && childScenarios.map((sc: any) => <tr key={`scenario-${sc.id}`} className="dt-scenario-child"><td></td><td className="faint micro">child</td><td>{n.id}↳{sc.id}</td><td colSpan={2}><b>{sc.name}</b><br/><span className="faint micro">Source DeepTesting #{sc.source_run_id ?? sc.config?.source_run_id}; v{sc.node_version ?? sc.config?.node_version}</span></td><td colSpan={10} className="faint">{scenarioFilterSummary(sc.filters ?? sc.config?.filters ?? sc.config)} · {sc.stats?.trades ?? sc.stats?.total_trades ?? 'N/A'} trades · net {fmt(sc.stats?.net_profit ?? sc.stats?.net)} · PF {fmt(sc.stats?.profit_factor ?? sc.stats?.pf)} · DD {fmt(sc.stats?.maxDd ?? sc.stats?.max_drawdown_amount)} · win {sc.stats?.winRate == null ? 'N/A' : `${fmt(sc.stats.winRate * 100, 1)}%`}</td><td colSpan={12}><button type="button" className="btn btn-ghost btn-xs" onClick={() => openScenario(sc)}>Open filters</button></td></tr>)}
+                  </Fragment>
                 )
               })}
               {pageRows.length === 0 && <tr><td colSpan={28} className="faint">No nodes match the active filters.</td></tr>}
@@ -1224,7 +1246,7 @@ export function DeepTesting() {
                             onClick={async () => { await api.deeptesting.deleteScenario(instrument, sc.id); api.deeptesting.listScenarios(instrument).then((r) => setScenarios(r.scenarios ?? [])) }}>✕</button>
                   </span>
                 ))}
-                {nodeScenarios.length > 0 && <span className="faint micro">Saved scenarios keep a persistent ID (deeptesting-scenario/v1) for the future Live Testing handoff.</span>}
+                {nodeScenarios.length > 0 && <span className="faint micro">Scenario configuration, source run and filtered result are persisted independently of the parent node.</span>}
               </div>
 
               {/* ONE equity curve */}

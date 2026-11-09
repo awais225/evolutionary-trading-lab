@@ -188,7 +188,20 @@ def simulate(trades: list[dict], config: dict, method: str, *, on_batch=None, ca
     mandatory_failed=any(v is False for v in gates.values())
     all_evidence=all(v is True for v in gates.values())
     eligibility_status="NOT ELIGIBLE" if mandatory_failed else "ELIGIBLE FOR FURTHER REVIEW" if all_evidence else "INSUFFICIENT EVIDENCE"
+    max_index=max(range(len(metrics)),key=lambda i: float(metrics[i]["final_equity"]))
+    min_index=min(range(len(metrics)),key=lambda i: float(metrics[i]["final_equity"]))
+    source_curve=config.get("deep_baseline_equity_curve") or []
+    if source_curve and isinstance(source_curve[0],dict):
+        source_values=[float(p.get("equity",p.get("balance",capital))) for p in source_curve]
+    else:
+        source_values=[float(v) for v in source_curve]
+    def resample(values):
+        if not values: return []
+        return [values[-1] if points == 1 else values[min(len(values)-1,round(j*(len(values)-1)/(points-1)))] for j in range(points)]
+    reference_curves={"MAX":aligned[max_index],"MIN":aligned[min_index],
+                      "DEFAULT":[capital for _ in range(points)],"DEEPTESTED":resample(source_values)}
     return {"summary":summary,"per_simulation":metrics,"equity_percentiles":percentile_curves,
-      "representative_curves":raw_paths[:curves_display],"robustness":{"score":round(score,2),"components":components,"weights":weights,"effective_weight_coverage_pct":active_weight*100,"status":score_status,"score_band":"Exceptional" if score>=9 else "Strong" if score>=8 else "Moderate" if score>=7 else "Weak" if score>=5 else "Poor","normalization":"Each component rating is clipped to 0–10, multiplied by its published fractional weight, then summed. Unavailable components contribute zero and reduce effective weight coverage; weights are never renormalized.","component_methods":{"survival":"10 - ruin_rate_pct / 10","drawdown":"10 - median_max_drawdown_pct / 10","returns":"5 + median_return_pct / 10","consistency":"10 - population_stddev_of_simulation_return_pct / 10","sequence":"10 - worst_simulation_max_drawdown_pct / 10","execution_stress":"10 - worst stressed-simulation max drawdown pct / 10; unavailable outside EXECUTION_STRESS"}},
+      "representative_curves":raw_paths[:curves_display],"sample_curves":aligned,
+      "reference_curves":reference_curves,"robustness":{"score":round(score,2),"components":components,"weights":weights,"effective_weight_coverage_pct":active_weight*100,"status":score_status,"score_band":"Exceptional" if score>=9 else "Strong" if score>=8 else "Moderate" if score>=7 else "Weak" if score>=5 else "Poor","normalization":"Each component rating is clipped to 0–10, multiplied by its published fractional weight, then summed. Unavailable components contribute zero and reduce effective weight coverage; weights are never renormalized.","component_methods":{"survival":"10 - ruin_rate_pct / 10","drawdown":"10 - median_max_drawdown_pct / 10","returns":"5 + median_return_pct / 10","consistency":"10 - population_stddev_of_simulation_return_pct / 10","sequence":"10 - worst_simulation_max_drawdown_pct / 10","execution_stress":"10 - worst stressed-simulation max drawdown pct / 10; unavailable outside EXECUTION_STRESS"}},
       "eligibility":{"gates_passed":gates,"thresholds":constraints,"status":eligibility_status,"unverified_requirements":[name for name,value in gates.items() if value is None],"known_logic_compliance_failures":logic_failures,"source_data_readiness":readiness,"note":"Eligibility is only for further review, not live-trading approval; Monte Carlo does not independently validate source logic or execution evidence."},
       "method_description":{"RESHUFFLE":"trade-level random permutation","BLOCK_BOOTSTRAP":"circular contiguous trade blocks","START_POINT":"TRADE-SEQUENCE START-POINT SAMPLING: rotates completed trade outcomes; not historical candle replay","EXECUTION_STRESS":"recorded cost multiplier; only when costs are captured"}[method],"created_at":time.time()}

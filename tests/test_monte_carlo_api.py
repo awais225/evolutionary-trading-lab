@@ -19,12 +19,40 @@ def test_deeptest_to_monte_carlo_persist_reopen_and_export(client, seeded_store,
     mc=client.post('/api/v1/instruments/XAUUSD/monte-carlo/runs',json=body)
     assert mc.status_code==200,mc.text
     assert len(mc.json()['runs'])==2 and all(r.get('task_id') for r in mc.json()['runs'])
+    all_trades=client.get(f"/api/v1/instruments/XAUUSD/deeptesting/runs/{run['id']}/trades").json()['trades']
+    selected_trades=all_trades[::2]
+    scenario=client.post('/api/v1/instruments/XAUUSD/deeptesting/scenarios',json={
+        'name':'Scenario filtered ledger','config':{'node_ids':[node_id],'source_run_id':run['id'],
+        'node_version':run['node_version'],'day_selections':{'Monday':False},
+        'session_selections':{'Monday|ASIA':False},'filtered_trade_ids':[t['id'] for t in selected_trades],
+        'filtered_metrics':{'trades':999999,'net':999999}}})
+    assert scenario.status_code==200,scenario.text
+    scenario_id=scenario.json()['id']
+    saved=client.get('/api/v1/instruments/XAUUSD/deeptesting/scenarios').json()['scenarios']
+    child=next(s for s in saved if s['id']==scenario_id)
+    assert child['node_id']==node_id and child['source_run_id']==run['id']
+    assert len(child['trades'])==len(selected_trades) and child['stats']['trades']==len(selected_trades)
+    assert child['stats']['net_profit']==sum(t.get('net_pnl',0) for t in selected_trades)
+    assert child['stats']['net_profit'] != 999999  # server derives stats from the source ledger
+    scenario_mc=client.post('/api/v1/instruments/XAUUSD/monte-carlo/runs',json={
+        'node_ids':[node_id],'scenario_ids':{str(node_id):scenario_id},'methods':['RESHUFFLE'],
+        'config':{'simulations':10,'random_points':20,'displayed_curves':2,'initial_capital':10000,'risk_pct':1,'block_size':3,'seed':987}})
+    assert scenario_mc.status_code==200 and scenario_mc.json()['runs'][0]['scenario_id']==scenario_id
+    item=scenario_mc.json()['runs'][0]
+    for _ in range(100):
+        task=client.get(f"/api/v1/tasks/{item['task_id']}").json()
+        if task['status'] in ('COMPLETED','FAILED','CANCELLED'): break
+        time.sleep(.02)
+    assert task['status']=='COMPLETED',task
+    detail=client.get(f"/api/v1/instruments/XAUUSD/monte-carlo/runs/{item['id']}").json()
+    assert detail['scenario_id']==scenario_id and detail['deeptest_run_id']==run['id']
+    assert detail['result']['summary']['trade_count']==len(selected_trades)
     for item in mc.json()['runs']:
         for _ in range(100):
             task=client.get(f"/api/v1/tasks/{item['task_id']}").json()
             if task['status'] in ('COMPLETED','FAILED','CANCELLED'): break
             time.sleep(.02)
-        assert task['status']=='COMPLETED',task
+        assert task['status']=='COMPLETED', (task.get('error'), client.get(f"/api/v1/instruments/XAUUSD/monte-carlo/runs/{item['id']}").json().get('error'))
         reopened=client.get(f"/api/v1/instruments/XAUUSD/monte-carlo/runs/{item['id']}")
         assert reopened.status_code==200 and reopened.json()['result']['summary']['seed']==item['seed']
         assert reopened.json()['result']['summary']['seed'] != 0

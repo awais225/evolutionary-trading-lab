@@ -192,7 +192,7 @@ export const api = {
   },
   monteCarlo: {
     nodes: (instrument: string) => request<{ nodes: any[] }>('GET', `/api/v1/instruments/${instrument}/monte-carlo/nodes`),
-    start: (instrument: string, body: { node_ids: number[]; methods: string[]; config: Record<string, unknown>; idempotency_key?: string }) =>
+    start: (instrument: string, body: { node_ids: number[]; scenario_ids?: Record<number, number>; methods: string[]; config: Record<string, unknown>; idempotency_key?: string }) =>
       request<{ runs: any[]; async?: boolean }>('POST', `/api/v1/instruments/${instrument}/monte-carlo/runs`, body),
     cancel: (instrument: string, taskId: string) => request<any>('POST', `/api/v1/instruments/${instrument}/monte-carlo/tasks/${encodeURIComponent(taskId)}/cancel`),
     history: (instrument: string, nodeId?: number) => request<{ runs: any[] }>('GET', `/api/v1/instruments/${instrument}/monte-carlo/runs${nodeId ? `?node_id=${nodeId}` : ''}`),

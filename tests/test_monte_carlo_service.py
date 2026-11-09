@@ -11,6 +11,12 @@ def test_trade_methods_reproducible_and_population_shape(method):
     assert a["summary"]["simulations_completed"]==30
     assert len(a["per_simulation"])==30 and len(a["representative_curves"])==3
     assert len(a["equity_percentiles"]["50"])==20
+    assert len(a["sample_curves"]) == 30
+    assert len(a["reference_curves"]["MAX"]) == 20
+    assert a["reference_curves"]["MAX"][-1] == max(x["final_equity"] for x in a["per_simulation"])
+    assert a["reference_curves"]["MIN"][-1] == min(x["final_equity"] for x in a["per_simulation"])
+    assert set(a["reference_curves"]) == {"MAX", "MIN", "DEFAULT", "DEEPTESTED"}
+    assert a["reference_curves"]["DEFAULT"] == [CFG["initial_capital"]] * 20
     assert a["summary"]["trade_count"]==len(TRADES)
     assert a["robustness"]["effective_weight_coverage_pct"]==pytest.approx(95.0)
     comps=a["robustness"]["components"]; weights=a["robustness"]["weights"]

@@ -1,7 +1,8 @@
-import { render, screen, fireEvent, act } from '@testing-library/react'
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 import App from '../App'
+import { api } from '../api/client'
 import { sessionCell } from '../pages/DeepTesting'
 
 const NODE = {
@@ -154,7 +155,14 @@ describe('DeepTesting refined layout', () => {
     expect(screen.getByRole('button', { name: /SELECT ALL DAYS\/SESSIONS/i })).toBeTruthy()
   })
 
-  it('scenario modal summarizes selections and saves', async () => {
+  it('scenario modal persists filtered trades and renders an expandable child under its source node', async () => {
+    const scenario = { id: 31, name: 'Tuesday sessions', node_id: 1, node_version: 1, source_run_id: 1,
+      filters: { day_selections: { Tuesday: true }, session_selections: { 'Tuesday|ASIA': true } },
+      stats: { trades: 1, net: 200, winRate: 1, pf: null, maxDd: 25 }, trades: [{ id: 1, net_pnl: 200 }] }
+    const list = vi.spyOn(api.deeptesting, 'listScenarios')
+      .mockResolvedValueOnce({ scenarios: [] } as any)
+      .mockResolvedValue({ scenarios: [scenario] } as any)
+    const save = vi.spyOn(api.deeptesting, 'createScenario').mockResolvedValue({ id: 31, version: 1 } as any)
     renderDT()
     fireEvent.click(await screen.findByRole('button', { name: /^Inspect$/i }))
     await screen.findByText(/Inspection — Acceptance Node/i)
@@ -163,7 +171,16 @@ describe('DeepTesting refined layout', () => {
     fireEvent.change(screen.getByLabelText(/Scenario name/i), { target: { value: 'London weekdays' } })
     expect(screen.getByText(/Days\/Sessions:/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: /Save Scenario/i }))
-    expect(await screen.findByText(/persistent ID/)).toBeTruthy()
+    expect(await screen.findByText(/saved as persistent child/)).toBeTruthy()
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1))
+    const payload = save.mock.calls[0][1] as any
+    expect(payload.config.node_ids).toEqual([1])
+    expect(payload.config.source_run_id).toBe(1)
+    expect(payload.config.filtered_trade_ids).toEqual([1])
+    expect(payload.config.filtered_metrics.trades).toBe(1)
+    expect(list).toHaveBeenCalledTimes(2)
+    expect(await screen.findByText('Tuesday sessions')).toBeTruthy()
+    expect(screen.getByText(/1 saved/)).toBeTruthy()
   })
 })
 

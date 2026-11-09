@@ -224,6 +224,11 @@ def list_scenarios(instrument: str = Depends(get_instrument_context),
         instrument_id=instrument.upper()).order_by(im.DeepTestScenarioDef.id.desc()).all()
     return {"scenarios": [{"id": r.id, "name": r.name, "folder": r.folder,
                            "version": r.version, "parent_scenario_id": r.parent_scenario_id,
+                           "node_id": r.node_id, "node_version": r.node_version,
+                           "source_run_id": r.source_run_id,
+                           "filters": json.loads(r.filters_json) if r.filters_json else {},
+                           "stats": json.loads(r.stats_json) if r.stats_json else {},
+                           "trades": json.loads(r.trades_json) if r.trades_json else [],
                            "config": json.loads(r.config_json), "config_hash": r.config_hash,
                            "created_at": r.created_at} for r in rows]}
 
@@ -240,24 +245,95 @@ def get_scenario(scenario_id: int, instrument: str = Depends(get_instrument_cont
     cfg = json.loads(r.config_json)
     return {"id": r.id, "name": r.name, "folder": r.folder, "version": r.version,
             "parent_scenario_id": r.parent_scenario_id,
-            "node_id": cfg.get("nodeId"), "node_version": cfg.get("nodeVersion"),
-            "run_id": cfg.get("runId"),
+            "node_id": r.node_id or cfg.get("node_id") or cfg.get("nodeId"),
+            "node_version": r.node_version or cfg.get("node_version") or cfg.get("nodeVersion"),
+            "run_id": r.source_run_id or cfg.get("source_run_id") or cfg.get("runId"),
+            "filters": json.loads(r.filters_json) if r.filters_json else cfg.get("filters", {}),
+            "stats": json.loads(r.stats_json) if r.stats_json else cfg.get("filtered_metrics", {}),
+            "trades": json.loads(r.trades_json) if r.trades_json else cfg.get("filtered_trades", []),
             "config": cfg, "config_hash": r.config_hash,
             "created_at": r.created_at, "instrument": r.instrument_id,
             "handoff": "deeptesting-scenario/v1"}
 
 
+def _scenario_trade_stats(trades: list[dict], initial_capital: float) -> dict:
+    ordered = sorted(trades, key=lambda t: float(t.get("exit_ts") or t.get("entry_ts") or 0))
+    pnls = [float(t.get("net_pnl") or 0) for t in ordered]
+    wins = [p for p in pnls if p > 1e-9]
+    losses = [p for p in pnls if p < -1e-9]
+    gross_profit, gross_loss = sum(wins), sum(losses)
+    equity = peak = float(initial_capital)
+    max_dd = max_dd_pct = 0.0
+    for pnl in pnls:
+        equity += pnl
+        peak = max(peak, equity)
+        drawdown = peak - equity
+        if drawdown > max_dd:
+            max_dd = drawdown
+            max_dd_pct = drawdown / peak * 100 if peak > 0 else 0.0
+    return {"trades": len(pnls), "total_trades": len(pnls), "wins": len(wins),
+            "losses": len(losses), "net": sum(pnls), "net_profit": sum(pnls),
+            "winRate": len(wins) / len(pnls) if pnls else None,
+            "win_rate": len(wins) / len(pnls) if pnls else None,
+            "pf": gross_profit / abs(gross_loss) if gross_loss < 0 else None,
+            "profit_factor": gross_profit / abs(gross_loss) if gross_loss < 0 else None,
+            "gross_profit": gross_profit, "gross_loss": gross_loss,
+            "initial_capital": initial_capital, "final_balance": equity,
+            "returnPct": ((equity / initial_capital - 1) * 100) if initial_capital > 0 else None,
+            "return_pct": ((equity / initial_capital - 1) * 100) if initial_capital > 0 else None,
+            "maxDd": max_dd if pnls else None, "max_drawdown_amount": max_dd if pnls else None,
+            "max_drawdown_pct": max_dd_pct if pnls else None}
+
+
 @router.post("/scenarios")
 def create_scenario(body: ScenarioBody, instrument: str = Depends(get_instrument_context),
                     session: Session = Depends(get_instrument_session)):
+    cfg = dict(body.config)
+    node_ids = cfg.get("node_ids") or ([cfg.get("node_id")] if cfg.get("node_id") is not None else [])
+    if len(node_ids) > 1:
+        raise HTTPException(422, "A saved inspection scenario must identify exactly one parent node")
+    node_id = int(node_ids[0]) if node_ids else None
+    source = None
+    selected_trades = []
+    filters = cfg.get("filters", {"day_selections": cfg.get("day_selections"),
+                                   "session_selections": cfg.get("session_selections"),
+                                   "trade_filters": cfg.get("trade_filters", {})})
+    stats = cfg.get("filtered_metrics", {})
+    if node_id is not None:
+        node = session.query(im.Node).filter_by(id=node_id, instrument_id=instrument.upper()).first()
+        if node is None:
+            raise HTTPException(404, "scenario parent node not found")
+        source_run_id = cfg.get("source_run_id") or cfg.get("runId")
+        source = session.query(im.DeepTestRun).filter_by(id=source_run_id, node_id=node_id,
+            instrument_id=instrument.upper(), status="DONE").first() if source_run_id is not None else None
+        if source is None:
+            raise HTTPException(422, "scenario must reference its completed source DeepTesting run")
+        rows = session.query(im.DeepTestRunTrade).filter_by(run_id=source.id, instrument_id=instrument.upper()).all()
+        by_id = {t.id: t for t in rows}
+        selected_ids = cfg.get("filtered_trade_ids", [])
+        if not isinstance(selected_ids, list) or any(int(i) not in by_id for i in selected_ids):
+            raise HTTPException(422, "scenario trade selection must be a subset of the source run ledger")
+        selected_trades = [{**(json.loads(by_id[int(i)].detail_json) if by_id[int(i)].detail_json else {}),
+                            "id": int(i), "net_pnl": by_id[int(i)].net_pnl,
+                            "entry_ts": by_id[int(i)].entry_ts, "exit_ts": by_id[int(i)].exit_ts}
+                           for i in selected_ids]
+        source_cfg = json.loads(source.config_json or "{}")
+        stats = _scenario_trade_stats(selected_trades, float(source_cfg.get("initial_capital") or 0))
+        cfg.update({"node_id": node_id, "node_version": source.node_version,
+                    "source_run_id": source.id, "filtered_trades": selected_trades})
     row = im.DeepTestScenarioDef(instrument_id=instrument.upper(), name=body.name,
-                                 folder=body.folder, version=1,
-                                 config_json=json.dumps(body.config),
-                                 config_hash=dts.scenario_hash(body.config))
+                                 folder=body.folder, version=1, node_id=node_id,
+                                 node_version=source.node_version if source else None,
+                                 source_run_id=source.id if source else None,
+                                 filters_json=json.dumps(filters), stats_json=json.dumps(stats),
+                                 trades_json=json.dumps(selected_trades),
+                                 config_json=json.dumps(cfg),
+                                 config_hash=dts.scenario_hash(cfg))
     session.add(row)
     session.commit()
     session.refresh(row)
-    return {"id": row.id, "version": 1}
+    return {"id": row.id, "version": 1, "node_id": row.node_id,
+            "source_run_id": row.source_run_id}
 
 
 @router.put("/scenarios/{scenario_id}")
@@ -267,11 +343,18 @@ def edit_scenario(scenario_id: int, body: ScenarioBody,
     old = session.query(im.DeepTestScenarioDef).filter_by(id=scenario_id).first()
     if old is None:
         raise HTTPException(404, "scenario not found")
+    cfg = dict(body.config)
+    cfg.setdefault("node_id", old.node_id)
+    cfg.setdefault("node_version", old.node_version)
+    cfg.setdefault("source_run_id", old.source_run_id)
     row = im.DeepTestScenarioDef(instrument_id=instrument.upper(), name=body.name,
                                  folder=body.folder if body.folder is not None else old.folder,
                                  version=old.version + 1, parent_scenario_id=old.id,
-                                 config_json=json.dumps(body.config),
-                                 config_hash=dts.scenario_hash(body.config))
+                                 node_id=old.node_id, node_version=old.node_version,
+                                 source_run_id=old.source_run_id, filters_json=old.filters_json,
+                                 stats_json=old.stats_json, trades_json=old.trades_json,
+                                 config_json=json.dumps(cfg),
+                                 config_hash=dts.scenario_hash(cfg))
     session.add(row)
     session.commit()
     session.refresh(row)
