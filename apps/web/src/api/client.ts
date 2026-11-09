@@ -60,6 +60,7 @@ export const api = {
   tasks: {
     list: () => request<{ tasks: any[]; latest: Record<string, any> }>('GET', '/api/v1/tasks'),
     acknowledge: (category: string) => request<{ acknowledged: number }>('POST', '/api/v1/tasks/acknowledge', { category }),
+    acknowledgeOne: (taskId: string) => request<{ acknowledged: boolean; task_id: string }>('POST', `/api/v1/tasks/${encodeURIComponent(taskId)}/acknowledge`),
   },
   instruments: () => request<{ instruments: Instrument[] }>('GET', '/api/v1/instruments').then((r) => r.instruments),
   events: (params: { instrument?: string; category?: string; severity?: string; subsystem?: string; search?: string; limit?: number; offset?: number; order?: 'asc' | 'desc'; sort?: string } = {}) => {

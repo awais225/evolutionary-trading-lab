@@ -740,6 +740,18 @@ tr:hover .name-edit-btn, .name-text:focus-visible + .name-edit-btn { opacity: 1;
 /* Task progress (global bars, DeepTesting progress, feed cards, JSON view) */
 .task-progress-area { display: flex; flex-direction: column; gap: 4px; padding: 6px 14px 0; }
 .task-bar { display: flex; align-items: center; gap: 10px; font-size: 12px; flex-wrap: wrap; }
+.task-bar-clickable { width: 100%; text-align: left; color: inherit; border: 0; background: transparent; padding: 0; cursor: pointer; }
+.task-bar-clickable:hover { background: rgba(248,81,73,0.08); }
+.task-error-panel { border: 1px solid rgba(248,81,73,0.5); border-radius: 8px; padding: 10px 12px; margin: 6px 0 2px; background: rgba(248,81,73,0.06); }
+.task-error-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.task-error-sub { color: var(--faint, #8b949e); font-size: 11px; margin-top: 3px; }
+.task-error-close { border: 0; background: transparent; color: inherit; cursor: pointer; font-size: 20px; line-height: 1; }
+.task-error-grid { display: grid; grid-template-columns: minmax(100px, 150px) 1fr; gap: 4px 10px; margin: 10px 0 0; font-size: 11px; }
+.task-error-grid dt { color: var(--faint, #8b949e); }
+.task-error-grid dd { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.task-error-message { color: #ffb4ab; }
+.task-error-trace { margin-top: 8px; font-size: 11px; }
+.task-error-trace pre { max-height: 260px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .task-bar-cat { font-weight: 700; letter-spacing: 0.04em; white-space: nowrap; }
 .task-bar-track { flex: 1 1 160px; min-width: 120px; height: 8px; border-radius: 4px;
   background: rgba(255,255,255,0.10); overflow: hidden; display: inline-block; }

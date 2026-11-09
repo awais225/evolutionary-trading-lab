@@ -42,3 +42,12 @@ def acknowledge(body: AcknowledgeBody,
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     return {"acknowledged": n, "category": body.category}
+
+
+@router.post("/{task_id}/acknowledge")
+def acknowledge_one(task_id: str, session: Session = Depends(get_registry_session)):
+    from hero1_storage.registry_models import DashboardTask
+    if session.get(DashboardTask, task_id) is None:
+        raise HTTPException(404, f"task {task_id!r} not found")
+    return {"acknowledged": task_service.acknowledge_task(session, task_id),
+            "task_id": task_id}

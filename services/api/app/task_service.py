@@ -141,6 +141,24 @@ def acknowledge_category(session: Session, category: str) -> int:
     return n
 
 
+def acknowledge_task(session: Session, task_id: str) -> bool:
+    """Acknowledge one terminal task without affecting sibling notifications.
+
+    Completed/cancelled bars use this after their five-second display period;
+    failed/blocked bars use it only when the user closes the error details.
+    Active tasks are deliberately never dismissible.
+    """
+    t = session.get(DashboardTask, task_id)
+    if t is None or t.status in ACTIVE:
+        return False
+    if t.status not in TERMINAL or t.acknowledged:
+        return False
+    t.acknowledged = True
+    t.updated_at = _now()
+    session.commit()
+    return True
+
+
 def sync_fetch_tasks(session: Session) -> None:
     """Reconcile DATA_FETCHING tasks with the market-data operation
     registry (the fetch subsystem's own source of truth)."""

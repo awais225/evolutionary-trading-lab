@@ -454,27 +454,30 @@ def execute_run(session: Session, *, instrument: str, node: im.Node,
             "verification_status": ("CURRENT_MT5_SNAPSHOT_NOT_HISTORICALLY_VERIFIED" if broker_snapshot
                                      else "UNVERIFIED_NO_MT5_SNAPSHOT; explicit run inputs used"),
             "tick_size": spec_meta.tick_size,
-            "tick_size_source": ("run_config" if config.get("tick_size") is not None else
-                                 "broker_meta" if m0.get("tick_size") is not None else
-                                 "stored MT5 snapshot" if spec_fields.get("tick_size") is not None else "missing"),
+            "tick_size_source": ("RUN_CONFIG" if config.get("tick_size") is not None or m0.get("tick_size") is not None else
+                                 "MT5" if spec_fields.get("tick_size") is not None else "UNAVAILABLE"),
             "tick_value_account": spec_meta.tick_value_account,
-            "tick_value_account_source": ("run_config" if config.get("tick_value_account") is not None else
-                                           "stored MT5 snapshot trade_tick_value_loss/trade_tick_value/profit"
-                                           if any(spec_fields.get(k) is not None for k in
-                                                  ("trade_tick_value_loss", "trade_tick_value", "trade_tick_value_profit"))
-                                           else "unavailable"),
+            "tick_value_account_source": ("RUN_CONFIG" if config.get("tick_value_account") is not None else
+                                           "MT5" if any(spec_fields.get(k) is not None for k in
+                                                        ("trade_tick_value_loss", "trade_tick_value", "trade_tick_value_profit"))
+                                           else "DERIVED" if spec_meta.tick_value_quote is not None and spec_meta.fx_to_account is not None
+                                           else "UNAVAILABLE"),
+            "tick_value_quote_source": ("RUN_CONFIG" if config.get("tick_value_quote") is not None else
+                                        "MT5" if spec_fields.get("tick_value") is not None else "UNAVAILABLE"),
             "tick_value_quote": spec_meta.tick_value_quote,
             "contract_size": spec_meta.contract_size,
-            "contract_size_source": ("run_config" if config.get("contract_size") is not None else
-                                      "broker_meta" if m0.get("contract_size") is not None else
-                                      "stored MT5 snapshot" if spec_fields.get("contract_size") is not None else "default/unverified"),
+            "contract_size_source": ("RUN_CONFIG" if config.get("contract_size") is not None or m0.get("contract_size") is not None else
+                                      "MT5" if spec_fields.get("contract_size") is not None else "UNAVAILABLE"),
             "point_size": m0.get("point_size"), "pip_size": m0.get("pip_size"),
-            "point_pip_size_source": "broker_meta run input" if m0 else "unverified",
+            "point_pip_size_source": ("RUN_CONFIG" if m0 or config.get("point_size") is not None or config.get("pip_size") is not None
+                                      else "MT5" if broker_snapshot else "UNAVAILABLE"),
             "volume_min": spec_meta.volume_min, "volume_max": spec_meta.volume_max,
             "volume_step": spec_meta.volume_step,
-            "volume_limits_source": ("run_config" if any(config.get(k) is not None for k in
+            "volume_limits_source": ("RUN_CONFIG" if any(config.get(k) is not None for k in
                                      ("volume_min", "volume_max", "volume_step")) else
-                                     "stored MT5 snapshot or default fallback"),
+                                     "MT5" if any(spec_fields.get(k) is not None for k in
+                                                  ("volume_min", "volume_max", "volume_step")) else
+                                     "UNAVAILABLE"),
             "broker_snapshot_present": bool(broker_snapshot),
             "digits": config.get("digits"),
             "currency_profit": config.get("currency_profit"),

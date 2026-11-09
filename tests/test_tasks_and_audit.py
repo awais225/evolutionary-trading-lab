@@ -58,6 +58,54 @@ def test_task_lifecycle_and_acknowledgement_rules():
     assert mine["completed_units"] == 3
 
 
+def test_single_task_acknowledgement_is_independent_and_preserves_history():
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from hero1_storage.base import Base
+    from hero1_storage import registry_models  # noqa: F401
+    from app import task_service
+
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)()
+    done = task_service.create_task(session, category="DEEPTESTING", instrument="XAUUSD",
+                                    label="done", total_units=1)
+    sibling = task_service.create_task(session, category="DEEPTESTING", instrument="XAUUSD",
+                                       label="sibling", total_units=1)
+    assert not task_service.acknowledge_task(session, done.id)  # active tasks stay visible
+    task_service.finish_task(session, done.id, "COMPLETED")
+    assert task_service.acknowledge_task(session, done.id)
+    assert not task_service.acknowledge_task(session, sibling.id)
+    assert session.get(registry_models.DashboardTask, done.id) is not None  # history retained
+    visible = {task["id"] for task in task_service.list_visible(session)["tasks"]}
+    assert done.id not in visible and sibling.id in visible
+    session.close()
+    engine.dispose()
+
+
+def test_task_acknowledge_one_api_endpoint(client):
+    from hero1_storage.engine import registry_session
+    from app import task_service
+    from hero1_storage.registry_models import DashboardTask
+
+    session = registry_session()
+    try:
+        task = task_service.create_task(session, category="DATA_FETCHING", instrument="XAUUSD",
+                                        label="Fetch test", total_units=1)
+        task_service.finish_task(session, task.id, "CANCELLED", error="cancelled by operator")
+        task_id = task.id
+    finally:
+        session.close()
+    response = client.post(f"/api/v1/tasks/{task_id}/acknowledge")
+    assert response.status_code == 200 and response.json()["acknowledged"] is True
+    session = registry_session()
+    try:
+        stored = session.get(DashboardTask, task_id)
+        assert stored is not None and stored.acknowledged
+    finally:
+        session.close()
+
+
 def test_structured_trade_filters_and_all_page_size():
     from app.deeptesting_service import paginate_trades
     base = 1767225600  # Thu 2026-01-01 00:00 UTC
@@ -97,7 +145,7 @@ def test_audit_zip_contents_and_honest_labels():
                                                       "fingerprint": "dataset-fingerprint"}]}},
             "execution_specification_inputs": {"verification_status": "UNVERIFIED_NO_MT5_SNAPSHOT; explicit run inputs used",
                                                 "tick_size": 0.01, "tick_value_account": 1.0,
-                                                "tick_value_account_source": "run_config"}})
+                                                "tick_value_account_source": "RUN_CONFIG"}})
         assumptions_json = json.dumps({"spread_price": 0.0})
         metrics_json = json.dumps({"total_trades": 1})
         data_quality_json = json.dumps({"readiness": "READY"})
@@ -122,7 +170,7 @@ def test_audit_zip_contents_and_honest_labels():
     manifest = json.loads(z.read("HERO1_TRADING_AUDIT/manifest.json"))
     assert manifest["scope"] == "FULL_RUN" and manifest["node"]["fingerprint"] == "abc123"
     assert manifest["execution_specification_inputs"]["verification_status"].startswith("UNVERIFIED")
-    assert manifest["execution_specification_inputs"]["tick_value_account_source"] == "run_config"
+    assert manifest["execution_specification_inputs"]["tick_value_account_source"] == "RUN_CONFIG"
     assert manifest["evidence_status"]["condition_evaluations"].startswith("INCOMPLETE")
     decisions = z.read("HERO1_TRADING_AUDIT/strategy_decisions.jsonl").decode()
     assert "INCOMPLETE EVIDENCE" in decisions and "TRADE_EXECUTED" in decisions

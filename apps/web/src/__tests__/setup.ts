@@ -21,6 +21,10 @@ const baseNode = {
 
 function route(url: string, method: string, bodyText?: string): Response {
   const body = bodyText ? JSON.parse(bodyText) : undefined
+  if (/\/api\/v1\/tasks\/[^/]+\/acknowledge$/.test(url)) {
+    const taskId = decodeURIComponent(url.match(/\/api\/v1\/tasks\/([^/]+)\/acknowledge$/)?.[1] ?? '')
+    return json({ acknowledged: true, task_id: taskId })
+  }
   if (url.includes('/api/v1/tasks/acknowledge')) return json({ acknowledged: 0 })
   if (url.endsWith('/api/v1/tasks')) return json((globalThis as { __hero1Tasks?: unknown }).__hero1Tasks ?? { tasks: [], latest: {} })
   if (url.endsWith('/health')) return json({ status: 'ok', version: '1.0.0', checks: { registry_db: { status: 'healthy' }, ollama: { status: 'healthy' }, mt5: { status: 'unavailable' } } })

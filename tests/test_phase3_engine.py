@@ -152,6 +152,27 @@ def test_no_lookahead_prefix_consistency():
     assert prefix["trades"][0]["entry_ts"] == full["trades"][0]["entry_ts"]
 
 
+def test_future_bar_mutation_cannot_change_prior_signal_or_entry():
+    import copy
+
+    ir = compile_spec(cross_spec())
+    original = candles_from_closes(CLOSES)
+    mutated = copy.deepcopy(original)
+    # The signal is at bar 11 and entry at bar 12. Rewrite every later OHLC
+    # value to an extreme but valid series; none may leak into earlier SMA or
+    # signal/entry values.
+    for i in range(13, len(mutated)):
+        base = 10000.0 + i
+        mutated[i].update({"open": base, "high": base + 2, "low": base - 2,
+                           "close": base + 1})
+    a = run_backtest(ir=ir.ir, candles=original, cfg=CFG,
+                     instrument=SPEC_INSTR, price_ctx=CTX)["trades"][0]
+    b = run_backtest(ir=ir.ir, candles=mutated, cfg=CFG,
+                     instrument=SPEC_INSTR, price_ctx=CTX)["trades"][0]
+    assert (a["signal_ts"], a["entry_ts"], a["entry_price"], a["initial_stop"], a["take_profit"]) == \
+           (b["signal_ts"], b["entry_ts"], b["entry_price"], b["initial_stop"], b["take_profit"])
+
+
 def test_gap_over_stop_and_same_candle_ambiguity():
     ir = compile_spec(cross_spec())
     candles = candles_from_closes(CLOSES[:13])

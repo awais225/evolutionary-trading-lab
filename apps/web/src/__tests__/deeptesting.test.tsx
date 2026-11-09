@@ -365,9 +365,37 @@ describe('Global progress bars from shared task state', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(4999) })
     expect(view.container.querySelectorAll('.task-bar')).toHaveLength(4)
     await act(async () => { await vi.advanceTimersByTimeAsync(1) })
-    expect(view.container.querySelectorAll('.task-bar')).toHaveLength(1)
-    expect(view.container.querySelector('.task-bar')?.className).toContain('task-running')
+    expect(view.container.querySelectorAll('.task-bar')).toHaveLength(2)
+    expect(view.container.querySelector('.task-running')).toBeTruthy()
+    expect(view.container.querySelector('.task-failed')).toBeTruthy() // failure is not auto-dismissed
     expect((globalThis as { __hero1Tasks?: any }).__hero1Tasks.tasks).toHaveLength(4) // history is retained
+    fireEvent.click(screen.getByRole('button', { name: 'Show error details for DeepTesting' }))
+    const panel = screen.getByRole('dialog', { name: 'Failed task details' })
+    expect(panel.textContent).toContain('tfail')
+    expect(panel.textContent).toContain('simulated failure')
+    expect(panel.textContent).toContain('DeepTesting (/deeptesting)')
+    fireEvent.click(screen.getByRole('button', { name: 'Close error details and acknowledge task' }))
+    await act(async () => { for (let i = 0; i < 8; i++) await Promise.resolve() })
+    expect(view.container.querySelectorAll('.task-bar')).toHaveLength(1)
+    expect(view.container.querySelector('.task-running')).toBeTruthy()
+    ;(globalThis as { __hero1Tasks?: unknown }).__hero1Tasks = undefined
+    vi.useRealTimers()
+  })
+
+  it('auto-dismiss timers are independent for concurrently completed tasks', async () => {
+    vi.useFakeTimers()
+    const first = TASK({ id: 'done1', label: 'First task', status: 'COMPLETED', percentage: 100 })
+    const second = TASK({ id: 'done2', label: 'Second task', status: 'CANCELLED', percentage: 50 })
+    ;(globalThis as { __hero1Tasks?: unknown }).__hero1Tasks = { tasks: [first], latest: {} }
+    const view = renderDT()
+    await act(async () => { for (let i = 0; i < 12; i++) await Promise.resolve() })
+    expect(view.container.querySelectorAll('.task-bar')).toHaveLength(1)
+    ;(globalThis as { __hero1Tasks?: unknown }).__hero1Tasks = { tasks: [first, second], latest: {} }
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+    expect(view.container.querySelectorAll('.task-bar')).toHaveLength(2)
+    await act(async () => { await vi.advanceTimersByTimeAsync(3000) })
+    expect(view.container.querySelectorAll('.task-bar')).toHaveLength(1)
+    expect(view.container.textContent).toContain('Second task')
     ;(globalThis as { __hero1Tasks?: unknown }).__hero1Tasks = undefined
     vi.useRealTimers()
   })
