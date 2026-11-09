@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from hero1_storage.registry_models import DashboardTask
 
-CATEGORIES = ("DEEPTESTING", "DATA_FETCHING", "NODE_GENERATION", "VALIDATION")
+CATEGORIES = ("DEEPTESTING", "DATA_FETCHING", "NODE_GENERATION", "VALIDATION", "MONTE_CARLO")
 TERMINAL = ("COMPLETED", "FAILED", "CANCELLED", "BLOCKED")
 ACTIVE = ("QUEUED", "RUNNING", "PAUSED")
 
@@ -48,7 +48,7 @@ def task_dict(t: DashboardTask) -> dict:
 
 def create_task(session: Session, *, category: str, instrument: Optional[str],
                 label: str, total_units: int, payload: Optional[dict] = None,
-                status: str = "RUNNING") -> DashboardTask:
+                status: str = "RUNNING", dedupe_key: Optional[str] = None) -> DashboardTask:
     if category not in CATEGORIES:
         raise ValueError(f"unknown task category {category!r}")
     t = DashboardTask(id=uuid.uuid4().hex, category=category,
@@ -56,6 +56,7 @@ def create_task(session: Session, *, category: str, instrument: Optional[str],
                       status=status, total_units=int(total_units),
                       completed_units=0,
                       payload_json=json.dumps(payload) if payload is not None else None,
+                      dedupe_key=dedupe_key,
                       created_at=_now(), started_at=_now(), updated_at=_now())
     session.add(t)
     session.commit()
@@ -68,6 +69,9 @@ def update_task(session: Session, task_id: str, *, commit: bool = True,
     t = session.get(DashboardTask, task_id)
     if t is None:
         return None
+    # A late worker may persist final payload details but can never move a
+    # terminal task back to RUNNING or advance its completed-unit count.
+    terminal_update = t.status in TERMINAL
     # Progress never moves backwards (retries create a new task instead).
     if "completed_units" in fields and fields["completed_units"] is not None:
         fields["completed_units"] = max(int(t.completed_units or 0),
@@ -75,6 +79,8 @@ def update_task(session: Session, task_id: str, *, commit: bool = True,
     if "payload" in fields:
         fields["payload_json"] = json.dumps(fields.pop("payload"))
     for key, value in fields.items():
+        if terminal_update and key not in ("payload_json",):
+            continue
         if hasattr(t, key):
             setattr(t, key, value)
     t.updated_at = _now()

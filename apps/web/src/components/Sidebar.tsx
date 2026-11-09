@@ -6,6 +6,7 @@ const ITEMS = [
   { to: '/www-research', label: 'WWW Research', phase: 'P7', icon: 'M12 3a9 9 0 019 9M12 7a5 5 0 015 5M3 12h6m2.5-7L9 12l2.5 7' },
   { to: '/interactive-www', label: 'Interactive WWW', phase: 'P7', icon: 'M8 10h.01M12 10h.01M16 10h.01M21 12a8 8 0 01-11.6 7.1L4 21l1.9-5.4A8 8 0 1121 12z' },
   { to: '/deeptesting', label: 'DeepTesting', phase: 'P4', icon: 'M4 5h16M4 10h16M4 15h10M4 20h7' },
+  { to: '/monte-carlo', label: 'MONTE CARLO', phase: 'R', icon: 'M3 18l5-6 4 3 7-9M4 21h16' },
   { to: '/fine-tuning', label: 'Fine Tuning', phase: 'P8', icon: 'M4 17l6-6-6-6M12 17h8' },
   { to: '/live-testing', label: 'Live Testing', phase: 'P5', icon: 'M13 2L4.5 13.5H11L10 22l8.5-11.5H12L13 2z' },
   { to: '/log', label: 'LOG', phase: 'P6', icon: 'M7 8h13M7 12h13M7 16h7M3 8h.01M3 12h.01M3 16h.01' },

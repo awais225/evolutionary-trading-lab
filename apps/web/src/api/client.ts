@@ -188,6 +188,16 @@ export const api = {
     fineTuneApply: (instrument: string, runId: number, suggestion: Record<string, unknown>) =>
       request<any>('POST', `/api/v1/instruments/${instrument}/deeptesting/runs/${runId}/fine-tune-apply`, { suggestion }),
   },
+  monteCarlo: {
+    nodes: (instrument: string) => request<{ nodes: any[] }>('GET', `/api/v1/instruments/${instrument}/monte-carlo/nodes`),
+    start: (instrument: string, body: { node_ids: number[]; methods: string[]; config: Record<string, unknown>; idempotency_key?: string }) =>
+      request<{ runs: any[]; async?: boolean }>('POST', `/api/v1/instruments/${instrument}/monte-carlo/runs`, body),
+    cancel: (instrument: string, taskId: string) => request<any>('POST', `/api/v1/instruments/${instrument}/monte-carlo/tasks/${encodeURIComponent(taskId)}/cancel`),
+    history: (instrument: string, nodeId?: number) => request<{ runs: any[] }>('GET', `/api/v1/instruments/${instrument}/monte-carlo/runs${nodeId ? `?node_id=${nodeId}` : ''}`),
+    get: (instrument: string, runId: string) => request<any>('GET', `/api/v1/instruments/${instrument}/monte-carlo/runs/${encodeURIComponent(runId)}`),
+    exportUrl: (instrument: string, runId: string, format: 'txt' | 'zip' = 'zip') =>
+      `/api/v1/instruments/${instrument}/monte-carlo/runs/${encodeURIComponent(runId)}/export?format=${format}`,
+  },
   marketData: {
     get: (instrument: string) => request<MarketDataAvailability>('GET', `/api/v1/instruments/${instrument}/market-data`),
     fetch: (instrument: string, timeframe = 'ALL', operationId?: string) =>

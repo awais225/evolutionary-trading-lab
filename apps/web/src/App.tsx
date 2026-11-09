@@ -13,6 +13,7 @@ import { ManualNodes } from './pages/ManualNodes'
 import { Settings } from './pages/Settings'
 import { WWWResearch, InteractiveWWW, FineTuning, LiveTesting } from './pages/_placeholderPages'
 import { DeepTesting } from './pages/DeepTesting'
+import { MonteCarlo } from './pages/MonteCarlo'
 import { DataPage } from './pages/Data'
 import { LogView } from './pages/Log'
 
@@ -48,6 +49,7 @@ function Frame() {
               <Route path="/www-research" element={<WWWResearch />} />
               <Route path="/interactive-www" element={<InteractiveWWW />} />
               <Route path="/deeptesting" element={<DeepTesting />} />
+              <Route path="/monte-carlo" element={<MonteCarlo />} />
               <Route path="/fine-tuning" element={<FineTuning />} />
               <Route path="/live-testing" element={<LiveTesting />} />
               <Route path="/log" element={<LogView />} />

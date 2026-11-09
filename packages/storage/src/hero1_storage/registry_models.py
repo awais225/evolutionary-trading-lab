@@ -1,7 +1,7 @@
 """Global registry models: instruments, application settings, global events."""
 from __future__ import annotations
 
-from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base
@@ -71,7 +71,11 @@ class DashboardTask(Base):
     acknowledged bar nor lose a live one."""
 
     __tablename__ = "dashboard_tasks"
-    __table_args__ = (Index("ix_dt_category_status", "category", "status"),)
+    __table_args__ = (
+        Index("ix_dt_category_status", "category", "status"),
+        Index("uq_dt_active_dedupe", "dedupe_key", unique=True,
+              sqlite_where=text("dedupe_key IS NOT NULL AND status IN ('QUEUED','RUNNING')")),
+    )
 
     id: Mapped[str] = mapped_column(String(40), primary_key=True)
     category: Mapped[str] = mapped_column(String(24), nullable=False, index=True)
@@ -87,6 +91,7 @@ class DashboardTask(Base):
     summary: Mapped[str | None] = mapped_column(String(500), nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     acknowledged: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    dedupe_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
     payload_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[float] = mapped_column(Float, nullable=False, default=utcnow)
     started_at: Mapped[float | None] = mapped_column(Float, nullable=True)

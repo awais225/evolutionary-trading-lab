@@ -34,6 +34,28 @@ async def lifespan(app: FastAPI):
     configure_logging(cfg.log_level)
     get_event_bus().attach_loop(asyncio.get_running_loop())
     log.info("hero1-api starting", extra={"version": __version__})
+    try:  # workers are process-local threads: classify stale persisted Monte Carlo tasks as interrupted, never resume unsafely
+        from hero1_storage.registry_models import DashboardTask
+        from hero1_storage import instrument_models as im
+        from hero1_storage.engine import instrument_session
+        from app import task_service
+        _reg=registry_session()
+        try:
+            _stale=_reg.query(DashboardTask).filter(DashboardTask.category=="MONTE_CARLO",DashboardTask.status.in_(("QUEUED","RUNNING"))).all()
+            for _task in _stale:
+                _payload=__import__("json").loads(_task.payload_json or "{}")
+                _ins=instrument_session(_task.instrument_id) if _task.instrument_id else None
+                try:
+                    _run=_ins.get(im.MonteCarloRun,_payload.get("monte_carlo_run_id")) if _ins else None
+                    if _run and _run.status=="RUNNING":
+                        _run.status="FAILED"; _run.error="Interrupted by application restart; unsafe to resume"; _run.finished_at=time.time(); _ins.commit()
+                finally:
+                    if _ins: _ins.close()
+                task_service.finish_task(_reg,_task.id,"FAILED",error="Interrupted by application restart; unsafe to resume",summary=f"Interrupted with {_task.completed_units or 0}/{_task.total_units or 0} completed")
+        finally:
+            _reg.close()
+    except Exception:
+        log.exception("Monte Carlo interrupted-task recovery failed")
     try:  # permanent CSV baseline -> this installation's canonical store (ISSUE-049)
         from app import market_data_service
         _baseline = market_data_service.ensure_baseline()
@@ -100,6 +122,7 @@ def create_app() -> FastAPI:
     app.include_router(routers.market_data.router)
     app.include_router(routers.deeptesting.router)
     app.include_router(routers.tasks.router)
+    app.include_router(routers.monte_carlo.router)
 
     @app.websocket("/ws/v1/events")
     async def ws_events(ws: WebSocket) -> None:

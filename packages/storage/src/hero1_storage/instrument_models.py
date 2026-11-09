@@ -339,3 +339,25 @@ class ActivityEvent(Base):
     node_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("nodes.id", ondelete="SET NULL"), nullable=True
     )
+
+
+class MonteCarloRun(Base):
+    """Immutable Monte Carlo research result linked to one DeepTesting run."""
+    __tablename__ = "monte_carlo_runs"
+    __table_args__ = (Index("ix_mcr_node_created", "instrument_id", "node_id", "created_at"),
+                      Index("ix_mcr_source_run", "instrument_id", "deeptest_run_id"))
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    instrument_id: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    node_id: Mapped[int] = mapped_column(Integer, ForeignKey("nodes.id", ondelete="CASCADE"), nullable=False)
+    deeptest_run_id: Mapped[int] = mapped_column(Integer, ForeignKey("deeptest_runs.id", ondelete="CASCADE"), nullable=False)
+    node_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    method: Mapped[str] = mapped_column(String(32), nullable=False)
+    seed: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="DONE")
+    config_json: Mapped[str] = mapped_column(Text, nullable=False)
+    result_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    warning_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[float] = mapped_column(Float, nullable=False, default=utcnow)
+    finished_at: Mapped[float | None] = mapped_column(Float, nullable=True)
