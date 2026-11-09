@@ -62,7 +62,7 @@ describe('Monte Carlo user workflow',()=>{
   vi.spyOn(api,'instruments').mockResolvedValue([{symbol:'XAUUSD',display_name:'Gold',enabled:true}] as any);vi.spyOn(api.tasks,'list').mockResolvedValue({tasks:[],latest:{}} as any)
   render(app());await screen.findByText('Node 1')
   fireEvent.change(screen.getByLabelText('Page size'),{target:{value:'10'}});expect(screen.getByText(/Page 1\/3/)).toBeTruthy()
-  fireEvent.click(screen.getByRole('button',{name:'Net P\/L'}));expect(screen.getAllByRole('row')[1].textContent).toContain('Node 30')
+  fireEvent.click(screen.getByRole('button',{name:'Net P\/L'}));expect(document.querySelector('.mc-node-panel tbody tr')?.textContent).toContain('Node 30')
   fireEvent.click(screen.getByLabelText('Select node 30'));fireEvent.click(screen.getByRole('button',{name:'Next'}));expect(screen.getByText(/Page 2\/3/)).toBeTruthy();fireEvent.click(screen.getByRole('button',{name:'Previous'}));expect(screen.getByLabelText('Select node 30')).toBeChecked()
   expect(localStorage.getItem('hero1.mc.table.v1')).toContain('"pageSize":"10"')
   fireEvent.change(screen.getByLabelText('Page size'),{target:{value:'15'}});expect(screen.getByText(/Page 1\/2/)).toBeTruthy()

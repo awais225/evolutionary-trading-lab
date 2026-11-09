@@ -447,7 +447,8 @@ def run_backtest(*, ir: dict, candles: List[dict], cfg: RunConfig,
                  management: Optional[TradeManagement] = None,
                  aux_candles: Optional[List[dict]] = None,
                  progress_cb=None, stage_cb=None, detailed_logging: bool = False,
-                 evidence_context: Optional[dict] = None, ledger_cb=None) -> dict:
+                 evidence_context: Optional[dict] = None, ledger_cb=None,
+                 cancel_check=None) -> dict:
     """Execute one compiled strategy over candles. Returns trades, equity
     curve, skipped signals and run accounting. Raises EngineError for any
     unsupported/underspecified semantics - never guesses."""
@@ -468,6 +469,9 @@ def run_backtest(*, ir: dict, candles: List[dict], cfg: RunConfig,
     # Compact, deterministic run-bound ledger; one candle row plus the full
     # condition tree result for each evaluation. No rejected signal is omitted.
     decision_ledger = [] if ledger_cb is None else None
+    # Keep every immutable candle/evaluation record, but amortize SQLite
+    # transaction/serialization overhead over larger bounded inserts.
+    LEDGER_BATCH_SIZE = 2048
     ledger_batch = []
     event_counter = [0]
     evidence_context = dict(evidence_context or {})
@@ -495,7 +499,7 @@ def run_backtest(*, ir: dict, candles: List[dict], cfg: RunConfig,
             decision_ledger.append(row)
         else:
             ledger_batch.append(row)
-            if len(ledger_batch) >= 256:
+            if len(ledger_batch) >= LEDGER_BATCH_SIZE:
                 _flush_ledger()
     detailed_stages = {"SIGNAL_DETECTED", "SIGNAL_REJECTION", "POSITION_SIZING",
                        "SL_TP_CALCULATION", "ORDER_EXECUTION_SIMULATION", "EXIT_EXECUTION"}
@@ -796,6 +800,8 @@ def run_backtest(*, ir: dict, candles: List[dict], cfg: RunConfig,
     emit("TRADE_MANAGEMENT", "STARTED", enabled=mgmt_model is not None)
 
     for i in range(n):
+        if cancel_check is not None and i % 64 == 0 and cancel_check():
+            raise EngineError("CANCELLED", f"DeepTesting cancellation requested after {i}/{n} candles")
         if cfg.spread_mode == "no_spread":
             current_spread_price = 0.0
         elif cfg.spread_mode == "historical_points":

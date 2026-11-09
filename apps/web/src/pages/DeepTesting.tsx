@@ -927,6 +927,8 @@ export function DeepTesting() {
           <button type="button" className="btn btn-ghost btn-xs" onClick={() => setSelected(new Set())}>Deselect all</button>
           <button type="button" className="btn btn-primary" disabled={busy} onClick={() => runNodes([...selected])}>
             {busy ? 'Running…' : `▶ Run DeepTesting (${selected.size})`}</button>
+          <button type="button" className="btn btn-danger" disabled={!dtTask || !['QUEUED','RUNNING','PAUSED'].includes(dtTask.status)}
+                  onClick={async () => { if (!dtTask) return; try { await api.tasks.cancel(dtTask.id); setNotice('STOP requested — the active DeepTesting task will stop cooperatively at the next candle checkpoint.'); refreshTasks() } catch (e) { setNotice(`Unable to stop DeepTesting: ${String(e)}`) } }}>STOP</button>
           <button type="button" className="btn btn-ghost btn-xs" disabled={busy}
                   onClick={() => runNodes(filteredRows.map((r) => r.node.id))}>Run all filtered</button>
         </div>

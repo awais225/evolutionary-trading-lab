@@ -57,7 +57,9 @@ export async function downloadFile(path: string, filename: string): Promise<void
 
 export const api = {
   health: () => request<HealthOut>('GET', '/health'),
+  systemMetrics: () => request<any>('GET', '/api/v1/system/metrics'),
   tasks: {
+    cancel: (taskId: string) => request<any>('POST', `/api/v1/tasks/${encodeURIComponent(taskId)}/cancel`),
     list: () => request<{ tasks: any[]; latest: Record<string, any> }>('GET', '/api/v1/tasks'),
     acknowledge: (category: string) => request<{ acknowledged: number }>('POST', '/api/v1/tasks/acknowledge', { category }),
     acknowledgeOne: (taskId: string) => request<{ acknowledged: boolean; task_id: string }>('POST', `/api/v1/tasks/${encodeURIComponent(taskId)}/acknowledge`),
@@ -195,6 +197,7 @@ export const api = {
     cancel: (instrument: string, taskId: string) => request<any>('POST', `/api/v1/instruments/${instrument}/monte-carlo/tasks/${encodeURIComponent(taskId)}/cancel`),
     history: (instrument: string, nodeId?: number) => request<{ runs: any[] }>('GET', `/api/v1/instruments/${instrument}/monte-carlo/runs${nodeId ? `?node_id=${nodeId}` : ''}`),
     get: (instrument: string, runId: string) => request<any>('GET', `/api/v1/instruments/${instrument}/monte-carlo/runs/${encodeURIComponent(runId)}`),
+    delete: (instrument: string, runId: string) => request<{ id: string; deleted: boolean }>('DELETE', `/api/v1/instruments/${instrument}/monte-carlo/runs/${encodeURIComponent(runId)}`),
     exportUrl: (instrument: string, runId: string, format: 'txt' | 'zip' = 'zip') =>
       `/api/v1/instruments/${instrument}/monte-carlo/runs/${encodeURIComponent(runId)}/export?format=${format}`,
   },

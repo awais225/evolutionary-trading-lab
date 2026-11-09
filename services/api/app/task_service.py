@@ -30,8 +30,19 @@ def _now() -> float:
 def task_dict(t: DashboardTask) -> dict:
     total = int(t.total_units or 0)
     completed = int(t.completed_units or 0)
-    pct = round(100.0 * completed / total, 1) if total > 0 else (
-        100.0 if t.status == "COMPLETED" else 0.0)
+    if total > 0:
+        partial = max(0.0, min(99.0, float(t.current_unit_progress or 0.0)))
+        pct = round(100.0 * (completed + partial / 100.0) / total, 1)
+        if t.status == "COMPLETED":
+            pct = 100.0
+        elif t.status in ("FAILED", "BLOCKED"):
+            pct = round(100.0 * completed / total, 1)
+        elif t.status == "CANCELLED":
+            pct = round(100.0 * (completed + partial / 100.0) / total, 1)
+        else:
+            pct = min(99.0, pct)
+    else:
+        pct = 100.0 if t.status == "COMPLETED" else 0.0
     return {
         "id": t.id, "category": t.category, "instrument": t.instrument_id,
         "label": t.label, "status": t.status,
@@ -108,7 +119,8 @@ def finish_task(session: Session, task_id: str, status: str, *,
         t.completed_units = int(t.total_units or 0)
     elif completed_units is not None:
         t.completed_units = max(int(t.completed_units or 0), int(completed_units))
-    t.current_unit_progress = None
+    if status != "CANCELLED":
+        t.current_unit_progress = None
     t.finished_at = _now()
     t.updated_at = _now()
     session.commit()

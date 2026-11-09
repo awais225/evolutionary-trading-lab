@@ -1,4 +1,5 @@
 import json
+import pytest
 import time
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -156,3 +157,14 @@ def test_deeptest_to_monte_carlo_persist_reopen_and_export(client, seeded_store,
     failed_run=client.get(f"/api/v1/instruments/XAUUSD/monte-carlo/runs/{failed['id']}").json()
     assert failed_task['status']=='FAILED' and 'acceptance worker fault' in failed_task['error']
     assert failed_run['status']=='FAILED' and 'acceptance worker fault' in failed_run['error']
+    # A completed study stores PF/deviation aggregates against its source-run baseline.
+    assert original_result['summary']['deep_baseline_return_pct']==pytest.approx(run['metrics']['return_on_initial_capital_pct'])
+    assert 'profit_factor_mean' in original_result['summary']
+    assert 'profit_factor_worst' in original_result['summary']
+    assert original_result['summary']['mean_deviation_from_baseline_pct'] is not None
+    assert original_result['summary']['worst_deviation_from_baseline_pct'] is not None
+    deleted=client.delete(f"/api/v1/instruments/XAUUSD/monte-carlo/runs/{failed['id']}")
+    assert deleted.status_code==200 and deleted.json()['deleted'] is True
+    assert client.get(f"/api/v1/instruments/XAUUSD/deeptesting/runs/{run['id']}").status_code==200
+    assert any(n['id']==node_id for n in client.get('/api/v1/instruments/XAUUSD/nodes').json()['items'])
+    assert client.get(f"/api/v1/instruments/XAUUSD/monte-carlo/runs/{rerun['id']}").status_code==200

@@ -1,0 +1,224 @@
+{
+  "isolated_root": "/home/user/.cache/hero1-run2-isolated-vxkn41sr",
+  "node_id": 2,
+  "source_deeptest_run_id": 1,
+  "study_id": "515b8f62-b548-4566-945c-49d6fcd97465",
+  "status_at_submission": "QUEUED",
+  "completed_study": {
+    "id": "515b8f62-b548-4566-945c-49d6fcd97465",
+    "node_id": 2,
+    "node_version": 1,
+    "deeptest_run_id": 1,
+    "method": "RESHUFFLE",
+    "seed": 22264436,
+    "status": "DONE",
+    "simulations_requested": 50,
+    "simulations_completed": 50,
+    "score": 5.01,
+    "survival_pct": 100.0,
+    "mean_pf": 0.9602271536294199,
+    "worst_pf": 0.9602271536294199,
+    "mean_dd_pct": 67.23933015153806,
+    "worst_dd_pct": 79.94021418058512,
+    "mean_deviation_pct": 0.047445960376108334,
+    "worst_deviation_pct": 0.04744596037630089,
+    "deep_baseline_return_pct": -52.4406
+  },
+  "failed_study_id": "3d7941be-ff51-4cdf-b603-6e5ac9b13870",
+  "failed_status": "FAILED",
+  "cancel_study_id": "d5bf64e9-604c-4289-8d58-f3483c471e4f",
+  "cancel_status": "CANCELLED",
+  "history_run_ids": [
+    "d5bf64e9-604c-4289-8d58-f3483c471e4f",
+    "3d7941be-ff51-4cdf-b603-6e5ac9b13870",
+    "515b8f62-b548-4566-945c-49d6fcd97465"
+  ],
+  "valid_after_later_statuses": {
+    "id": "515b8f62-b548-4566-945c-49d6fcd97465",
+    "status": "DONE",
+    "summary": {
+      "simulations_requested": 50,
+      "simulations_completed": 50,
+      "trade_count": 1990,
+      "seed": 22264436,
+      "method": "RESHUFFLE",
+      "mean_return_pct": -52.48804596037611,
+      "median_return_pct": -52.488045960376105,
+      "best_return_pct": -52.48804596037593,
+      "worst_return_pct": -52.488045960376304,
+      "return_percentiles": {
+        "5": -52.48804596037628,
+        "10": -52.488045960376226,
+        "25": -52.48804596037616,
+        "50": -52.488045960376105,
+        "75": -52.48804596037604,
+        "90": -52.488045960376,
+        "95": -52.488045960375985,
+        "99": -52.48804596037593
+      },
+      "mean_max_drawdown_pct": 67.23933015153806,
+      "median_max_drawdown_pct": 67.62715468373895,
+      "worst_max_drawdown_pct": 79.94021418058512,
+      "drawdown_percentiles": {
+        "90": 74.79339994663466,
+        "95": 77.78377343603103,
+        "99": 79.49288467553173
+      },
+      "survival_rate_pct": 100.0,
+      "ruin_rate_pct": 0.0,
+      "probability_below_initial_pct": 100.0,
+      "probability_negative_return_pct": 100.0,
+      "mean_win_rate_pct": 32.51256281407035,
+      "average_win_mean": 2927.2258390645625,
+      "average_loss_mean": -1488.3776692446197,
+      "expectancy_mean": -52.751804985302634,
+      "recovery_factor_median": -0.660672363049982,
+      "average_drawdown_duration_trades": 405.9399743209033,
+      "longest_drawdown_duration_trades": 1989,
+      "max_consecutive_losses_p95": 20.549999999999997,
+      "profit_factor_median": 0.9602271536294199,
+      "profit_factor_mean": 0.9602271536294199,
+      "profit_factor_worst": 0.9602271536294199,
+      "deep_baseline_return_pct": -52.4406,
+      "mean_deviation_from_baseline_pct": 0.047445960376108334,
+      "worst_deviation_from_baseline_pct": 0.04744596037630089,
+      "random_points": 100,
+      "trade_sequence_start_sampling": false,
+      "cancelled": false,
+      "seed_strategy": "Persisted master seed deterministically generates and records an independent 64-bit seed for every simulation.",
+      "simulation_distributions": {
+        "win_rate_pct": {
+          "5": 32.51256281407035,
+          "25": 32.51256281407035,
+          "50": 32.51256281407035,
+          "75": 32.51256281407035,
+          "95": 32.51256281407035,
+          "99": 32.51256281407035
+        },
+        "profit_factor": {
+          "5": 0.9602271536294199,
+          "25": 0.9602271536294199,
+          "50": 0.9602271536294199,
+          "75": 0.9602271536294199,
+          "95": 0.9602271536294199,
+          "99": 0.9602271536294199
+        },
+        "average_win": {
+          "5": 2037.2199455398402,
+          "25": 2614.761879043427,
+          "50": 2763.5453174618797,
+          "75": 3064.1340960909247,
+          "95": 4229.305966713577,
+          "99": 4510.020791820161
+        },
+        "average_loss": {
+          "5": -2115.664223666744,
+          "25": -1554.3342160026662,
+          "50": -1409.5233896638783,
+          "75": -1337.845888057967,
+          "95": -1059.6108687155838,
+          "99": -993.7677306193774
+        },
+        "expectancy": {
+          "5": -52.75180498530275,
+          "25": -52.75180498530268,
+          "50": -52.75180498530264,
+          "75": -52.7518049853026,
+          "95": -52.751804985302506,
+          "99": -52.75180498530245
+        },
+        "recovery_factor": {
+          "5": -0.856657304288875,
+          "25": -0.7651243785046523,
+          "50": -0.660672363049982,
+          "75": -0.5690557081073614,
+          "95": -0.43350910930806025,
+          "99": -0.36642842952627336
+        },
+        "max_consecutive_losses": {
+          "5": 14.0,
+          "25": 15.0,
+          "50": 17.0,
+          "75": 18.0,
+          "95": 20.549999999999997,
+          "99": 21.0
+        },
+        "max_consecutive_wins": {
+          "5": 5.0,
+          "25": 6.0,
+          "50": 6.0,
+          "75": 7.0,
+          "95": 8.0,
+          "99": 8.509999999999998
+        },
+        "average_drawdown_duration_trades": {
+          "5": 88.90454545454546,
+          "25": 133.64285714285717,
+          "50": 247.3125,
+          "75": 496.5,
+          "95": 1540.699999999997,
+          "99": 1989.0
+        },
+        "longest_drawdown_duration_trades": {
+          "5": 1016.4,
+          "25": 1511.0,
+          "50": 1808.5,
+          "75": 1942.5,
+          "95": 1987.55,
+          "99": 1989.0
+        },
+        "max_drawdown_amount": {
+          "5": 122592.73147462039,
+          "25": 137201.34886036813,
+          "50": 158892.9694630906,
+          "75": 184766.9122212868,
+          "95": 242252.93438440806,
+          "99": 292875.63801336434
+        }
+      },
+      "probability_exceed_max_drawdown_pct": 100.0
+    },
+    "robustness": {
+      "score": 5.01,
+      "components": {
+        "survival": 10,
+        "drawdown": 3.2372845316261047,
+        "returns": 0,
+        "consistency": 9.999999999999991,
+        "sequence": 2.0059785819414886,
+        "execution_stress": null
+      },
+      "weights": {
+        "survival": 0.25,
+        "drawdown": 0.25,
+        "returns": 0.2,
+        "consistency": 0.15,
+        "sequence": 0.1,
+        "execution_stress": 0.05
+      },
+      "effective_weight_coverage_pct": 95.0,
+      "status": "WEAK ROBUSTNESS",
+      "score_band": "Weak",
+      "normalization": "Each component rating is clipped to 0\u201310, multiplied by its published fractional weight, then summed. Unavailable components contribute zero and reduce effective weight coverage; weights are never renormalized.",
+      "component_methods": {
+        "survival": "10 - ruin_rate_pct / 10",
+        "drawdown": "10 - median_max_drawdown_pct / 10",
+        "returns": "5 + median_return_pct / 10",
+        "consistency": "10 - population_stddev_of_simulation_return_pct / 10",
+        "sequence": "10 - worst_simulation_max_drawdown_pct / 10",
+        "execution_stress": "10 - worst stressed-simulation max drawdown pct / 10; unavailable outside EXECUTION_STRESS"
+      }
+    }
+  },
+  "delete_failed_study": {
+    "id": "3d7941be-ff51-4cdf-b603-6e5ac9b13870",
+    "deleted": true
+  },
+  "preserved": {
+    "node_exists": true,
+    "deep_run_id": 1,
+    "completed_study_present": true,
+    "cancelled_study_present": true,
+    "deleted_study_absent": true
+  }
+}

@@ -7,6 +7,16 @@ const renderAt = (route: string) =>
   render(<MemoryRouter initialEntries={[route]}><App /></MemoryRouter>)
 
 describe('Hero1 shell', () => {
+  it('keeps real-host resource monitoring visible when navigating between tabs', async () => {
+    renderAt('/manual-nodes')
+    expect(await screen.findByText('API HOST')).toBeInTheDocument()
+    expect(screen.getByText(/CPU/).parentElement).toHaveTextContent('24%')
+    expect(screen.getByText(/GPU/).parentElement).toHaveTextContent('unavailable')
+    fireEvent.click(screen.getByRole('link', { name: /DeepTesting/i }))
+    expect(screen.getByText('API HOST')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('link', { name: /Monte Carlo/i }))
+    expect(screen.getByText('API HOST')).toBeInTheDocument()
+  })
   it('renders all eight navigation tabs', () => {
     renderAt('/manual-nodes')
     for (const label of ['Manual Nodes', 'WWW Research', 'Interactive WWW', 'DeepTesting', 'Fine Tuning', 'Live Testing', 'LOG', 'SETTINGS']) {

@@ -57,9 +57,13 @@ async def lifespan(app: FastAPI):
     except Exception:
         log.exception("Monte Carlo interrupted-task recovery failed")
     try:  # permanent CSV baseline -> this installation's canonical store (ISSUE-049)
-        from app import market_data_service
-        _baseline = market_data_service.ensure_baseline()
-        log.info("market-data baseline check", extra={"baseline": str(_baseline)[:500]})
+        import os as _os
+        if _os.environ.get("HERO1_SKIP_BASELINE_IMPORT") == "1":
+            log.info("market-data baseline import skipped by explicit environment setting")
+        else:
+            from app import market_data_service
+            _baseline = market_data_service.ensure_baseline()
+            log.info("market-data baseline check", extra={"baseline": str(_baseline)[:500]})
     except Exception:
         log.exception("market-data baseline check failed (continuing without it)")
     try:  # official seed nodes (NODE 1) - idempotent, never overwrites user edits
@@ -123,6 +127,7 @@ def create_app() -> FastAPI:
     app.include_router(routers.deeptesting.router)
     app.include_router(routers.tasks.router)
     app.include_router(routers.monte_carlo.router)
+    app.include_router(routers.system.router)
 
     @app.websocket("/ws/v1/events")
     async def ws_events(ws: WebSocket) -> None:

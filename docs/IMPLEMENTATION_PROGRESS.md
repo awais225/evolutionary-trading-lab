@@ -371,4 +371,3 @@ this entry).
   per-class checks). Owner's DB verified repair-applied (446,994 /
   158 gaps / 7 final-export-bar conflicts). Backend 260 tests, frontend
   66/66, build clean. Windows NOT VERIFIED.
-

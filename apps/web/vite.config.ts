@@ -5,6 +5,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     host: '0.0.0.0',
+    allowedHosts: ['.e2b.app'],
     port: 5173,
     // strictPort: never silently drift to 5174+ when 5173 is taken.
     // START.bat verifies THIS port before opening the browser.

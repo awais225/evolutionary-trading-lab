@@ -94,3 +94,13 @@ After exporting, inspect `manifest.json`, `configuration.json`, `original_deepte
 ## Known limitations
 
 There is no historical candle-replay Monte Carlo method. The underlying Monte Carlo simulator cannot independently establish source logic/compliance correctness or market-data readiness; a quantitative gate pass alone is therefore not an eligibility approval. A persisted master seed deterministically generates a distinct recorded 64-bit seed for each simulation; per-simulation seeds and metrics are included in both JSON and CSV exports. Original baseline metrics depend on what DeepTesting persisted. Axis interactions do not make original historical dates comparable to simulated trade-progress points. Export includes the retained simulation curves and source run reference, not a duplicate of the original trade ledger. Monte Carlo research completion does not establish broker execution accuracy, MT5 validation, or live-trading readiness.
+
+## DeepTesting progress, cancellation, and settings checks (current phase)
+
+- Run a sufficiently long test and confirm the global task bar and DeepTesting node progress use the same task, advance from candle work, and remain below 100% until success is persisted.
+- STOP an active run; confirm only that task is cancelled, the run is not marked DONE, partial progress remains visible, queued nodes in the same batch do not begin, and a subsequent run can start.
+- Reload during a run and confirm the UI recovers the task's persisted progress.
+- In Monte Carlo settings, edit a value and confirm submission is blocked while changes are unapplied. APPLY should validate and persist settings but must not launch simulations. Reload and check settings persistence.
+- For performance comparisons, record the node/version, instrument, timeframe, source-data fingerprint, date range, candle count, execution and spread assumptions, risk/capital constraints, completed trades, key statistics, and wall-clock time. Never compare different data or settings and never infer missing prior timings.
+
+Known scope gap: saved scenario-specific Monte Carlo subrows, exact scenario/run selection, and the requested MAX/MIN/DEFAULT/DEEPTESTED curve visibility controls remain pending; see `DEEPTESTING_MC_IMPROVEMENT_NOTES.md`.

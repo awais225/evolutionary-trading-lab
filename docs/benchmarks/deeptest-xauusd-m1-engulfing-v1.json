@@ -1,0 +1,66 @@
+{
+  "benchmark_id": "HERO1-DT-XAUUSD-M1-ENGULFING-v1",
+  "status": "DATASET_AUDITED_BENCHMARK_NOT_YET_RUN",
+  "strategy": {
+    "name": "Default Engulfing Candle / bullish_engulfing reference",
+    "implementation": "packages/strategy_spec/src/hero1_strategy_spec/examples.py::bullish_engulfing",
+    "strategy_node_id": null,
+    "node_version": null,
+    "note": "The XAUUSD instrument database currently has only a draft placeholder node with no strategy spec. Do not substitute it. A persisted benchmark node ID is required before full DeepTesting can be measured."
+  },
+  "instrument": "XAUUSD",
+  "timeframe": "M1",
+  "dataset": {
+    "path": "DATA/MARKET_DATA/IMPORTS/XAUUSD/XAUUSD_M1.csv",
+    "sha256": "840eeb06b0669a65251179702e2d8eafc848804d4e1f63245b2be59a8bcd73cb",
+    "bytes": 6120782,
+    "valid_rows": 100057,
+    "raw_first_timestamp": "2026.07.07 21:41:00",
+    "raw_last_timestamp": "2026.10.16 15:31:00",
+    "importer_utc_first": "2026-07-07 18:41:00",
+    "importer_utc_last": "2026-10-16 12:31:00",
+    "source_timestamp_timezone": "Broker-server wall time; importer's configured IC Markets GMT+2/GMT+3 seasonal conversion. The raw CSV itself has no timezone field.",
+    "duplicates_collapsed": 0,
+    "gaps": 75,
+    "largest_gap_seconds": 176760,
+    "ohlc_validation": "PASS via importer's read-only dry-run; no changes written",
+    "compatibility": "PASS: MetaTrader tab-delimited export with DATE/TIME/OHLC/TICKVOL/VOL/SPREAD fields is supported by scripts/import_market_data.py",
+    "source_limit_note": "Importer reports the MT export 100k-row cap; this file's 100057 physical records include the export format's row behavior and may not contain older available history. The benchmark range must not be represented as the instrument's all-time history."
+  },
+  "test_type": "DeepTesting",
+  "configuration": {
+    "capital": 200000,
+    "risk_mode": "percent",
+    "risk_value_pct": 1,
+    "risk_basis": "current_equity",
+    "max_active_trades": 1,
+    "spread_mode": "historical_points",
+    "missing_spread_policy": "block",
+    "slippage_price": 0,
+    "date_range": "entire valid range in exact fingerprinted source dataset",
+    "strategy_rules": "Existing bullish_engulfing reference strategy, unchanged"
+  },
+  "measurement": {
+    "started_at": null,
+    "ended_at": null,
+    "duration_seconds": null,
+    "candles_processed": null,
+    "candles_per_second": null,
+    "trades_generated": null,
+    "final_statistics": null,
+    "cpu_ram_gpu": null,
+    "profile_artifact": null
+  },
+  "blocking_requirements": [
+    "Resolve verified XAUUSD broker instrument/tick metadata without guessing; current registry DB has no instrument registrations and node DB has no valid benchmark spec.",
+    "Create or identify the exact persistent default engulfing node and record its ID/version without replacing unrelated user data.",
+    "Benchmark before optimization and after optimization using identical copied/isolated test databases; do not write into the user's DATA databases merely to time a run."
+  ],
+  "application_revision": "db865e4a52697cdeca206faf128c550fda2824db (workspace HEAD; dirty pre-existing worktree)",
+  "environment": {
+    "host": "LMS sandbox backend host",
+    "cpu_count": null,
+    "ram_total_bytes": null,
+    "gpu": "not yet measured"
+  }
+}

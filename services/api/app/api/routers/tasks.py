@@ -34,6 +34,20 @@ def get_task(task_id: str, session: Session = Depends(get_registry_session)):
     return task_service.task_dict(t)
 
 
+@router.post("/{task_id}/cancel")
+def cancel_task(task_id: str, session: Session = Depends(get_registry_session)):
+    from hero1_storage.registry_models import DashboardTask
+    from app import deeptesting_service
+    task = session.get(DashboardTask, task_id)
+    if task is None or task.category != "DEEPTESTING":
+        raise HTTPException(404, "DeepTesting task not found")
+    if task.status not in task_service.ACTIVE:
+        return {"task_id": task_id, "status": task.status, "cancel_requested": False}
+    if not deeptesting_service.request_task_cancel(task_id):
+        raise HTTPException(409, "Task is not cancellable in this server process")
+    return {"task_id": task_id, "cancel_requested": True}
+
+
 @router.post("/acknowledge")
 def acknowledge(body: AcknowledgeBody,
                 session: Session = Depends(get_registry_session)):

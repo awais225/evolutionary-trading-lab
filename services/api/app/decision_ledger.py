@@ -27,9 +27,14 @@ def persist_event_batch(session: Session, events: list[dict], *, run_id: int,
     } for e in events]
     if not rows:
         return 0
-    stmt = sqlite_insert(DeepTestDecisionEvent).values(rows).on_conflict_do_nothing(
+    # Use DBAPI executemany instead of constructing a multi-VALUES statement.
+    # Evidence batches contain thousands of JSON rows; .values(rows) makes
+    # SQLAlchemy rebuild/compile a statement with every row's bind tree on
+    # every flush. Executemany keeps the same atomic/idempotent batch contract
+    # and schema while compiling one stable statement per batch.
+    stmt = sqlite_insert(DeepTestDecisionEvent.__table__).on_conflict_do_nothing(
         index_elements=["event_id"])
-    result = session.execute(stmt)
+    result = session.connection().execute(stmt, rows)
     session.commit()
     return int(result.rowcount or 0)
 

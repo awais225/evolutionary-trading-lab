@@ -36,6 +36,8 @@ def test_partial_aggregates_use_only_completed_metrics_and_match_independent_val
     full=simulate(TRADES,{**CFG,"simulations":10},"RESHUFFLE")
     completed=full["per_simulation"][:4]
     summary=partial_summary(completed,10,CFG["seed"],"RESHUFFLE",len(TRADES))
+    assert summary["profit_factor_mean"] == pytest.approx(sum(m["profit_factor"] for m in completed if m.get("profit_factor") is not None) / len([m for m in completed if m.get("profit_factor") is not None]))
+    assert summary["profit_factor_worst"] == min(m["profit_factor"] for m in completed if m.get("profit_factor") is not None)
     returns=[m["return_pct"] for m in completed]
     dds=[m["max_drawdown_pct"] for m in completed]
     endings=[m["final_equity"] for m in completed]

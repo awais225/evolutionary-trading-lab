@@ -30,7 +30,7 @@ def eligibility_gates(summary: dict, readiness: str | None, logic_failures: int 
     }
 
 
-def partial_summary(metrics: list[dict], requested: int, seed: int, method: str, trade_count: int) -> dict:
+def partial_summary(metrics: list[dict], requested: int, seed: int, method: str, trade_count: int, baseline_return_pct: float | None = None) -> dict:
     """Describe only persisted completed simulations; never impute pending work."""
     if not metrics:
         return {"simulations_requested":requested,"simulations_completed":0,"partial":True,"sample_count":0,"seed":seed,"method":method,"trade_count":trade_count}
@@ -51,11 +51,15 @@ def partial_summary(metrics: list[dict], requested: int, seed: int, method: str,
       "mean_win_rate_pct":statistics.fmean(float(m["win_rate_pct"]) for m in metrics),
       "max_consecutive_losses_p95":_percentile([float(m["max_consecutive_losses"]) for m in metrics],.95),
       "max_consecutive_wins_p95":_percentile([float(m["max_consecutive_wins"]) for m in metrics],.95),
-      "profit_factor_median":_percentile(pf,.5),"expectancy_mean":statistics.fmean(float(m["expectancy"]) for m in metrics),
+      "profit_factor_median":_percentile(pf,.5),"profit_factor_mean":statistics.fmean(pf) if pf else None,"profit_factor_worst":min(pf) if pf else None,"expectancy_mean":statistics.fmean(float(m["expectancy"]) for m in metrics),
       "average_win_mean":statistics.fmean(avg_wins) if avg_wins else None,"average_loss_mean":statistics.fmean(avg_losses) if avg_losses else None,
       "recovery_factor_median":_percentile(recoveries,.5),
       "average_drawdown_duration_trades":statistics.fmean(float(m["average_drawdown_duration_trades"]) for m in metrics),
       "longest_drawdown_duration_trades":max(int(m["longest_drawdown_duration_trades"]) for m in metrics)}
+    deviations = [abs(float(m["return_pct"]) - float(baseline_return_pct)) for m in metrics] if baseline_return_pct is not None else []
+    result["deep_baseline_return_pct"] = baseline_return_pct
+    result["mean_deviation_from_baseline_pct"] = statistics.fmean(deviations) if deviations else None
+    result["worst_deviation_from_baseline_pct"] = max(deviations) if deviations else None
     return result
 
 
@@ -143,6 +147,8 @@ def simulate(trades: list[dict], config: dict, method: str, *, on_batch=None, ca
     percentile_curves={str(p):[_percentile([c[j] for c in aligned],p/100) for j in range(points)] for p in (5,50,95)}
     if not metrics: raise ValueError("cancelled before the first simulation completed")
     returns=[m["return_pct"] for m in metrics]; dds=[m["max_drawdown_pct"] for m in metrics]
+    baseline_return_pct=config.get("deep_baseline_return_pct")
+    baseline_deviations=[abs(float(v)-float(baseline_return_pct)) for v in returns] if baseline_return_pct is not None else []
     summary={"simulations_requested":n,"simulations_completed":len(metrics),"trade_count":len(trades),"seed":seed,"method":method,
       "mean_return_pct":statistics.fmean(returns),"median_return_pct":_percentile(returns,.5),"best_return_pct":max(returns),"worst_return_pct":min(returns),
       "return_percentiles":{str(p):_percentile(returns,p/100) for p in (5,10,25,50,75,90,95,99)},
@@ -160,6 +166,11 @@ def simulate(trades: list[dict], config: dict, method: str, *, on_batch=None, ca
       "longest_drawdown_duration_trades":max(m["longest_drawdown_duration_trades"] for m in metrics),
       "max_consecutive_losses_p95":_percentile([m["max_consecutive_losses"] for m in metrics],.95),
       "profit_factor_median":_percentile([m["profit_factor"] for m in metrics if m["profit_factor"] is not None],.5),
+      "profit_factor_mean":statistics.fmean([float(m["profit_factor"]) for m in metrics if m["profit_factor"] is not None]) if any(m["profit_factor"] is not None for m in metrics) else None,
+      "profit_factor_worst":min(float(m["profit_factor"]) for m in metrics if m["profit_factor"] is not None) if any(m["profit_factor"] is not None for m in metrics) else None,
+      "deep_baseline_return_pct":baseline_return_pct,
+      "mean_deviation_from_baseline_pct":statistics.fmean(baseline_deviations) if baseline_deviations else None,
+      "worst_deviation_from_baseline_pct":max(baseline_deviations) if baseline_deviations else None,
       "random_points":points,"trade_sequence_start_sampling":method=="START_POINT","cancelled":cancelled,
       "seed_strategy":"Persisted master seed deterministically generates and records an independent 64-bit seed for every simulation."}
     distribution_fields=("win_rate_pct","profit_factor","average_win","average_loss","expectancy","recovery_factor","max_consecutive_losses","max_consecutive_wins","average_drawdown_duration_trades","longest_drawdown_duration_trades","max_drawdown_amount")

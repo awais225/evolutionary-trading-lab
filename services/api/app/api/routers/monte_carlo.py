@@ -66,7 +66,7 @@ def _mc_worker(instrument: str, mc_id: str, task_id: str, node_id: int, deep_run
             return bool(current and (json.loads(current.payload_json or "{}").get("cancel_requested")))
         def on_batch(done, metrics, paths):
             # Persist actual completed outputs after each bounded batch.
-            partial = {"partial": True, "summary": partial_summary(metrics,int(cfg["simulations"]),mc.seed,mc.method,len(trades)), "per_simulation": metrics, "representative_curves": paths[:int(cfg.get("displayed_curves",10))]}
+            partial = {"partial": True, "summary": partial_summary(metrics,int(cfg["simulations"]),mc.seed,mc.method,len(trades),cfg.get("deep_baseline_return_pct")), "per_simulation": metrics, "representative_curves": paths[:int(cfg.get("displayed_curves",10))]}
             mc.result_json = json.dumps(partial, separators=(",", ":")); db.commit()
             elapsed = max(time.time()-started, .001)
             reg.expire_all(); latest_task=reg.get(DashboardTask,task_id)
@@ -121,7 +121,7 @@ def start_runs(body:StartBody,instrument:str=Depends(get_instrument_context),ses
     bad=set(body.methods)-METHODS
     if bad: raise HTTPException(422,f"unsupported methods: {sorted(bad)}")
     if not body.methods: raise HTTPException(422,"select at least one available method")
-    config={"simulations":500,"random_points":1000,"displayed_curves":10,"initial_capital":200000,"risk_pct":1,"max_active_trades":1,"max_drawdown_pct":25,"min_survival_pct":99,"max_p99_drawdown_pct":35,"block_size":10,"batch_size":25,**body.config}
+    config={"simulations":1000,"random_points":1000,"displayed_curves":10,"initial_capital":200000,"risk_pct":1,"max_active_trades":1,"max_drawdown_pct":25,"min_survival_pct":99,"max_p99_drawdown_pct":35,"block_size":10,"batch_size":25,**body.config}
     if not 10 <= int(config["simulations"]) <= 5000: raise HTTPException(422,"simulations must be between 10 and 5000")
     result=[]
     base_identity={"instrument":instrument.upper(),"node_ids":sorted(body.node_ids),"methods":sorted(body.methods),"config":{k:v for k,v in config.items() if k!="seed"},"deeptest_run_ids":body.deeptest_run_ids,"request_key":body.idempotency_key}
@@ -149,9 +149,10 @@ def start_runs(body:StartBody,instrument:str=Depends(get_instrument_context),ses
             if isinstance(source_readiness,dict): source_readiness=source_readiness.get("status")
             known_logic_failures=source_quality.get("known_logic_compliance_failures",source_quality.get("logic_compliance_failures"))
             deep_config=json.loads(deep.config_json) if deep.config_json else {}
+            deep_metrics=json.loads(deep.metrics_json) if deep.metrics_json else {}
             execution_cost_assumptions={key:deep_config.get(key) for key in ("spread_mode","commission_per_lot","swap_long_per_lot","swap_short_per_lot","slippage_price","tick_size","tick_value_account")}
             tested_range=deep_config.get("actual_range") or deep_config.get("requested_range") or deep_config.get("range")
-            run_config={**config,"seed":seed,"base_seed":base_seed,"tested_range":tested_range,"execution_cost_assumptions":execution_cost_assumptions,"source_data_readiness":source_readiness,"known_logic_compliance_failures":known_logic_failures,"task_id":None}
+            run_config={**config,"seed":seed,"base_seed":base_seed,"tested_range":tested_range,"deep_baseline_return_pct":deep_metrics.get("return_on_initial_capital_pct"),"deep_baseline_net_profit":deep_metrics.get("net_profit"),"execution_cost_assumptions":execution_cost_assumptions,"source_data_readiness":source_readiness,"known_logic_compliance_failures":known_logic_failures,"task_id":None}
             dedupe_key=hashlib.sha256(json.dumps({"instrument":instrument.upper(),"node":node_id,"deep_run":deep.id,"method":method,"config":run_config},sort_keys=True,separators=(",",":"),default=str).encode()).hexdigest()
             existing=registry.query(DashboardTask).filter(DashboardTask.dedupe_key==dedupe_key,DashboardTask.status.in_(("QUEUED","RUNNING"))).first()
             if existing:
@@ -191,7 +192,7 @@ def cancel_task(task_id:str,instrument:str=Depends(get_instrument_context),regis
 def history(node_id:int|None=None,instrument:str=Depends(get_instrument_context),session:Session=Depends(get_instrument_session)):
     q=session.query(im.MonteCarloRun).filter_by(instrument_id=instrument.upper())
     if node_id is not None:q=q.filter_by(node_id=node_id)
-    rows=q.order_by(im.MonteCarloRun.created_at.desc()).limit(200).all()
+    rows=q.order_by(im.MonteCarloRun.created_at.desc()).all()
     return {"runs":[{"id":r.id,"node_id":r.node_id,"instrument":r.instrument_id,"timeframe":(session.get(im.Node,r.node_id).timeframe if session.get(im.Node,r.node_id) else None),"deeptest_run_id":r.deeptest_run_id,"method":r.method,"seed":r.seed,"status":r.status,"config":json.loads(r.config_json),"fingerprint":r.fingerprint,"node_version":r.node_version,"summary":(json.loads(r.result_json).get("summary") if r.result_json else None),"robustness":(json.loads(r.result_json).get("robustness") if r.result_json else None),"eligibility":(json.loads(r.result_json).get("eligibility") if r.result_json else None),"warnings":json.loads(r.warning_json or "[]"),"created_at":r.created_at,"error":r.error} for r in rows]}
 
 @router.get("/runs/{run_id}")
@@ -200,6 +201,17 @@ def get_result(run_id:str,instrument:str=Depends(get_instrument_context),session
     if not r:raise HTTPException(404,"Monte Carlo run not found")
     saved_config=json.loads(r.config_json); node=session.get(im.Node,r.node_id); deep=session.get(im.DeepTestRun,r.deeptest_run_id)
     return {"id":r.id,"task_id":saved_config.get("task_id"),"node_id":r.node_id,"node_name":node.name if node else None,"instrument":r.instrument_id,"timeframe":deep.timeframe if deep else (node.timeframe if node else None),"node_version":r.node_version,"fingerprint":r.fingerprint,"deeptest_run_id":r.deeptest_run_id,"method":r.method,"seed":r.seed,"status":r.status,"config":saved_config,"result":json.loads(r.result_json) if r.result_json else None,"warnings":json.loads(r.warning_json) if r.warning_json else [],"error":r.error}
+
+@router.delete("/runs/{run_id}")
+def delete_run(run_id:str,instrument:str=Depends(get_instrument_context),session:Session=Depends(get_instrument_session)):
+    row=session.query(im.MonteCarloRun).filter_by(id=run_id,instrument_id=instrument.upper()).first()
+    if not row: raise HTTPException(404,"Monte Carlo run not found")
+    if row.status in ("QUEUED","RUNNING"):
+        raise HTTPException(409,"Cannot delete a queued or running Monte Carlo study")
+    # Delete only the selected study record; its node, DeepTesting source run,
+    # other studies and task audit record are intentionally left untouched.
+    session.delete(row); session.commit()
+    return {"id":run_id,"deleted":True}
 
 @router.get("/runs/{run_id}/export")
 def export_result(run_id:str,format:str="zip",instrument:str=Depends(get_instrument_context),session:Session=Depends(get_instrument_session)):

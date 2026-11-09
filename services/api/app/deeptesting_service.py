@@ -32,6 +32,18 @@ from . import market_data_service, metadata_service, spec_service
 
 MAX_CANDLES_PER_RUN = 250_000
 _LOG = logging.getLogger("hero1.api.deeptesting")
+_CANCEL_EVENTS: dict[str, Any] = {}
+_CANCEL_LOCK = __import__('threading').Lock()
+
+
+def request_task_cancel(task_id: str) -> bool:
+    """Cooperative cancellation for the exact in-process DeepTesting task."""
+    with _CANCEL_LOCK:
+        event = _CANCEL_EVENTS.get(task_id)
+        if event is None:
+            return False
+        event.set()
+        return True
 BLOCKED_ERROR_CODES = {"DATA_BLOCKED", "HISTORICAL_SPREAD_UNAVAILABLE", "MISSING_TICK_SIZE",
                        "MISSING_TICK_VALUE", "UNSUPPORTED_CHART_PRICE_MODE",
                        "UNSUPPORTED_SWAP_MODE", "INVALID_SPREAD_MODE"}
@@ -270,7 +282,8 @@ def available_bounds(instrument: str, timeframe: str) -> Optional[dict]:
 
 def execute_run(session: Session, *, instrument: str, node: im.Node,
                 config: dict, scenario_id: Optional[int] = None,
-                progress_cb=None, task_id: Optional[str] = None) -> im.DeepTestRun:
+                progress_cb=None, task_id: Optional[str] = None,
+                cancel_check=None) -> im.DeepTestRun:
     """Execute one node under one config snapshot and persist the result.
     `config` carries: range {start,end}, mode + mode params, RunConfig
     fields and engine assumptions. Readiness BLOCKED => FAILED run row
@@ -605,6 +618,7 @@ def execute_run(session: Session, *, instrument: str, node: im.Node,
                                   aux_candles=aux_candles, progress_cb=progress_cb,
                                   stage_cb=_stage_cb,
                                   detailed_logging=bool(config.get("detailed_logging")),
+                                  cancel_check=cancel_check,
                                   evidence_context={"run_id": run.id, "node_id": node.id,
                                       "node_version": node.version, "fingerprint": compiled.fingerprint,
                                       "compiler_version": compiled.compiler_version, "instrument": instrument.upper(),
@@ -674,7 +688,7 @@ def execute_run(session: Session, *, instrument: str, node: im.Node,
         detail = _execution_log(failure_stage, "BLOCKED" if code in blocked_codes else "FAILED",
             task_id=task_id, run_id=run.id, node_id=node.id, instrument=instrument,
             timeframe=run.timeframe, started=started, exc=exc)
-        run.status = "FAILED"
+        run.status = "CANCELLED" if code == "CANCELLED" else "FAILED"
         run.error = (f"{code}: {exc}\n"
                      f"Stage: {failure_stage}; Exception: {detail.get('exception_type')}\n"
                      f"Location: {detail.get('exception_file')}:{detail.get('exception_line')} "
@@ -928,6 +942,10 @@ def run_batch_async(*, instrument: str, node_ids: List[int], config: dict,
                     task_id: str) -> None:
     import threading
 
+    cancel_event = __import__('threading').Event()
+    with _CANCEL_LOCK:
+        _CANCEL_EVENTS[task_id] = cancel_event
+
     def _work() -> None:
         from hero1_eventbus import get_event_publisher
         from hero1_storage.engine import instrument_session, registry_session
@@ -992,7 +1010,7 @@ def run_batch_async(*, instrument: str, node_ids: List[int], config: dict,
                     if now - state["last"] < 0.4 and processed < total:
                         return
                     state["last"] = now
-                    pct = round(100.0 * processed / total, 1) if total else None
+                    pct = min(99.0, round(100.0 * processed / total, 1)) if total else None
                     if _entry is not None:
                         _entry.update({"progress_pct": pct, "processed": processed,
                                        "total_candles": total, "trades": trades_closed})
@@ -1003,12 +1021,17 @@ def run_batch_async(*, instrument: str, node_ids: List[int], config: dict,
                 run = execute_run(sess, instrument=instrument, node=node,
                                   config=dict(config),
                                   scenario_id=config.get("scenario_id"),
-                                  progress_cb=_cb, task_id=task_id)
+                                  progress_cb=_cb, task_id=task_id,
+                                  cancel_check=cancel_event.is_set)
                 trades_n = 0
                 if run.metrics_json:
                     trades_n = int((json.loads(run.metrics_json) or {}).get("total_trades") or 0)
                 if entry is not None:
-                    if run.status == "DONE":
+                    if run.status == "CANCELLED":
+                        entry.update({"status": "CANCELLED", "trades": trades_n,
+                                      "run_id": run.id, "error": run.error,
+                                      "progress_pct": entry.get("progress_pct", 0.0)})
+                    elif run.status == "DONE":
                         run_warnings = (json.loads(run.assumptions_json or "{}").get("execution_warnings") or [])
                         entry.update({"status": "COMPLETED_WITH_WARNINGS" if run_warnings else "COMPLETED",
                                       "trades": trades_n, "progress_pct": 100.0,
@@ -1025,9 +1048,11 @@ def run_batch_async(*, instrument: str, node_ids: List[int], config: dict,
                         failures += 1
                         if blocked:
                             blocked_count += 1
-                done_units += 1
+                if run.status != "CANCELLED":
+                    done_units += 1
                 task_service.update_task(reg, task_id, completed_units=done_units,
-                                         current_unit_progress=None, payload=payload)
+                                         current_unit_progress=(entry.get("progress_pct", 0.0) if run.status == "CANCELLED" and entry else None),
+                                         payload=payload)
                 _execution_log("NODE_EXECUTION_RESULT", "COMPLETED" if run.status == "DONE" else ("BLOCKED" if entry and entry.get("status") == "BLOCKED" else "FAILED"),
                                task_id=task_id, run_id=run.id, node_id=node_id, instrument=instrument,
                                timeframe=run.timeframe, started=worker_started,
@@ -1044,8 +1069,10 @@ def run_batch_async(*, instrument: str, node_ids: List[int], config: dict,
                              "error_code": entry.get("error_code") if entry else None,
                              "stage": entry.get("stage") if entry else None,
                              "error": run.error})
+                if cancel_event.is_set():
+                    break
             final = task_service.finish_task(
-                reg, task_id, "COMPLETED" if failures == 0 else ("BLOCKED" if blocked_count == failures else "FAILED"),
+                reg, task_id, "CANCELLED" if cancel_event.is_set() else ("COMPLETED" if failures == 0 else ("BLOCKED" if blocked_count == failures else "FAILED")),
                 error=(f"{failures} of {len(node_ids)} node(s) failed or blocked"
                        if failures else None),
                 summary=f"{len(node_ids) - failures}/{len(node_ids)} nodes tested")
@@ -1065,6 +1092,8 @@ def run_batch_async(*, instrument: str, node_ids: List[int], config: dict,
             except Exception:  # noqa: BLE001
                 pass
         finally:
+            with _CANCEL_LOCK:
+                _CANCEL_EVENTS.pop(task_id, None)
             if sess is not None:
                 sess.close()
             if reg is not None:

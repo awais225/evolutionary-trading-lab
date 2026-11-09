@@ -27,6 +27,7 @@ function route(url: string, method: string, bodyText?: string): Response {
   }
   if (url.includes('/api/v1/tasks/acknowledge')) return json({ acknowledged: 0 })
   if (url.endsWith('/api/v1/tasks')) return json((globalThis as { __hero1Tasks?: unknown }).__hero1Tasks ?? { tasks: [], latest: {} })
+  if (url.endsWith('/api/v1/system/metrics')) return json({ scope: 'API host / LMS sandbox', cpu_ram: { utilization_pct: 24, logical_threads: 2, ram_used_bytes: 1024**3, ram_total_bytes: 2*1024**3, ram_utilization_pct: 50 }, gpu: { available: false, reason: 'sandbox telemetry unavailable' } })
   if (url.endsWith('/health')) return json({ status: 'ok', version: '1.0.0', checks: { registry_db: { status: 'healthy' }, ollama: { status: 'healthy' }, mt5: { status: 'unavailable' } } })
 
   if (url.includes('/metadata/refresh')) {

@@ -6,6 +6,7 @@ import { StarScopeProvider } from './state/starScope'
 import { TimeframeScopeProvider } from './state/timeframeScope'
 import { Sidebar } from './components/Sidebar'
 import { TopBar } from './components/TopBar'
+import { SystemMonitor } from './components/SystemMonitor'
 import { GlobalLiveFeed } from './components/GlobalLiveFeed'
 import { TaskProgressBars } from './components/TaskProgress'
 import { TasksProvider, acknowledgeCategory } from './state/tasks'
@@ -39,6 +40,7 @@ function Frame() {
       <Sidebar open={sidebarOpen} />
       <div className="main-column">
         <TopBar onMenu={() => setSidebarOpen((v) => !v)} />
+        <SystemMonitor />
         <TaskProgressBars />
         <main className="content" key={location.pathname}>
           <div className="content-inner">
