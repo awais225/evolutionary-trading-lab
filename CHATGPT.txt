@@ -1131,3 +1131,13 @@ reproduction); remaining 7 conflicts are the final-export-bar collisions
 (D1 2026-10-15 21:00, H4 09:00, M15 10:45, H1 12:00, M5/M30 12:30, M1
 12:31 UTC) and block only ranges containing them. DATA panel readiness
 chip. Backend 260, frontend 66/66. Windows NOT VERIFIED.
+
+
+[2026-11-10] HERO1 lifecycle work (UNPUBLISHED; final acceptance incomplete):
+- Process-supervision implementation runs Monte Carlo in spawned OS processes; STOP ALL requests cooperative cancellation, waits, terminates and force-kills managed workers, checks exit, reconciles tasks/runs, and only reopens admission after no managed child remains.
+- Root cause for the prior targeted failure-injection test reporting COMPLETED: the test request reused an already-completed deduplicated study, so the injected exception was never executed. The fixture now uses a distinct configuration. Added reconciliation of nonzero worker exit codes to FAILED. Targeted test plus process/system controls: 6 passed. The API test also passed individually.
+- Full backend suite: first rerun had one timing-dependent QUEUED-vs-COMPLETED failure (worker-spawn latency in that run; no evidence of test data being marked complete). A subsequent full run passed (all tests; two pre-existing skips; Starlette/httpx deprecation warning). Treat queue stability as needing continued scrutiny; no arbitrary wait was added.
+- Frontend: 126 tests across 13 files pass; TypeScript and Vite production build pass; git diff --check passed.
+- Critical limitation: browser automation / actual running-app UI verification was not performed. Actual Live Feed REFRESH STATUS button recovery for both tables, refresh during a live Monte Carlo job, post-STOP-ALL refresh, and failed-request/retry are therefore UNVERIFIED. Backend/frontend unit tests are not a substitute.
+- STOP ALL OS-process tests passed in focused suite, including actual uncooperative child processes and API responsiveness. This does not establish every requested browser scenario or absence of orphans across a real deployed restart.
+- origin/main fetched and remains at 07832d2392ffc3e5ca144318c29b07f486355427; feature branch currently has no local commit for this work. No commit/push made. Real DATA/ was not inspected or modified. Do not publish until actual UI acceptance and further lifecycle/review criteria pass.

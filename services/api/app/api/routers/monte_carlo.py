@@ -1,6 +1,6 @@
 from __future__ import annotations
 import csv, hashlib, io, json, secrets, time, uuid, zipfile, traceback, logging
-from concurrent.futures import ThreadPoolExecutor
+import multiprocessing
 import threading
 from fastapi import APIRouter, Depends, HTTPException
 from hero1_storage.engine import instrument_session, registry_session
@@ -16,22 +16,131 @@ from app import task_service
 
 router=APIRouter(prefix="/api/v1/instruments/{instrument}/monte-carlo",tags=["monte-carlo"])
 _LOG=logging.getLogger("hero1.api.monte_carlo")
-# Bound parallel simulations to limit memory spikes; individual studies remain
-# independently persisted and queued with their own DashboardTask/job IDs.
-_MC_EXECUTOR:ThreadPoolExecutor|None=None
+# Isolated, bounded-by-admission OS processes make stuck Monte Carlo jobs
+# individually terminable without taking down the API process. Children receive
+# only immutable scalar identifiers and create their own DB sessions.
+_MC_PROCESSES:dict[str,multiprocessing.Process]={}
+_MC_PENDING:dict[str,tuple]={}
 _MC_POOL_LOCK=threading.RLock()
+_MC_MAX_PROCESSES=2
+_MC_STOPPING=False
+_MC_SUPERVISOR:threading.Thread|None=None
+_MC_SUPERVISOR_WAKE=threading.Event()
+
+def _spawn_pending_locked():
+    global _MC_SUPERVISOR
+    alive=sum(p.is_alive() for p in _MC_PROCESSES.values())
+    while not _MC_STOPPING and alive<_MC_MAX_PROCESSES and _MC_PENDING:
+        task_id=next(iter(_MC_PENDING));target,args=_MC_PENDING.pop(task_id)
+        ctx=multiprocessing.get_context("spawn")
+        process=ctx.Process(target=target,args=args,name=f"hero1-mc-{task_id[:8]}",daemon=True)
+        process.start();_MC_PROCESSES[task_id]=process;alive+=1
+
+def _reconcile_abnormal_exit(task_id:str,exitcode:int|None)->None:
+    """A crashed child is never allowed to leave its durable task RUNNING."""
+    try:
+        reg=registry_session()
+        try:
+            task=reg.get(DashboardTask,task_id)
+            if not task or task.status not in ("QUEUED","RUNNING"): return
+            payload=json.loads(task.payload_json or "{}")
+            mcid=payload.get("monte_carlo_run_id")
+            instrument=task.instrument_id
+            if mcid and instrument:
+                db=instrument_session(instrument)
+                try:
+                    mc=db.get(im.MonteCarloRun,mcid)
+                    if mc and mc.status in ("QUEUED","RUNNING"):
+                        reason=f"Monte Carlo worker process exited unexpectedly (exit code {exitcode})"
+                        mc.status="FAILED";mc.error=reason;mc.finished_at=time.time();db.commit()
+                        task_service.finish_task(reg,task_id,"FAILED",error=reason,summary="Worker process exited unexpectedly")
+                finally: db.close()
+        finally: reg.close()
+    except Exception: _LOG.exception("Failed reconciling crashed Monte Carlo worker",extra={"task_id":task_id,"exitcode":exitcode})
+
+def _worker_supervisor():
+    while True:
+        _MC_SUPERVISOR_WAKE.wait(.2);_MC_SUPERVISOR_WAKE.clear()
+        with _MC_POOL_LOCK:
+            for task_id,process in list(_MC_PROCESSES.items()):
+                if not process.is_alive():
+                    process.join(timeout=0);_MC_PROCESSES.pop(task_id,None)
+                    if process.exitcode not in (0,None): _reconcile_abnormal_exit(task_id,process.exitcode)
+            _spawn_pending_locked()
+            if not _MC_PENDING and not _MC_PROCESSES:
+                return
+
+def _ensure_supervisor_locked():
+    global _MC_SUPERVISOR
+    if _MC_SUPERVISOR is None or not _MC_SUPERVISOR.is_alive():
+        _MC_SUPERVISOR=threading.Thread(target=_worker_supervisor,name="hero1-mc-supervisor",daemon=True)
+        _MC_SUPERVISOR.start()
+    _MC_SUPERVISOR_WAKE.set()
+
+def _reap_worker_processes():
+    with _MC_POOL_LOCK:
+        for task_id, process in list(_MC_PROCESSES.items()):
+            if not process.is_alive():
+                process.join(timeout=0);_MC_PROCESSES.pop(task_id, None)
+                if process.exitcode not in (0,None): _reconcile_abnormal_exit(task_id,process.exitcode)
+        _spawn_pending_locked()
+        if _MC_PENDING or _MC_PROCESSES: _ensure_supervisor_locked()
+
+def worker_process_snapshot():
+    _reap_worker_processes()
+    with _MC_POOL_LOCK:
+        return [{"task_id":task_id,"pid":process.pid,"alive":process.is_alive()}
+                for task_id,process in _MC_PROCESSES.items()]
+
+def _register_worker_process(task_id:str,target,args:tuple):
+    """Register a serializable, process-isolated worker (also used by lifecycle tests)."""
+    with _MC_POOL_LOCK:
+        if _MC_STOPPING: raise RuntimeError("Monte Carlo workers are stopping; retry after process status clears")
+        _MC_PENDING[task_id]=(target,tuple(args))
+        _spawn_pending_locked();_ensure_supervisor_locked()
 
 def _submit_worker(*args):
-    global _MC_EXECUTOR
+    task_id=args[2]
+    _register_worker_process(task_id,_mc_worker,tuple(args))
+
+def terminate_worker_processes(grace_seconds:float=2.0)->dict:
+    """Stop scheduling, then terminate/kill all active MC OS processes."""
+    global _MC_STOPPING
     with _MC_POOL_LOCK:
-        if _MC_EXECUTOR is None: _MC_EXECUTOR=ThreadPoolExecutor(max_workers=2,thread_name_prefix="hero1-mc")
-        _MC_EXECUTOR.submit(_mc_worker,*args)
+        _MC_STOPPING=True
+        queued=list(_MC_PENDING)
+        _MC_PENDING.clear()
+        selected=list(_MC_PROCESSES.items())
+    graceful_deadline=time.monotonic()+max(0.0,grace_seconds)
+    for _,process in selected:
+        if process.is_alive(): process.join(timeout=max(0.0,graceful_deadline-time.monotonic()))
+    for _,process in selected:
+        if process.is_alive(): process.terminate()
+    terminate_deadline=time.monotonic()+1.0
+    for _,process in selected:
+        if process.is_alive(): process.join(timeout=max(0.0,terminate_deadline-time.monotonic()))
+    forced=[]
+    for task_id,process in selected:
+        if process.is_alive():
+            forced.append(task_id)
+            killer=getattr(process,"kill",None)
+            if killer: killer()
+            elif process.pid: os.kill(process.pid,9)
+            process.join(timeout=max(2.0,grace_seconds))
+    still_alive=[task_id for task_id,process in selected if process.is_alive()]
+    exited=[]
+    with _MC_POOL_LOCK:
+        for task_id,process in selected:
+            if not process.is_alive():
+                process.join(timeout=0);_MC_PROCESSES.pop(task_id,None);exited.append(task_id)
+        if not still_alive: _MC_STOPPING=False
+        _MC_SUPERVISOR_WAKE.set()
+    return {"terminated":exited,"force_killed":forced,"still_alive":still_alive,"cancelled_queued":queued}
 
 def shutdown_workers(wait:bool=True):
-    global _MC_EXECUTOR
-    with _MC_POOL_LOCK:
-        executor=_MC_EXECUTOR;_MC_EXECUTOR=None
-    if executor is not None: executor.shutdown(wait=wait,cancel_futures=False)
+    # Lifespan shutdown calls STOP ALL first. As a final safety net, no managed
+    # child is allowed to outlive an orderly API shutdown.
+    return terminate_worker_processes(1.0)
 
 class StartBody(BaseModel):
     node_ids:list[int]=Field(min_length=1)
@@ -67,8 +176,18 @@ def eligible_nodes(instrument:str=Depends(get_instrument_context), session:Sessi
           "method_reasons":{"EXECUTION_STRESS":None if stress_ok else "Requires recorded spread_cost and slippage for every trade"}})
     return {"nodes":out}
 
+def _watch_api_parent(parent_pid:int)->None:
+    """Exit child if its API parent dies unexpectedly (prevent orphan writers)."""
+    import os,signal
+    while os.getppid()==parent_pid:
+        time.sleep(.05)
+    os.kill(os.getpid(),signal.SIGTERM)
+
 def _mc_worker(instrument: str, mc_id: str, task_id: str, node_id: int, deep_run_id: int) -> None:
-    """Run one node/method in isolation using fresh HERO1 sessions."""
+    """Run one node/method in an isolated OS process with fresh DB sessions."""
+    import multiprocessing as _mp, os as _os
+    if _mp.current_process().name!="MainProcess":
+        threading.Thread(target=_watch_api_parent,args=(_os.getppid(),),name="hero1-parent-watch",daemon=True).start()
     from app import task_service
     reg = registry_session(); db = instrument_session(instrument)
     started = time.time()
@@ -249,7 +368,13 @@ def start_runs(body:StartBody,instrument:str=Depends(get_instrument_context),ses
                 result.append({"id":prior.get("monte_carlo_run_id"),"task_id":existing.id,"node_id":node_id,"method":method,"seed":seed,"status":existing.status,"total_simulations":int(config["simulations"]),"duplicate_reused":True})
                 continue
             run_config["task_id"]=task.id; row.config_json=json.dumps(run_config); session.commit()
-            _submit_worker(instrument.upper(),mcid,task.id,node_id,deep.id)
+            try:
+                _submit_worker(instrument.upper(),mcid,task.id,node_id,deep.id)
+            except Exception as exc:
+                row.status="FAILED";row.error=f"Monte Carlo worker process could not start: {type(exc).__name__}: {exc}";row.finished_at=time.time();session.commit()
+                task_service.finish_task(registry,task.id,"FAILED",error=row.error,summary="Monte Carlo worker process failed to start")
+                result.append({"id":mcid,"task_id":task.id,"node_id":node_id,"method":method,"seed":seed,"status":"FAILED","error":row.error})
+                continue
             result.append({"id":mcid,"task_id":task.id,"node_id":node_id,"scenario_id":scenario.id if scenario else None,"scenario_name":scenario.name if scenario else None,"deeptest_run_id":deep.id,"method":method,"seed":seed,"status":"QUEUED","total_simulations":int(config["simulations"])})
     return {"runs":result,"async":True}
 

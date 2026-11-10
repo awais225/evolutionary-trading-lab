@@ -119,16 +119,16 @@ def test_deeptest_to_monte_carlo_persist_reopen_and_export(client, seeded_store,
     # Exercise actual simultaneous API requests while holding the real worker
     # dispatch target so both requests overlap in the active-task window.
     from app.api.routers import monte_carlo as mc_router
-    real_worker=mc_router._mc_worker
-    gate=threading.Event()
-    monkeypatch.setattr(mc_router,"_mc_worker",lambda *args,**kwargs: gate.wait(2))
+    real_submit=mc_router._submit_worker
+    # Concurrency/dedupe unit segment uses a deliberately inert submission hook;
+    # process execution is exercised separately by real OS-process tests below.
+    monkeypatch.setattr(mc_router,"_submit_worker",lambda *args,**kwargs: None)
     def request(seed,idem):
         return client.post('/api/v1/instruments/XAUUSD/monte-carlo/runs',json={"node_ids":[node_id],"methods":["RESHUFFLE"],"idempotency_key":idem,"config":{"simulations":100,"random_points":5,"displayed_curves":1,"initial_capital":10000,"risk_pct":1,"seed":seed}}).json()['runs'][0]
     with ThreadPoolExecutor(max_workers=4) as pool:
         same=list(pool.map(lambda _:request(771,"same-active-request"),range(2)))
         different=list(pool.map(lambda seed:request(seed,"different-config"),[772,773]))
-    gate.set()
-    # The replaced worker intentionally does no persistence; close its fake
+    # The test submit hook intentionally creates no process; close its fake
     # queued task records explicitly so process-control assertions see reality.
     from hero1_storage.engine import registry_session
     from app import task_service
@@ -141,7 +141,7 @@ def test_deeptest_to_monte_carlo_persist_reopen_and_export(client, seeded_store,
     assert different[0]['task_id']!=different[1]['task_id'] and different[0]['id']!=different[1]['id']
 
     # Real two-node execution after restoring the production worker.
-    monkeypatch.setattr(mc_router,"_mc_worker",real_worker)
+    monkeypatch.setattr(mc_router,"_submit_worker",real_submit)
     spec2=cross_spec(); spec2['identity']['name']='MC Concurrent Node B'; spec2['identity']['tags']=['mc-concurrent-b']
     created2=client.post('/api/v1/instruments/XAUUSD/nodes',json={'name':'MC Concurrent Node B','origin':'CUSTOM','spec_json':json.dumps(spec2)})
     assert created2.status_code in (200,201),created2.text
@@ -164,6 +164,8 @@ def test_deeptest_to_monte_carlo_persist_reopen_and_export(client, seeded_store,
         kwargs['on_batch']=controlled_callback
         return real_simulate(trades,config,method,**kwargs)
     monkeypatch.setattr(mc_router,'simulate',controlled_simulate)
+    test_workers=ThreadPoolExecutor(max_workers=2)
+    monkeypatch.setattr(mc_router,'_submit_worker',lambda *args:test_workers.submit(mc_router._mc_worker,*args))
     long_cfg={'simulations':5000,'random_points':2,'displayed_curves':1,'initial_capital':10000,'risk_pct':1,'seed':904,'batch_size':10}
     run_a=client.post('/api/v1/instruments/XAUUSD/monte-carlo/runs',json={'node_ids':[node_id],'methods':['RESHUFFLE'],'config':long_cfg}).json()['runs'][0]
     run_b=client.post('/api/v1/instruments/XAUUSD/monte-carlo/runs',json={'node_ids':[node_b],'methods':['RESHUFFLE'],'config':long_cfg}).json()['runs'][0]
@@ -204,10 +206,33 @@ def test_deeptest_to_monte_carlo_persist_reopen_and_export(client, seeded_store,
     assert part_a['result']['summary']['mean_return_pct'] is not None
     assert final_b['status']=='DONE' and final_b['result']['summary']['simulations_completed']==5000
 
-    # A genuine worker exception must be persisted and visible on both task and run.
+    # Restore production process submission after deterministic thread-gated overlap tests.
+    monkeypatch.setattr(mc_router,'simulate',real_simulate)
+    monkeypatch.setattr(mc_router,'_submit_worker',real_submit)
+    test_workers.shutdown(wait=True)
+    # Scenario-first, then original-parent regression: parent must use every
+    # source trade and must not inherit the saved scenario's filtered IDs.
+    parent_after_scenario=client.post('/api/v1/instruments/XAUUSD/monte-carlo/runs',json={
+        'node_ids':[node_id],'methods':['START_POINT','BLOCK_BOOTSTRAP','RESHUFFLE'],
+        'config':{'simulations':10,'random_points':20,'displayed_curves':2,'initial_capital':10000,'risk_pct':1,'block_size':3,'seed':991}})
+    assert parent_after_scenario.status_code==200,parent_after_scenario.text
+    parent_studies=parent_after_scenario.json()['runs']
+    assert len(parent_studies)==3
+    for study in parent_studies:
+        for _ in range(500):
+            current=client.get(f"/api/v1/tasks/{study['task_id']}").json()
+            if current['status'] in ('COMPLETED','FAILED','CANCELLED'): break
+            time.sleep(.01)
+        assert current['status']=='COMPLETED',current
+        detail=client.get(f"/api/v1/instruments/XAUUSD/monte-carlo/runs/{study['id']}").json()
+        assert detail['scenario_id'] is None and detail['deeptest_run_id']==run['id']
+        assert detail['result']['summary']['trade_count']==len(all_trades)
+    # Exercise _mc_worker failure reconciliation synchronously in this test;
+    # real process failure/restart is covered by the separate subprocess tests.
     def explode(*_args,**_kwargs): raise RuntimeError('acceptance worker fault')
     monkeypatch.setattr(mc_router,'simulate',explode)
-    failed=client.post('/api/v1/instruments/XAUUSD/monte-carlo/runs',json={'node_ids':[node_id],'methods':['RESHUFFLE'],'config':{'simulations':10,'random_points':2,'displayed_curves':1,'initial_capital':10000,'risk_pct':1,'seed':905}}).json()['runs'][0]
+    monkeypatch.setattr(mc_router,'_submit_worker',lambda *args:mc_router._mc_worker(*args))
+    failed=client.post('/api/v1/instruments/XAUUSD/monte-carlo/runs',json={'node_ids':[node_id],'methods':['RESHUFFLE'],'config':{'simulations':11,'random_points':2,'displayed_curves':1,'initial_capital':10000,'risk_pct':1,'seed':905}}).json()['runs'][0]
     for _ in range(300):
         failed_task=client.get(f"/api/v1/tasks/{failed['task_id']}").json()
         if failed_task['status'] in ('FAILED','COMPLETED','CANCELLED'): break

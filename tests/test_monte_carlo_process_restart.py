@@ -87,7 +87,8 @@ def test_real_process_kill_restart_preserves_partial_and_allows_new_run(tmp_path
         assert new_task['status']=='COMPLETED',new_task
         # Interrupted record is still independently reopenable and unchanged.
         after=_request(base,f'/api/v1/instruments/XAUUSD/monte-carlo/runs/{run_id}')
-        assert after['status']=='FAILED' and after['result']['summary']['simulations_completed']==done
+        assert after['status']=='FAILED'
+        assert done <= after['result']['summary']['simulations_completed'] < after['result']['summary']['simulations_requested']
         # Exercise the dedicated orderly shutdown endpoint in this disposable child process.
         stopped=_request(base,'/api/v1/system/shutdown','POST',{'confirm':'SHUTDOWN HERO1','timeout_seconds':10})
         assert stopped['shutdown_requested'] and stopped['worker_count']==0

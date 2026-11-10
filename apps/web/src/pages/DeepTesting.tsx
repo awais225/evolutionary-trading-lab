@@ -206,17 +206,6 @@ export function DeepTesting() {
   const [fTesting, setFTesting] = useState('all')
   const [page, setPage] = useState(0)
   const PAGE_SIZE = 25
-const scenarioFilterSummary = (f: any) => {
-  const filters = f?.filters ?? f ?? {}
-  const days = filters.day_selections ?? {}
-  const sessions = filters.session_selections ?? {}
-  const excludedDays = Object.entries(days).filter(([, v]) => v === false).map(([k]) => k)
-  const excludedSessions = Object.entries(sessions).filter(([, v]) => v === false).map(([k]) => k.replace('|', ' / '))
-  const trade = filters.trade_filters ?? {}
-  const extra = Object.entries(trade).filter(([, v]) => v !== '' && v != null).map(([k, v]) => `${k}=${v}`)
-  return [...(excludedDays.length ? [`Exclude ${excludedDays.join(', ')}`] : []),
-    ...(excludedSessions.length ? [`Exclude ${excludedSessions.join(', ')}`] : []), ...extra].join(' · ') || 'No exclusions'
-}
   const [nodeSort, setNodeSort] = useState<SortState | null>(() => loadSortPref('deeptesting-nodes', ['id', 'name']))
   useEffect(() => { saveSortPref('deeptesting-nodes', nodeSort) }, [nodeSort])
   const [busy, setBusy] = useState(false)
@@ -236,14 +225,33 @@ const scenarioFilterSummary = (f: any) => {
   const [scName, setScName] = useState('')
   const [scDesc, setScDesc] = useState('')
 
+  const refreshNodeData = async () => {
+    const [nodeResponse, runResponse, scenarioResponse] = await Promise.all([
+      api.nodes.list(instrument, { limit: 500 }),
+      api.deeptesting.listRuns(instrument),
+      api.deeptesting.listScenarios(instrument),
+    ])
+    if (!Array.isArray(nodeResponse.items) || !Array.isArray(runResponse.runs) || !Array.isArray(scenarioResponse.scenarios))
+      throw new Error('Backend returned incomplete DeepTesting node, run, or scenario data')
+    setNodes(nodeResponse.items)
+    setRuns(runResponse.runs)
+    setScenarios(scenarioResponse.scenarios)
+    setInspectId(current => current != null && !nodeResponse.items.some((n:any)=>n.id===current) ? null : current)
+    setNotice(null)
+  }
+
   useEffect(() => {
-    api.nodes.list(instrument, { limit: 500 }).then((r) => setNodes(r.items ?? [])).catch(() => setNodes([]))
-    refreshRuns()
-    api.deeptesting.listScenarios(instrument).then((r) => setScenarios(r.scenarios ?? [])).catch(() => {})
+    void refreshNodeData().catch((e) => setNotice(`DeepTesting data refresh failed; existing table data was retained: ${String(e)}`))
+    const handler = (event: Event) => {
+      const detail=(event as CustomEvent<{waitUntil:(label:string,promise:Promise<unknown>)=>void}>).detail
+      detail?.waitUntil('DeepTesting nodes/runs/scenarios',refreshNodeData())
+    }
+    window.addEventListener('hero1:refresh-status',handler)
+    return () => window.removeEventListener('hero1:refresh-status',handler)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [instrument])
 
-  const refreshRuns = () => api.deeptesting.listRuns(instrument).then((r) => setRuns(r.runs ?? [])).catch(() => {})
+  const refreshRuns = () => api.deeptesting.listRuns(instrument).then((r) => setRuns(r.runs ?? [])).catch((e) => setNotice(`DeepTesting runs could not refresh: ${String(e)}`))
   const latestByNode = useMemo(() => {
     const map = new Map<number, any>()
     for (const r of runs) { const cur = map.get(r.node_id); if (!cur || r.id > cur.id) map.set(r.node_id, r) }
@@ -1031,7 +1039,7 @@ const scenarioFilterSummary = (f: any) => {
                     <td>{childScenarios.length > 0 ? <button type="button" className="btn btn-ghost btn-xs" onClick={() => setExpandedScenarioParents(prev => { const next = new Set(prev); next.has(n.id) ? next.delete(n.id) : next.add(n.id); return next })}>{r.scenarioCount} saved · {expandedScenarioParents.has(n.id) ? 'hide' : 'show'}</button> : 0}</td>
                     <td><button type="button" className="btn btn-ghost btn-xs" onClick={() => openNodeRun(n.id)}>Inspect</button></td>
                   </tr>
-                  {expandedScenarioParents.has(n.id) && childScenarios.map((sc: any) => { const st = sc.stats ?? {}; const summary = scenarioFilterSummary(sc.filters ?? sc.config?.filters ?? sc.config); const winRate = st.winRate ?? st.win_rate; return <tr key={`scenario-${sc.id}`} className="dt-scenario-child"><td></td><td></td><td>{n.id}↳{sc.id}</td><td title={summary}><span className="faint">↳ </span><b>{sc.name}</b><br/><span className="faint micro" title={summary}>{summary}</span></td><td>SCENARIO</td><td>{instrument}</td><td>{n.timeframe ?? '—'}</td><td>{st.direction ?? '—'}</td><td>Saved</td><td colSpan={5} className="faint micro">Source run #{sc.source_run_id ?? sc.config?.source_run_id} · v{sc.node_version ?? sc.config?.node_version}<br/><button type="button" className="btn btn-ghost btn-xs" onClick={() => openScenario(sc)}>Open filters</button></td><td>{fmt(st.trades ?? st.total_trades, 0)}</td><td>{winRate == null ? 'N/A' : `${fmt(winRate > 1 ? winRate : winRate * 100, 1)}%`}</td><td>{fmt(st.net_profit ?? st.net)}</td><td>{fmt(st.profit_factor ?? st.pf, 3)}</td><td>{fmt(st.expectancy)}</td><td>{fmt(st.max_drawdown_amount ?? st.maxDd)}</td><td>{fmt(st.max_drawdown_pct)}</td><td>{fmt(st.recovery_factor, 3)}</td><td>{fmt(st.max_consecutive_losses, 0)}</td><td>{fmt(st.max_consecutive_loss_amount)}</td><td>{st.max_consecutive_loss_pct == null ? 'N/A' : `${fmt(st.max_consecutive_loss_pct)}%`}</td><td>—</td><td>{fmt(st.wins, 0)}/{fmt(st.losses, 0)}</td><td></td><td><button type="button" className="btn btn-ghost btn-xs" onClick={() => openScenario(sc)}>Inspect</button></td></tr> })}
+                  {expandedScenarioParents.has(n.id) && childScenarios.map((sc: any) => { const st = sc.stats ?? {}; const winRate = st.winRate ?? st.win_rate; return <tr key={`scenario-${sc.id}`} className="dt-scenario-child"><td></td><td></td><td>{n.id}↳{sc.id}</td><td><span className="faint">↳ </span><b>{sc.name}</b></td><td>SCENARIO</td><td>{instrument}</td><td>{n.timeframe ?? '—'}</td><td>{st.direction ?? '—'}</td><td>Saved</td><td colSpan={5} className="faint micro">Source run #{sc.source_run_id ?? sc.config?.source_run_id} · v{sc.node_version ?? sc.config?.node_version}<br/><button type="button" className="btn btn-ghost btn-xs" onClick={() => openScenario(sc)}>Open filters</button></td><td>{fmt(st.trades ?? st.total_trades, 0)}</td><td>{winRate == null ? 'N/A' : `${fmt(winRate > 1 ? winRate : winRate * 100, 1)}%`}</td><td>{fmt(st.net_profit ?? st.net)}</td><td>{fmt(st.profit_factor ?? st.pf, 3)}</td><td>{fmt(st.expectancy)}</td><td>{fmt(st.max_drawdown_amount ?? st.maxDd)}</td><td>{fmt(st.max_drawdown_pct)}</td><td>{fmt(st.recovery_factor, 3)}</td><td>{fmt(st.max_consecutive_losses, 0)}</td><td>{fmt(st.max_consecutive_loss_amount)}</td><td>{st.max_consecutive_loss_pct == null ? 'N/A' : `${fmt(st.max_consecutive_loss_pct)}%`}</td><td>—</td><td>{fmt(st.wins, 0)}/{fmt(st.losses, 0)}</td><td></td><td><button type="button" className="btn btn-ghost btn-xs" onClick={() => openScenario(sc)}>Inspect</button></td></tr> })}
                   </Fragment>
                 )
               })}

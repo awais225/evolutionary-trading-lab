@@ -604,3 +604,25 @@ page wider than the viewport. Fixed with minmax(0,1fr) tracks, min-width:0
 and overflow-wrap on the affected tracks/rows - no global overflow hiding;
 table-internal scrolling stays confined to the table wrapper.
 
+
+
+HERO1 PROCESS LIFECYCLE / REFRESH STATUS (2026-11-10; UNPUBLISHED)
+
+Backend queued-task investigation:
+- A full-suite run failed once because an MC task was still QUEUED at the assertion. The single API test passes by itself and in a focused process-supervision group. A later complete backend suite passed. This indicates a timing/order-sensitive worker launch/reconciliation issue is possible; root cause of the transient QUEUED result is not proven conclusively. Do not hide this by increasing test timeouts or synthesizing completion.
+- The separate targeted failure-injection report of COMPLETED was explained: dedupe reused an already-completed study and never invoked the injected worker exception. The test now submits distinct input. Nonzero child exit is reconciled into FAILED while preserving persisted partial progress. The targeted API test passes.
+
+STOP ALL:
+- Focused genuine OS-process suite passed, including multiple SIGTERM-ignoring worker processes, exit confirmation, backend responsiveness, repeated stop, and state assertions. Process restart test passed in the focused run. This evidence is narrower than full deployed restart/orphan-process proof.
+
+REFRESH STATUS:
+- UI state handling was changed to retain last-good table contents on request failure, coordinate page refreshes, report partial failure, and disable overlapping refresh clicks. Frontend suite/build passed.
+- No browser-driven actual-button verification was performed. Do not treat unit/backend tests as evidence that DeepTesting and Monte Carlo tables recover through the real button. Active-job refresh, after-STOP-ALL refresh, deliberate blank-state recovery, and failed-request/retry remain UNVERIFIED.
+
+Validation record:
+- Targeted API + process/system tests: 6 passed.
+- Full backend: one run had the QUEUED timing failure; subsequent full run passed with two skips and one dependency deprecation warning.
+- Frontend: 126/126 passed, 13 files.
+- npm run build (tsc + Vite): passed.
+- git diff --check: passed.
+- Do not publish until the transient queue lifecycle is explained/stabilized and the specified real-app browser scenarios are captured. Real DATA/ was not accessed or changed.

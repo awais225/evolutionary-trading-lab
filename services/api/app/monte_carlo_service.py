@@ -85,7 +85,7 @@ def simulate(trades: list[dict], config: dict, method: str, *, on_batch=None, ca
         pnl = float(t.get("net_pnl") or 0)
         if risk <= 0: raise ValueError(f"trade {t.get('id')} lacks positive planned-risk evidence")
         r_values.append(pnl/risk)
-    master_rng=random.Random(seed); metrics=[]; raw_paths=[]
+    master_rng=random.Random(seed); metrics=[]; raw_paths=[]; aligned=[]
     eq_factor=risk_pct/100.0
     cancelled = False
     for sim_i in range(n):
@@ -112,7 +112,13 @@ def simulate(trades: list[dict], config: dict, method: str, *, on_batch=None, ca
             rng.shuffle(seq)
         equity=capital; peak=capital; max_dd=0.0; curve=[capital]; wins=losses=0; consec_l=consec_w=run_l=run_w=0; max_l=max_w=0
         pnls=[]; dd_lengths=[]; dd_len=0; worst_dd=0.0
-        for r in seq:
+        for trade_index, r in enumerate(seq):
+            # Large parent ledgers can make a single simulation long. Poll
+            # cancellation inside the trade loop as well as at batch boundaries;
+            # interrupted simulations are discarded, completed ones retained.
+            if trade_index % 256 == 0 and cancel_check and cancel_check():
+                cancelled = True
+                break
             pnl=equity*eq_factor*r
             pnls.append(pnl)
             equity=max(0.0,equity+pnl)
@@ -123,8 +129,15 @@ def simulate(trades: list[dict], config: dict, method: str, *, on_batch=None, ca
             elif dd_len: dd_lengths.append(dd_len); dd_len=0
             if pnl>0: wins+=1; run_w+=1; run_l=0; max_w=max(max_w,run_w)
             else: losses+=1; run_l+=1; run_w=0; max_l=max(max_l,run_l)
+        if cancelled:
+            break  # discard the interrupted simulation; retain prior completed ones
         if dd_len: dd_lengths.append(dd_len)
-        raw_paths.append(curve)
+        # Keep full-resolution curves only for the displayed representatives.
+        # Every simulation's normalized curve is retained in aligned for the
+        # percentile/sample outputs, avoiding a second N×trade-count allocation.
+        if sim_i < curves_display:
+            raw_paths.append(curve)
+        aligned.append([curve[-1] if points == 1 else curve[min(len(curve)-1, round(j*(len(curve)-1)/(points-1)))] for j in range(points)])
         wins_p=[p for p in pnls if p>0]; losses_p=[p for p in pnls if p<0]
         net=sum(pnls)
         metrics.append({"simulation_index":sim_i+1,"simulation_seed":sim_seed,"final_equity":equity,"return_pct":(equity/capital-1)*100,
@@ -141,9 +154,6 @@ def simulate(trades: list[dict], config: dict, method: str, *, on_batch=None, ca
         if on_batch and (len(metrics) % batch_size == 0 or sim_i + 1 == n):
             on_batch(len(metrics), metrics, raw_paths)
     # Percentile paths normalized by trade progress, never actual timestamps.
-    aligned=[]
-    for curve in raw_paths:
-        aligned.append([curve[-1] if points == 1 else curve[min(len(curve)-1, round(j*(len(curve)-1)/(points-1)))] for j in range(points)])
     percentile_curves={str(p):[_percentile([c[j] for c in aligned],p/100) for j in range(points)] for p in (5,50,95)}
     if not metrics: raise ValueError("cancelled before the first simulation completed")
     returns=[m["return_pct"] for m in metrics]; dds=[m["max_drawdown_pct"] for m in metrics]

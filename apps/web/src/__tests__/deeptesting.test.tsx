@@ -179,8 +179,17 @@ describe('DeepTesting refined layout', () => {
     expect(payload.config.filtered_trade_ids).toEqual([1])
     expect(payload.config.filtered_metrics.trades).toBe(1)
     expect(list).toHaveBeenCalledTimes(2)
-    expect(await screen.findByText('Tuesday sessions')).toBeTruthy()
     expect(screen.getByText(/1 saved/)).toBeTruthy()
+    const child = await waitFor(() => {
+      const row = document.querySelector('tr.dt-scenario-child') as HTMLTableRowElement | null
+      expect(row).toBeTruthy()
+      return row!
+    })
+    expect(child.textContent).toContain('Tuesday sessions')
+    expect(child.cells[5].textContent).toBe('XAUUSD')
+    expect(child.textContent).toContain('200')
+    expect(child.textContent).not.toContain('day_selections')
+    expect(child.textContent).not.toContain('session_selections')
   })
 })
 

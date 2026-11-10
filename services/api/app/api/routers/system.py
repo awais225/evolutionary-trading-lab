@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.deps import get_registry_session
 
 router = APIRouter(prefix="/api/v1/system", tags=["system"])
+_STOP_ALL_LOCK=__import__("threading").Lock()
 
 
 class ProcessAction(BaseModel):
@@ -35,7 +36,9 @@ def _process_snapshot(session):
     rows=_task_rows(session)
     counts={s:sum(1 for t in rows if t.status==s) for s in ("QUEUED","RUNNING","COMPLETED","FAILED","CANCELLED","BLOCKED")}
     active=[task_service.task_dict(t) for t in rows if t.status in task_service.ACTIVE]
-    return {"accepting_new_jobs":task_service.accepting_jobs(),"worker_count":len(active),"queued_jobs":counts["QUEUED"],"running_jobs":counts["RUNNING"],"counts":counts,"active_jobs":active}
+    from app.api.routers import monte_carlo as mc_router
+    workers=mc_router.worker_process_snapshot()
+    return {"accepting_new_jobs":task_service.accepting_jobs(),"worker_count":len(active),"queued_jobs":counts["QUEUED"],"running_jobs":counts["RUNNING"],"counts":counts,"active_jobs":active,"worker_processes":workers,"worker_process_count":sum(1 for w in workers if w["alive"])}
 
 
 def _request_all_cancellations(session):
@@ -61,7 +64,41 @@ def _request_all_cancellations(session):
     return requested,unsupported
 
 
-def _stop_all(timeout_seconds:int,reopen_gate:bool=True):
+def _reconcile_terminated_monte_carlo(task_ids:list[str], reason:str)->None:
+    """After OS exit is confirmed, finalize tasks while retaining the last checkpoint."""
+    import json,time
+    from app import task_service
+    from hero1_storage.engine import registry_session,instrument_session
+    from hero1_storage.registry_models import DashboardTask
+    from hero1_storage import instrument_models as im
+    reg=registry_session()
+    try:
+        for task_id in task_ids:
+            task=reg.get(DashboardTask,task_id)
+            if not task or task.status not in task_service.ACTIVE: continue
+            payload=json.loads(task.payload_json or "{}")
+            run_id=payload.get("monte_carlo_run_id")
+            db=instrument_session(task.instrument_id) if task.instrument_id else None
+            try:
+                run=db.get(im.MonteCarloRun,run_id) if db and run_id else None
+                if run:
+                    saved=json.loads(run.result_json or "{}")
+                    if saved:
+                        saved["partial"]=True
+                        summary=saved.setdefault("summary",{})
+                        summary["partial"]=True
+                        summary["simulations_completed"]=int(task.completed_units or summary.get("simulations_completed",0))
+                    else:
+                        saved={"partial":True,"summary":{"partial":True,"simulations_requested":int(task.total_units or 0),"simulations_completed":int(task.completed_units or 0),"seed":run.seed,"method":run.method,"trade_count":0},"per_simulation":[],"representative_curves":[]}
+                    run.result_json=json.dumps(saved,separators=(",",":"))
+                    run.status="CANCELLED";run.error=reason;run.finished_at=time.time();db.commit()
+            finally:
+                if db: db.close()
+            task_service.finish_task(reg,task_id,"CANCELLED",error=reason,summary=f"Worker process terminated; retained {task.completed_units or 0}/{task.total_units or 0} completed simulations",completed_units=int(task.completed_units or 0))
+    finally: reg.close()
+
+
+def _stop_all_impl(timeout_seconds:int,reopen_gate:bool=True):
     import time
     from app import task_service
     from hero1_storage.engine import registry_session
@@ -81,14 +118,26 @@ def _stop_all(timeout_seconds:int,reopen_gate:bool=True):
             if not active: break
         finally: reg.close()
         time.sleep(.1)
+    from app.api.routers import monte_carlo as mc_router
+    termination=mc_router.terminate_worker_processes(grace_seconds=1.0)
+    finalized=termination["terminated"]+termination["cancelled_queued"]
+    _reconcile_terminated_monte_carlo(finalized,"Worker process terminated by STOP ALL after cancellation grace period")
     reg=registry_session()
     try:
         snapshot=_process_snapshot(reg)
     finally: reg.close()
-    if snapshot["worker_count"]==0 and reopen_gate: task_service.set_accepting_jobs(True)
+    snapshot["termination"]=termination
+    if snapshot["worker_count"]==0 and snapshot["worker_process_count"]==0 and reopen_gate: task_service.set_accepting_jobs(True)
     snapshot["accepting_new_jobs"]=task_service.accepting_jobs()
-    snapshot.update({"cancellation_requested":requested,"unsupported_workers":unsupported,"stopped":snapshot["worker_count"]==0,"timeout_seconds":timeout_seconds})
+    snapshot.update({"cancellation_requested":requested,"unsupported_workers":unsupported,"stopped":snapshot["worker_count"]==0 and snapshot["worker_process_count"]==0 and not termination["still_alive"],"timeout_seconds":timeout_seconds})
     return snapshot
+
+
+def _stop_all(timeout_seconds:int,reopen_gate:bool=True):
+    # Serialize repeated/concurrent clicks so signals, joins and terminal-state
+    # reconciliation remain idempotent.
+    with _STOP_ALL_LOCK:
+        return _stop_all_impl(timeout_seconds,reopen_gate)
 
 
 @router.get("/processes")

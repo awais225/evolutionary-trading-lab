@@ -81,6 +81,22 @@ describe('Monte Carlo user workflow',()=>{
   fireEvent.click(screen.getByRole('button',{name:'Select all filtered eligible'}))
   expect(document.querySelector('.mc-node-panel .section-title span')?.textContent).toContain('6 selected')
  })
+ it('renders scenario name and statistics without exposing saved filter JSON in the Node Table',async()=>{
+  const scenario={id:73,name:'Weekday / London',node_id:1,node_version:2,source_run_id:88,trade_count:3,filters:{day_selections:{Monday:true,Tuesday:false},session_selections:{'Monday|ASIA-LONDON':true}},stats:{trades:3,net_profit:42,profit_factor:1.75,win_rate:.667}}
+  vi.spyOn(api.monteCarlo,'nodes').mockResolvedValue({nodes:[node(1,{scenarios:[scenario]})]} as any)
+  vi.spyOn(api.monteCarlo,'history').mockResolvedValue({runs:[]} as any)
+  vi.spyOn(api,'instruments').mockResolvedValue([{symbol:'XAUUSD',display_name:'Gold',enabled:true}] as any)
+  vi.spyOn(api.tasks,'list').mockResolvedValue({tasks:[],latest:{}} as any)
+  render(app());await screen.findByText('Node 1')
+  const child=document.querySelector('tr.mc-scenario-child') as HTMLTableRowElement
+  expect(child).toBeTruthy()
+  expect(child.cells[2].textContent).toContain('Weekday / London')
+  expect(child.cells[3].textContent).toBe('XAUUSD')
+  expect(child.textContent).toContain('42')
+  expect(child.textContent).toContain('1.75')
+  expect(child.textContent).not.toContain('day_selections')
+  expect(child.textContent).not.toContain('session_selections')
+ })
  it('selects a persisted scenario child and submits its exact identity for Monte Carlo',async()=>{
   const scenario={id:71,name:'Exclude Sunday / ASIA',node_id:1,node_version:2,source_run_id:88,trade_count:3,filters:{day_selections:{Sunday:false},session_selections:{'Sunday|ASIA':false}}}
   vi.spyOn(api.monteCarlo,'nodes').mockResolvedValue({nodes:[node(1,{eligible:true,scenarios:[scenario]})]} as any)

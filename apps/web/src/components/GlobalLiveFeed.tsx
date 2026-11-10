@@ -25,9 +25,11 @@ const CARD_FILTERS: Record<string, (e: HeroEvent) => boolean> = {
 export function GlobalLiveFeed() {
   const { instrument } = useInstrument()
   const { open, setOpen } = useFeed()
-  const { latest, refresh: refreshTasks } = useTasks()
+  const { latest, refreshNow: refreshTasksNow } = useTasks()
   const [processStatus,setProcessStatus]=useState<any>(null)
   const [processActionMessage,setProcessActionMessage]=useState('')
+  const [refreshing,setRefreshing]=useState(false)
+  const refreshLock=useRef(false)
   const [events, setEvents] = useState<HeroEvent[]>([])
   const [filter, setFilter] = useState<string | null>(null)
   const [card, setCard] = useState<CardFilter>(null)
@@ -74,8 +76,25 @@ export function GlobalLiveFeed() {
     if (t.error) lines.push(t.error)
     return lines
   }
-  const refreshProcessState=async()=>{try{const p=await api.system.processStatus();setProcessStatus(p);setProcessActionMessage(`Backend status refreshed · ${p.worker_count} active worker(s).`);refreshTasks()}catch(e){setProcessActionMessage(`Process status unavailable: ${String(e)}`)}}
-  const stopProcesses=async()=>{if(!window.confirm('Request cooperative cancellation of HERO1 jobs? New jobs are blocked while cancellation is pending. No unrelated OS processes are killed.'))return;try{const p=await api.system.stopAll(30);setProcessStatus(p);setProcessActionMessage(p.message);refreshTasks()}catch(e){setProcessActionMessage(`Cancellation failed: ${String(e)}`)}}
+  const refreshProcessState=async()=>{
+    if(refreshLock.current)return
+    refreshLock.current=true;setRefreshing(true);setProcessActionMessage('Refreshing authoritative backend and dashboard state…')
+    const parts:{label:string,promise:Promise<any>}[]=[]
+    parts.push({label:'process health',promise:api.system.processStatus()})
+    parts.push({label:'Live Feed tasks',promise:refreshTasksNow()})
+    const event=new CustomEvent('hero1:refresh-status',{detail:{waitUntil:(label:string,promise:Promise<unknown>)=>parts.push({label,promise})}})
+    window.dispatchEvent(event)
+    try{
+      const results=await Promise.allSettled(parts.map(p=>p.promise))
+      const failures=results.flatMap((r,i)=>r.status==='rejected'?[parts[i].label]:[])
+      const processResult=results[0]
+      if(processResult.status==='fulfilled')setProcessStatus(processResult.value)
+      if(failures.length)setProcessActionMessage(`Refresh incomplete — failed: ${failures.join(', ')}. Existing valid table data was retained where requests failed.`)
+      else setProcessActionMessage(`REFRESH STATUS complete · ${(processResult as PromiseFulfilledResult<any>).value.worker_count} active job(s); dashboard and backend state refreshed.`)
+    }catch(e){setProcessActionMessage(`Refresh failed: ${String(e)}`)}
+    finally{refreshLock.current=false;setRefreshing(false)}
+  }
+  const stopProcesses=async()=>{if(!window.confirm('Cancel HERO1 jobs and terminate only unresponsive HERO1 Monte Carlo worker processes?'))return;try{const p=await api.system.stopAll(30);setProcessStatus(p);setProcessActionMessage(p.message);await refreshTasksNow()}catch(e){setProcessActionMessage(`STOP ALL failed: ${String(e)}`)}}
   if (!open) return null
 
   return (
@@ -133,7 +152,7 @@ export function GlobalLiveFeed() {
         ))}
       </div>
       <div className="livefeed-foot">
-        <button className="btn btn-sm" onClick={()=>void refreshProcessState()}>REFRESH PROCESS STATUS</button>
+        <button className="btn btn-sm" disabled={refreshing} aria-busy={refreshing} onClick={()=>void refreshProcessState()}>{refreshing?'REFRESHING…':'REFRESH STATUS'}</button>
         <button className="btn btn-danger" onClick={()=>void stopProcesses()}>STOP ALL PROCESSES</button>
         {processActionMessage&&<span role="status">{processActionMessage}</span>}
         {processStatus&&<span>Workers {processStatus.worker_count} · queued {processStatus.queued_jobs} · running {processStatus.running_jobs} · accepting {String(processStatus.accepting_new_jobs)} · CPU {processStatus.resources?.cpu_ram?.utilization_pct??'N/A'}% · RAM {processStatus.resources?.cpu_ram?.ram_utilization_pct??'N/A'}% · GPU {processStatus.resources?.gpu?.available?`${processStatus.resources.gpu.utilization_pct}%`:'N/A'}</span>}

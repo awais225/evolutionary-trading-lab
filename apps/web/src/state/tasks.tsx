@@ -37,20 +37,26 @@ interface TasksCtx {
   tasks: DashboardTask[]
   latest: Record<string, DashboardTask>
   refresh: () => void
+  refreshNow: () => Promise<void>
 }
 
-const Ctx = createContext<TasksCtx>({ tasks: [], latest: {}, refresh: () => {} })
+const Ctx = createContext<TasksCtx>({ tasks: [], latest: {}, refresh: () => {}, refreshNow: async () => {} })
 
 export function TasksProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<{ tasks: DashboardTask[]; latest: Record<string, DashboardTask> }>(
     { tasks: [], latest: {} })
   const mounted = useRef(true)
+  const refreshFlight = useRef<Promise<void> | null>(null)
 
-  const refresh = () => {
-    api.tasks.list()
-      .then((r) => { if (mounted.current) setState({ tasks: r.tasks ?? [], latest: r.latest ?? {} }) })
-      .catch(() => { /* backend offline: keep last known state, never fake progress */ })
+  const refreshNow = (): Promise<void> => {
+    if (refreshFlight.current) return refreshFlight.current
+    const request = api.tasks.list().then((r) => {
+      if (mounted.current) setState({ tasks: r.tasks ?? [], latest: r.latest ?? {} })
+    }).finally(() => { refreshFlight.current = null })
+    refreshFlight.current = request
+    return request
   }
+  const refresh = () => { void refreshNow().catch(() => { /* preserve last good state */ }) }
 
   useEffect(() => {
     mounted.current = true
@@ -60,7 +66,7 @@ export function TasksProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  return <Ctx.Provider value={{ tasks: state.tasks, latest: state.latest, refresh }}>{children}</Ctx.Provider>
+  return <Ctx.Provider value={{ tasks: state.tasks, latest: state.latest, refresh, refreshNow }}>{children}</Ctx.Provider>
 }
 
 export function useTasks(): TasksCtx {
