@@ -99,7 +99,8 @@ def test_scenario_lifecycle_versions(client):
         "name": "London only v2", "config": {"sessions": ["london", "newyork"]}})
     assert edited.json()["version"] == 2 and edited.json()["parent_scenario_id"] == sid
     listing = client.get("/api/v1/instruments/XAUUSD/deeptesting/scenarios").json()
-    assert len(listing["scenarios"]) == 2  # edit never overwrites history
+    own_history = [item for item in listing["scenarios"] if item["id"] == sid or item.get("parent_scenario_id") == sid]
+    assert len(own_history) == 2  # this scenario's edit creates a new history row
 
     gen = client.post("/api/v1/instruments/XAUUSD/deeptesting/scenarios/generate", json={
         "base_config": {"mode": "initial"},

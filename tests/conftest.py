@@ -21,12 +21,41 @@ import pytest  # noqa: E402
 
 from hero1_storage.init import initialize_databases  # noqa: E402
 
-_REPORT = initialize_databases(Path(_TMP_DATA), create=True)
-assert _REPORT.ok, f"test data-root initialization failed: {_REPORT.to_dict()}"
+@pytest.fixture(scope="module", autouse=True)
+def isolated_test_data_root():
+    """Give each test module an isolated disposable root; preserve module fixtures."""
+    global _TMP_DATA
+    from hero1_storage.engine import reset_engine_caches
+    from app import task_service
+    previous_root = os.environ.get("HERO1_DATA_ROOT")
+    reset_engine_caches()
+    _TMP_DATA = Path(tempfile.mkdtemp(prefix="hero1_test_data_"))
+    os.environ["HERO1_DATA_ROOT"] = str(_TMP_DATA)
+    report = initialize_databases(_TMP_DATA, create=True)
+    assert report.ok, f"test data-root initialization failed: {report.to_dict()}"
+    task_service.set_accepting_jobs(True)
+    yield
+    task_service.set_accepting_jobs(True)
+    reset_engine_caches()
+    import shutil
+    shutil.rmtree(_TMP_DATA, ignore_errors=True)
+    if previous_root is None:
+        os.environ.pop("HERO1_DATA_ROOT", None)
+    else:
+        os.environ["HERO1_DATA_ROOT"] = previous_root
 
 
-@pytest.fixture(scope="session")
-def data_root() -> Path:
+@pytest.fixture(autouse=True)
+def reset_process_local_admission(isolated_test_data_root):
+    """A prior test's stop/shutdown simulation must not leak into its neighbor."""
+    from app import task_service
+    task_service.set_accepting_jobs(True)
+    yield
+    task_service.set_accepting_jobs(True)
+
+
+@pytest.fixture(scope="module")
+def data_root(isolated_test_data_root) -> Path:
     return Path(_TMP_DATA)
 
 

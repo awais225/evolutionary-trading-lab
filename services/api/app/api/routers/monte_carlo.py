@@ -1,5 +1,7 @@
 from __future__ import annotations
-import csv, hashlib, io, json, secrets, time, uuid, zipfile
+import csv, hashlib, io, json, secrets, time, uuid, zipfile, traceback, logging
+from concurrent.futures import ThreadPoolExecutor
+import threading
 from fastapi import APIRouter, Depends, HTTPException
 from hero1_storage.engine import instrument_session, registry_session
 from hero1_storage.registry_models import DashboardTask
@@ -13,6 +15,23 @@ from app.monte_carlo_service import METHODS, partial_summary, simulate
 from app import task_service
 
 router=APIRouter(prefix="/api/v1/instruments/{instrument}/monte-carlo",tags=["monte-carlo"])
+_LOG=logging.getLogger("hero1.api.monte_carlo")
+# Bound parallel simulations to limit memory spikes; individual studies remain
+# independently persisted and queued with their own DashboardTask/job IDs.
+_MC_EXECUTOR:ThreadPoolExecutor|None=None
+_MC_POOL_LOCK=threading.RLock()
+
+def _submit_worker(*args):
+    global _MC_EXECUTOR
+    with _MC_POOL_LOCK:
+        if _MC_EXECUTOR is None: _MC_EXECUTOR=ThreadPoolExecutor(max_workers=2,thread_name_prefix="hero1-mc")
+        _MC_EXECUTOR.submit(_mc_worker,*args)
+
+def shutdown_workers(wait:bool=True):
+    global _MC_EXECUTOR
+    with _MC_POOL_LOCK:
+        executor=_MC_EXECUTOR;_MC_EXECUTOR=None
+    if executor is not None: executor.shutdown(wait=wait,cancel_futures=False)
 
 class StartBody(BaseModel):
     node_ids:list[int]=Field(min_length=1)
@@ -73,7 +92,7 @@ def _mc_worker(instrument: str, mc_id: str, task_id: str, node_id: int, deep_run
             return bool(current and (json.loads(current.payload_json or "{}").get("cancel_requested")))
         def on_batch(done, metrics, paths):
             # Persist actual completed outputs after each bounded batch.
-            partial = {"partial": True, "summary": partial_summary(metrics,int(cfg["simulations"]),mc.seed,mc.method,len(trades),cfg.get("deep_baseline_return_pct")), "per_simulation": metrics, "representative_curves": paths[:int(cfg.get("displayed_curves",10))], "sample_curves": paths}
+            partial = {"partial": True, "summary": partial_summary(metrics,int(cfg["simulations"]),mc.seed,mc.method,len(trades),cfg.get("deep_baseline_return_pct")), "per_simulation": metrics, "representative_curves": paths[:int(cfg.get("displayed_curves",10))], "sample_curves": paths[:int(cfg.get("displayed_curves",10))]}
             mc.result_json = json.dumps(partial, separators=(",", ":")); db.commit()
             elapsed = max(time.time()-started, .001)
             reg.expire_all(); latest_task=reg.get(DashboardTask,task_id)
@@ -101,6 +120,9 @@ def _mc_worker(instrument: str, mc_id: str, task_id: str, node_id: int, deep_run
             task_service.finish_task(reg, task_id, "COMPLETED", summary=f"{result['summary']['simulations_completed']} simulations completed")
         db.commit()
     except Exception as exc:
+        error_detail=f"{type(exc).__name__}: {exc}"
+        traceback_text=traceback.format_exc()
+        _LOG.exception("Monte Carlo worker failed",extra={"task_id":task_id,"run_id":mc_id,"node_id":node_id,"instrument":instrument})
         try:
             latest=reg.get(DashboardTask,task_id) if reg else None
             cancel_requested=bool(latest and json.loads(latest.payload_json or "{}").get("cancel_requested"))
@@ -110,14 +132,22 @@ def _mc_worker(instrument: str, mc_id: str, task_id: str, node_id: int, deep_run
                     if not mc.result_json:
                         mc.result_json=json.dumps({"partial":True,"summary":{"simulations_requested":int(json.loads(mc.config_json).get("simulations",0)),"simulations_completed":0,"seed":mc.seed,"method":mc.method},"per_simulation":[],"representative_curves":[]})
                 else:
-                    mc.status="FAILED"; mc.error=f"{type(exc).__name__}: {exc}"
+                    mc.status="FAILED"; mc.error=f"{error_detail}\n{traceback_text}"
                 mc.finished_at=time.time(); db.commit()
             if cancel_requested:
                 task_service.finish_task(reg,task_id,"CANCELLED",summary="Cancelled before the first simulation completed",completed_units=int(latest.completed_units or 0))
             else:
-                task_service.finish_task(reg, task_id, "FAILED", error=f"{type(exc).__name__}: {exc}", summary="Monte Carlo worker failed")
+                task_service.finish_task(reg, task_id, "FAILED", error=f"{error_detail}\n{traceback_text}"[-12000:], summary="Monte Carlo worker failed")
         except Exception:
-            pass
+            _LOG.exception("Could not persist Monte Carlo failure state",extra={"task_id":task_id,"run_id":mc_id})
+            try:
+                recovery=registry_session()
+                try:
+                    task_service.finish_task(recovery,task_id,"FAILED",error=f"{error_detail}; failure persistence error: {traceback.format_exc()}"[-12000:],summary="Monte Carlo worker failed; persistence reconciliation required")
+                finally:
+                    recovery.close()
+            except Exception:
+                _LOG.exception("Failure state could not be reconciled to the registry",extra={"task_id":task_id,"run_id":mc_id})
     finally:
         db.close(); reg.close()
 
@@ -125,13 +155,14 @@ def _mc_worker(instrument: str, mc_id: str, task_id: str, node_id: int, deep_run
 @router.post("/runs")
 def start_runs(body:StartBody,instrument:str=Depends(get_instrument_context),session:Session=Depends(get_instrument_session),registry:Session=Depends(get_registry_session)):
     import threading
+    if not task_service.accepting_jobs(): raise HTTPException(503,"HERO1 is stopping background work; retry after process status is clear")
     bad=set(body.methods)-METHODS
     if bad: raise HTTPException(422,f"unsupported methods: {sorted(bad)}")
     if not body.methods: raise HTTPException(422,"select at least one available method")
     config={"simulations":1000,"random_points":1000,"displayed_curves":10,"initial_capital":200000,"risk_pct":1,"max_active_trades":1,"max_drawdown_pct":25,"min_survival_pct":99,"max_p99_drawdown_pct":35,"block_size":10,"batch_size":25,**body.config}
     if not 10 <= int(config["simulations"]) <= 5000: raise HTTPException(422,"simulations must be between 10 and 5000")
     result=[]
-    base_identity={"instrument":instrument.upper(),"node_ids":sorted(body.node_ids),"methods":sorted(body.methods),"config":{k:v for k,v in config.items() if k!="seed"},"deeptest_run_ids":body.deeptest_run_ids,"request_key":body.idempotency_key}
+    base_identity={"instrument":instrument.upper(),"node_ids":sorted(body.node_ids),"methods":sorted(body.methods),"config":{k:v for k,v in config.items() if k!="seed"},"deeptest_run_ids":body.deeptest_run_ids}
     deterministic_default_seed=int.from_bytes(hashlib.sha256(json.dumps(base_identity,sort_keys=True,separators=(",",":"),default=str).encode()).digest()[:4],"big")
     for node_id in body.node_ids:
         node=session.query(im.Node).filter_by(id=node_id,instrument_id=instrument.upper()).first()
@@ -177,18 +208,38 @@ def start_runs(body:StartBody,instrument:str=Depends(get_instrument_context),ses
                 for trade in sorted(trades,key=lambda t: float(t.get("exit_ts") or t.get("entry_ts") or 0)):
                     equity += float(trade.get("net_pnl") or 0)
                     scenario_equity.append({"equity":equity})
-            run_config={**config,"seed":seed,"base_seed":base_seed,"tested_range":tested_range,"scenario_id":scenario.id if scenario else None,"scenario_name":scenario.name if scenario else None,"filtered_trade_ids":[t["id"] for t in trades] if scenario else None,"scenario_filters":json.loads(scenario.filters_json or "{}") if scenario else None,"deep_baseline_return_pct":scenario_stats.get("returnPct",scenario_stats.get("return_pct",deep_metrics.get("return_on_initial_capital_pct"))) if scenario else deep_metrics.get("return_on_initial_capital_pct"),"deep_baseline_net_profit":scenario_stats.get("net_profit",scenario_stats.get("net",deep_metrics.get("net_profit"))) if scenario else deep_metrics.get("net_profit"),"deep_baseline_equity_curve":(scenario_equity if scenario else (json.loads(deep.equity_json) if deep.equity_json else [])),"execution_cost_assumptions":execution_cost_assumptions,"source_data_readiness":source_readiness,"known_logic_compliance_failures":known_logic_failures,"task_id":None}
-            dedupe_key=hashlib.sha256(json.dumps({"instrument":instrument.upper(),"node":node_id,"scenario_id":scenario.id if scenario else None,"deep_run":deep.id,"method":method,"config":run_config},sort_keys=True,separators=(",",":"),default=str).encode()).hexdigest()
+            run_config={**config,"seed":seed,"base_seed":base_seed,"tested_range":tested_range,"source_run_id":deep.id,"scenario_id":scenario.id if scenario else None,"scenario_name":scenario.name if scenario else None,"filtered_trade_ids":[t["id"] for t in trades] if scenario else None,"scenario_filters":json.loads(scenario.filters_json or "{}") if scenario else None,"deep_baseline_return_pct":scenario_stats.get("returnPct",scenario_stats.get("return_pct",deep_metrics.get("return_on_initial_capital_pct"))) if scenario else deep_metrics.get("return_on_initial_capital_pct"),"deep_baseline_net_profit":scenario_stats.get("net_profit",scenario_stats.get("net",deep_metrics.get("net_profit"))) if scenario else deep_metrics.get("net_profit"),"deep_baseline_equity_curve":(scenario_equity if scenario else (json.loads(deep.equity_json) if deep.equity_json else [])),"execution_cost_assumptions":execution_cost_assumptions,"source_data_readiness":source_readiness,"known_logic_compliance_failures":known_logic_failures,"task_id":None}
+            trade_sequence_hash=hashlib.sha256(json.dumps(trades,sort_keys=True,separators=(",",":"),default=str).encode()).hexdigest()
+            study_identity={"instrument":instrument.upper(),"node_id":node.id,"node_version":deep.node_version or node.version,"scenario_id":scenario.id if scenario else None,"source_run_id":deep.id,"source_run_fingerprint":deep.fingerprint,"trade_sequence_hash":trade_sequence_hash,"method":method,"config":run_config}
+            study_fingerprint=hashlib.sha256(json.dumps(study_identity,sort_keys=True,separators=(",",":"),default=str).encode()).hexdigest()
+            # Lazily backfill pre-fingerprint rows only when they share the exact
+            # node/source/scenario/method and can be canonically reidentified.
+            legacy=session.query(im.MonteCarloRun).filter_by(instrument_id=instrument.upper(),node_id=node_id,deeptest_run_id=deep.id,scenario_id=scenario.id if scenario else None,method=method,study_fingerprint=None).all()
+            for prior in legacy:
+                prior_config=json.loads(prior.config_json or "{}")
+                prior_config.pop("task_id",None);prior_config.setdefault("source_run_id",deep.id)
+                prior_config.setdefault("scenario_id",scenario.id if scenario else None)
+                prior_identity={"instrument":instrument.upper(),"node_id":node.id,"node_version":prior.node_version or deep.node_version or node.version,"scenario_id":scenario.id if scenario else None,"source_run_id":deep.id,"source_run_fingerprint":deep.fingerprint,"trade_sequence_hash":trade_sequence_hash,"method":method,"config":prior_config}
+                prior.study_fingerprint=hashlib.sha256(json.dumps(prior_identity,sort_keys=True,separators=(",",":"),default=str).encode()).hexdigest()
+            if legacy: session.commit()
+            dedupe_key=study_fingerprint
+            completed=session.query(im.MonteCarloRun).filter_by(instrument_id=instrument.upper(),study_fingerprint=study_fingerprint,status="DONE").order_by(im.MonteCarloRun.created_at.desc()).first()
+            if completed:
+                result.append({"id":completed.id,"node_id":node_id,"scenario_id":scenario.id if scenario else None,"method":method,"seed":seed,"status":"ALREADY_COMPLETED","completed_at":completed.finished_at,"duplicate_reused":True})
+                continue
             existing=registry.query(DashboardTask).filter(DashboardTask.dedupe_key==dedupe_key,DashboardTask.status.in_(("QUEUED","RUNNING"))).first()
             if existing:
                 prior=json.loads(existing.payload_json or "{}")
                 result.append({"id":prior.get("monte_carlo_run_id"),"task_id":existing.id,"node_id":node_id,"method":method,"seed":seed,"status":existing.status,"total_simulations":int(config["simulations"]),"duplicate_reused":True})
                 continue
             mcid=str(uuid.uuid4())
-            row=im.MonteCarloRun(id=mcid,instrument_id=instrument.upper(),node_id=node_id,deeptest_run_id=deep.id,scenario_id=scenario.id if scenario else None,node_version=deep.node_version,fingerprint=deep.fingerprint,method=method,seed=seed,status="RUNNING",config_json=json.dumps(run_config),created_at=time.time())
+            row=im.MonteCarloRun(id=mcid,instrument_id=instrument.upper(),node_id=node_id,deeptest_run_id=deep.id,scenario_id=scenario.id if scenario else None,node_version=deep.node_version,fingerprint=deep.fingerprint,study_fingerprint=study_fingerprint,method=method,seed=seed,status="RUNNING",config_json=json.dumps(run_config),created_at=time.time())
             session.add(row);session.commit()
             try:
                 task=task_service.create_task(registry,category="MONTE_CARLO",instrument=instrument.upper(),label=f"Monte Carlo · Node {node_id} · {method}",total_units=int(config["simulations"]),status="QUEUED",dedupe_key=dedupe_key,payload={"monte_carlo_run_id":mcid,"node_id":node_id,"scenario_id":scenario.id if scenario else None,"deeptest_run_id":deep.id,"fingerprint":deep.fingerprint,"method":method,"seed":seed,"config":run_config})
+            except RuntimeError as exc:
+                session.delete(row);session.commit()
+                raise HTTPException(503,str(exc)) from exc
             except IntegrityError:
                 registry.rollback()
                 existing=registry.query(DashboardTask).filter(DashboardTask.dedupe_key==dedupe_key,DashboardTask.status.in_(("QUEUED","RUNNING"))).first()
@@ -198,7 +249,7 @@ def start_runs(body:StartBody,instrument:str=Depends(get_instrument_context),ses
                 result.append({"id":prior.get("monte_carlo_run_id"),"task_id":existing.id,"node_id":node_id,"method":method,"seed":seed,"status":existing.status,"total_simulations":int(config["simulations"]),"duplicate_reused":True})
                 continue
             run_config["task_id"]=task.id; row.config_json=json.dumps(run_config); session.commit()
-            threading.Thread(target=_mc_worker,args=(instrument.upper(),mcid,task.id,node_id,deep.id),name=f"hero1-mc-{task.id[:8]}",daemon=True).start()
+            _submit_worker(instrument.upper(),mcid,task.id,node_id,deep.id)
             result.append({"id":mcid,"task_id":task.id,"node_id":node_id,"scenario_id":scenario.id if scenario else None,"scenario_name":scenario.name if scenario else None,"deeptest_run_id":deep.id,"method":method,"seed":seed,"status":"QUEUED","total_simulations":int(config["simulations"])})
     return {"runs":result,"async":True}
 
@@ -218,14 +269,14 @@ def history(node_id:int|None=None,instrument:str=Depends(get_instrument_context)
     q=session.query(im.MonteCarloRun).filter_by(instrument_id=instrument.upper())
     if node_id is not None:q=q.filter_by(node_id=node_id)
     rows=q.order_by(im.MonteCarloRun.created_at.desc()).all()
-    return {"runs":[{"id":r.id,"node_id":r.node_id,"scenario_id":r.scenario_id,"scenario_name":(session.get(im.DeepTestScenarioDef,r.scenario_id).name if r.scenario_id and session.get(im.DeepTestScenarioDef,r.scenario_id) else None),"instrument":r.instrument_id,"timeframe":(session.get(im.Node,r.node_id).timeframe if session.get(im.Node,r.node_id) else None),"deeptest_run_id":r.deeptest_run_id,"method":r.method,"seed":r.seed,"status":r.status,"config":json.loads(r.config_json),"fingerprint":r.fingerprint,"node_version":r.node_version,"summary":(json.loads(r.result_json).get("summary") if r.result_json else None),"robustness":(json.loads(r.result_json).get("robustness") if r.result_json else None),"eligibility":(json.loads(r.result_json).get("eligibility") if r.result_json else None),"warnings":json.loads(r.warning_json or "[]"),"created_at":r.created_at,"error":r.error} for r in rows]}
+    return {"runs":[{"id":r.id,"node_id":r.node_id,"scenario_id":r.scenario_id,"scenario_name":(session.get(im.DeepTestScenarioDef,r.scenario_id).name if r.scenario_id and session.get(im.DeepTestScenarioDef,r.scenario_id) else json.loads(r.config_json or "{}").get("scenario_name")),"instrument":r.instrument_id,"timeframe":(session.get(im.Node,r.node_id).timeframe if session.get(im.Node,r.node_id) else None),"deeptest_run_id":r.deeptest_run_id or json.loads(r.config_json or "{}").get("source_run_id_snapshot") or json.loads(r.config_json or "{}").get("source_run_id"),"method":r.method,"seed":r.seed,"status":r.status,"config":json.loads(r.config_json),"fingerprint":r.fingerprint,"study_fingerprint":r.study_fingerprint,"node_version":r.node_version,"summary":(json.loads(r.result_json).get("summary") if r.result_json else None),"robustness":(json.loads(r.result_json).get("robustness") if r.result_json else None),"eligibility":(json.loads(r.result_json).get("eligibility") if r.result_json else None),"warnings":json.loads(r.warning_json or "[]"),"created_at":r.created_at,"error":r.error} for r in rows]}
 
 @router.get("/runs/{run_id}")
 def get_result(run_id:str,instrument:str=Depends(get_instrument_context),session:Session=Depends(get_instrument_session)):
     r=session.query(im.MonteCarloRun).filter_by(id=run_id,instrument_id=instrument.upper()).first()
     if not r:raise HTTPException(404,"Monte Carlo run not found")
     saved_config=json.loads(r.config_json); node=session.get(im.Node,r.node_id); deep=session.get(im.DeepTestRun,r.deeptest_run_id)
-    return {"id":r.id,"task_id":saved_config.get("task_id"),"node_id":r.node_id,"scenario_id":r.scenario_id,"scenario_name":(session.get(im.DeepTestScenarioDef,r.scenario_id).name if r.scenario_id and session.get(im.DeepTestScenarioDef,r.scenario_id) else None),"node_name":node.name if node else None,"instrument":r.instrument_id,"timeframe":deep.timeframe if deep else (node.timeframe if node else None),"node_version":r.node_version,"fingerprint":r.fingerprint,"deeptest_run_id":r.deeptest_run_id,"method":r.method,"seed":r.seed,"status":r.status,"config":saved_config,"result":json.loads(r.result_json) if r.result_json else None,"warnings":json.loads(r.warning_json) if r.warning_json else [],"error":r.error}
+    return {"id":r.id,"task_id":saved_config.get("task_id"),"node_id":r.node_id,"scenario_id":r.scenario_id,"scenario_name":(session.get(im.DeepTestScenarioDef,r.scenario_id).name if r.scenario_id and session.get(im.DeepTestScenarioDef,r.scenario_id) else None),"node_name":node.name if node else None,"instrument":r.instrument_id,"timeframe":deep.timeframe if deep else (node.timeframe if node else None),"node_version":r.node_version,"fingerprint":r.fingerprint,"study_fingerprint":r.study_fingerprint,"deeptest_run_id":r.deeptest_run_id or saved_config.get("source_run_id_snapshot") or saved_config.get("source_run_id"),"source_run_deleted":bool(saved_config.get("source_run_deleted")),"method":r.method,"seed":r.seed,"status":r.status,"config":saved_config,"result":json.loads(r.result_json) if r.result_json else None,"warnings":json.loads(r.warning_json) if r.warning_json else [],"error":r.error}
 
 @router.delete("/runs/{run_id}")
 def delete_run(run_id:str,instrument:str=Depends(get_instrument_context),session:Session=Depends(get_instrument_session)):
@@ -243,16 +294,17 @@ def export_result(run_id:str,format:str="zip",instrument:str=Depends(get_instrum
     r=session.query(im.MonteCarloRun).filter_by(id=run_id,instrument_id=instrument.upper()).first()
     if not r or not r.result_json:raise HTTPException(404,"completed Monte Carlo result not found")
     config=json.loads(r.config_json); result=json.loads(r.result_json)
-    deep=session.get(im.DeepTestRun,r.deeptest_run_id)
+    source_run_id=r.deeptest_run_id or config.get("source_run_id_snapshot") or config.get("source_run_id")
+    deep=session.get(im.DeepTestRun,r.deeptest_run_id) if r.deeptest_run_id is not None else None
     node=session.get(im.Node,r.node_id)
     if format=="txt":
-        text=f"HERO1 MONTE CARLO\nrun={r.id}\nnode={r.node_id}\nDeepTesting run={r.deeptest_run_id}\nmethod={r.method}\nseed={r.seed}\nscore={result['robustness']['score']}\neligibility={result['eligibility']['status']}\nsummary={json.dumps(result['summary'],indent=2)}\nwarnings={r.warning_json}\n"
+        text=f"HERO1 MONTE CARLO\nrun={r.id}\nnode={r.node_id}\nDeepTesting run={source_run_id}\nmethod={r.method}\nseed={r.seed}\nscore={result['robustness']['score']}\neligibility={result['eligibility']['status']}\nsummary={json.dumps(result['summary'],indent=2)}\nwarnings={r.warning_json}\n"
         return Response(text,media_type="text/plain",headers={"Content-Disposition":f'attachment; filename="monte_carlo_{r.id}.txt"'})
     mc_result = result
     manifest={
         "format":"HERO1_MONTE_CARLO/1", "id":r.id, "task_id":config.get("task_id"),
         "node_id":r.node_id, "node_name":node.name if node else None,
-        "deeptest_run_id":r.deeptest_run_id, "strategy_version":r.node_version,
+        "deeptest_run_id":source_run_id, "source_run_deleted":bool(config.get("source_run_deleted")), "study_fingerprint":r.study_fingerprint, "strategy_version":r.node_version,
         "fingerprint":r.fingerprint, "instrument":r.instrument_id,
         "timeframe":deep.timeframe if deep else None, "method":r.method,
         "seed":r.seed, "seed_strategy":mc_result.get("summary",{}).get("seed_strategy"), "status":r.status, "partial":bool(mc_result.get("partial")),
@@ -267,7 +319,7 @@ def export_result(run_id:str,format:str="zip",instrument:str=Depends(get_instrum
     writer=csv.DictWriter(csv_buffer,fieldnames=csv_fields,extrasaction="ignore")
     writer.writeheader(); writer.writerows(metrics)
     csv_text=csv_buffer.getvalue()
-    original={"run_id":r.deeptest_run_id,"node_id":r.node_id,"status":deep.status if deep else "MISSING",
+    original={"run_id":source_run_id,"node_id":r.node_id,"status":deep.status if deep else "MISSING",
         "fingerprint":deep.fingerprint if deep else r.fingerprint,
         "metrics":json.loads(deep.metrics_json) if deep and deep.metrics_json else None,
         "config":json.loads(deep.config_json) if deep and deep.config_json else None,
@@ -279,7 +331,7 @@ def export_result(run_id:str,format:str="zip",instrument:str=Depends(get_instrum
     execution={"method":r.method,"configuration":config if r.method=="EXECUTION_STRESS" else None,
         "required_evidence":["spread_cost","slippage"],
         "disclosure":mc_result.get("method_description"),
-        "source_deeptesting_run_id":r.deeptest_run_id,
+        "source_deeptesting_run_id":source_run_id,
         "cost_ledger_exported":False,
         "note":"Cost values are sourced from persisted DeepTesting trades during simulation; this archive does not duplicate the original trade ledger."}
     out=io.BytesIO()

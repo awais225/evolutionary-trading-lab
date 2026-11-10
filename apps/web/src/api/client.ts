@@ -138,6 +138,13 @@ export const api = {
     get: () => request<SettingsOut>('GET', '/api/v1/settings'),
     put: (settings: Record<string, unknown>) => request<SettingsOut>('PUT', '/api/v1/settings', { settings }),
   },
+  system: {
+    processStatus: () => request<any>('GET','/api/v1/system/processes'),
+    stopAll: (timeout_seconds=30) => request<any>('POST','/api/v1/system/processes/stop',{timeout_seconds}),
+    shutdown: (confirm:string,timeout_seconds=30) => request<any>('POST','/api/v1/system/shutdown',{confirm,timeout_seconds}),
+    previewDelete: (category:string) => request<any>('POST','/api/v1/system/data/preview',{category}),
+    deleteData: (category:string,confirm:string) => request<any>('POST','/api/v1/system/data/delete',{category,confirm}),
+  },
   mt5: {
     status: () => request<Mt5ConnectionResult>('GET', '/api/v1/mt5/status'),
     terminals: () => request<Mt5TerminalsOut>('GET', '/api/v1/mt5/terminals'),

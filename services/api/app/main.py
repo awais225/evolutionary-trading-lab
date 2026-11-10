@@ -32,6 +32,8 @@ _DEV_ORIGINS = [
 async def lifespan(app: FastAPI):
     cfg = get_settings()
     configure_logging(cfg.log_level)
+    from app import task_service
+    task_service.set_accepting_jobs(True)
     get_event_bus().attach_loop(asyncio.get_running_loop())
     log.info("hero1-api starting", extra={"version": __version__})
     try:  # workers are process-local threads: classify stale persisted Monte Carlo tasks as interrupted, never resume unsafely
@@ -56,9 +58,58 @@ async def lifespan(app: FastAPI):
             _reg.close()
     except Exception:
         log.exception("Monte Carlo interrupted-task recovery failed")
+    try:  # process-local DeepTesting workers cannot survive an API restart
+        from hero1_storage.registry_models import DashboardTask
+        from hero1_storage import instrument_models as im
+        from hero1_storage.engine import instrument_session
+        from app import task_service
+        import json as _json
+        reg=registry_session()
+        try:
+            stale=reg.query(DashboardTask).filter(DashboardTask.category=="DEEPTESTING",DashboardTask.status.in_(("QUEUED","RUNNING"))).all()
+            for task in stale:
+                payload=_json.loads(task.payload_json or "{}")
+                db=instrument_session(task.instrument_id) if task.instrument_id else None
+                try:
+                    if db:
+                        node_ids=[int(x.get("node_id")) for x in payload.get("nodes",[]) if x.get("node_id") is not None]
+                        query=db.query(im.DeepTestRun).filter_by(instrument_id=task.instrument_id,status="RUNNING")
+                        if node_ids: query=query.filter(im.DeepTestRun.node_id.in_(node_ids))
+                        for run in query.all():
+                            run.status="FAILED";run.error="Interrupted by application restart; execution cannot be safely resumed";run.finished_at=time.time()
+                        db.commit()
+                finally:
+                    if db: db.close()
+                payload["interrupted_by_restart"]=True
+                payload["recovery_note"]="DeepTesting worker was process-local; committed run metadata and decision events remain, but uncommitted execution results were not checkpointed and this run must be rerun."
+                task_service.update_task(reg,task.id,payload=payload)
+                task_service.finish_task(reg,task.id,"FAILED",error="Interrupted by application restart; uncommitted DeepTesting results were not checkpointed and the run must be rerun; committed evidence rows were retained",summary=f"Interrupted at {task.completed_units or 0}/{task.total_units or 0} nodes")
+        finally:
+            reg.close()
+    except Exception:
+        log.exception("DeepTesting interrupted-task recovery failed")
+    try:  # these workers are process-local; partial market-data writes remain in the canonical store
+        from hero1_storage.registry_models import DashboardTask
+        from app import task_service
+        _reg=registry_session()
+        try:
+            _stale=_reg.query(DashboardTask).filter(DashboardTask.category.in_(("DATA_FETCHING","NODE_GENERATION","VALIDATION")),DashboardTask.status.in_(("QUEUED","RUNNING"))).all()
+            for _task in _stale:
+                task_service.finish_task(_reg,_task.id,"FAILED",error="Interrupted by application restart; operation state was process-local and cannot be resumed safely",summary=f"Interrupted at {_task.completed_units or 0}/{_task.total_units or 0}; inspect persisted data before retrying")
+        finally: _reg.close()
+    except Exception:
+        log.exception("Other interrupted-task recovery failed")
     try:  # permanent CSV baseline -> this installation's canonical store (ISSUE-049)
         import os as _os
-        if _os.environ.get("HERO1_SKIP_BASELINE_IMPORT") == "1":
+        from hero1_storage.registry_models import ApplicationSetting
+        _reg=registry_session()
+        try:
+            _marker=_reg.get(ApplicationSetting,"startup.market_baseline_disabled")
+            _baseline_disabled=bool(_marker and _marker.value=="true")
+        finally: _reg.close()
+        if _baseline_disabled:
+            log.info("market-data baseline auto-import disabled by explicit data deletion")
+        elif _os.environ.get("HERO1_SKIP_BASELINE_IMPORT") == "1":
             log.info("market-data baseline import skipped by explicit environment setting")
         else:
             from app import market_data_service
@@ -66,16 +117,25 @@ async def lifespan(app: FastAPI):
             log.info("market-data baseline check", extra={"baseline": str(_baseline)[:500]})
     except Exception:
         log.exception("market-data baseline check failed (continuing without it)")
-    try:  # official seed nodes (NODE 1) - idempotent, never overwrites user edits
+    try:  # official seed nodes (NODE 1) - idempotent unless user permanently deleted nodes
         from app import seed_nodes
         from hero1_storage.engine import instrument_session
-        _seed_session = instrument_session(seed_nodes.SEED_INSTRUMENT)
+        from hero1_storage.registry_models import ApplicationSetting
+        _reg=registry_session()
         try:
-            _created = seed_nodes.ensure_seed_nodes(_seed_session, seed_nodes.SEED_INSTRUMENT)
-            if _created:
-                log.info("seed nodes created", extra={"seed_created_ids": _created})
-        finally:
-            _seed_session.close()
+            _marker=_reg.get(ApplicationSetting,"startup.seed_nodes_disabled")
+            _seed_disabled=bool(_marker and _marker.value=="true")
+        finally: _reg.close()
+        if _seed_disabled:
+            log.info("automatic seed-node creation disabled by explicit data deletion")
+        else:
+            _seed_session = instrument_session(seed_nodes.SEED_INSTRUMENT)
+            try:
+                _created = seed_nodes.ensure_seed_nodes(_seed_session, seed_nodes.SEED_INSTRUMENT)
+                if _created:
+                    log.info("seed nodes created", extra={"seed_created_ids": _created})
+            finally:
+                _seed_session.close()
     except Exception:
         log.exception("seed-node check failed (continuing without it)")
     try:  # automatic MT5 connection (ISSUE-056): background, bounded retries
@@ -84,6 +144,13 @@ async def lifespan(app: FastAPI):
     except Exception:
         log.exception("MT5 auto-connect worker failed to start (manual Connect still available)")
     yield
+    try:
+        from app.api.routers.system import _stop_all
+        from app.api.routers import monte_carlo as _mc_router
+        _stop_all(30,reopen_gate=False)
+        _mc_router.shutdown_workers(wait=True)
+    except Exception:
+        log.exception("background worker shutdown reconciliation failed")
     log.info("hero1-api shutting down")
 
 

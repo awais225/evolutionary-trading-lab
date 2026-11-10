@@ -55,6 +55,9 @@ def test_startup_marks_persisted_work_interrupted_and_keeps_partial_results(clie
         async with app.router.lifespan_context(app):
             pass
     asyncio.run(restart_once())
+    # The test simulates a restart inside the still-running TestClient process;
+    # its original lifespan remains active, so restore admission for that client.
+    task_service.set_accepting_jobs(True)
     registry=open_registry(); inst=instrument_session('XAUUSD')
     try:
         for task_id,mcid,old_state in interrupted_ids:

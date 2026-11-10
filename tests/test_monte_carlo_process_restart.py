@@ -25,7 +25,10 @@ def _spawn(root,port):
     env['HERO1_DATA_ROOT']=str(root); env['HERO1_REPO_ROOT']=str(repo)
     paths=['services/api','packages/storage/src','packages/eventbus/src','packages/ai_orchestrator/src','packages/mt5_adapter/src','packages/market_data/src','packages/exec_semantics/src','packages/strategy_spec/src','packages/indicators/src','packages/research/src']
     env['PYTHONPATH']=os.pathsep.join(str(repo/p) for p in paths)+os.pathsep+env.get('PYTHONPATH','')
-    return subprocess.Popen([sys.executable,'-m','uvicorn','app.main:app','--host','127.0.0.1','--port',str(port)],cwd=repo,env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+    log_file=(Path(root).parent/'hero1-api-test.log').open('ab')
+    proc=subprocess.Popen([sys.executable,'-m','uvicorn','app.main:app','--host','127.0.0.1','--port',str(port)],cwd=repo,env=env,stdout=log_file,stderr=subprocess.STDOUT)
+    proc._test_log_file=log_file
+    return proc
 
 
 def _wait_health(process,base,timeout=35):
@@ -85,6 +88,13 @@ def test_real_process_kill_restart_preserves_partial_and_allows_new_run(tmp_path
         # Interrupted record is still independently reopenable and unchanged.
         after=_request(base,f'/api/v1/instruments/XAUUSD/monte-carlo/runs/{run_id}')
         assert after['status']=='FAILED' and after['result']['summary']['simulations_completed']==done
+        # Exercise the dedicated orderly shutdown endpoint in this disposable child process.
+        stopped=_request(base,'/api/v1/system/shutdown','POST',{'confirm':'SHUTDOWN HERO1','timeout_seconds':10})
+        assert stopped['shutdown_requested'] and stopped['worker_count']==0
+        proc.wait(timeout=10)
+        assert proc.returncode in (0,-15)
+        shutdown_log=(Path(root).parent/'hero1-api-test.log').read_text(errors='replace')
+        assert 'hero1-api shutting down' in shutdown_log,shutdown_log[-3000:]
     finally:
         if proc.poll() is None: proc.kill()
         proc.wait(timeout=10)

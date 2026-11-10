@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import time
 import uuid
+import threading
 from typing import Any, Optional
 
 from sqlalchemy.orm import Session
@@ -21,6 +22,19 @@ from hero1_storage.registry_models import DashboardTask
 CATEGORIES = ("DEEPTESTING", "DATA_FETCHING", "NODE_GENERATION", "VALIDATION", "MONTE_CARLO")
 TERMINAL = ("COMPLETED", "FAILED", "CANCELLED", "BLOCKED")
 ACTIVE = ("QUEUED", "RUNNING", "PAUSED")
+_GATE_LOCK = threading.RLock()
+_ACCEPTING_JOBS = True
+
+
+def set_accepting_jobs(value: bool) -> None:
+    global _ACCEPTING_JOBS
+    with _GATE_LOCK:
+        _ACCEPTING_JOBS = bool(value)
+
+
+def accepting_jobs() -> bool:
+    with _GATE_LOCK:
+        return _ACCEPTING_JOBS
 
 
 def _now() -> float:
@@ -62,7 +76,10 @@ def create_task(session: Session, *, category: str, instrument: Optional[str],
                 status: str = "RUNNING", dedupe_key: Optional[str] = None) -> DashboardTask:
     if category not in CATEGORIES:
         raise ValueError(f"unknown task category {category!r}")
-    t = DashboardTask(id=uuid.uuid4().hex, category=category,
+    with _GATE_LOCK:
+        if not _ACCEPTING_JOBS:
+            raise RuntimeError("HERO1 is stopping background work; retry after process status is clear")
+        t = DashboardTask(id=uuid.uuid4().hex, category=category,
                       instrument_id=(instrument or None), label=label[:160],
                       status=status, total_units=int(total_units),
                       completed_units=0,
@@ -211,7 +228,9 @@ def sync_fetch_tasks(session: Session) -> None:
                     candles += int(d.get("candles") or d.get("rows") or 0)
         payload = {**payload, "timeframes": tfs, "candles_fetched": candles,
                    "stage": rec.get("stage")}
-        if state in ("COMPLETED", "PARTIAL"):
+        if state == "CANCELLED":
+            finish_task(session, t.id, "CANCELLED", summary=f"Fetch cancelled after {done}/{len(tfs)} timeframes", completed_units=done)
+        elif state in ("COMPLETED", "PARTIAL"):
             finish_task(session, t.id, "COMPLETED",
                         summary=f"{done}/{len(tfs)} timeframes · {candles} candles",
                         completed_units=done)

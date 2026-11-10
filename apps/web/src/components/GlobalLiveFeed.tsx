@@ -25,7 +25,9 @@ const CARD_FILTERS: Record<string, (e: HeroEvent) => boolean> = {
 export function GlobalLiveFeed() {
   const { instrument } = useInstrument()
   const { open, setOpen } = useFeed()
-  const { latest } = useTasks()
+  const { latest, refresh: refreshTasks } = useTasks()
+  const [processStatus,setProcessStatus]=useState<any>(null)
+  const [processActionMessage,setProcessActionMessage]=useState('')
   const [events, setEvents] = useState<HeroEvent[]>([])
   const [filter, setFilter] = useState<string | null>(null)
   const [card, setCard] = useState<CardFilter>(null)
@@ -72,6 +74,8 @@ export function GlobalLiveFeed() {
     if (t.error) lines.push(t.error)
     return lines
   }
+  const refreshProcessState=async()=>{try{const p=await api.system.processStatus();setProcessStatus(p);setProcessActionMessage(`Backend status refreshed · ${p.worker_count} active worker(s).`);refreshTasks()}catch(e){setProcessActionMessage(`Process status unavailable: ${String(e)}`)}}
+  const stopProcesses=async()=>{if(!window.confirm('Request cooperative cancellation of HERO1 jobs? New jobs are blocked while cancellation is pending. No unrelated OS processes are killed.'))return;try{const p=await api.system.stopAll(30);setProcessStatus(p);setProcessActionMessage(p.message);refreshTasks()}catch(e){setProcessActionMessage(`Cancellation failed: ${String(e)}`)}}
   if (!open) return null
 
   return (
@@ -129,6 +133,10 @@ export function GlobalLiveFeed() {
         ))}
       </div>
       <div className="livefeed-foot">
+        <button className="btn btn-sm" onClick={()=>void refreshProcessState()}>REFRESH PROCESS STATUS</button>
+        <button className="btn btn-danger" onClick={()=>void stopProcesses()}>STOP ALL PROCESSES</button>
+        {processActionMessage&&<span role="status">{processActionMessage}</span>}
+        {processStatus&&<span>Workers {processStatus.worker_count} · queued {processStatus.queued_jobs} · running {processStatus.running_jobs} · accepting {String(processStatus.accepting_new_jobs)} · CPU {processStatus.resources?.cpu_ram?.utilization_pct??'N/A'}% · RAM {processStatus.resources?.cpu_ram?.ram_utilization_pct??'N/A'}% · GPU {processStatus.resources?.gpu?.available?`${processStatus.resources.gpu.utilization_pct}%`:'N/A'}</span>}
         <button className="btn btn-sm" onClick={() => setEvents([])}>Clear view</button>
         <button className="btn btn-sm" onClick={async () => {
           try { await api.postEvent({ category: 'SYSTEM', severity: 'INFO', subsystem: 'livefeed', message: 'manual ping from LIVE FEED', instrument }) } catch { /* backend offline */ }

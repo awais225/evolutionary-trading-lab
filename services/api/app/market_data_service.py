@@ -156,6 +156,24 @@ def _op_exception(operation_id: str, stage: str, exc: BaseException, *,
 # --------------------------------------------------------------------------
 _OPS: Dict[str, Dict[str, Any]] = {}
 _OPS_LOCK = threading.Lock()
+_CANCEL_OPS: Dict[str, threading.Event] = {}
+
+
+def cancel_operation(operation_id: str) -> bool:
+    with _OPS_LOCK:
+        rec = _OPS.get(operation_id)
+        event = _CANCEL_OPS.get(operation_id)
+        if not rec or rec.get("state") not in ("QUEUED", "RUNNING") or event is None:
+            return False
+        event.set()
+        rec["cancel_requested"] = True
+        return True
+
+
+def _op_cancelled(operation_id: str) -> bool:
+    with _OPS_LOCK:
+        event = _CANCEL_OPS.get(operation_id)
+        return bool(event and event.is_set())
 
 
 def _op_touch(operation_id: str, **kw: Any) -> None:
@@ -189,6 +207,7 @@ def start_fetch(instrument: str, timeframes: List[str],
                "stage": "OPERATION_CREATED", "started_at": _utc_now_epoch(),
                "finished_at": None, "report": None, "error": None}
         _OPS[op_id] = rec
+        _CANCEL_OPS[op_id] = threading.Event()
     _op_event(op_id, "OPERATION_CREATED", instrument=sym,
               timeframes=list(timeframes), store=str(store_db_path()))
 
@@ -196,7 +215,7 @@ def start_fetch(instrument: str, timeframes: List[str],
         _op_touch(op_id, state="RUNNING")
         try:
             report = fetch(sym, list(timeframes), operation_id=op_id)
-            state = {"COMPLETE": "COMPLETED", "PARTIAL": "PARTIAL"}.get(
+            state = "CANCELLED" if _op_cancelled(op_id) else {"COMPLETE": "COMPLETED", "PARTIAL": "PARTIAL"}.get(
                 report.get("status"), "FAILED")
             _op_touch(op_id, state=state, report=report,
                       finished_at=_utc_now_epoch(), stage="OPERATION_COMPLETED")
@@ -850,6 +869,8 @@ def fetch(instrument: str, timeframes: List[str],
     results: List[Dict[str, Any]] = []
     try:
         for tf in timeframes:
+            if _op_cancelled(operation_id):
+                break
             try:
                 results.append(_fetch_one(mt5, conn, instrument=sym,
                                           timeframe=tf, utc_now=utc_now,
@@ -875,7 +896,8 @@ def fetch(instrument: str, timeframes: List[str],
 
     clean = sum(1 for r in results if r["status"] in ("UPDATED", "UP_TO_DATE"))
     processed = sum(1 for r in results if r["status"] != "FAILED")
-    overall = ("COMPLETE" if results and clean == len(results)
+    overall = ("CANCELLED" if _op_cancelled(operation_id) else
+               "COMPLETE" if results and clean == len(results)
                else "PARTIAL" if processed else "FAILED")
     _op_event(operation_id, "OPERATION_COMPLETED", instrument=sym,
               status=overall, broker_server=broker_server,

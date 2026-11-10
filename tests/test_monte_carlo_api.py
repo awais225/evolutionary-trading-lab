@@ -47,6 +47,19 @@ def test_deeptest_to_monte_carlo_persist_reopen_and_export(client, seeded_store,
     detail=client.get(f"/api/v1/instruments/XAUUSD/monte-carlo/runs/{item['id']}").json()
     assert detail['scenario_id']==scenario_id and detail['deeptest_run_id']==run['id']
     assert detail['result']['summary']['trade_count']==len(selected_trades)
+    duplicate=client.post('/api/v1/instruments/XAUUSD/monte-carlo/runs',json={
+        'node_ids':[node_id],'scenario_ids':{str(node_id):scenario_id},'methods':['RESHUFFLE'],
+        'config':{'simulations':10,'random_points':20,'displayed_curves':2,'initial_capital':10000,'risk_pct':1,'block_size':3,'seed':987}})
+    assert duplicate.status_code==200 and duplicate.json()['runs'][0]['status']=='ALREADY_COMPLETED'
+    assert duplicate.json()['runs'][0]['id']==item['id'] and not duplicate.json()['runs'][0].get('task_id')
+    start_point=client.post('/api/v1/instruments/XAUUSD/monte-carlo/runs',json={
+        'node_ids':[node_id],'scenario_ids':{str(node_id):scenario_id},'methods':['START_POINT'],
+        'config':{'simulations':10,'random_points':20,'displayed_curves':2,'initial_capital':10000,'risk_pct':1,'block_size':3,'seed':988}}).json()['runs'][0]
+    for _ in range(200):
+        start_task=client.get(f"/api/v1/tasks/{start_point['task_id']}").json()
+        if start_task['status'] in ('COMPLETED','FAILED','CANCELLED'): break
+        time.sleep(.01)
+    assert start_task['status']=='COMPLETED',start_task
     for item in mc.json()['runs']:
         for _ in range(100):
             task=client.get(f"/api/v1/tasks/{item['task_id']}").json()
@@ -86,7 +99,10 @@ def test_deeptest_to_monte_carlo_persist_reopen_and_export(client, seeded_store,
         txt_export=client.get(f"/api/v1/instruments/XAUUSD/monte-carlo/runs/{item['id']}/export?format=txt")
         assert txt_export.status_code==200 and f"run={item['id']}" in txt_export.text
         assert f"DeepTesting run={run['id']}" in txt_export.text
-    rerun=client.post('/api/v1/instruments/XAUUSD/monte-carlo/runs',json={'node_ids':[node_id],'methods':['RESHUFFLE'],'config':body['config']}).json()['runs'][0]
+    same=client.post('/api/v1/instruments/XAUUSD/monte-carlo/runs',json={'node_ids':[node_id],'methods':['RESHUFFLE'],'config':body['config']}).json()['runs'][0]
+    assert same['status']=='ALREADY_COMPLETED' and same['id']==mc.json()['runs'][0]['id']
+    changed_config={**body['config'],'seed':1235}
+    rerun=client.post('/api/v1/instruments/XAUUSD/monte-carlo/runs',json={'node_ids':[node_id],'methods':['RESHUFFLE'],'config':changed_config}).json()['runs'][0]
     assert rerun['id']!=mc.json()['runs'][0]['id'] and rerun['task_id']!=mc.json()['runs'][0]['task_id']
     for _ in range(200):
         repeated_task=client.get(f"/api/v1/tasks/{rerun['task_id']}").json()
@@ -95,7 +111,8 @@ def test_deeptest_to_monte_carlo_persist_reopen_and_export(client, seeded_store,
     assert repeated_task['status']=='COMPLETED'
     repeated_result=client.get(f"/api/v1/instruments/XAUUSD/monte-carlo/runs/{rerun['id']}").json()['result']
     original_result=client.get(f"/api/v1/instruments/XAUUSD/monte-carlo/runs/{mc.json()['runs'][0]['id']}").json()['result']
-    assert repeated_result['per_simulation']==original_result['per_simulation']
+    assert repeated_result['summary']['seed'] != original_result['summary']['seed']
+    assert repeated_result['per_simulation'] != original_result['per_simulation']
     hist=client.get('/api/v1/instruments/XAUUSD/monte-carlo/runs').json()['runs']
     assert len([r for r in hist if r['node_id']==node_id])>=2
 
@@ -111,6 +128,15 @@ def test_deeptest_to_monte_carlo_persist_reopen_and_export(client, seeded_store,
         same=list(pool.map(lambda _:request(771,"same-active-request"),range(2)))
         different=list(pool.map(lambda seed:request(seed,"different-config"),[772,773]))
     gate.set()
+    # The replaced worker intentionally does no persistence; close its fake
+    # queued task records explicitly so process-control assertions see reality.
+    from hero1_storage.engine import registry_session
+    from app import task_service
+    reg=registry_session()
+    try:
+        for fake in {r['task_id']:r for r in [*same,*different]}.values():
+            task_service.finish_task(reg,fake['task_id'],'CANCELLED',summary='test double released')
+    finally: reg.close()
     assert same[0]['task_id']==same[1]['task_id'] and same[0]['id']==same[1]['id']
     assert different[0]['task_id']!=different[1]['task_id'] and different[0]['id']!=different[1]['id']
 
@@ -145,6 +171,8 @@ def test_deeptest_to_monte_carlo_persist_reopen_and_export(client, seeded_store,
     # Wait for both workers to persist batch one; no progress is manufactured.
     assert get_event(first_batch,run_a['task_id']).wait(20)
     assert get_event(first_batch,run_b['task_id']).wait(20)
+    duplicate_active=client.post('/api/v1/instruments/XAUUSD/monte-carlo/runs',json={'node_ids':[node_id],'methods':['RESHUFFLE'],'config':long_cfg}).json()['runs'][0]
+    assert duplicate_active['id']==run_a['id'] and duplicate_active['task_id']==run_a['task_id'] and duplicate_active['duplicate_reused'] is True
     task_a=client.get(f"/api/v1/tasks/{run_a['task_id']}").json()
     task_b=client.get(f"/api/v1/tasks/{run_b['task_id']}").json()
     assert task_a['completed_units']==10 and task_b['completed_units']==10
@@ -168,6 +196,8 @@ def test_deeptest_to_monte_carlo_persist_reopen_and_export(client, seeded_store,
         if task_b['status'] in ('COMPLETED','FAILED','CANCELLED'): break
         time.sleep(.01)
     assert task_b['status']=='COMPLETED',task_b
+    stop_status=client.post('/api/v1/system/processes/stop',json={'timeout_seconds':2}).json()
+    assert stop_status['stopped'] and stop_status['worker_count']==0 and stop_status['accepting_new_jobs'] is True,stop_status
     part_a=client.get(f"/api/v1/instruments/XAUUSD/monte-carlo/runs/{run_a['id']}").json()
     final_b=client.get(f"/api/v1/instruments/XAUUSD/monte-carlo/runs/{run_b['id']}").json()
     assert part_a['status']=='CANCELLED' and part_a['result']['partial'] is True and part_a['result']['summary']['simulations_completed']>0

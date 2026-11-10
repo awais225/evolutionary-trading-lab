@@ -118,6 +118,13 @@ def test_every_simulation_has_a_reproducible_persistable_seed_and_method_disclos
     assert "recorded cost" in stress["method_description"]
 
 
+@pytest.mark.parametrize("method",["START_POINT","BLOCK_BOOTSTRAP","RESHUFFLE"])
+def test_trade_sequence_methods_report_shared_missing_risk_evidence_failure(method):
+    bad=[{"id":44,"net_pnl":10,"planned_risk":0}]
+    with pytest.raises(ValueError,match="lacks positive planned-risk evidence"):
+        simulate(bad,CFG,method)
+
+
 def test_invalid_config_and_no_trades_are_refused():
     with pytest.raises(ValueError,match="empty"):
         simulate([],CFG,"RESHUFFLE")

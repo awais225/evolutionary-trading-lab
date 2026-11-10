@@ -18,7 +18,7 @@ from hero1_storage import instrument_models as im
 from hero1_storage.repositories import NodeRepository
 
 from ... import deeptesting_service as dts
-from ... import spec_service
+from ... import spec_service, task_service
 from ...deps import (get_instrument_context, get_instrument_session,
                      get_registry_session)
 
@@ -36,8 +36,9 @@ def create_runs(body: RunRequest, instrument: str = Depends(get_instrument_conte
                 session: Session = Depends(get_instrument_session),
                 registry: Session = Depends(get_registry_session),
                 async_mode: bool = False):
+    if not task_service.accepting_jobs():
+        raise HTTPException(503,"HERO1 is stopping background work; retry after process status is clear")
     if async_mode:
-        from app import task_service
         repo0 = NodeRepository(session, instrument)
         entries = []
         for nid in body.node_ids:
@@ -264,6 +265,8 @@ def _scenario_trade_stats(trades: list[dict], initial_capital: float) -> dict:
     gross_profit, gross_loss = sum(wins), sum(losses)
     equity = peak = float(initial_capital)
     max_dd = max_dd_pct = 0.0
+    max_loss_streak = current_loss_streak = 0
+    max_loss_streak_amount = current_loss_streak_amount = 0.0
     for pnl in pnls:
         equity += pnl
         peak = max(peak, equity)
@@ -271,8 +274,25 @@ def _scenario_trade_stats(trades: list[dict], initial_capital: float) -> dict:
         if drawdown > max_dd:
             max_dd = drawdown
             max_dd_pct = drawdown / peak * 100 if peak > 0 else 0.0
+        if pnl < -1e-9:
+            current_loss_streak += 1
+            current_loss_streak_amount += abs(pnl)
+            if current_loss_streak > max_loss_streak:
+                max_loss_streak = current_loss_streak
+                max_loss_streak_amount = current_loss_streak_amount
+        else:
+            current_loss_streak = 0
+            current_loss_streak_amount = 0.0
     return {"trades": len(pnls), "total_trades": len(pnls), "wins": len(wins),
-            "losses": len(losses), "net": sum(pnls), "net_profit": sum(pnls),
+            "winning_trades": len(wins), "losses": len(losses), "losing_trades": len(losses),
+            "net": sum(pnls), "net_profit": sum(pnls), "expectancy": sum(pnls) / len(pnls) if pnls else None,
+            "avg_win": sum(wins) / len(wins) if wins else None,
+            "average_win": sum(wins) / len(wins) if wins else None,
+            "avg_loss": sum(losses) / len(losses) if losses else None,
+            "average_loss": sum(losses) / len(losses) if losses else None,
+            "max_consecutive_losses": max_loss_streak,
+            "max_consecutive_loss_amount": max_loss_streak_amount if max_loss_streak else None,
+            "max_consecutive_loss_pct": max_loss_streak_amount / initial_capital * 100 if max_loss_streak and initial_capital > 0 else None,
             "winRate": len(wins) / len(pnls) if pnls else None,
             "win_rate": len(wins) / len(pnls) if pnls else None,
             "pf": gross_profit / abs(gross_loss) if gross_loss < 0 else None,
@@ -282,7 +302,8 @@ def _scenario_trade_stats(trades: list[dict], initial_capital: float) -> dict:
             "returnPct": ((equity / initial_capital - 1) * 100) if initial_capital > 0 else None,
             "return_pct": ((equity / initial_capital - 1) * 100) if initial_capital > 0 else None,
             "maxDd": max_dd if pnls else None, "max_drawdown_amount": max_dd if pnls else None,
-            "max_drawdown_pct": max_dd_pct if pnls else None}
+            "max_drawdown_pct": max_dd_pct if pnls else None,
+            "recovery_factor": sum(pnls) / max_dd if max_dd > 0 else None}
 
 
 @router.post("/scenarios")

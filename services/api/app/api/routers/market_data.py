@@ -52,6 +52,9 @@ def start_fetch_data(body: Optional[FetchRequest] = None,
         raise HTTPException(422, detail={"code": "TIMEFRAME_UNSUPPORTED",
                                          "message": f"timeframe must be ALL or one of "
                                                     f"{', '.join(TIMEFRAME_ORDER)}; got {tf!r}"})
+    from app import task_service
+    if not task_service.accepting_jobs():
+        raise HTTPException(503,"HERO1 is stopping background work; retry after process status is clear")
     started = market_data_service.start_fetch(
         instrument, timeframes, operation_id=(body.operation_id if body else None))
     try:
@@ -68,8 +71,11 @@ def start_fetch_data(body: Optional[FetchRequest] = None,
                              "timeframes": timeframes})
         finally:
             _reg.close()
-    except Exception:  # noqa: BLE001 - progress bookkeeping never breaks fetching
-        pass
+    except Exception as exc:  # the operation must never continue without its authoritative task record
+        market_data_service.cancel_operation(started["operation_id"])
+        if isinstance(exc, RuntimeError):
+            raise HTTPException(503,str(exc)) from exc
+        raise HTTPException(500,f"fetch task registration failed; cancellation requested: {type(exc).__name__}: {exc}") from exc
     get_event_publisher().publish(
         category="SYSTEM", severity="INFO", subsystem="market-data",
         message=f"[{started['operation_id']}] FETCH operation {'already running' if started['existing'] else 'started'} [{instrument}] {tf}",
